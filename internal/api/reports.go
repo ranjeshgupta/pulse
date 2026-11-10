@@ -286,6 +286,10 @@ func (s *Server) attrValues(w http.ResponseWriter, r *http.Request, tenant int64
 		writeErr(w, http.StatusBadRequest, "invalid attribute name")
 		return
 	}
+	if s.personalData(r.Context(), tenant, key) {
+		writeJSON(w, http.StatusOK, map[string]any{"values": []ch.ValueCount{}}) // never suggest personal data
+		return
+	}
 	s.suggest(w, r, fmt.Sprintf("vals:%d:a:%s", tenant, key), func(vs ValueSuggester) ([]ch.ValueCount, error) {
 		return vs.AttrValues(r.Context(), tenant, key, suggestLimit)
 	})
@@ -302,6 +306,26 @@ func (s *Server) propValues(w http.ResponseWriter, r *http.Request, tenant int64
 	s.suggest(w, r, fmt.Sprintf("vals:%d:e:%s:%s", tenant, name, prop), func(vs ValueSuggester) ([]ch.ValueCount, error) {
 		return vs.PropValues(r.Context(), tenant, name, prop, suggestLimit)
 	})
+}
+
+// personalData reports whether an attribute holds personal data: identifiers built in (email, phone,
+// names, address, owner, user ids) or marked PII in the workspace's attribute definitions.
+func (s *Server) personalData(ctx context.Context, tenant int64, key string) bool {
+	switch strings.ToLower(key) {
+	case "email", "phone", "mobile", "first_name", "last_name", "name", "full_name", "address", "address_line_1",
+		"address_line_2", "zip", "zip_code", "postal_code", "geo_postal", "owner_id", "owner_name", "user_id", "external_id":
+		return true
+	}
+	if a, ok := s.Store.(AudienceStore); ok {
+		if defs, err := a.AttributeDefs(ctx, tenant); err == nil {
+			for _, d := range defs {
+				if d.Key == key && d.PII {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // suggest answers from a short Redis cache, so typing in the builder doesn't rescan ClickHouse.

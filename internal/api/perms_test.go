@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -60,5 +61,24 @@ func TestRedact(t *testing.T) {
 	}
 	if !strings.Contains(out, `"url":"u"`) {
 		t.Errorf("non-secret dropped: %s", out)
+	}
+}
+
+func TestValueSuggestionsNeedContactsAccess(t *testing.T) {
+	segmentsOnly := auth.Perms{auth.AreaSegments: auth.Edit}
+	for _, pattern := range []string{"GET /v1/attributes/{key}/values", "GET /v1/events/{name}/values"} {
+		method, path, _ := strings.Cut(pattern, " ")
+		r, _ := http.NewRequest(method, path, nil)
+		r.Pattern = pattern
+		n := required(r)
+		if segmentsOnly.Allows(n.area, n.level) {
+			t.Errorf("%s: segments access alone must not reveal contact values", pattern)
+		}
+	}
+	s := New(Deps{})
+	for _, k := range []string{"email", "phone", "first_name", "owner_name"} {
+		if !s.personalData(context.Background(), 1, k) {
+			t.Errorf("%s should never be suggested", k)
+		}
 	}
 }
