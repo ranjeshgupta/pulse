@@ -14,8 +14,9 @@ import (
 // areaByPrefix maps the first path segment after /v1/ to an area.
 var areaByPrefix = map[string]string{
 	"contacts": auth.AreaContacts, "events": auth.AreaContacts, "tags": auth.AreaContacts, "imports": auth.AreaContacts,
-	"devices":  auth.AreaContacts,
+	"devices": auth.AreaContacts, "companies": auth.AreaContacts,
 	"segments": auth.AreaSegments, "lists": auth.AreaSegments, "attributes": auth.AreaSegments, "scoring": auth.AreaSegments,
+	"stages":     auth.AreaSegments,
 	"journeys":   auth.AreaJourneys,
 	"broadcasts": auth.AreaBroadcasts,
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,

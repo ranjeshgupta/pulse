@@ -42,6 +42,7 @@ type memStore struct {
 	nextID   uint32
 	saves    int
 	points   map[int64]map[string]int
+	stages   map[int64][]pg.Stage
 }
 
 func (m *memStore) LookupContacts(_ context.Context, _ int64, exts []string) (map[string]model.Contact, error) {
@@ -56,6 +57,10 @@ func (m *memStore) LookupContacts(_ context.Context, _ int64, exts []string) (ma
 
 func (m *memStore) PointRules(context.Context) (map[int64]map[string]int, error) {
 	return m.points, nil
+}
+
+func (m *memStore) StageRules(context.Context) (map[int64][]pg.Stage, error) {
+	return m.stages, nil
 }
 
 func (m *memStore) ResolveContacts(_ context.Context, tenant int64, exts []string) (map[string]model.Contact, map[string]bool, error) {

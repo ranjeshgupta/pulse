@@ -13,6 +13,7 @@ import {
 } from "../journeyGraph";
 import { describe, problems as ruleProblems, rootFromRule, toRule, type RefNames } from "../segmentRules";
 import { GroupEditor, useRefObjects } from "./Segments";
+import { useStages } from "./Stages";
 import "./journeys.css";
 import { TemplateActions } from "../messagePreview";
 import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsRow } from "../reports";
@@ -105,6 +106,7 @@ function PulseNode({ data, selected }: NodeProps) {
   else if (n.type === "message_decision") body = decisionText(graph, n, (tid) => templates.get(tid)?.name);
   else if (n.type === "update_tags") body = [n.add_tags?.length ? `add ${n.add_tags.join(", ")}` : "", n.remove_tags?.length ? `remove ${n.remove_tags.join(", ")}` : ""].filter(Boolean).join("; ") || "choose tags";
   else if (n.type === "adjust_points") body = n.points ? `${n.points > 0 ? "+" : ""}${n.points} points` : "set points";
+  else if (n.type === "change_stage") body = n.stage ? `move to “${n.stage}”` : "choose a stage";
   else if (n.type === "update_list") body = n.list_id ? `${n.list_action === "remove" ? "remove from" : "add to"} "${segments.get(n.list_id) ?? n.list_id}"` : "choose a list";
   else if (n.type === "split") body = `${n.variants?.length ?? 0} paths`;
   else if (n.type === "update_attr") body = Object.entries(n.attrs ?? {}).map(([k, v]) => `${k} = ${String(v)}`).join(", ") || "set attributes";
@@ -468,6 +470,7 @@ function Inspector({ graph, setGraph, win, setWin, selected, locked, segments, t
           {segments.every((s) => s.kind !== "static") && <p className="xs muted">No lists yet. Create one under Audience, Lists.</p>}
         </>
       )}
+      {n.type === "change_stage" && <StageField value={n.stage ?? ""} onChange={(stage) => setN({ stage: stage || undefined })} />}
       {n.type === "webhook" && (
         <>
           <Field label="POST to" hint="Must be a public https:// address. Pulse sends the contact as JSON and retries briefly; a failure is recorded and the journey continues."><input className="input" value={n.url ?? ""} placeholder="https://api.example.com/hooks/pulse" onChange={(e) => setN({ url: e.target.value.trim() })} /></Field>
@@ -631,6 +634,23 @@ function SplitFields({ n, setN }: { n: JourneyNode; setN: (p: Partial<JourneyNod
   );
 }
 
+// StageField picks the stage a change_stage step moves the contact to.
+function StageField({ value, onChange }: { value: string; onChange: (stage: string) => void }) {
+  const stages = useStages().data ?? [];
+  return (
+    <>
+      <Field label="Move the contact to" hint="A contact is in one stage at a time; this replaces their current stage, forwards or back.">
+        <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Choose a stage</option>
+          {value && !stages.some((s) => s.name === value) && <option value={value}>{value} (no longer exists)</option>}
+          {stages.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+        </select>
+      </Field>
+      {stages.length === 0 && <p className="xs muted">No stages yet. Add them under Workspace, Stages.</p>}
+    </>
+  );
+}
+
 function AttrFields({ attrs, onChange }: { attrs: Record<string, unknown>; onChange: (a: Record<string, unknown>) => void }) {
   const rows = Object.entries(attrs);
   const rename = (i: number, k: string) => onChange(Object.fromEntries(rows.map(([kk, v], j) => (j === i ? [k, v] : [kk, v]))));
@@ -645,7 +665,7 @@ function AttrFields({ attrs, onChange }: { attrs: Record<string, unknown>; onCha
         </div>
       ))}
       <div><button className="btn sm" onClick={() => onChange({ ...attrs, [`attribute_${rows.length + 1}`]: "" })}>Add attribute</button></div>
-      <small>Consent (optout_*) can't be changed here; it only changes when a contact unsubscribes.</small>
+      <small>Consent (optout_*), tags, points, stage and company attributes can't be set here: use their own steps, or the contact's company.</small>
     </div>
   );
 }

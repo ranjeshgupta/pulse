@@ -25,6 +25,7 @@ export const NODE_TYPES: { type: string; label: string; group: StepGroup; hint: 
   { type: "update_tags", label: "Tag contact", group: "action", hint: "Add or remove tags." },
   { type: "adjust_points", label: "Adjust points", group: "action", hint: "Add or take away points." },
   { type: "update_list", label: "Add to list", group: "action", hint: "Add to or remove from a list." },
+  { type: "change_stage", label: "Change stage", group: "action", hint: "Move the contact to a lifecycle stage, e.g. MQL." },
   { type: "webhook", label: "Call webhook", group: "action", hint: "Send the contact to another system." },
   { type: "exit", label: "Exit", group: "action", hint: "End the journey here." },
   { type: "condition", label: "Check segment", group: "condition", hint: "Is the contact in a segment?" },
@@ -193,7 +194,7 @@ export function removeNode(g: JourneyGraph, id: string): JourneyGraph {
 
 export function addNode(g: JourneyGraph, type: string, x: number, y: number): { graph: JourneyGraph; id: string } {
   let n = 1;
-  const base = type === "message_decision" ? "decision" : type.replace("send_", "");
+  const base = type === "message_decision" ? "decision" : type === "change_stage" ? "stage" : type.replace("send_", "");
   while (g.nodes[`${base}${n}`]) n++;
   const id = `${base}${n}`;
   const node: JourneyNode = { type, x, y };
@@ -242,6 +243,7 @@ export function problems(g: JourneyGraph): string[] {
     if (n.type === "update_tags" && [...(n.add_tags ?? []), ...(n.remove_tags ?? [])].some((t) => !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(t))) out.push(`${name}: tags use letters, digits, - and _.`);
     if (n.type === "adjust_points" && !(Number.isInteger(n.points) && n.points !== 0)) out.push(`${name}: enter a whole number of points other than 0.`);
     if (n.type === "update_list" && !n.list_id) out.push(`${name}: choose a list.`);
+    if (n.type === "change_stage" && !n.stage?.trim()) out.push(`${name}: choose the stage to move the contact to.`);
     if (n.type === "split" && (n.variants ?? []).some((v) => !(v.weight >= 1))) out.push(`${name}: every path needs a share of at least 1.`);
     if (n.type.startsWith("send_") && !n.template_id) out.push(`${name}: choose a template.`);
     if (n.type === "wait" && !(n.seconds && n.seconds > 0)) out.push(`${name}: set how long to wait.`);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JourneyGraph } from "./api";
 import {
-  addNode, connect, decisionText, disconnect, emptyGraph, formatWait, NODE_TYPES, OUTCOMES, problems, removeNode, sendSteps, STEP_GROUPS, toFlow, TRIGGER_ID, upstream,
+  addNode, connect, decisionText, disconnect, emptyGraph, formatWait, NODE_TYPES, OUTCOMES, outputs, problems, removeNode, sendSteps, STEP_GROUPS, toFlow, TRIGGER_ID, upstream,
 } from "./journeyGraph";
 
 const g: JourneyGraph = {
@@ -161,5 +161,17 @@ describe("app inbox and message decisions", () => {
     expect(addNode(md, "send_inbox", 0, 0).id).toBe("inbox2");
     const p = problems(addNode(md, "send_inbox", 0, 0).graph);
     expect(p).toContain('"inbox2": choose a template.');
+  });
+});
+
+describe("change stage step", () => {
+  it("is an action that needs a stage", () => {
+    expect(NODE_TYPES.find((n) => n.type === "change_stage")?.group).toBe("action");
+    const { graph, id } = addNode(emptyGraph(), "change_stage", 0, 0);
+    expect(id).toBe("stage1");
+    expect(outputs(graph.nodes[id])).toEqual([["next", undefined]]);
+    expect(problems(graph)).toContain(`"${id}": choose the stage to move the contact to.`);
+    graph.nodes[id].stage = "MQL";
+    expect(problems(graph).some((p) => p.includes("choose the stage"))).toBe(false);
   });
 });

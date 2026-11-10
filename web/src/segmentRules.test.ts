@@ -154,3 +154,27 @@ suite("known events and presets", () => {
     expect(eventProps("purchase")).toEqual([]);
   });
 });
+
+suite("stage and company conditions", () => {
+  const presets = Object.fromEntries(PRESETS.flatMap((g) => g.items).map((p) => [p.id, p.make()]));
+
+  it("offers stage and company presets that need a choice", () => {
+    expect(presets.stage).toEqual({ kind: "attr", attr: "stage", op: "eq", value: "" });
+    expect(problems(presets.stage)).toEqual(["Choose a stage."]);
+    expect(problems(presets.company)).toEqual(["Choose a company."]);
+    expect(problems(presets.company_attr)).toEqual(["Finish the company attribute's name, e.g. company_industry."]);
+    expect(problems({ kind: "attr", attr: "company_industry", op: "eq", value: "Retail" })).toEqual([]);
+    expect(problems(presets.stage_recent)).toEqual([]);
+    expect(isDateAttr("stage_changed_at")).toBe(true);
+  });
+
+  it("describes stages and companies in words", () => {
+    expect(describe({ attr: "stage", op: "eq", value: "MQL" })).toBe("in stage “MQL”");
+    expect(describe({ attr: "stage", op: "ne", value: "Customer" })).toBe("not in stage “Customer”");
+    expect(describe({ attr: "company_id", op: "eq", value: "7" }, {}, { companies: { 7: "Acme" } })).toBe("works at “Acme”");
+    expect(describe({ attr: "company_id", op: "ne", value: "8" })).toBe("doesn't work at company #8");
+    expect(describe({ attr: "company_id", op: "exists" })).toBe("works at a company");
+    expect(describe({ attr: "company_annual_revenue", op: "gte", value: 1000 })).toBe("company annual revenue is at least 1000");
+    expect(describe({ attr: "stage_changed_at", op: "within_days", value: 7 })).toBe("stage changed is in the last 7 days");
+  });
+});

@@ -133,18 +133,18 @@ func TestUpdateAndWebhookSteps(t *testing.T) {
 	defer hook.Close()
 	x, store, _, evs := executor(t, nil)
 	g := graph(t, `{"trigger":{"type":"event","event":"signup"},"entry":"u","nodes":{
-		"u":{"type":"update_attr","attrs":{"stage":"lead"},"next":"h"},
+		"u":{"type":"update_attr","attrs":{"tier":"lead"},"next":"h"},
 		"h":{"type":"webhook","url":"`+hook.URL+`","next":"x"},"x":{"type":"exit"}}}`)
 	if err := x.Run(context.Background(), g, en, "u"); err != nil {
 		t.Fatal(err)
 	}
-	if len(evs.evs) != 2 || evs.evs[0].Name != "identify" || evs.evs[0].Attrs["stage"] != "lead" || evs.evs[0].ExternalID != "u42" ||
+	if len(evs.evs) != 2 || evs.evs[0].Name != "identify" || evs.evs[0].Attrs["tier"] != "lead" || evs.evs[0].ExternalID != "u42" ||
 		evs.evs[1].Name != "journey_completed" {
 		t.Fatalf("update published %+v", evs.evs)
 	}
 	c, _ := body["contact"].(map[string]any)
 	attrs, _ := c["attrs"].(map[string]any)
-	if c["external_id"] != "u42" || attrs["stage"] != "lead" || key != "7:h" {
+	if c["external_id"] != "u42" || attrs["tier"] != "lead" || key != "7:h" {
 		t.Errorf("webhook got %v (key %q): want the updated contact", body, key)
 	}
 	if store.nodes[7] != [2]string{"x", StatusCompleted} {
@@ -168,18 +168,18 @@ func TestUpdateAndWebhookSteps(t *testing.T) {
 func TestNewStepValidation(t *testing.T) {
 	base := `{"trigger":{"type":"event","event":"signup"%s},%s"entry":"s","nodes":{"s":%s,"x":{"type":"exit"}}}`
 	cases := map[string][3]string{
-		"time of day":  {"", "", `{"type":"wait_until","time_of_day":"25:00","next":"x"}`},
-		"not both":     {"", "", `{"type":"wait_until","time_of_day":"09:00","until":"2026-01-01T00:00:00Z","next":"x"}`},
-		"time zone":    {"", "", `{"type":"wait_until","time_of_day":"09:00","timezone":"Mars/Base","next":"x"}`},
-		"timeout":      {"", "", `{"type":"wait_for_event","event":"buy","yes":"x","no":"x"}`},
-		"2 to 5 paths": {"", "", `{"type":"split","variants":[{"weight":1,"next":"x"}]}`},
-		"weight":       {"", "", `{"type":"split","variants":[{"weight":0,"next":"x"},{"weight":1,"next":"x"}]}`},
-		"consent":      {"", "", `{"type":"update_attr","attrs":{"optout_email":false},"next":"x"}`},
-		"http(s) URL":  {"", "", `{"type":"webhook","url":"ftp://x","next":"x"}`},
-		"invalid":      {"", "", `{"type":"check","rule":{"attr":"bad-key","op":"exists"},"yes":"x","no":"x"}`},
-		"re-entry":     {`,"reentry":"sometimes"`, "", `{"type":"exit"}`},
-		"1-3650 days":  {`,"reentry":"after_days"`, "", `{"type":"exit"}`},
-		"goal":         {"", `"goal":{"event":"bad name"},`, `{"type":"exit"}`},
+		"time of day":      {"", "", `{"type":"wait_until","time_of_day":"25:00","next":"x"}`},
+		"not both":         {"", "", `{"type":"wait_until","time_of_day":"09:00","until":"2026-01-01T00:00:00Z","next":"x"}`},
+		"time zone":        {"", "", `{"type":"wait_until","time_of_day":"09:00","timezone":"Mars/Base","next":"x"}`},
+		"timeout":          {"", "", `{"type":"wait_for_event","event":"buy","yes":"x","no":"x"}`},
+		"2 to 5 paths":     {"", "", `{"type":"split","variants":[{"weight":1,"next":"x"}]}`},
+		"weight":           {"", "", `{"type":"split","variants":[{"weight":0,"next":"x"},{"weight":1,"next":"x"}]}`},
+		"Pulse manages it": {"", "", `{"type":"update_attr","attrs":{"optout_email":false},"next":"x"}`},
+		"http(s) URL":      {"", "", `{"type":"webhook","url":"ftp://x","next":"x"}`},
+		"invalid":          {"", "", `{"type":"check","rule":{"attr":"bad-key","op":"exists"},"yes":"x","no":"x"}`},
+		"re-entry":         {`,"reentry":"sometimes"`, "", `{"type":"exit"}`},
+		"1-3650 days":      {`,"reentry":"after_days"`, "", `{"type":"exit"}`},
+		"goal":             {"", `"goal":{"event":"bad name"},`, `{"type":"exit"}`},
 	}
 	for want, c := range cases {
 		js := strings.Replace(base, "%s", c[0], 1)
@@ -256,5 +256,32 @@ func TestMessageDecision(t *testing.T) {
 	bad.Nodes["opened"] = Node{Type: NodeMessageDecision, Step: "x", Outcome: "opened", Seconds: 86400, Yes: "x", No: "x"}
 	if err := bad.Validate(); err == nil {
 		t.Error("the step must be a send step")
+	}
+}
+
+func TestChangeStageStep(t *testing.T) {
+	x, store, _, evs := executor(t, nil)
+	g := graph(t, `{"trigger":{"type":"event","event":"signup"},"entry":"s","nodes":{
+		"s":{"type":"change_stage","stage":"MQL","next":"c"},
+		"c":{"type":"check","rule":{"attr":"stage","op":"eq","value":"MQL"},"yes":"x","no":"n"},
+		"n":{"type":"exit"},"x":{"type":"exit"}}}`)
+	if err := x.Run(context.Background(), g, en, "s"); err != nil {
+		t.Fatal(err)
+	}
+	e := evs.evs[0]
+	if e.Name != event.StageChanged || e.Props["stage"] != "MQL" || e.Props["journey_id"] != int64(3) || e.ExternalID != "u42" || e.ID != "jaud:7:s:0" {
+		t.Errorf("event %+v", e)
+	}
+	if store.nodes[7][0] != "x" {
+		t.Errorf("the check after the step should see the new stage; ended at %v", store.nodes[7])
+	}
+	for _, js := range []string{`{"type":"change_stage","next":"x"}`, `{"type":"change_stage","stage":" padded","next":"x"}`} {
+		_, err := ParseGraph([]byte(`{"trigger":{"type":"event","event":"signup"},"entry":"s","nodes":{"s":` + js + `,"x":{"type":"exit"}}}`))
+		if err == nil || !strings.Contains(err.Error(), "choose the stage") {
+			t.Errorf("%s: err %v", js, err)
+		}
+	}
+	if _, err := ParseGraph([]byte(`{"trigger":{"type":"event","event":"signup"},"entry":"s","nodes":{"s":{"type":"change_stage","stage":"MQL"},"x":{"type":"exit"}}}`)); err == nil {
+		t.Error("a change_stage step needs a next step")
 	}
 }

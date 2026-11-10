@@ -5,6 +5,8 @@
 package consent
 
 import (
+	"strings"
+
 	"pulse/internal/attr"
 	"pulse/internal/channel"
 )
@@ -24,10 +26,14 @@ func Key(ch string) string { return "optout_" + ch }
 
 // IsReserved reports whether an attribute may only be changed through consent events. Browsers
 // (site key) can't set these directly, so a page script can't opt someone back in.
-// Tags, points and merged_into are reserved the same way: they change only through their events.
+// Tags, points, merged_into, the lifecycle stage and the company attributes (company_id,
+// company_name, company_<key>) are reserved the same way: they change only through their events.
 func IsReserved(attrName string) bool {
 	switch attrName {
-	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, "first_seen", "last_seen":
+	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, "first_seen", "last_seen", "stage", "stage_changed_at":
+		return true
+	}
+	if strings.HasPrefix(attrName, "company_") {
 		return true
 	}
 	for _, ch := range channel.All {

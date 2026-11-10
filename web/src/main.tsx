@@ -9,6 +9,9 @@ import { Channels, TestInbox } from "./pages/Channels";
 import { FormEdit, FormList } from "./pages/Forms";
 import { FunnelEdit, FunnelList } from "./pages/Funnels";
 import Contacts from "./pages/Contacts";
+import { CompanyDetail, CompanyList } from "./pages/Companies";
+import { Duplicates } from "./pages/Duplicates";
+import { Stages } from "./pages/Stages";
 import Dashboard from "./pages/Dashboard";
 import { JourneyEdit, JourneyList } from "./pages/Journeys";
 import { ListDetail, ListIndex } from "./pages/Lists";
@@ -46,6 +49,9 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: "contacts", element: <Contacts /> },
+      { path: "contacts/duplicates", element: <Duplicates /> },
+      { path: "companies", element: <CompanyList /> },
+      { path: "companies/:id", element: <CompanyDetail /> },
       { path: "segments", element: <SegmentList /> },
       { path: "segments/:id", element: <SegmentEdit /> },
       { path: "lists", element: <ListIndex /> },
@@ -72,6 +78,7 @@ const router = createBrowserRouter([
       { path: "settings/access", element: <Access /> },
       { path: "settings/attributes", element: <Attributes /> },
       { path: "settings/scoring", element: <Scoring /> },
+      { path: "settings/stages", element: <Stages /> },
       { path: "settings/roles", element: <Roles /> },
       { path: "settings/audit", element: <AuditLog /> },
       { path: "settings/data", element: <DataPrivacy /> },

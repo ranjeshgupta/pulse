@@ -1,0 +1,5 @@
+/* Companies: list and detail. Uses the tokens from styles.css. */
+.company-attr-summary { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.company-attr-row { flex-wrap: nowrap; margin-bottom: 6px; }
+.company-attr-row .input { min-width: 0; }
+.company-issues { margin: 0 0 12px; padding-left: 18px; color: var(--danger); }

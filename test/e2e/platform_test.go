@@ -317,9 +317,8 @@ func TestBounces(t *testing.T) {
 	if attrsOf(t, c, soft)["email_bounced"] != nil {
 		t.Error("a soft bounce must not stop email")
 	}
-	if !slices.Contains(contactEvents(t, c, soft), "email_bounced") {
-		t.Error("the soft bounce should be recorded")
-	}
+	// The timeline comes from ClickHouse, which can trail the profile by a moment.
+	waitFor(t, 10*time.Second, func() bool { return slices.Contains(contactEvents(t, c, soft), "email_bounced") })
 	// Email to the hard-bounced address is suppressed.
 	tpl := jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "x", "channel": "email", "subject": "Hi", "html": "<p>Hi</p>"}, 201)["id"]
 	jsonCall(t, c, "POST", "/v1/channels/test", map[string]any{"template_id": tpl, "external_id": hard}, 202)

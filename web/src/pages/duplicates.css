@@ -1,0 +1,4 @@
+/* Duplicates: one panel per group of contacts sharing a value. Uses the tokens from styles.css. */
+.dup-group { margin-bottom: 16px; }
+.dup-group .panel-head { display: flex; align-items: baseline; gap: 12px; }
+.dup-winner td { background: var(--cobalt-wash); }

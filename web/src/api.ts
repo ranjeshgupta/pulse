@@ -88,6 +88,12 @@ export interface PointRule { id: number; event: string; points: number; created_
 export interface IdentitySettings { secret: string; required: boolean }
 
 export interface Contact { id: number; external_id: string; email: string; attrs: Record<string, unknown>; created_at: string; updated_at: string }
+/** A lifecycle stage, in sort_order. min_points (when set) moves contacts forward to it when their points reach it. */
+export interface Stage { id: number; name: string; description: string; sort_order: number; min_points: number | null; contacts: number; created_at: string; updated_at: string }
+/** A B2B account. Its attributes are copied to linked contacts as company_<key>. */
+export interface Company { id: number; name: string; domain: string; attrs: Record<string, string | number | boolean>; members: number; created_at: string; updated_at: string }
+/** Contacts sharing an email address or phone number; contacts holds the first 20 of total, oldest first. */
+export interface DuplicateGroup { value: string; total: number; contacts: Contact[] }
 export interface EventRow { id: string; name: string; ts: string; props: string }
 
 export interface ChannelContent {
@@ -113,6 +119,8 @@ export interface JourneyNode {
   until?: string; time_of_day?: string; timezone?: string; event?: string; rule?: Rule;
   variants?: { weight: number; next?: string; label?: string }[]; attrs?: Record<string, unknown>; url?: string; body?: string;
   add_tags?: string[]; remove_tags?: string[]; points?: number; list_id?: number; list_action?: "add" | "remove";
+  /** change_stage: the stage's name. */
+  stage?: string;
   /** message_decision: the send step whose message it watches, and what it waits for. */
   step?: string; outcome?: "opened" | "clicked" | "delivered" | "read";
 }

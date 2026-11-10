@@ -1,15 +1,23 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Segment } from "../api";
-import { Drawer, Empty, ErrorNote, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { contactCompany, isAccountAttr } from "../accounts";
+import { Drawer, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { useCompanyOptions } from "./Companies";
 import { ContactInbox } from "./InApp";
+import { useStages } from "./Stages";
 import { formatBytes, MAX_IMPORT_BYTES, uploadImport, type UploadProgress } from "./Imports";
 
 export default function Contacts() {
   const [q, setQ] = useState("");
   const query = useDeferredValue(q);
-  const [open, setOpen] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const [open, setOpenState] = useState<string | null>(params.get("open"));
+  const setOpen = (ext: string | null) => {
+    setOpenState(ext);
+    if (params.has("open")) setParams({}, { replace: true });
+  };
   const [importing, setImporting] = useState(false);
   const list = useInfiniteQuery({
     queryKey: ["contacts", query],
@@ -25,6 +33,7 @@ export default function Contacts() {
         title="Contacts"
         intro="Everyone Pulse has seen an event or profile for. Contacts are created automatically by the first event with a new external ID."
         actions={<>
+          <Link className="btn" to="/contacts/duplicates">Duplicates</Link>
           <a className="btn" href="/v1/contacts/export" download>Export CSV</a>
           <button className="btn primary" onClick={() => setImporting(true)}>Import CSV</button>
         </>}
@@ -71,26 +80,35 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
   const segs = useQuery({ queryKey: ["segments"], queryFn: () => api.get<{ segments: Segment[] }>("/v1/segments") });
   const names = new Map(segs.data?.segments.map((s) => [s.id, s.name]));
   const contact = c.data?.contact;
+  const merged = contact?.attrs.merged_into != null;
+  const [merging, setMerging] = useState(false);
 
   return (
     <Drawer title={externalId} subtitle={contact?.email} onClose={onClose}>
       <ErrorNote error={c.error} />
-      {contact?.attrs.merged_into != null && (
-        <div className="alert">This visitor signed in as <strong>{String(contact.attrs.merged_into)}</strong>. Their history now belongs to that contact; new events go there too.</div>
+      {merged && (
+        <div className="alert">This contact was merged into <strong>{String(contact!.attrs.merged_into)}</strong>. Their history now belongs to that contact; new events go there too.</div>
       )}
+      {contact && !merged && (
+        <div className="row" style={{ marginBottom: 18 }}>
+          <button className="btn sm" onClick={() => setMerging(true)}>Merge into…</button>
+        </div>
+      )}
+      {merging && contact && <MergeModal loser={contact} onClose={() => setMerging(false)} />}
       <h3 style={{ marginBottom: 10 }}>Segments and lists</h3>
       {c.data && c.data.segments.length === 0 && <p className="muted small">Not in any segment or list right now.</p>}
       <div className="row" style={{ marginBottom: 22 }}>
         {c.data?.segments.map((s) => <span className="badge info" key={s}>{names.get(s) ?? `Segment ${s}`}</span>)}
       </div>
 
+      {contact && !merged && <StageAndCompany contact={contact} />}
       {contact && <TagsAndPoints contact={contact} />}
       {contact && <ConsentPanel contact={contact} />}
       {contact && <ContactInbox externalId={contact.external_id} />}
 
       <h3 style={{ marginBottom: 10 }}>Attributes</h3>
       <dl className="kv" style={{ marginBottom: 22 }}>
-        {contact && Object.entries(contact.attrs).filter(([k]) => !k.startsWith("optout_") && k !== "tags" && k !== "points").sort().map(([k, v]) => (
+        {contact && Object.entries(contact.attrs).filter(([k]) => !k.startsWith("optout_") && k !== "tags" && k !== "points" && !isAccountAttr(k)).sort().map(([k, v]) => (
           <div key={k} style={{ display: "contents" }}><dt>{k}</dt><dd>{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd></div>
         ))}
       </dl>
@@ -109,6 +127,111 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
         </tbody>
       </table>
     </Drawer>
+  );
+}
+
+// StageAndCompany shows and changes the contact's lifecycle stage and company. Both change through
+// events (stage_changed, company_linked), so the activity list records every change.
+function StageAndCompany({ contact }: { contact: Contact }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const stages = useStages().data ?? [];
+  const companies = useCompanyOptions().data ?? [];
+  const id = encodeURIComponent(contact.external_id);
+  const stage = contact.attrs.stage != null ? String(contact.attrs.stage) : "";
+  const company = contactCompany(contact);
+  const copies = Object.entries(contact.attrs).filter(([k]) => k.startsWith("company_") && k !== "company_id" && k !== "company_name").sort();
+  const refresh = () => window.setTimeout(() => qc.invalidateQueries({ queryKey: ["contact", contact.external_id] }), 800);
+  const setStage = useMutation({
+    mutationFn: (s: string) => api.put(`/v1/contacts/${id}/stage`, { stage: s }),
+    onSuccess: (_, s) => { toast({ text: `Moved to ${s}` }); refresh(); },
+  });
+  const link = useMutation({
+    mutationFn: (companyId: number | null) => api.put(`/v1/contacts/${id}/company`, { company_id: companyId }),
+    onSuccess: (_, companyId) => { toast({ text: companyId ? `Linked to ${companies.find((c) => c.id === companyId)?.name ?? "the company"}` : "Unlinked from the company" }); refresh(); qc.invalidateQueries({ queryKey: ["companies"] }); },
+  });
+  return (
+    <section style={{ marginBottom: 22 }}>
+      <h3 style={{ marginBottom: 10 }}>Stage and company</h3>
+      <dl className="kv" style={{ marginBottom: 10 }}>
+        <dt>Stage</dt>
+        <dd>
+          <div className="row">
+            <select className="select inline" value={stage} disabled={setStage.isPending || stages.length === 0} onChange={(e) => e.target.value && setStage.mutate(e.target.value)} aria-label="Stage">
+              <option value="" disabled>{stages.length ? "No stage" : "No stages defined"}</option>
+              {stage && !stages.some((s) => s.name === stage) && <option value={stage} disabled>{stage} (removed)</option>}
+              {stages.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+            {contact.attrs.stage_changed_at != null && <span className="xs muted">since {timeAgo(String(contact.attrs.stage_changed_at))}</span>}
+          </div>
+        </dd>
+        <dt>Company</dt>
+        <dd>
+          <div className="row">
+            <select className="select inline" value={company ? String(company.id) : ""} disabled={link.isPending} onChange={(e) => link.mutate(e.target.value ? Number(e.target.value) : null)} aria-label="Company">
+              <option value="">No company</option>
+              {company && !companies.some((c) => c.id === company.id) && <option value={String(company.id)}>{company.name}</option>}
+              {companies.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            </select>
+            {company && <Link className="small" to={`/companies/${company.id}`}>Open</Link>}
+          </div>
+        </dd>
+        {copies.map(([k, v]) => (
+          <div key={k} style={{ display: "contents" }}><dt className="muted">{k}</dt><dd>{String(v)}</dd></div>
+        ))}
+      </dl>
+      <ErrorNote error={setStage.error ?? link.error} />
+    </section>
+  );
+}
+
+// MergeModal merges this contact (the loser) into another one the user finds by ID, email or name.
+function MergeModal({ loser, onClose }: { loser: Contact; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [q, setQ] = useState(loser.email || "");
+  const query = useDeferredValue(q.trim());
+  const [winner, setWinner] = useState("");
+  const found = useQuery({
+    queryKey: ["contacts", "merge-search", query],
+    queryFn: () => api.get<{ contacts: Contact[] }>(`/v1/contacts?q=${encodeURIComponent(query)}&limit=10`),
+    enabled: query.length > 0,
+  });
+  const candidates = (found.data?.contacts ?? []).filter((c) => c.external_id !== loser.external_id && c.attrs.merged_into == null);
+  const merge = useMutation({
+    mutationFn: () => api.post("/v1/contacts/merge", { winner, loser: loser.external_id }),
+    onSuccess: () => {
+      toast({ text: `Merging ${loser.external_id} into ${winner}` });
+      window.setTimeout(() => { qc.invalidateQueries({ queryKey: ["contact", loser.external_id] }); qc.invalidateQueries({ queryKey: ["contacts"] }); }, 1200);
+      onClose();
+    },
+  });
+  return (
+    <Modal title={`Merge ${loser.external_id} into…`} onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={!winner || merge.isPending} onClick={() => merge.mutate()}>Merge</button>
+    </>}>
+      <p className="small muted" style={{ marginBottom: 12 }}>
+        The contact you pick is kept: its values win, and this contact's other attributes, history, tags, points and lists move to it. This contact then leaves every segment and its later events go to the kept one. A merge can't be undone.
+      </p>
+      <Field label="Find the contact to keep"><input className="input" autoFocus value={q} onChange={(e) => { setQ(e.target.value); setWinner(""); }} placeholder="ID, email, name or phone" /></Field>
+      {query && candidates.length === 0 && !found.isLoading && <p className="small muted">No other contact matches.</p>}
+      {candidates.length > 0 && (
+        <table className="table">
+          <tbody>
+            {candidates.map((c) => (
+              <tr key={c.id} className="clickable" onClick={() => setWinner(c.external_id)}>
+                <td style={{ width: 28 }}><input type="radio" name="merge-winner" checked={winner === c.external_id} onChange={() => setWinner(c.external_id)} aria-label={`Keep ${c.external_id}`} /></td>
+                <td>{c.external_id}</td>
+                <td className="muted">{c.email}</td>
+                <td className="muted">{String(c.attrs.name ?? c.attrs.first_name ?? "")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <ErrorNote error={merge.error ?? found.error} />
+    </Modal>
   );
 }
 

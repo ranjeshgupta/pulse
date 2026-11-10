@@ -1,0 +1,11 @@
+/* Stages: the ordered lifecycle list. Uses the tokens from styles.css. */
+.stages-table .stage-order { width: 128px; white-space: nowrap; }
+.stage-step {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 6px; border-radius: 50%;
+  background: var(--cobalt-wash); color: var(--cobalt-dark); font-size: var(--fs-xs); font-weight: 650;
+}
+.stage-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  background: var(--cobalt-wash); color: var(--cobalt-dark); font-size: var(--fs-sm); font-weight: 600;
+}
+.stages-table td.num { white-space: nowrap; }

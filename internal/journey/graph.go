@@ -18,6 +18,7 @@ import (
 	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
+	"pulse/internal/profile"
 	"pulse/internal/segment"
 )
 
@@ -46,6 +47,7 @@ const (
 	NodeTags            = "update_tags"   // add and remove tags
 	NodePoints          = "adjust_points" // add (or take away) points
 	NodeList            = "update_list"   // add to or remove from a static list
+	NodeStage           = "change_stage"  // move the contact to a lifecycle stage
 
 	ReentryOnce      = "once"
 	ReentryAlways    = "always"     // again after each finish
@@ -112,6 +114,7 @@ type Node struct {
 	Points     int             `json:"points,omitempty"`      // adjust_points
 	ListID     int64           `json:"list_id,omitempty"`     // update_list
 	ListAction string          `json:"list_action,omitempty"` // update_list: add | remove
+	Stage      string          `json:"stage,omitempty"`       // change_stage: the stage's name
 	URL        string          `json:"url,omitempty"`         // webhook
 	Body       string          `json:"body,omitempty"`        // webhook: JSON template; empty sends the contact
 	// UI layout, ignored by the engine.
@@ -233,7 +236,7 @@ func (g Graph) Validate() error {
 			}
 			for k := range n.Attrs {
 				if !attr.ValidKey(k) || consent.IsReserved(k) {
-					return fmt.Errorf("update %q: %q can't be set here (consent changes only through unsubscribe events)", id, k)
+					return fmt.Errorf("update %q: %q can't be set here (Pulse manages it: consent, tags, points, stage and company change through their own events and steps)", id, k)
 				}
 			}
 		case NodeTags:
@@ -253,6 +256,10 @@ func (g Graph) Validate() error {
 			if n.ListID <= 0 || (n.ListAction != "add" && n.ListAction != "remove") {
 				return fmt.Errorf("list %q: choose a list and whether to add or remove", id)
 			}
+		case NodeStage:
+			if !profile.ValidStageName(n.Stage) {
+				return fmt.Errorf("stage %q: choose the stage to move the contact to", id)
+			}
 		case NodeWebhook:
 			u, err := url.Parse(n.URL)
 			if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
@@ -269,7 +276,7 @@ func (g Graph) Validate() error {
 func (n Node) edges() []string {
 	switch n.Type {
 	case NodeWait, NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox, NodeWaitUntil, NodeUpdate, NodeWebhook,
-		NodeTags, NodePoints, NodeList:
+		NodeTags, NodePoints, NodeList, NodeStage:
 		return []string{n.Next}
 	case NodeCondition, NodeCheck, NodeWaitForEvent, NodeMessageDecision:
 		return []string{n.Yes, n.No}

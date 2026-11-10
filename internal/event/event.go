@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"pulse/internal/attr"
@@ -26,30 +27,68 @@ const (
 	ListJoined = "list_joined" // props: {list_id: 12}; adds the contact to a static list
 	ListLeft   = "list_left"
 
-	// Written by the profile role when an anonymous visitor turns out to be a known contact.
-	ContactMerged     = "contact_merged"      // on the known contact; props.from_contact_id, from_external_id
-	ContactMergedInto = "contact_merged_into" // on the anonymous contact; props.into_external_id
+	// Written by the profile role when an anonymous visitor turns out to be a known contact, or when
+	// two known contacts are merged (merge_requested).
+	ContactMerged     = "contact_merged"      // on the winner; props.from_contact_id, from_external_id
+	ContactMergedInto = "contact_merged_into" // on the merged-away contact; props.into_external_id
+	// MergeRequested (on the winner) merges contact props.loser into it: POST /v1/contacts/merge.
+	MergeRequested = "merge_requested"
+
+	// StageChanged moves the contact to lifecycle stage props.stage (sets stage, stage_changed_at).
+	// With props.rename (a stage was renamed) it changes the name only, for contacts still in props.from.
+	StageChanged = "stage_changed"
+
+	// Company links: props {company_id, name, attrs}. Linking copies the company's attributes to the
+	// contact as company_<key>; company_updated refreshes them only if the contact is still linked to
+	// company_id; company_unlinked (props.company_id, optional) removes them.
+	CompanyLinked   = "company_linked"
+	CompanyUnlinked = "company_unlinked"
+	CompanyUpdated  = "company_updated"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
 // never from a browser with the public site key.
 func ServerOnly(name string) bool {
 	switch name {
-	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto:
+	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
+		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated:
+		return true
+	}
+	return false
+}
+
+// PlatformOnly reports whether an event is recorded by Pulse itself (or one of its own endpoints,
+// which validate it), so POST /v1/events refuses it.
+func PlatformOnly(name string) bool {
+	switch name {
+	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated:
 		return true
 	}
 	return false
 }
 
 // Profile attributes the platform maintains. Tags and points change through their events (or a
-// server import); merged_into is never accepted from outside.
+// server import); merged_into, stage and the company attributes are never accepted from outside:
+// they change only through their events.
 const (
-	AttrTags       = "tags"
-	AttrPoints     = "points"
-	AttrMergedInto = "merged_into"
-	AttrFirstSeen  = "first_seen" // RFC 3339 time of the contact's first event
-	AttrLastSeen   = "last_seen"  // UTC date (YYYY-MM-DD) of the latest event
+	AttrTags           = "tags"
+	AttrPoints         = "points"
+	AttrMergedInto     = "merged_into"
+	AttrFirstSeen      = "first_seen"       // RFC 3339 time of the contact's first event
+	AttrLastSeen       = "last_seen"        // UTC date (YYYY-MM-DD) of the latest event
+	AttrStage          = "stage"            // lifecycle stage name
+	AttrStageChangedAt = "stage_changed_at" // RFC 3339 time the stage last changed
+	AttrCompanyID      = "company_id"       // the linked company's id
+	AttrCompanyName    = "company_name"
+	// CompanyAttrPrefix starts every copy of a company attribute on its contacts: company_<key>.
+	CompanyAttrPrefix = "company_"
 )
+
+// EventOnlyAttr reports whether a profile attribute changes only through its event, so attributes
+// sent with any event (even from a server) can't set it.
+func EventOnlyAttr(k string) bool {
+	return k == AttrMergedInto || k == AttrStage || k == AttrStageChangedAt || strings.HasPrefix(k, CompanyAttrPrefix)
+}
 
 // Kafka topics.
 const (

@@ -20,11 +20,11 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Attribute definitions (type, label, PII flag) | ✅ | ✅ | ✅ Settings, Attributes; typed inputs in the segment builder; imports convert numbers and yes/no | |
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
 | Points / lead scoring | ✅ | ⬜ | ✅ scoring rules per event, manual adjust, journey step; `points` attribute in rules | |
-| Stages (lifecycle) | ✅ | ⬜ | ⬜ | P2 |
-| Companies (B2B accounts) | ✅ | ⬜ | ⬜ | P2 |
+| Stages (lifecycle) | ✅ | ⬜ | ✅ ordered stages (Workspace, Stages); `stage` attribute changed by hand, API, `stage_changed` events, the `change_stage` journey step, or a points threshold (forward only); "In stage" segment preset | P2 |
+| Companies (B2B accounts) | ✅ | ⬜ | ✅ companies with attributes copied to contacts as `company_<key>`; link by hand or by a server identify with `attrs.company`; company changes fan out to contacts; "Works at company" and "Company attribute" presets | P2 |
 | Identity merge (anonymous → known) | ✅ | ✅ | ✅ identify with `anonymous_id`: profile, counters and event history move; later visitor events follow | |
 | Identity verification for browser SDKs (signed user ID) | ⬜ | ✅ | ✅ HMAC user hash; can be required per workspace; secret rotation | |
-| Duplicate merge | ✅ | ✅ | ⬜ | P2 |
+| Duplicate merge | ✅ | ✅ | ✅ `POST /v1/contacts/merge` on the identity-merge path (attributes, tags, points, history, counters, lists move to the winner); Duplicates view by email or phone; "Merge into…" in the contact drawer | P2 |
 
 ## Segments
 
@@ -52,7 +52,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Decision on this journey's own message (email opened/clicked, WhatsApp/RCS read, SMS/push delivered, inbox opened) | ✅ | ✅ | ✅ `message_decision` step with a timeout, yes/no branches | |
 | A/B split | ✅ | ✅ | ✅ 2-5 weighted paths, stable per enrollment | Winner auto-selection: P2 |
 | Send email, SMS, WhatsApp (SMS fallback), RCS (SMS fallback), push | 🟡 | ✅ | ✅ | |
-| Update attribute, add/remove tag, change points | ✅ | ✅ | ✅ update profile, tag contact, adjust points, add to / remove from list | |
+| Update attribute, add/remove tag, change points, change stage | ✅ | ✅ | ✅ update profile, tag contact, adjust points, add to / remove from list, change stage | |
 | Webhook step | ✅ | ✅ | ✅ SSRF-guarded, idempotency key, failures recorded without stalling | |
 | Conversion goal and exit on goal | 🟡 | ✅ | ✅ goal event converts and ends the enrollment | |
 | Re-entry rules (once, every time, after N days) | 🟡 | ✅ | ✅ one live enrollment at a time | |
@@ -154,8 +154,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
      mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
 7. **P2, in this order:**
-   - **Batch 6, contacts and content:** stages, companies, duplicate merge, plain-text email part and attachments,
-     landing pages, assets (gated downloads).
+   - **Batch 6, contacts and content:** stages, companies and duplicate merge (done); plain-text email part and
+     attachments, landing pages, assets (gated downloads).
    - **Batch 7, analytics:** cohorts and retention, revenue attribution and UTM, funnel breakdown by attribute, custom report
      builder, automatic A/B winners in journeys.
    - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native

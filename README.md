@@ -40,7 +40,11 @@ and journeys within seconds, not on a 15-minute cron.
   identity-verification setting instead.)
 - **Batch 5 (done):** GeoIP and the anonymous-tracking switch, retention cleanup (Settings → Data & privacy), journeys
   grouped into Actions/Conditions/Decisions/Waits with message-engagement decisions, and segment presets with date rules.
-- **Still to build:** P2 in the feature-parity doc.
+- **Batch 6, contacts (done):** lifecycle stages (Workspace → Stages; by hand, API, the `change_stage` journey step, or
+  points thresholds that only move contacts forward), companies (Audience → Companies; attributes copied to contacts as
+  `company_<key>`, linked by hand or by a server identify with `attrs.company`), and duplicate merge
+  (`POST /v1/contacts/merge`, `GET /v1/contacts/duplicates`, Contacts → Duplicates and "Merge into…").
+- **Still to build:** the rest of P2 in the feature-parity doc.
 
 ## Run it
 
@@ -62,6 +66,16 @@ cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies t
 | Mailpit (sent mail) | http://localhost:18025 |
 | Keycloak (dev SSO) | http://localhost:8180 |
 | ClickHouse HTTP | http://localhost:18123 (user/password `pulse`) |
+
+## Reserved attribute names
+
+Pulse maintains some profile attributes itself, so they can't be set directly by browsers, forms, journey "update
+profile" steps, server events or CSV imports (they are dropped there): `tags`, `points`, `stage`, `stage_changed_at`,
+`company_id`, `company_name` and every `company_*` key, `first_seen`, `last_seen`, `merged_into`, `email_bounced` (a server
+may clear it), and the `optout_*` consent flags. Change them through their own APIs and events: tags, points, stages
+(`PUT /v1/contacts/{id}/stage`, journey step `change_stage`), companies (`PUT /v1/contacts/{id}/company`, or an identify
+with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`). Name your own fields differently, e.g.
+`team_size` rather than `company_size`.
 
 ## Security settings for production
 

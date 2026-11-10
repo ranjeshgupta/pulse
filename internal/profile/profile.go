@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,8 +33,8 @@ const (
 	newContactWindow = time.Minute
 	scoringTTL       = 5 * time.Minute // full reload even if a version bump was missed
 	scoringCheck     = time.Second     // how often the version key is read
-	// ScoringVersionKey is bumped by the API whenever point rules change, so new rules apply to
-	// the next events instead of after a cache expiry.
+	// ScoringVersionKey is bumped by the API whenever point rules or lifecycle stages change, so
+	// they apply to the next events instead of after a cache expiry.
 	ScoringVersionKey = "scoring:v"
 	maxTags           = 100
 )
@@ -43,6 +44,8 @@ type Store interface {
 	LookupContacts(ctx context.Context, tenant int64, externalIDs []string) (map[string]model.Contact, error)
 	SaveContactsAttrs(ctx context.Context, updates []pg.AttrUpdate) error
 	PointRules(ctx context.Context) (map[int64]map[string]int, error)
+	// StageRules returns every tenant's stages in order (first stage first).
+	StageRules(ctx context.Context) (map[int64][]pg.Stage, error)
 }
 
 type Service struct {
@@ -53,6 +56,7 @@ type Service struct {
 
 	mu        sync.Mutex
 	points    map[int64]map[string]int // tenant -> event -> points
+	stages    map[int64][]pg.Stage     // tenant -> stages in order
 	pointsAt  time.Time
 	pointsVer string
 	checkedAt time.Time
@@ -62,9 +66,16 @@ func New(store Store, rdb redis.Cmdable, pub kafka.Publisher) *Service {
 	return &Service{store: store, rdb: rdb, pub: pub, now: time.Now}
 }
 
-// scoring returns the tenants' point rules. They are reloaded when the version key changes
-// (checked at most once a second) or every scoringTTL. If a reload fails the previous rules stay.
+// scoring returns the tenants' point rules.
 func (s *Service) scoring(ctx context.Context) map[int64]map[string]int {
+	points, _ := s.rules(ctx)
+	return points
+}
+
+// rules returns the tenants' point rules and stages. They are reloaded when the version key
+// changes (checked at most once a second) or every scoringTTL. If a reload fails the previous
+// rules stay.
+func (s *Service) rules(ctx context.Context) (map[int64]map[string]int, map[int64][]pg.Stage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
@@ -77,12 +88,16 @@ func (s *Service) scoring(ctx context.Context) map[int64]map[string]int {
 	}
 	if stale {
 		v, _ := s.rdb.Get(ctx, ScoringVersionKey).Result() // read first: a bump during the load reloads again
-		if rules, err := s.store.PointRules(ctx); err == nil {
-			s.points, s.pointsVer = rules, v
+		rules, err := s.store.PointRules(ctx)
+		if err == nil {
+			var stages map[int64][]pg.Stage
+			if stages, err = s.store.StageRules(ctx); err == nil {
+				s.points, s.stages, s.pointsVer = rules, stages, v
+			}
 		}
 		s.pointsAt, s.checkedAt = now, now
 	}
-	return s.points
+	return s.points, s.stages
 }
 
 // Merge applies an event's attributes (and email) to the current profile. It returns the merged
@@ -94,13 +109,22 @@ func Merge(cur map[string]any, e *event.Event) (map[string]any, []string) {
 }
 
 // MergeScored is Merge plus points from the tenant's scoring rules for this event.
+// Stage and company events set the stage and company attributes; attributes sent with an event
+// can't (see event.EventOnlyAttr).
 func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any, []string) {
 	optouts := consent.Updates(e.Name, e.Props)
 	updates := make(map[string]any, len(e.Attrs)+len(optouts)+2)
 	for k, v := range e.Attrs {
-		if k != event.AttrMergedInto {
+		if !event.EventOnlyAttr(k) {
 			updates[k] = v
 		}
+	}
+	var removes []string
+	switch e.Name {
+	case event.StageChanged:
+		stageUpdates(cur, e, updates)
+	case event.CompanyLinked, event.CompanyUpdated, event.CompanyUnlinked:
+		removes = companyUpdates(cur, e, updates)
 	}
 	if e.Email != "" {
 		updates["email"] = e.Email
@@ -143,8 +167,127 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 		}
 		merged[k] = v
 	}
+	for _, k := range removes {
+		if _, set := updates[k]; set {
+			continue
+		}
+		if _, had := merged[k]; had {
+			delete(merged, k)
+			changed = append(changed, k)
+		}
+	}
 	sort.Strings(changed)
 	return merged, changed
+}
+
+// MaxStageName is the longest stage name.
+const MaxStageName = 64
+
+// ValidStageName reports whether n can name a lifecycle stage: 1-64 characters, no control
+// characters, no surrounding spaces.
+func ValidStageName(n string) bool {
+	if n == "" || len(n) > MaxStageName || strings.TrimSpace(n) != n {
+		return false
+	}
+	for _, r := range n {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// stageUpdates applies a stage_changed event: the new stage and the time it changed. Moving to the
+// stage the contact is already in changes nothing. A rename changes the name only, and only for a
+// contact still in the old stage.
+func stageUpdates(cur map[string]any, e *event.Event, updates map[string]any) {
+	st := attr.String(e.Props["stage"])
+	now := attr.String(cur[event.AttrStage])
+	if !ValidStageName(st) || st == now {
+		return
+	}
+	if rename, _ := e.Props["rename"].(bool); rename {
+		if now != "" && now == attr.String(e.Props["from"]) {
+			updates[event.AttrStage] = st
+		}
+		return
+	}
+	updates[event.AttrStage] = st
+	updates[event.AttrStageChangedAt] = e.Ts.UTC().Format(time.RFC3339)
+}
+
+// companyUpdates applies company_linked, company_updated and company_unlinked: it sets company_id,
+// company_name and a company_<key> copy of each company attribute, and returns the company keys to
+// remove (copies the new company doesn't have, or all of them when unlinking).
+func companyUpdates(cur map[string]any, e *event.Event, updates map[string]any) []string {
+	id, ok := attr.Number(attr.String(e.Props["company_id"]))
+	linked := attr.String(cur[event.AttrCompanyID])
+	var old []string
+	for k := range cur {
+		if strings.HasPrefix(k, event.CompanyAttrPrefix) {
+			old = append(old, k)
+		}
+	}
+	switch e.Name {
+	case event.CompanyUnlinked:
+		// Only the company named (if any) is unlinked: the contact may have moved on since.
+		if e.Props["company_id"] != nil && (!ok || attr.String(id) != linked) {
+			return nil
+		}
+		return old
+	case event.CompanyUpdated:
+		if !ok || attr.String(id) != linked {
+			return nil
+		}
+	}
+	if !ok || id <= 0 {
+		return nil
+	}
+	updates[event.AttrCompanyID] = id
+	updates[event.AttrCompanyName] = attr.String(e.Props["name"])
+	if attrs, isMap := e.Props["attrs"].(map[string]any); isMap {
+		for k, v := range attrs {
+			if key := event.CompanyAttrPrefix + k; attr.ValidKey(key) && key != event.AttrCompanyID && key != event.AttrCompanyName {
+				updates[key] = v
+			}
+		}
+	}
+	return old
+}
+
+// StageForPoints returns the stage a points change moves the contact to, or "" for none. When the
+// change crosses a stage's min_points threshold upward, the contact goes to the furthest stage
+// whose threshold they reach, but never back: only to a stage after their current one. stages are
+// in order; a current stage that no longer exists counts as before every stage.
+func StageForPoints(stages []pg.Stage, current string, before, after float64) string {
+	if after <= before {
+		return ""
+	}
+	crossed, best, at := false, -1, -1
+	for i, st := range stages {
+		if st.Name == current {
+			at = i
+		}
+		if st.MinPoints == nil {
+			continue
+		}
+		t := float64(*st.MinPoints)
+		if before < t && t <= after {
+			crossed = true
+		}
+		if t <= after {
+			best = i
+		}
+	}
+	if !crossed || best < 0 || best <= at {
+		return ""
+	}
+	return stages[best].Name
+}
+
+func pointsOf(p map[string]any) float64 {
+	n, _ := attr.Number(attr.String(p[event.AttrPoints]))
+	return n
 }
 
 // NormalizeTags turns a tags value (a JSON list, or text separated by commas or semicolons) into a
@@ -212,17 +355,27 @@ func applyTags(cur, change []any, add bool) []any {
 	return NormalizeTags(out)
 }
 
-// MergeIdentity folds an anonymous visitor's profile into a known contact's. The known contact's
-// values win, tags are combined and points are added.
+// MergeIdentity folds a profile (an anonymous visitor, or a duplicate) into a known contact's. The
+// known contact's values win, tags are combined, points are added, first_seen is the earlier and
+// last_seen the later of the two. A known contact with a company keeps only its own company's
+// attributes.
 func MergeIdentity(anon, known map[string]any) map[string]any {
 	out := make(map[string]any, len(anon)+len(known))
+	_, hasCompany := known[event.AttrCompanyID]
 	for k, v := range anon {
-		if k != event.AttrMergedInto {
-			out[k] = v
+		if k == event.AttrMergedInto || hasCompany && strings.HasPrefix(k, event.CompanyAttrPrefix) {
+			continue
 		}
+		out[k] = v
 	}
 	for k, v := range known {
 		out[k] = v
+	}
+	if a, k := attr.String(anon[event.AttrFirstSeen]), attr.String(known[event.AttrFirstSeen]); a != "" && (k == "" || a < k) {
+		out[event.AttrFirstSeen] = a
+	}
+	if a, k := attr.String(anon[event.AttrLastSeen]), attr.String(known[event.AttrLastSeen]); a > k {
+		out[event.AttrLastSeen] = a
 	}
 	if anon[event.AttrTags] != nil || known[event.AttrTags] != nil {
 		out[event.AttrTags] = applyTags(NormalizeTags(known[event.AttrTags]), NormalizeTags(anon[event.AttrTags]), true)
@@ -235,7 +388,7 @@ func MergeIdentity(anon, known map[string]any) map[string]any {
 	return out
 }
 
-// merge is one identity merge found in a batch.
+// merge is one identity merge found in a batch (anonymous visitor or duplicate contact).
 type merge struct {
 	anonKey, knownKey string
 	source            *event.Event // the identify event
@@ -340,7 +493,7 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 
 	// 3. Fold the events in order, keeping each contact's profile in memory.
 	now := s.now()
-	scoring := s.scoring(ctx)
+	scoring, stages := s.rules(ctx)
 	profiles := map[string]map[string]any{}
 	profile := func(k string) map[string]any {
 		if p, ok := profiles[k]; ok {
@@ -351,14 +504,16 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	dirty := map[string]bool{}
 	firstSeen := map[string]bool{}
 	var merges []merge
+	after := map[int][]event.Event{} // events the profile role adds after evs[i] (stage moves)
 	for i := range evs {
 		e := &evs[i]
 		k := ckey(e.TenantID, e.ExternalID)
 		c := contacts[k]
 		cur := profile(k)
+		before := cur
 		var fromAnon []string
-		if ak, ok := anonymousKey(e); ok {
-			if a, found := contacts[ak]; found && a.ID != c.ID && profile(ak)[event.AttrMergedInto] == nil {
+		if ak, ok := mergeKey(e); ok {
+			if a, found := contacts[ak]; found && a.ID != c.ID && profile(ak)[event.AttrMergedInto] == nil && cur[event.AttrMergedInto] == nil {
 				anon := profile(ak)
 				cur = MergeIdentity(anon, cur)
 				for key := range anon {
@@ -375,6 +530,16 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 		}
 		merged, changed := MergeScored(cur, e, scoring[e.TenantID][e.Name])
 		merged, changed = StampSeen(merged, changed, e.Ts)
+		if st := StageForPoints(stages[e.TenantID], attr.String(merged[event.AttrStage]), pointsOf(before), pointsOf(merged)); st != "" {
+			from := attr.String(merged[event.AttrStage])
+			move := event.Event{ID: e.ID + ":stage", TenantID: e.TenantID, ExternalID: e.ExternalID, Name: event.StageChanged, Ts: e.Ts,
+				Props: map[string]any{"stage": st, "from": from, "source": "points"}}
+			var moved []string
+			merged, moved = MergeScored(merged, &move, 0)
+			changed = mergeKeys(changed, moved)
+			move.ContactID, move.Profile = c.ID, merged
+			after[i] = append(after[i], move)
+		}
 		profiles[k] = merged
 		if len(changed) > 0 || len(fromAnon) > 0 {
 			dirty[k] = true
@@ -384,6 +549,15 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 			firstSeen[k] = true
 			e.NewContact = created[k] || now.Sub(c.CreatedAt) < newContactWindow
 		}
+	}
+
+	if len(after) > 0 {
+		woven := make([]event.Event, 0, len(evs)+len(after))
+		for i := range evs {
+			woven = append(woven, evs[i])
+			woven = append(woven, after[i]...)
+		}
+		evs = woven
 	}
 
 	// 3b. Identity merges: move the visitor's counters first (a retry finds nothing left to move),
@@ -464,8 +638,23 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	return err
 }
 
-// redirectMerged points events for a visitor who was already merged at the known contact.
+// maxMergeHops bounds how far redirectMerged follows merged_into (a contact merged into one that
+// was merged later).
+const maxMergeHops = 5
+
+// redirectMerged points events for a contact that was already merged at the contact it was merged
+// into, following chains of merges.
 func (s *Service) redirectMerged(ctx context.Context, evs []event.Event, contacts map[string]model.Contact) error {
+	for hop := 0; hop < maxMergeHops; hop++ {
+		moved, err := s.redirectOnce(ctx, evs, contacts)
+		if err != nil || !moved {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) redirectOnce(ctx context.Context, evs []event.Event, contacts map[string]model.Contact) (bool, error) {
 	targets := map[int64][]string{}
 	for i := range evs {
 		into := attr.String(contacts[ckey(evs[i].TenantID, evs[i].ExternalID)].Attrs[event.AttrMergedInto])
@@ -478,28 +667,30 @@ func (s *Service) redirectMerged(ctx context.Context, evs []event.Event, contact
 	for tenant, exts := range targets {
 		found, _, err := s.store.ResolveContacts(ctx, tenant, exts)
 		if err != nil {
-			return fmt.Errorf("resolve merged contacts: %w", err)
+			return false, fmt.Errorf("resolve merged contacts: %w", err)
 		}
 		for ext, c := range found {
 			contacts[ckey(tenant, ext)] = c
 		}
 	}
+	moved := false
 	for i := range evs {
 		e := &evs[i]
-		if into := attr.String(contacts[ckey(e.TenantID, e.ExternalID)].Attrs[event.AttrMergedInto]); into != "" {
-			e.ExternalID = into
+		if into := attr.String(contacts[ckey(e.TenantID, e.ExternalID)].Attrs[event.AttrMergedInto]); into != "" && into != e.ExternalID {
+			e.ExternalID, moved = into, true
 		}
 	}
-	return nil
+	return moved, nil
 }
 
-// lookupAnonymous loads the visitors named by identify events (without creating any).
+// lookupAnonymous loads the contacts named by identify and merge_requested events (without
+// creating any).
 func (s *Service) lookupAnonymous(ctx context.Context, evs []event.Event, contacts map[string]model.Contact) error {
 	want := map[int64][]string{}
 	for i := range evs {
-		if k, ok := anonymousKey(&evs[i]); ok {
+		if k, ok := mergeKey(&evs[i]); ok {
 			if _, have := contacts[k]; !have {
-				want[evs[i].TenantID] = append(want[evs[i].TenantID], attr.String(evs[i].Props["anonymous_id"]))
+				want[evs[i].TenantID] = append(want[evs[i].TenantID], mergeSource(&evs[i]))
 			}
 		}
 	}
@@ -515,16 +706,37 @@ func (s *Service) lookupAnonymous(ctx context.Context, evs []event.Event, contac
 	return nil
 }
 
-// anonymousKey returns the visitor an identify event merges, if any.
-func anonymousKey(e *event.Event) (string, bool) {
-	if e.Name != event.Identify {
+// mergeSource returns the external id of the contact an event merges into its own: an identify's
+// anonymous visitor (props.anonymous_id) or a merge_requested event's loser (props.loser).
+func mergeSource(e *event.Event) string {
+	switch e.Name {
+	case event.Identify:
+		return attr.String(e.Props["anonymous_id"])
+	case event.MergeRequested:
+		return attr.String(e.Props["loser"])
+	}
+	return ""
+}
+
+// mergeKey returns the contact an event merges, if any.
+func mergeKey(e *event.Event) (string, bool) {
+	from := mergeSource(e)
+	if from == "" || from == e.ExternalID {
 		return "", false
 	}
-	aid := attr.String(e.Props["anonymous_id"])
-	if aid == "" || aid == e.ExternalID {
-		return "", false
+	return ckey(e.TenantID, from), true
+}
+
+// mergeKeys returns the sorted union of two sorted key lists.
+func mergeKeys(a, b []string) []string {
+	out := append([]string(nil), a...)
+	for _, k := range b {
+		if !slices.Contains(out, k) {
+			out = append(out, k)
+		}
 	}
-	return ckey(e.TenantID, aid), true
+	sort.Strings(out)
+	return out
 }
 
 func ckey(tenant int64, ext string) string { return strconv.FormatInt(tenant, 10) + ":" + ext }

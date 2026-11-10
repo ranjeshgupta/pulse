@@ -193,7 +193,7 @@ func TestMessageDecision(t *testing.T) {
 			"x":      map[string]any{"type": "exit"},
 		}}}, 201)["id"]
 	jsonCall(t, c, "POST", fmt.Sprintf("/v1/journeys/%v/activate", j), nil, 200)
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second) // the journey index refreshes every 2 seconds
 	ext, other := "md-"+run, "md2-"+run
 	for _, e := range []string{ext, other} {
 		jsonCall(t, c, "POST", "/v1/events", map[string]any{"events": []any{

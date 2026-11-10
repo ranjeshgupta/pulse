@@ -3,10 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type AttributeDef, type Broadcast, type Form, type Journey, type Segment } from "../api";
 import {
-  ATTR_OPS, BUILTIN_ATTRS, DATE_OPS, EVENT_OPS, KNOWN_EVENTS, PICK_PROPS, PRESETS, describe, eventProps, isDateAttr, isDateOp, newGroup, newWhere,
+  ATTR_OPS, BUILTIN_ATTRS, DATE_OPS, EVENT_OPS, KNOWN_EVENTS, PICK_ATTRS, PICK_PROPS, PRESETS, describe, eventProps, isDateAttr, isDateOp, newGroup, newWhere,
   problems, rootFromRule, toRule, type AttrOp, type Cond, type EventOp, type Group, type Node, type RefNames, type Where,
 } from "../segmentRules";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
+import { useCompanyOptions } from "./Companies";
+import { useStages } from "./Stages";
 import "./segments.css";
 
 /** Every segment and list of the workspace, polled so sizes stay live. */
@@ -27,12 +29,13 @@ export function useRefObjects() {
   const forms = useQuery({ queryKey: ["forms"], queryFn: () => api.get<{ forms: Form[] }>("/v1/forms"), ...opts }).data?.forms;
   const broadcasts = useQuery({ queryKey: ["broadcasts"], queryFn: () => api.get<{ broadcasts: Broadcast[] }>("/v1/broadcasts"), ...opts }).data?.broadcasts;
   const journeys = useQuery({ queryKey: ["journeys"], queryFn: () => api.get<{ journeys: Journey[] }>("/v1/journeys"), ...opts }).data?.journeys;
+  const companies = useCompanyOptions().data;
   return useMemo(() => {
     const byId = (xs?: { id: number; name: string }[]) => Object.fromEntries((xs ?? []).map((x) => [x.id, x.name])) as Record<number, string>;
-    const lists = { forms: forms ?? [], broadcasts: broadcasts ?? [], journeys: journeys ?? [] } as Record<keyof RefNames, { id: number; name: string }[]>;
-    const names: RefNames = { forms: byId(forms), broadcasts: byId(broadcasts), journeys: byId(journeys) };
+    const lists: Record<keyof RefNames, { id: number; name: string }[]> = { forms: forms ?? [], broadcasts: broadcasts ?? [], journeys: journeys ?? [], companies: companies ?? [] };
+    const names: RefNames = { forms: byId(forms), broadcasts: byId(broadcasts), journeys: byId(journeys), companies: byId(companies) };
     return { lists, names };
-  }, [forms, broadcasts, journeys]);
+  }, [forms, broadcasts, journeys, companies]);
 }
 
 /** Attribute definitions plus keys seen on contacts, for autocomplete and typed inputs. */
@@ -326,6 +329,14 @@ function CondEditor({ cond, onChange, onRemove, self }: { cond: Cond; onChange: 
   const def = defs.find((d) => d.key === cond.attr.trim());
   const builtin = BUILTIN_ATTRS.find((a) => a.key === cond.attr.trim());
   const date = isDateAttr(cond.attr, defs);
+  if (PICK_ATTRS[cond.attr.trim()] && (cond.op === "eq" || cond.op === "ne" || cond.op === "exists")) {
+    return (
+      <div className="rule-row">
+        <AccountPicker cond={cond} onChange={onChange} />
+        {remove}
+      </div>
+    );
+  }
   return (
     <div className="rule-row">
       <input className="input" list="attr-keys" placeholder="attribute, e.g. city" value={cond.attr} onChange={(e) => onChange({ ...cond, attr: e.target.value })} aria-label="Attribute" />
@@ -333,6 +344,34 @@ function CondEditor({ cond, onChange, onRemove, self }: { cond: Cond; onChange: 
       <CompareFields op={cond.op} value={cond.value} type={date ? "date" : def?.type} dates={date ? "first" : "extra"} onChange={(op, value) => onChange({ ...cond, op, value })} />
       {remove}
     </div>
+  );
+}
+
+// AccountPicker edits "in stage" and "works at company" conditions: is / is not / any, and a
+// stage (by name) or company (by id) picked from the workspace's own.
+function AccountPicker({ cond, onChange }: { cond: Extract<Cond, { kind: "attr" }>; onChange: (c: Cond) => void }) {
+  const stage = cond.attr.trim() === "stage";
+  const stages = useStages().data ?? [];
+  const companies = useCompanyOptions().data ?? [];
+  const items = stage ? stages.map((s) => ({ value: s.name, label: s.name })) : companies.map((c) => ({ value: String(c.id), label: c.name }));
+  const noun = stage ? "stage" : "company";
+  const known = items.some((x) => x.value === cond.value);
+  return (
+    <>
+      <select className="select" value={cond.op} onChange={(e) => onChange({ ...cond, op: e.target.value as AttrOp, value: e.target.value === "exists" ? "" : cond.value })} aria-label="Comparison">
+        <option value="eq">{stage ? "Is in stage" : "Works at"}</option>
+        <option value="ne">{stage ? "Is not in stage" : "Doesn't work at"}</option>
+        <option value="exists">{stage ? "Has any stage" : "Works at any company"}</option>
+      </select>
+      {cond.op !== "exists" && (
+        <select className="select" value={cond.value} onChange={(e) => onChange({ ...cond, value: e.target.value })} aria-label={`Choose a ${noun}`}>
+          <option value="" disabled>Choose a {noun}</option>
+          {!known && cond.value && <option value={cond.value}>{stage ? cond.value : `company #${cond.value}`}</option>}
+          {items.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+        </select>
+      )}
+      {items.length === 0 && <span className="xs muted">{stage ? "No stages yet: add them under Workspace, Stages." : "No companies yet."}</span>}
+    </>
   );
 }
 

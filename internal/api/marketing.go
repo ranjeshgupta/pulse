@@ -5,12 +5,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/attr"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
 	"pulse/internal/segment"
@@ -44,20 +46,42 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
 		return
 	}
 	now := s.now()
-	recs := make([]*kgo.Record, len(evs))
+	stageNamed := s.stageLookup(tenant)
 	for i := range evs {
 		e := &evs[i]
 		e.TenantID = tenant // never trust a tenant id in the body
 		e.ContactID, e.NewContact, e.ChangedAttrs, e.Profile = 0, false, nil, nil
-		if e.Name == event.ContactMerged || e.Name == event.ContactMergedInto {
-			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+e.Name+" is recorded by Pulse itself")
+		if event.PlatformOnly(e.Name) {
+			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+e.Name+" is recorded by Pulse itself (use the contact's company or merge API)")
 			return
 		}
 		if err := e.Normalize(now); err != nil {
 			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+err.Error())
 			return
 		}
-		if recs[i], err = kafka.JSON(event.TopicRaw, e.RawKey(), e); err != nil {
+		if e.Name == event.StageChanged {
+			name, ok, err := stageNamed(r.Context(), attr.String(e.Props["stage"]))
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+			if !ok {
+				writeErr(w, http.StatusBadRequest, fmt.Sprintf("event %d: there is no stage called %q", i, attr.String(e.Props["stage"])))
+				return
+			}
+			e.Props["stage"] = name
+			delete(e.Props, "rename")
+		}
+	}
+	// An identify naming a company links the contact to it (created if new).
+	all, err := s.linkCompanies(r.Context(), tenant, evs)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	recs := make([]*kgo.Record, len(all))
+	for i := range all {
+		if recs[i], err = kafka.JSON(event.TopicRaw, all[i].RawKey(), &all[i]); err != nil {
 			s.fail(w, err)
 			return
 		}
@@ -137,7 +161,7 @@ func (s *Server) createJourney(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	win, ok := req.valid(w, s.now())
-	if !ok {
+	if !ok || !s.journeyRefsOK(w, r, tenant, req.Graph) {
 		return
 	}
 	id, err := s.Store.CreateJourney(r.Context(), tenant, req.Name, req.Graph, win)

@@ -49,6 +49,44 @@ Each key keeps one contact's events in order on a single partition. That orderin
 - `tenant_id` is the first column of every Postgres primary key, every ClickHouse `ORDER BY` and every Redis key.
   Repository functions always take `tenantID`. Postgres Row-Level Security is planned for Phase 6.
 
+## Profiles and reserved attributes
+
+The profile role (`internal/profile`) folds each contact's events, in order, into its attribute map. Most attributes are
+whatever events carry, but some are maintained by Pulse and change through their events, so every change is ordered
+with the contact's other events, shows on the timeline and moves segments and journeys at once. Browsers (site key) can't
+set any of them or send their events (`consent.IsReserved`, `event.ServerOnly`). Stage, company and `merged_into`
+attributes can't be set by attributes on any event, even from a server (`event.EventOnlyAttr`); servers may still set
+consent, tags and points directly (imports).
+
+| Attributes | Changed by (events) | Notes |
+|---|---|---|
+| `optout_<channel>`, `optout_all` | `unsubscribed`, `resubscribed` | per-channel consent |
+| `tags`, `points` | `tag_added`, `tag_removed`, `points_changed`, scoring rules | server imports may also set them |
+| `first_seen`, `last_seen` | every event | RFC 3339 time / UTC date |
+| `stage`, `stage_changed_at` | `stage_changed {stage}` | from `PUT /v1/contacts/{id}/stage`, `POST /v1/events` (stage checked against the workspace's stages), the `change_stage` journey step, or a points threshold |
+| `company_id`, `company_name`, `company_<key>` | `company_linked`, `company_updated`, `company_unlinked` | copies of the linked company's attributes, so segment rules on them work in both compilers |
+| `merged_into` | `contact_merged_into` | the contact was merged into another; it leaves every segment |
+
+- **Stages.** A workspace orders its stages (`stages` table); a stage with `min_points` is a threshold. When a points
+  change crosses a threshold upward, the profile role moves the contact to the furthest stage whose threshold the new
+  points reach, only if that stage comes after the current one, and emits a `stage_changed` event (props
+  `source: points`) right after the scoring event. Stage definitions are cached with the scoring rules and reloaded when
+  `scoring:v` is bumped. Renaming a stage fans out `stage_changed {rename: true}` to its contacts, which changes the name
+  but keeps `stage_changed_at`; a deleted stage stays on its contacts until they move.
+- **Companies.** `companies(tenant_id, name, domain, attrs)`; names are unique ignoring case. Linking publishes
+  `company_linked {company_id, name, attrs}`, which sets `company_id`, `company_name` and `company_<key>` and removes the
+  copies of a previous company. A server identify with `attrs.company` (a name) is followed by a `company_linked` event
+  (the company is created when new); the browser path never does this. Updating a company fans out `company_updated`
+  to its contacts in pages of 2,000 in the background, and deleting it fans out `company_unlinked`; both apply only to
+  contacts still linked to that company when the event is processed.
+- **Merges.** An identify with `props.anonymous_id` (browsers: `anon-` ids only), or `merge_requested {loser}` from
+  `POST /v1/contacts/merge`, folds the other contact into this one: its attributes fill gaps (the winner's values win,
+  tags are combined, points added, first/last seen widened, a winner with a company keeps only its own company's copies),
+  its Redis counters move, `contact_merged` makes the sink copy its ClickHouse history, and `contact_merged_into` marks it
+  `merged_into` the winner. The API adds `list_joined` events for the loser's static lists after the merge request, and a
+  short Redis reservation stops two merges of the same contacts from racing on different partitions. Later events of a
+  merged contact (and of contacts merged into it before) follow `merged_into` to the winner.
+
 ## Segment rules
 
 Segments are a JSON AST:
@@ -101,7 +139,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - Triggers: `segment_entered` (optionally ignoring backfill) and `event` (by name).
 - Nodes (see `internal/journey/graph.go`):
   - Actions: `send_email`, `send_sms`, `send_whatsapp` and `send_rcs` (optional SMS fallback), `send_push`, `send_inbox`,
-    `update_attr`, `update_tags`, `adjust_points`, `update_list`, `webhook`.
+    `update_attr`, `update_tags`, `adjust_points`, `update_list`, `change_stage` (a stage of the workspace), `webhook`.
   - Conditions: `condition` (segment or list membership), `check` (any segment rule, evaluated now), `split` (A/B/n by weight).
   - Waits and decisions: `wait` (a duration), `wait_until` (a date, or a time of day in the contact's zone),
     `wait_for_event` (yes when the event happens, no at the timeout), `message_decision` (yes when an earlier send step's own

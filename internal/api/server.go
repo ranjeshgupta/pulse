@@ -106,6 +106,9 @@ type Server struct {
 	sso *ssoProviders
 	ui  http.Handler
 
+	// bg runs background work (fan-out of company and stage changes); tests run it inline.
+	bg func(func())
+
 	mu        sync.Mutex
 	authCache map[string]cachedTenant
 	dataCache map[int64]cachedTracking
@@ -118,7 +121,7 @@ type cachedTenant struct {
 
 func New(d Deps) *Server {
 	return &Server{Deps: d, now: time.Now, sso: newSSOProviders(), authCache: map[string]cachedTenant{},
-		dataCache: map[int64]cachedTracking{}}
+		dataCache: map[int64]cachedTracking{}, bg: func(f func()) { go f() }}
 }
 
 // WithUI serves the web app for every path that is not an API route.
@@ -169,6 +172,7 @@ func (s *Server) Handler() http.Handler {
 	s.importRoutes(mux)
 	s.webRoutes(mux)
 	s.audienceRoutes(mux)
+	s.accountRoutes(mux)
 	s.reportRoutes(mux)
 	s.formRoutes(mux)
 	s.roleRoutes(mux)

@@ -311,7 +311,7 @@ func (s *Server) updateJourney(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	win, ok := req.valid(w, s.now())
-	if !ok {
+	if !ok || !s.journeyRefsOK(w, r, tenant, req.Graph) {
 		return
 	}
 	if err := s.uiStore().UpdateJourney(r.Context(), tenant, id, req.Name, req.Graph, win); err != nil {

@@ -64,6 +64,10 @@ export const BUILTIN_ATTRS: { key: string; label: string; date?: boolean; hint: 
   { key: "geo_city", label: "city (from IP)", hint: "From the visitor's IP, e.g. Pune" },
   { key: "geo_postal", label: "postal code", hint: "From the visitor's IP" },
   { key: "geo_timezone", label: "time zone", hint: "From the visitor's IP, e.g. Asia/Kolkata" },
+  { key: "stage", label: "lifecycle stage", hint: "The contact's stage, e.g. MQL" },
+  { key: "stage_changed_at", label: "stage changed", date: true, hint: "When the contact last moved to another stage" },
+  { key: "company_name", label: "company name", hint: "The linked company's name" },
+  { key: "company_id", label: "company", hint: "The linked company" },
 ];
 const ATTR_WORDS: Record<string, string> = Object.fromEntries(BUILTIN_ATTRS.map((a) => [a.key, a.label]));
 
@@ -158,7 +162,10 @@ export function problems(n: Node): string[] {
   }
   const out: string[] = [];
   if (!KEY_RE.test(n.attr.trim())) out.push("Enter an attribute name, e.g. city.");
+  else if (n.attr.trim() === "company_") out.push("Finish the company attribute's name, e.g. company_industry.");
   out.push(...compareProblems(n.attr || "attribute", n.op, n.value));
+  const pick = PICK_ATTRS[n.attr.trim()];
+  if (pick && (n.op === "eq" || n.op === "ne") && !n.value.trim()) out.push(`Choose a ${pick.noun}.`);
   return out;
 }
 
@@ -175,7 +182,13 @@ function compareProblems(name: string, op: AttrOp, value: string): string[] {
 }
 
 /** Names for objects rules point at by id, so sentences read as words. */
-export type RefNames = { forms?: Record<number, string>; broadcasts?: Record<number, string>; journeys?: Record<number, string> };
+export type RefNames = { forms?: Record<number, string>; broadcasts?: Record<number, string>; journeys?: Record<number, string>; companies?: Record<number, string> };
+
+/** Attributes whose value is picked from the workspace's stages (by name) or companies (by id). */
+export const PICK_ATTRS: Record<string, { noun: string }> = {
+  stage: { noun: "stage" },
+  company_id: { noun: "company" },
+};
 
 /** Event properties that hold the id of something with a name; the builder offers a picker for them. */
 export const PICK_PROPS: Record<string, { noun: string; refs: keyof RefNames | null }> = {
@@ -250,7 +263,23 @@ export function describe(r: Rule | null, names: Record<number, string> = {}, ref
     const op = EVENT_OPS.find((o) => o.op === r.op)?.label ?? r.op;
     return `did ${ev} ${op} ${r.count}× in ${r.days} days`;
   }
-  return describeCompare(ATTR_WORDS[r.attr] ?? r.attr, r.op, r.value);
+  return describeAttr(r, refs);
+}
+
+// describeAttr words attribute rules, with stages and companies in their own words:
+// "in stage “MQL”", "works at “Acme”", "company industry is Retail".
+function describeAttr(r: Extract<Rule, { attr: string }>, refs: RefNames): string {
+  const v = compareText(r.value);
+  if (r.attr === "stage" && (r.op === "eq" || r.op === "ne") && v) return `${r.op === "eq" ? "in" : "not in"} stage “${v}”`;
+  if (r.attr === "company_id") {
+    if (r.op === "exists") return "works at a company";
+    if ((r.op === "eq" || r.op === "ne") && v) {
+      const name = refs.companies?.[Number(v)];
+      return `${r.op === "eq" ? "works at" : "doesn't work at"} ${name ? `“${name}”` : `company #${v}`}`;
+    }
+  }
+  const words = ATTR_WORDS[r.attr] ?? (r.attr.startsWith("company_") ? `company ${r.attr.slice(8).replace(/_/g, " ")}` : r.attr);
+  return describeCompare(words, r.op, r.value);
 }
 
 // describeKnownEvent words an event Pulse records itself, e.g. "opened an email from campaign
@@ -353,6 +382,15 @@ export const PRESETS: { group: string; items: Preset[] }[] = [
     items: [
       { id: "journey_entered", label: "Entered a journey", hint: "Started it in the last N days", make: () => ev("journey_entered", 90, pickWhere("journey_id")) },
       { id: "journey_completed", label: "Completed a journey", hint: "Reached its end", make: () => ev("journey_completed", 90, pickWhere("journey_id")) },
+    ],
+  },
+  {
+    group: "Lifecycle and accounts",
+    items: [
+      { id: "stage", label: "In stage", hint: "A lifecycle stage, e.g. MQL", make: () => ({ kind: "attr", attr: "stage", op: "eq", value: "" }) },
+      { id: "stage_recent", label: "Changed stage recently", hint: "Moved to their stage in the last 7 days", make: () => ({ kind: "attr", attr: "stage_changed_at", op: "within_days", value: "7" }) },
+      { id: "company", label: "Works at company", hint: "Linked to one of your companies", make: () => ({ kind: "attr", attr: "company_id", op: "eq", value: "" }) },
+      { id: "company_attr", label: "Company attribute", hint: "A field of their company, e.g. industry is Retail", make: () => ({ kind: "attr", attr: "company_", op: "eq", value: "" }) },
     ],
   },
   {

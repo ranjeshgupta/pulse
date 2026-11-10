@@ -24,6 +24,8 @@ const I = {
   steps: <><path d="M2 3h13M4 7.5h9M6 12h5" /><path d="M8.5 13.5v2" /></>,
   shield: <><path d="M8.5 1.5 14.5 4v4.5c0 3.4-2.6 6-6 7-3.4-1-6-3.6-6-7V4z" /><path d="m6 8.5 1.8 1.8L11.2 7" /></>,
   log: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M8.5 4.5v4l2.8 1.8" /></>,
+  building: <><rect x="2.5" y="2" width="8" height="13.5" rx="1" /><path d="M10.5 7h4v8.5h-4M5 5h3M5 8h3M5 11h3" /></>,
+  stairs: <path d="M1.5 15h4v-4h4V7h4V3h2" />,
 };
 
 function Icon({ d }: { d: React.ReactNode }) {
@@ -43,6 +45,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
     title: "Audience",
     items: [
       { to: "/contacts", label: "Contacts", icon: I.people, need: ["contacts", "view"] },
+      { to: "/companies", label: "Companies", icon: I.building, need: ["contacts", "view"] },
       { to: "/segments", label: "Segments", icon: I.funnel, need: ["segments", "view"] },
       { to: "/lists", label: "Lists", icon: I.list, need: ["segments", "view"] },
       { to: "/forms", label: "Forms", icon: I.form, need: ["content", "view"] },
@@ -75,6 +78,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/settings/roles", label: "Roles", icon: I.shield, need: ["settings", "view"] },
       { to: "/settings/attributes", label: "Attributes", icon: I.tag, need: ["segments", "view"] },
       { to: "/settings/scoring", label: "Scoring", icon: I.star, need: ["segments", "view"] },
+      { to: "/settings/stages", label: "Stages", icon: I.stairs, need: ["segments", "view"] },
       { to: "/settings/access", label: "Sign-in & keys", icon: I.key, need: ["settings", "edit"] },
       { to: "/settings/webhooks", label: "Webhooks", icon: I.send, need: ["settings", "edit"] },
       { to: "/settings/data", label: "Data & privacy", icon: I.key, need: ["settings", "view"] },

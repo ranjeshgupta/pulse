@@ -13,7 +13,7 @@ func form() model.Form {
 	return model.Form{ID: 4, Name: "Webinar", Fields: []model.FormField{
 		{Key: "email", Label: "Email", Type: "email", Required: true},
 		{Key: "first_name", Label: "First name", Type: "text", Required: true, Progress: true},
-		{Key: "company_size", Label: "Company size", Type: "select", Options: []string{"1-10", "11-100"}, Progress: true},
+		{Key: "team_size", Label: "Team size", Type: "select", Options: []string{"1-10", "11-100"}, Progress: true},
 		{Key: "phone", Label: "Phone", Type: "tel"},
 		{Key: "seats", Label: "Seats", Type: "number"},
 		{Key: "utm_source", Type: "hidden", Default: "site"},
@@ -49,7 +49,7 @@ func TestValidate(t *testing.T) {
 
 func TestParseAndEvents(t *testing.T) {
 	f := form()
-	sub, errs := Parse(f, f.Fields, map[string]string{"email": "Asha@Example.com", "first_name": "Asha", "company_size": "11-100",
+	sub, errs := Parse(f, f.Fields, map[string]string{"email": "Asha@Example.com", "first_name": "Asha", "team_size": "11-100",
 		"phone": "+91 98123 45678", "seats": "3", ConsentField: "on"})
 	if len(errs) > 0 {
 		t.Fatal(errs)
@@ -73,12 +73,12 @@ func TestParseAndEvents(t *testing.T) {
 		t.Errorf("identify %+v / submitted %+v", evs[0], evs[4])
 	}
 
-	_, errs = Parse(f, f.Fields, map[string]string{"email": "not-an-email", "company_size": "huge", "phone": "98123", "seats": "x"})
+	_, errs = Parse(f, f.Fields, map[string]string{"email": "not-an-email", "team_size": "huge", "phone": "98123", "seats": "x"})
 	got := map[string]bool{}
 	for _, e := range errs {
 		got[e.Field] = true
 	}
-	for _, k := range []string{"email", "first_name", "company_size", "phone", "seats", ConsentField} {
+	for _, k := range []string{"email", "first_name", "team_size", "phone", "seats", ConsentField} {
 		if !got[k] {
 			t.Errorf("expected an error for %s, got %+v", k, errs)
 		}
@@ -87,13 +87,13 @@ func TestParseAndEvents(t *testing.T) {
 
 func TestProgressiveProfiling(t *testing.T) {
 	f := form()
-	known := Known(model.Contact{Email: "a@b.co", Attrs: map[string]any{"first_name": "Asha", "company_size": ""}})
+	known := Known(model.Contact{Email: "a@b.co", Attrs: map[string]any{"first_name": "Asha", "team_size": ""}})
 	keys := []string{}
 	for _, fd := range Visible(f, known) {
 		keys = append(keys, fd.Key)
 	}
-	// first_name is known and progressive: hidden. company_size is empty: shown. email always shows.
-	if strings.Join(keys, ",") != "email,company_size,phone,seats,utm_source" {
+	// first_name is known and progressive: hidden. team_size is empty: shown. email always shows.
+	if strings.Join(keys, ",") != "email,team_size,phone,seats,utm_source" {
 		t.Errorf("visible = %v", keys)
 	}
 	if len(Visible(f, nil)) != len(f.Fields) {

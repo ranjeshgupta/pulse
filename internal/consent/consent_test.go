@@ -44,4 +44,12 @@ func TestUpdates(t *testing.T) {
 	if !IsReserved("optout_whatsapp") || IsReserved("optout_newsletter") || IsReserved("city") {
 		t.Error("IsReserved")
 	}
+	for _, k := range []string{"stage", "stage_changed_at", "company_id", "company_name", "company_industry", "merged_into"} {
+		if !IsReserved(k) {
+			t.Errorf("%s should be reserved: only its events change it", k)
+		}
+	}
+	if IsReserved("company") || IsReserved("stages") {
+		t.Error("company (a name an identify can carry) and other keys are not reserved")
+	}
 }

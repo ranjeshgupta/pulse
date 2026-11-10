@@ -46,10 +46,10 @@ func TestJourneyPowerSteps(t *testing.T) {
 		"goal":    map[string]any{"event": "purchase"},
 		"entry":   "tag",
 		"nodes": map[string]any{
-			"tag":  map[string]any{"type": "update_attr", "attrs": map[string]any{"stage": "lead"}, "next": "hook"},
+			"tag":  map[string]any{"type": "update_attr", "attrs": map[string]any{"tier": "lead"}, "next": "hook"},
 			"hook": map[string]any{"type": "webhook", "url": "http://127.0.0.1:9/internal", "next": "wait"},
 			"wait": map[string]any{"type": "wait_for_event", "event": "cart_view", "seconds": 4, "yes": "chk", "no": "late"},
-			"chk":  map[string]any{"type": "check", "rule": map[string]any{"attr": "stage", "op": "eq", "value": "lead"}, "yes": "yes", "no": "x"},
+			"chk":  map[string]any{"type": "check", "rule": map[string]any{"attr": "tier", "op": "eq", "value": "lead"}, "yes": "yes", "no": "x"},
 			"yes":  map[string]any{"type": "send_sms", "template_id": thanks, "next": "x"},
 			"late": map[string]any{"type": "send_sms", "template_id": nudge, "next": "x"},
 			"x":    map[string]any{"type": "exit"},
@@ -89,7 +89,7 @@ func TestJourneyPowerSteps(t *testing.T) {
 		t.Errorf("stats = %v, want 1 converted and 2 completed", stats)
 	}
 	ct := jsonCall(t, c, "GET", "/v1/contacts/idle"+run, nil, 200)["contact"].(map[string]any)
-	if ct["attrs"].(map[string]any)["stage"] != "lead" {
+	if ct["attrs"].(map[string]any)["tier"] != "lead" {
 		t.Errorf("update step: attrs = %v", ct["attrs"])
 	}
 	if !slices.Contains(contactEvents(t, c, "idle"+run), "webhook_failed") {

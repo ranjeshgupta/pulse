@@ -145,6 +145,10 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 				delete(e.Attrs, k)
 			}
 		}
+		// A browser may only merge its own anonymous visitor into the user, never a known contact.
+		if aid := attr.String(e.Props["anonymous_id"]); aid != "" && !strings.HasPrefix(aid, "anon-") {
+			delete(e.Props, "anonymous_id")
+		}
 		if len(geo) > 0 {
 			if e.Attrs == nil {
 				e.Attrs = map[string]any{}

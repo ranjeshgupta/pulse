@@ -156,7 +156,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			}
 			id = n.Next
 
-		case NodeTags, NodePoints, NodeList:
+		case NodeTags, NodePoints, NodeList, NodeStage:
 			c, err := loadContact()
 			if err != nil {
 				return err
@@ -351,6 +351,8 @@ func audienceEvents(n Node) []event.Event {
 		return out
 	case NodePoints:
 		return []event.Event{{Name: event.PointsChanged, Props: map[string]any{"delta": n.Points}}}
+	case NodeStage:
+		return []event.Event{{Name: event.StageChanged, Props: map[string]any{"stage": n.Stage, "source": "journey"}}}
 	default:
 		name := event.ListJoined
 		if n.ListAction == "remove" {
