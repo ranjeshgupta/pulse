@@ -100,6 +100,9 @@ type Kind struct {
 type Deps struct {
 	HTTP    *http.Client
 	Sandbox SandboxSink
+	// AllowPrivate lets user-entered endpoints (the custom gateway) reach private addresses
+	// (local development only).
+	AllowPrivate bool
 }
 
 var kinds = map[string]Kind{}

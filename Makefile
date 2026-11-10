@@ -43,8 +43,14 @@ test:
 it:
 	$(GO) test -count=1 -tags integration ./internal/...
 
+# Tests that receive webhooks run in a container on the compose network, so Pulse can call them
+# without opening anything on the host.
 e2e:
 	$(GO) test -count=1 -tags e2e -v ./test/e2e/...
+	docker run --rm --name pulse-e2e-hooks --network pulse_default -u $(shell id -u):$(shell id -g) -v $(CURDIR):/src -w /src \
+		-e GOCACHE=/src/.cache/go-build -e GOMODCACHE=/src/.cache/mod -e CGO_ENABLED=0 \
+		-e PULSE_API=http://pulse:7070 -e PULSE_MAILPIT=http://mailpit:8025 -e PULSE_HOOK_HOST=pulse-e2e-hooks \
+		$(GO_IMAGE) go test -count=1 -tags e2e -v -run 'TestOutboundWebhooks|TestWebPushAndGateway' ./test/e2e/...
 
 up:
 	$(COMPOSE) up -d --build

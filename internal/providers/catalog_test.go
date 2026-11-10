@@ -44,6 +44,9 @@ func TestNewWithRequiredSettings(t *testing.T) {
 			for _, f := range k.Config {
 				if f.Required {
 					config[f.Key] = "x"
+					if f.Key == "url" {
+						config[f.Key] = "https://gateway.example.com/pulse"
+					}
 				}
 			}
 			for _, f := range k.Secrets {

@@ -120,6 +120,26 @@ export function registerPushToken(token: string) {
   return post("/v1/web/devices", { external_id: currentId(), token, user_hash: userHash() });
 }
 
+/**
+ * enablePush asks the visitor for notification permission and subscribes this browser to the
+ * workspace's web push (no Firebase needed). Your site must serve a service worker file, by
+ * default /pulse-sw.js, containing: importScripts("https://YOUR-PULSE/sdk/pulse-sw.js");
+ * Call it from a user gesture (a click), as browsers require. Resolves to true when subscribed.
+ */
+export async function enablePush(opts: { serviceWorker?: string } = {}): Promise<boolean> {
+  if (!cfg || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
+  if ((await Notification.requestPermission()) !== "granted") return false;
+  const res = await fetch(`${cfg.host}/v1/web/push-config?site_key=${encodeURIComponent(cfg.siteKey)}`).catch(() => undefined);
+  if (!res?.ok) return false;
+  const { vapid_public_key } = (await res.json()) as { vapid_public_key: string };
+  const reg = await navigator.serviceWorker.register(opts.serviceWorker ?? "/pulse-sw.js");
+  await navigator.serviceWorker.ready;
+  const key = Uint8Array.from(atob(vapid_public_key.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(vapid_public_key.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+  const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }));
+  await registerPushToken(JSON.stringify(sub));
+  return true;
+}
+
 // ---------- on-site content ----------
 
 const shown = new Set<number>();

@@ -4,6 +4,7 @@ package pg
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -57,6 +58,13 @@ var ErrJourneyActive = errorString("pause the journey before changing it")
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// IsUserError reports whether err is a message meant for the person making the change
+// (a conflict like "people still have this role"), not an internal failure.
+func IsUserError(err error) bool {
+	var e errorString
+	return errors.As(err, &e)
+}
 
 // UpdateJourney saves a new graph. Running journeys must be paused first, so contacts in flight
 // never find their current node gone.

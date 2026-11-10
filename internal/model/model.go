@@ -4,6 +4,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"pulse/internal/auth"
 )
 
 type Tenant struct {
@@ -34,6 +36,18 @@ type Principal struct {
 	TenantID int64
 	UserID   int64
 	Role     string
+	Perms    auth.Perms
+	Actor    string // for the audit log: the user's email, or "API key"
+}
+
+// Role is a workspace's custom role.
+type Role struct {
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Permissions auth.Perms `json:"permissions"`
+	Users       int        `json:"users"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // SSOConfig is a workspace's OIDC settings. The client secret is write-only through the API.
@@ -344,4 +358,67 @@ type FunnelStep struct {
 	Event string          `json:"event"`
 	Where json.RawMessage `json:"where,omitempty"` // []segment.PropFilter
 	Label string          `json:"label,omitempty"`
+}
+
+// AuditEntry is one change or sign-in in a workspace's audit log.
+type AuditEntry struct {
+	ID         int64           `json:"id"`
+	At         time.Time       `json:"at"`
+	UserID     int64           `json:"user_id,omitempty"`
+	Actor      string          `json:"actor"`
+	Action     string          `json:"action"` // "PUT /v1/broadcasts/{id}", "sign-in", ...
+	ObjectType string          `json:"object_type"`
+	ObjectID   string          `json:"object_id"`
+	Status     int             `json:"status"`
+	IP         string          `json:"ip"`
+	Detail     json.RawMessage `json:"detail,omitempty"` // the request, secrets removed
+}
+
+type AuditFilter struct {
+	Before     int64 // entries older than this id (paging)
+	UserID     int64
+	ObjectType string
+	Limit      int
+}
+
+// Webhook is an outbound webhook: events posted to the customer's URL.
+type Webhook struct {
+	ID        int64     `json:"id"`
+	TenantID  int64     `json:"tenant_id"`
+	Name      string    `json:"name"`
+	URL       string    `json:"url"`
+	Events    []string  `json:"events"` // event names, or "*"
+	Active    bool      `json:"active"`
+	Secret    string    `json:"secret,omitempty"` // shown to admins; signs every delivery
+	Sealed    []byte    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type WebhookDelivery struct {
+	ID         int64     `json:"id"`
+	EventID    string    `json:"event_id"`
+	EventName  string    `json:"event_name"`
+	At         time.Time `json:"at"`
+	Attempt    int       `json:"attempt"`
+	Status     int       `json:"status"`
+	Error      string    `json:"error,omitempty"`
+	DurationMS int       `json:"duration_ms"`
+	Final      bool      `json:"final"`
+}
+
+// Import is a background CSV import.
+type Import struct {
+	ID         int64           `json:"id"`
+	Filename   string          `json:"filename"`
+	ListID     int64           `json:"list_id,omitempty"`
+	Status     string          `json:"status"` // uploading | queued | running | done | failed | cancelled
+	Bytes      int64           `json:"bytes"`
+	RowsDone   int64           `json:"rows_done"`
+	RowsFailed int64           `json:"rows_failed"`
+	Errors     json.RawMessage `json:"errors"`
+	Message    string          `json:"message,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	StartedAt  *time.Time      `json:"started_at,omitempty"`
+	FinishedAt *time.Time      `json:"finished_at,omitempty"`
 }

@@ -161,10 +161,16 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID, ten
 // SessionPrincipal resolves a live session to its user.
 func (s *Store) SessionPrincipal(ctx context.Context, tokenHash string) (model.Principal, error) {
 	var p model.Principal
+	var custom []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT u.tenant_id, u.id, u.role FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).Scan(&p.TenantID, &p.UserID, &p.Role)
-	return p, notFound(err)
+		SELECT u.tenant_id, u.id, u.role, u.email, r.permissions FROM sessions s JOIN users u ON u.id = s.user_id
+		LEFT JOIN roles r ON r.tenant_id = u.tenant_id AND u.role = 'role:' || r.id
+		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).Scan(&p.TenantID, &p.UserID, &p.Role, &p.Actor, &custom)
+	if err != nil {
+		return p, notFound(err)
+	}
+	p.Perms = rolePerms(p.Role, custom)
+	return p, nil
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
@@ -202,4 +208,34 @@ func (s *Store) PutSSO(ctx context.Context, tenant int64, c model.SSOConfig, sea
 			client_secret_enc = coalesce($6, tenant_sso.client_secret_enc)`,
 		tenant, c.Enabled, c.Issuer, c.DiscoveryURL, c.ClientID, sealedSecret, c.AutoCreateUsers, c.DefaultRole)
 	return err
+}
+
+func (s *Store) TenantByBounceToken(ctx context.Context, token string) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(ctx, `SELECT id FROM tenants WHERE bounce_token = $1 AND $1 <> ''`, token).Scan(&id)
+	return id, notFound(err)
+}
+
+func (s *Store) BounceToken(ctx context.Context, tenant int64) (string, error) {
+	var t string
+	err := s.db.QueryRow(ctx, `SELECT bounce_token FROM tenants WHERE id = $1`, tenant).Scan(&t)
+	return t, notFound(err)
+}
+
+// VAPIDKeys returns the workspace's web push keys (private sealed); empty until generated.
+func (s *Store) VAPIDKeys(ctx context.Context, tenant int64) (string, []byte, error) {
+	var pub string
+	var priv []byte
+	err := s.db.QueryRow(ctx, `SELECT vapid_public, vapid_private FROM tenants WHERE id = $1`, tenant).Scan(&pub, &priv)
+	return pub, priv, notFound(err)
+}
+
+// SetVAPIDKeys stores a key pair unless the workspace already has one; it returns the public key in use.
+func (s *Store) SetVAPIDKeys(ctx context.Context, tenant int64, pub string, sealedPriv []byte) (string, error) {
+	_, err := s.db.Exec(ctx, `UPDATE tenants SET vapid_public = $2, vapid_private = $3 WHERE id = $1 AND vapid_public = ''`, tenant, pub, sealedPriv)
+	if err != nil {
+		return "", err
+	}
+	cur, _, err := s.VAPIDKeys(ctx, tenant)
+	return cur, err
 }

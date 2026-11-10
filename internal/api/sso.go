@@ -204,6 +204,7 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.auditSignIn(r, u.TenantID, u.ID, u.Email, "sign-in (SSO)", true)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

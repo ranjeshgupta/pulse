@@ -142,6 +142,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		hash = dummyHash
 	}
 	if !auth.CheckPassword(hash, req.Password) || u.PasswordHash == "" {
+		s.auditSignIn(r, u.TenantID, u.ID, u.Email, "sign-in", false) // only for a known user
 		writeErr(w, http.StatusUnauthorized, invalid)
 		return
 	}
@@ -149,6 +150,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.auditSignIn(r, u.TenantID, u.ID, u.Email, "sign-in", true)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
@@ -191,7 +193,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p model.Principal) {
 		s.fail(w, err)
 		return
 	}
-	out := map[string]any{"workspace": t, "role": p.Role}
+	out := map[string]any{"workspace": t, "role": p.Role, "permissions": p.Perms}
 	if p.UserID > 0 {
 		u, err := s.Store.User(r.Context(), p.TenantID, p.UserID)
 		if err != nil {
@@ -229,8 +231,11 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, p model.Prin
 		writeErr(w, http.StatusBadRequest, "a valid email is required")
 		return
 	}
-	if req.Role != auth.RoleAdmin && req.Role != auth.RoleEditor {
-		writeErr(w, http.StatusBadRequest, "role must be admin or editor")
+	if ok, err := s.validRole(r.Context(), p.TenantID, req.Role); err != nil {
+		s.fail(w, err)
+		return
+	} else if !ok {
+		writeErr(w, http.StatusBadRequest, "choose a role: admin, editor, viewer or a custom role")
 		return
 	}
 	u := model.User{TenantID: p.TenantID, Email: req.Email, Name: req.Name, Role: req.Role}
@@ -297,8 +302,8 @@ func (s *Server) putSSO(w http.ResponseWriter, r *http.Request, p model.Principa
 	if c.DefaultRole == "" {
 		c.DefaultRole = auth.RoleEditor
 	}
-	if c.DefaultRole != auth.RoleAdmin && c.DefaultRole != auth.RoleEditor {
-		writeErr(w, http.StatusBadRequest, "default_role must be admin or editor")
+	if ok, err := s.validRole(r.Context(), p.TenantID, c.DefaultRole); err != nil || !ok {
+		writeErr(w, http.StatusBadRequest, "default_role must be a built-in or custom role")
 		return
 	}
 	for _, u := range []string{c.Issuer, c.DiscoveryURL} {

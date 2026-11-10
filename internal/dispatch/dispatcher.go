@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strconv"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/attr"
 	"pulse/internal/auth"
 	"pulse/internal/channel"
 	"pulse/internal/consent"
@@ -53,6 +55,8 @@ type Store interface {
 	DeleteDevice(ctx context.Context, tenant int64, token string) error
 	DefaultProvider(ctx context.Context, tenant int64, ch string) (model.Provider, []byte, error)
 	DeliveryRules(ctx context.Context, tenant int64) (delivery.Rules, error)
+	// VAPIDKeys returns the workspace's web push key pair (private key sealed); empty when unset.
+	VAPIDKeys(ctx context.Context, tenant int64) (public string, sealedPrivate []byte, err error)
 }
 
 type Config struct {
@@ -62,6 +66,7 @@ type Config struct {
 	Box          *auth.Box // opens provider secrets
 	Providers    providers.Deps
 	Tracking     *tracking.Codec // email open/click tracking and unsubscribe links; nil disables
+	PushSubject  string          // web push contact (mailto: or https:), required by push services
 }
 
 type Dispatcher struct {
@@ -155,6 +160,9 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	if consent.OptedOut(c.Attrs, m.Channel) {
 		return d.finish(ctx, sentKey, m, c, "suppressed", "contact unsubscribed from "+m.Channel)
 	}
+	if m.Channel == channel.Email && attr.String(c.Attrs[consent.AttrEmailBounced]) == "true" {
+		return d.finish(ctx, sentKey, m, c, "suppressed", "the email address bounced")
+	}
 	if t.Channel != m.Channel {
 		return d.finish(ctx, sentKey, m, c, "failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
 	}
@@ -206,11 +214,21 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	if token != "" {
 		rendered.HTML = d.cfg.Tracking.Instrument(rendered.HTML, token)
 	}
-	p, err := d.sender(ctx, m.TenantID, m.Channel)
-	if errors.Is(err, pg.ErrNotFound) {
-		return d.finish(ctx, sentKey, m, c, "failed", "no "+m.Channel+" provider configured")
-	} else if err != nil {
-		return err
+	// Browser push subscriptions go through Web Push with the workspace's VAPID keys; everything
+	// else through the channel's default provider (fetched only when needed).
+	var p providers.Provider
+	for _, tg := range targets {
+		if m.Channel == channel.Push && providers.IsWebPushSubscription(tg.to) {
+			continue
+		}
+		var err error
+		p, err = d.sender(ctx, m.TenantID, m.Channel)
+		if errors.Is(err, pg.ErrNotFound) {
+			return d.finish(ctx, sentKey, m, c, "failed", "no "+m.Channel+" provider configured")
+		} else if err != nil {
+			return err
+		}
+		break
 	}
 	if err := d.limiters[m.Channel].Wait(ctx, "rl:"+m.Channel+":"+strconv.FormatInt(m.TenantID, 10)); err != nil {
 		return err
@@ -219,7 +237,16 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	var sent, unreachable int
 	var lastErr error
 	for _, tg := range targets {
-		res, err := p.Send(ctx, providers.Outbound{
+		via := p
+		if m.Channel == channel.Push && providers.IsWebPushSubscription(tg.to) {
+			wp, err := d.webPusher(ctx, m.TenantID)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			via = wp
+		}
+		res, err := via.Send(ctx, providers.Outbound{
 			TenantID: m.TenantID, MessageID: m.ID, Channel: m.Channel, To: tg.to, Platform: tg.platform,
 			From: d.cfg.From, Rendered: rendered, Headers: headers,
 		})
@@ -250,6 +277,8 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 			d.countSend(ctx, m)
 		}
 		return d.finish(ctx, sentKey, m, c, "sent", "")
+	case lastErr == nil:
+		return d.finish(ctx, sentKey, m, c, "failed", "nothing was sent")
 	case unreachable == len(targets):
 		return d.unreachable(ctx, sentKey, m, c, lastErr.Error())
 	default:
@@ -566,6 +595,36 @@ func (d *Dispatcher) buildSender(ctx context.Context, tenant int64, ch string) (
 		return nil, err
 	}
 	return providers.New(cfg.Kind, d.cfg.Providers, cfg.Config, secrets)
+}
+
+// webPusher sends to browser push subscriptions with the workspace's VAPID keys.
+func (d *Dispatcher) webPusher(ctx context.Context, tenant int64) (providers.Provider, error) {
+	key := strconv.FormatInt(tenant, 10) + ":webpush"
+	d.mu.Lock()
+	c, ok := d.senders[key]
+	d.mu.Unlock()
+	if ok && d.now().Before(c.exp) {
+		return c.v, nil
+	}
+	pub, sealed, err := d.store.VAPIDKeys(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	if pub == "" || d.cfg.Box == nil {
+		return nil, providers.Permanent("web push isn't set up for this workspace")
+	}
+	priv, err := d.cfg.Box.Open(sealed)
+	if err != nil {
+		return nil, providers.Permanent("web push keys can't be opened: " + err.Error())
+	}
+	wp := &providers.WebPush{HTTP: d.cfg.Providers.HTTP, PublicKey: pub, PrivateKey: string(priv), Subject: d.cfg.PushSubject}
+	if wp.HTTP == nil {
+		wp.HTTP = &http.Client{Timeout: 15 * time.Second}
+	}
+	d.mu.Lock()
+	d.senders[key] = cached[providers.Provider]{v: wp, exp: d.now().Add(cacheTTL)}
+	d.mu.Unlock()
+	return wp, nil
 }
 
 // OpenSecrets decrypts a provider's stored secrets (a sealed JSON object).

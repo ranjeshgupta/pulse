@@ -14,6 +14,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/auth"
 	"pulse/internal/event"
 	"pulse/internal/model"
 	"pulse/internal/schedule"
@@ -94,6 +95,7 @@ func (m *memStore) CreateSession(_ context.Context, hash string, userID, tenantI
 
 func (m *memStore) SessionPrincipal(_ context.Context, hash string) (model.Principal, error) {
 	if p, ok := m.sessions[hash]; ok {
+		p.Perms, _ = auth.BuiltinPerms(p.Role)
 		return p, nil
 	}
 	return model.Principal{}, pg.ErrNotFound

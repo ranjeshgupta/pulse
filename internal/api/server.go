@@ -91,6 +91,8 @@ type Deps struct {
 	Log         *slog.Logger
 	// AllowPrivateSSO lets SSO discovery and token calls reach private addresses (internal IdPs).
 	AllowPrivateSSO bool
+	// AllowPrivateWebhooks lets webhook tests reach private addresses (local development).
+	AllowPrivateWebhooks bool
 	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
 	TrustProxy bool
 }
@@ -164,6 +166,12 @@ func (s *Server) Handler() http.Handler {
 	s.audienceRoutes(mux)
 	s.reportRoutes(mux)
 	s.formRoutes(mux)
+	s.roleRoutes(mux)
+	s.webhookRoutes(mux)
+	s.backgroundImportRoutes(mux)
+	s.bounceRoutes(mux)
+	s.webPushRoutes(mux)
+	s.auditRoutes(mux)
 	s.preferenceRoutes(mux)
 
 	if s.ui != nil {
@@ -176,8 +184,11 @@ func (s *Server) Handler() http.Handler {
 func bodyLimit(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := int64(maxBody)
-		if r.URL.Path == "/v1/contacts/import" {
+		switch r.URL.Path {
+		case "/v1/contacts/import":
 			limit = maxImportBytes
+		case "/v1/imports":
+			limit = maxBackgroundSize
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		h.ServeHTTP(w, r)
@@ -210,7 +221,8 @@ func (s *Server) authenticate(r *http.Request) (model.Principal, error) {
 		if err != nil {
 			return model.Principal{}, err
 		}
-		return model.Principal{TenantID: id, Role: auth.RoleAdmin}, nil
+		perms, _ := auth.BuiltinPerms(auth.RoleAdmin)
+		return model.Principal{TenantID: id, Role: auth.RoleAdmin, Perms: perms, Actor: "API key"}, nil
 	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
@@ -265,14 +277,23 @@ func (s *Server) authed(h principalHandler) http.HandlerFunc {
 		case err != nil:
 			s.fail(w, err)
 		default:
-			h(w, r, p)
+			if n := required(r); n.area != "" && !p.Perms.Allows(n.area, n.level) {
+				writeErr(w, http.StatusForbidden, "your role doesn't allow this ("+n.level.String()+" access to "+n.area+" is needed)")
+				return
+			}
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				h(w, r, p)
+				return
+			}
+			s.audited(w, r, p, func(w http.ResponseWriter, r *http.Request) { h(w, r, p) })
 		}
 	}
 }
 
+// admin is for workspace settings: it needs settings edit access (admins, and custom roles given it).
 func (s *Server) admin(h principalHandler) http.HandlerFunc {
 	return s.authed(func(w http.ResponseWriter, r *http.Request, p model.Principal) {
-		if p.Role != auth.RoleAdmin {
+		if !p.Perms.Allows(auth.AreaSettings, auth.Edit) {
 			writeErr(w, http.StatusForbidden, "admins only")
 			return
 		}

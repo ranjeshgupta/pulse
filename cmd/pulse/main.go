@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"pulse/internal/config"
 	"pulse/internal/dispatch"
 	"pulse/internal/event"
+	"pulse/internal/importer"
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
 	"pulse/internal/profile"
@@ -44,6 +46,7 @@ import (
 	"pulse/internal/store/ch"
 	"pulse/internal/store/pg"
 	"pulse/internal/tracking"
+	"pulse/internal/webhooks"
 	"pulse/migrations"
 	"pulse/web"
 )
@@ -56,13 +59,14 @@ var roles = map[string]func(context.Context, *deps) error{
 	"segments": runSegments,
 	"journeys": runJourneys,
 	"dispatch": runDispatch,
+	"webhooks": runWebhooks,
 	"all":      runAll,
 }
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if len(os.Args) < 2 || roles[os.Args[1]] == nil {
-		fmt.Fprintln(os.Stderr, "usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|all")
+		fmt.Fprintln(os.Stderr, "usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|all")
 		os.Exit(2)
 	}
 	role := os.Args[1]
@@ -219,7 +223,7 @@ func runAPI(ctx context.Context, d *deps) error {
 	server := api.New(api.Deps{
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
-		AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy,
+		AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box),
 	})
 	srv := &http.Server{
@@ -334,6 +338,7 @@ func runJourneys(ctx context.Context, d *deps) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return eng.RunTimers(ctx) })
 	g.Go(func() error { return runBroadcasts(ctx, pgs, d, prod) })
+	g.Go(func() error { return runImports(ctx, pgs, d, prod) })
 	g.Go(func() error { return c.Run(ctx, eng.Handle) })
 	return g.Wait()
 }
@@ -378,8 +383,9 @@ func runDispatch(ctx context.Context, d *deps) error {
 		EmailDefault: &providers.SMTP{Addr: d.cfg.SMTPAddr},
 		Rates:        map[string]float64{channel.Email: d.cfg.EmailRate},
 		Box:          box,
-		Providers:    providers.Deps{Sandbox: pgs},
+		Providers:    providers.Deps{Sandbox: pgs, AllowPrivate: d.cfg.AllowPrivateWebhooks},
 		Tracking:     d.tracking(box),
+		PushSubject:  pushSubject(d.cfg.PublicURL),
 	})
 	c, err := d.consumer("pulse-dispatch", dispatch.Topics()...)
 	if err != nil {
@@ -392,6 +398,62 @@ func runDispatch(ctx context.Context, d *deps) error {
 	return g.Wait()
 }
 
+// pushSubject is the contact web push services may use: the public site when it's https,
+// otherwise a placeholder address (local development).
+func pushSubject(publicURL string) string {
+	if strings.HasPrefix(publicURL, "https://") {
+		return publicURL
+	}
+	return "mailto:push@pulse.invalid"
+}
+
+// runImports streams queued background imports through the pipeline.
+func runImports(ctx context.Context, pgs *pg.Store, d *deps, pub kafka.Publisher) error {
+	j := &importer.Jobs{Store: pgs, Pub: pub, Log: d.log}
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for {
+		if err := j.RunDue(ctx); err != nil && ctx.Err() == nil {
+			d.log.Error("imports", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
+}
+
+// runWebhooks posts events to workspaces' outbound webhooks.
+func runWebhooks(ctx context.Context, d *deps) error {
+	pgs, err := d.pg(ctx)
+	if err != nil {
+		return err
+	}
+	box, err := d.box()
+	if err != nil {
+		return err
+	}
+	open := func(sealed []byte) (string, error) {
+		if box == nil {
+			return "", errors.New("no secret key")
+		}
+		b, err := box.Open(sealed)
+		return string(b), err
+	}
+	wk := &webhooks.Worker{Store: webhooks.Opened(pgs, open), RDB: d.redis(),
+		Client: safehttp.Client(10*time.Second, d.cfg.AllowPrivateWebhooks), Log: d.log}
+	c, err := d.consumer("pulse-webhooks", webhooks.Topics()...)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return c.RunPartitionBatches(ctx, wk.HandleBatch) })
+	g.Go(func() error { return wk.RunRetries(ctx) })
+	return g.Wait()
+}
+
 func runAll(ctx context.Context, d *deps) error {
 	if err := runMigrate(ctx, d); err != nil {
 		return err
@@ -401,7 +463,7 @@ func runAll(ctx context.Context, d *deps) error {
 		run  func(context.Context, *deps) error
 	}{
 		{"api", runAPI}, {"profile", runProfile}, {"chsink", runCHSink},
-		{"segments", runSegments}, {"journeys", runJourneys}, {"dispatch", runDispatch},
+		{"segments", runSegments}, {"journeys", runJourneys}, {"dispatch", runDispatch}, {"webhooks", runWebhooks},
 	}
 	g, ctx := errgroup.WithContext(ctx)
 	for _, w := range workers {

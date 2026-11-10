@@ -162,8 +162,16 @@ func (s *Server) webDevice(w http.ResponseWriter, r *http.Request) {
 		ExternalID string `json:"external_id"`
 		Token      string `json:"token"`
 		UserHash   string `json:"user_hash"`
+		Platform   string `json:"platform"` // web (default) | android | ios: the mobile SDKs use this API too
 	}
 	if !decode(w, r, &req) {
+		return
+	}
+	if req.Platform == "" {
+		req.Platform = "web"
+	}
+	if req.Platform != "web" && req.Platform != "android" && req.Platform != "ios" {
+		writeErr(w, http.StatusBadRequest, "platform must be web, android or ios")
 		return
 	}
 	if !webIdentityOK(t, req.ExternalID, req.UserHash) {
@@ -179,7 +187,7 @@ func (s *Server) webDevice(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if err := s.chStore().UpsertDevice(r.Context(), t.ID, found[req.ExternalID].ID, model.Device{Token: req.Token, Platform: "web"}); err != nil {
+	if err := s.chStore().UpsertDevice(r.Context(), t.ID, found[req.ExternalID].ID, model.Device{Token: req.Token, Platform: req.Platform}); err != nil {
 		s.fail(w, err)
 		return
 	}

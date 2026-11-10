@@ -22,6 +22,7 @@ import (
 
 	"pulse/internal/attr"
 	"pulse/internal/event"
+	"pulse/internal/importer"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/profile"
@@ -413,30 +414,7 @@ func (s *Server) deleteAttribute(w http.ResponseWriter, r *http.Request, tenant 
 // coerceAttrs converts imported text to the defined types, so "42" becomes a number and "yes" a
 // boolean. Values that don't parse are reported, not stored as the wrong type.
 func coerceAttrs(attrs map[string]any, types map[string]string) error {
-	for k, v := range attrs {
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		switch types[k] {
-		case "number":
-			f, ok := attr.Number(s)
-			if !ok {
-				return fmt.Errorf("%s: %q is not a number", k, s)
-			}
-			attrs[k] = f
-		case "boolean":
-			switch strings.ToLower(s) {
-			case "true", "yes", "1", "y":
-				attrs[k] = true
-			case "false", "no", "0", "n":
-				attrs[k] = false
-			default:
-				return fmt.Errorf("%s: %q is not yes/no", k, s)
-			}
-		}
-	}
-	return nil
+	return importer.CoerceAttrs(attrs, types)
 }
 
 // ---- identity verification ----

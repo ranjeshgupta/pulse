@@ -13,6 +13,10 @@ const (
 	Unsubscribed = "unsubscribed" // props: {channel: email|sms|whatsapp|rcs|push|all, source: ...}
 	Resubscribed = "resubscribed"
 	All          = "all"
+
+	// AttrEmailBounced marks an address that hard-bounced: email to it is suppressed. Set by bounce
+	// webhooks; a server can clear it (false) once the address is fixed.
+	AttrEmailBounced = "email_bounced"
 )
 
 // Key is the attribute that records an opt-out from ch (or from everything, for All).
@@ -23,7 +27,7 @@ func Key(ch string) string { return "optout_" + ch }
 // Tags, points and merged_into are reserved the same way: they change only through their events.
 func IsReserved(attrName string) bool {
 	switch attrName {
-	case Key(All), "tags", "points", "merged_into":
+	case Key(All), "tags", "points", "merged_into", AttrEmailBounced:
 		return true
 	}
 	for _, ch := range channel.All {
