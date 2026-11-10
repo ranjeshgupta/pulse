@@ -34,6 +34,10 @@ type EngineStore interface {
 	EnrollmentStatus(ctx context.Context, enrollment int64) (string, error)
 	EventWaits(ctx context.Context, tenant int64, contact uint32, eventName string) ([]pg.EventWait, error)
 	Convert(ctx context.Context, tenant int64, contact uint32, journeys []int64) (int, error)
+	// SetEnrollmentForm records the form submission an enrollment started or resumed with.
+	SetEnrollmentForm(ctx context.Context, enrollment int64, props map[string]any) error
+	// RemoveFromJourneys ends a contact's live enrollments in these journeys (change_journey steps).
+	RemoveFromJourneys(ctx context.Context, tenant int64, contact uint32, journeys []int64) (int, error)
 }
 
 type active struct {
@@ -105,6 +109,8 @@ func (e *Engine) Refresh(ctx context.Context) error {
 			name := n.Event
 			if n.Type == NodeMessageDecision {
 				name, _ = g.MessageEvent(0, n)
+			} else if d := DecisionEvent(n); d != "" {
+				name = d
 			} else if n.Type != NodeWaitForEvent {
 				continue
 			}
@@ -155,6 +161,11 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 				return err
 			}
 		}
+		if ev.Name == EventJourneyChange {
+			if err := e.changeJourneys(ctx, idx, ev); err != nil {
+				return err
+			}
+		}
 		if idx.awaited[ev.TenantID][ev.Name] {
 			waits, err := e.store.EventWaits(ctx, ev.TenantID, ev.ContactID, ev.Name)
 			if err != nil {
@@ -168,11 +179,20 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 				if j == nil {
 					continue // paused: the contact keeps waiting, and the timeout still applies
 				}
+				if !j.graph.Nodes[w.WaitNode].Matches(ev.Props) {
+					continue // another form, page, asset, device, slot or link than the step waits for
+				}
 				won, err := e.store.Resume(ctx, w.Enrollment.ID, w.WaitNode, w.YesNode)
 				if err != nil {
 					return err
 				}
 				if won {
+					e.exec.count(ctx, w.Enrollment, w.WaitNode, "yes")
+					if ev.Name == EventFormSubmitted {
+						if err := e.store.SetEnrollmentForm(ctx, w.Enrollment.ID, ev.Props); err != nil {
+							return err
+						}
+					}
 					if err := e.exec.Run(ctx, j.graph, w.Enrollment, w.YesNode); err != nil {
 						return err // the safety timer retries it
 					}
@@ -180,7 +200,7 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 			}
 		}
 		for _, j := range idx.byEvent[ev.TenantID][ev.Name] {
-			if err := e.enroll(ctx, j, ev.ContactID); err != nil {
+			if err := e.enrollWith(ctx, j, ev.ContactID, &ev); err != nil {
 				return err
 			}
 		}
@@ -191,6 +211,12 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 // enroll starts a contact on a journey, if the journey's schedule is live. Contacts already inside
 // keep going after the end: the schedule controls who enters, not who finishes.
 func (e *Engine) enroll(ctx context.Context, j *active, contact uint32) error {
+	return e.enrollWith(ctx, j, contact, nil)
+}
+
+// enrollWith is enroll; a form_submitted trigger event is recorded on the enrollment for form
+// field conditions.
+func (e *Engine) enrollWith(ctx context.Context, j *active, contact uint32, ev *event.Event) error {
 	if !(schedule.Window{Start: j.StartAt, End: j.EndAt}).Active(time.Now()) {
 		return nil
 	}
@@ -198,10 +224,43 @@ func (e *Engine) enroll(ctx context.Context, j *active, contact uint32) error {
 	if err != nil || !run {
 		return err
 	}
+	if ev != nil && ev.Name == EventFormSubmitted {
+		if err := e.store.SetEnrollmentForm(ctx, en.ID, ev.Props); err != nil {
+			return err
+		}
+	}
 	if err := e.exec.Milestone(ctx, en, "journey_entered"); err != nil {
 		return err
 	}
 	return e.exec.Run(ctx, j.graph, en, j.graph.Entry)
+}
+
+// changeJourneys applies a change_journey step: removes the contact from journeys, then enrolls
+// them in active ones (their schedule and re-entry rules apply). Inactive journeys are skipped.
+func (e *Engine) changeJourneys(ctx context.Context, idx *index, ev event.Event) error {
+	ids := func(k string) []int64 {
+		var out []int64
+		list, _ := ev.Props[k].([]any)
+		for _, v := range list {
+			if f, ok := attr.Number(attr.String(v)); ok && f > 0 {
+				out = append(out, int64(f))
+			}
+		}
+		return out
+	}
+	if rm := ids("remove"); len(rm) > 0 {
+		if _, err := e.store.RemoveFromJourneys(ctx, ev.TenantID, ev.ContactID, rm); err != nil {
+			return err
+		}
+	}
+	for _, id := range ids("add") {
+		if j := idx.byID[id]; j != nil && j.TenantID == ev.TenantID {
+			if err := e.enroll(ctx, j, ev.ContactID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // RunTimers refreshes the journey index and fires due timers until ctx is done.
@@ -246,6 +305,9 @@ func (e *Engine) fire(t model.Timer) error {
 		won, err := e.store.Resume(ctx, t.Enrollment.ID, t.WaitNode, t.Node)
 		if err != nil || !won {
 			return err
+		}
+		if n := j.graph.Nodes[t.WaitNode]; n.No != "" && n.No == t.Node {
+			e.exec.count(ctx, t.Enrollment, t.WaitNode, "no") // a decision timed out
 		}
 	} else {
 		// A safety timer (or one from before waits were recorded): retry unless it already finished.

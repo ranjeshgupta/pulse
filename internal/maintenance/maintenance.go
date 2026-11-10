@@ -114,3 +114,13 @@ func (c *Cleaner) Loop(ctx context.Context, every time.Duration) error {
 		}
 	}
 }
+
+// DeleteContacts permanently deletes contacts the same way cleanup does: their ClickHouse events,
+// snapshots and memberships first (if that fails nothing is deleted yet), then their Postgres rows
+// (profile, devices, inbox, journey state). Used by the journey step "delete contact".
+func (c *Cleaner) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) error {
+	if err := c.Analytics.DeleteContacts(ctx, tenant, ids); err != nil {
+		return err
+	}
+	return c.Store.DeleteContacts(ctx, tenant, ids)
+}

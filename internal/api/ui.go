@@ -57,7 +57,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /v1/journeys", s.tenant(s.listJourneys))
 	mux.HandleFunc("GET /v1/journeys/{id}", s.tenant(s.getJourney))
-	mux.HandleFunc("PUT /v1/journeys/{id}", s.tenant(s.updateJourney))
+	mux.HandleFunc("PUT /v1/journeys/{id}", s.authed(s.updateJourney))
 	mux.HandleFunc("DELETE /v1/journeys/{id}", s.tenant(s.deleteJourney))
 
 	mux.HandleFunc("GET /v1/contacts", s.tenant(s.searchContacts))
@@ -324,7 +324,8 @@ func (s *Server) getJourney(w http.ResponseWriter, r *http.Request, tenant int64
 	writeJSON(w, http.StatusOK, j)
 }
 
-func (s *Server) updateJourney(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) updateJourney(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	id, ok := pathID(w, r)
 	if !ok {
 		return
@@ -334,7 +335,7 @@ func (s *Server) updateJourney(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	win, ok := req.valid(w, s.now())
-	if !ok || !s.journeyRefsOK(w, r, tenant, req.Graph) {
+	if !ok || !s.journeyRefsOK(w, r, p, id, req.Graph) {
 		return
 	}
 	if err := s.uiStore().UpdateJourney(r.Context(), tenant, id, req.Name, req.Graph, win); err != nil {

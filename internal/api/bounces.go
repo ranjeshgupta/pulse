@@ -6,6 +6,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/replies"
 	"pulse/internal/safehttp"
 )
 
@@ -27,6 +30,7 @@ type BounceStore interface {
 
 func (s *Server) bounceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/bounces/{token}", s.bounceWebhook)
+	mux.HandleFunc("POST /v1/replies/{token}", s.replyWebhook)
 	mux.HandleFunc("GET /v1/settings/bounces", s.admin(s.bounceSettings))
 	mux.HandleFunc("POST /v1/sandbox/bounce", s.tenant(s.sandboxBounce))
 }
@@ -37,7 +41,7 @@ func (s *Server) bounceSettings(w http.ResponseWriter, r *http.Request, p model.
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": s.PublicURL + "/v1/bounces/" + tok,
+	writeJSON(w, http.StatusOK, map[string]any{"url": s.PublicURL + "/v1/bounces/" + tok, "reply_url": s.PublicURL + "/v1/replies/" + tok,
 		"formats": []string{"sendgrid", "postmark", "mailgun", "ses", "generic"}})
 }
 
@@ -123,4 +127,44 @@ func (s *Server) sandboxBounce(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// replyWebhook receives inbound email from the email service's inbound parse (SendGrid, Mailgun,
+// Postmark, or generic JSON) at the workspace's secret URL, and records email_replied for each
+// message a reply code names (see package replies). Unknown codes are ignored.
+func (s *Server) replyWebhook(w http.ResponseWriter, r *http.Request) {
+	tenant, err := s.Store.(BounceStore).TenantByBounceToken(r.Context(), r.PathValue("token"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "unreadable body")
+		return
+	}
+	rep, err := replies.Parse(r.Header.Get("Content-Type"), body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.RDB == nil || s.Tracking == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	sum := sha256.Sum256(body)
+	for _, code := range rep.Codes {
+		tok, err := replies.Lookup(r.Context(), s.RDB, code)
+		if err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "retry")
+			return
+		}
+		t, err := s.Tracking.Decode(tok)
+		if tok == "" || err != nil || t.TenantID != tenant {
+			continue
+		}
+		s.trackEvent(r.Context(), t, event.EmailReplied, "reply:"+code+":"+hex.EncodeToString(sum[:6]),
+			map[string]any{"from": rep.From, "subject": rep.Subject, "text": rep.Text})
+	}
+	w.WriteHeader(http.StatusOK)
 }

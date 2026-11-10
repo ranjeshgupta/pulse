@@ -31,6 +31,7 @@ import (
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/providers"
+	"pulse/internal/replies"
 	"pulse/internal/store/pg"
 	"pulse/internal/tracking"
 )
@@ -168,6 +169,9 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	if err != nil {
 		return fmt.Errorf("load contact: %w", err)
 	}
+	if len(m.To) > 0 {
+		return d.sendInternal(ctx, sentKey, m, c)
+	}
 	t, err := d.template(ctx, m.TenantID, m.TemplateID)
 	if errors.Is(err, pg.ErrNotFound) {
 		return d.finish(ctx, sentKey, m, c, "failed", "template not found")
@@ -227,6 +231,9 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 			Channel: m.Channel, TemplateID: m.TemplateID, JourneyID: m.JourneyID,
 			BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant})
 		unsub, headers = d.cfg.Tracking.UnsubscribeURL(token), d.cfg.Tracking.Headers(token)
+		if err := d.replyTo(ctx, m, token, headers); err != nil {
+			return err
+		}
 	}
 	prefs := ""
 	if token != "" {
@@ -329,6 +336,88 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 		return d.unreachable(ctx, sentKey, m, c, lastErr.Error())
 	default:
 		return d.finish(ctx, sentKey, m, c, "failed", lastErr.Error())
+	}
+}
+
+// replyTo adds a Reply-To with a reply code when the workspace tracks replies (delivery rules
+// reply_to), so a reply can be matched to this message (package replies).
+func (d *Dispatcher) replyTo(ctx context.Context, m model.Message, token string, headers map[string]string) error {
+	rules, err := d.deliveryRules(ctx, m.TenantID)
+	if err != nil || rules.ReplyTo == "" || headers == nil {
+		return err
+	}
+	code := replies.NewCode()
+	addr, ok := replies.Address(rules.ReplyTo, code)
+	if !ok {
+		return nil
+	}
+	if err := replies.Save(ctx, d.rdb, code, token); err != nil {
+		return err
+	}
+	headers["Reply-To"] = addr
+	return nil
+}
+
+// sendInternal sends a journey's "email to user": the email template rendered with the contact's
+// data, to workspace users or fixed addresses. It isn't the contact's message, so consent, caps,
+// quiet hours and tracking don't apply; it records notification_sent or notification_failed.
+func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.Message, c model.Contact) error {
+	done := func(outcome, reason string) error {
+		props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID, "recipients": len(m.To)}
+		if reason != "" {
+			props["reason"] = reason
+		}
+		ev := event.Event{ID: "msg:" + m.ID + ":notification_" + outcome, TenantID: m.TenantID, ExternalID: c.ExternalID,
+			Name: "notification_" + outcome, Ts: d.now().UTC(), Props: props}
+		rec, err := kafka.JSON(event.TopicRaw, ev.RawKey(), ev)
+		if err != nil {
+			return err
+		}
+		if err := d.mark(ctx, sentKey, outcome); err != nil {
+			return err
+		}
+		return d.pub.Publish(ctx, rec)
+	}
+	t, err := d.template(ctx, m.TenantID, m.TemplateID)
+	if errors.Is(err, pg.ErrNotFound) {
+		return done("failed", "template not found")
+	} else if err != nil {
+		return fmt.Errorf("load template %d: %w", m.TemplateID, err)
+	}
+	if t.Channel != channel.Email {
+		return done("failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
+	}
+	rendered, err := channel.RenderFor(t, c, channel.Links{})
+	if err != nil {
+		return done("failed", err.Error())
+	}
+	p, err := d.sender(ctx, m.TenantID, channel.Email)
+	if errors.Is(err, pg.ErrNotFound) {
+		return done("failed", "no email provider configured")
+	} else if err != nil {
+		return err
+	}
+	if err := d.limiters[channel.Email].Wait(ctx, "rl:"+channel.Email+":"+strconv.FormatInt(m.TenantID, 10)); err != nil {
+		return err
+	}
+	sent := 0
+	var last error
+	for i, to := range m.To {
+		_, err := p.Send(ctx, providers.Outbound{TenantID: m.TenantID, MessageID: m.ID + ":" + strconv.Itoa(i), Channel: channel.Email,
+			To: to, From: d.cfg.From, Rendered: rendered})
+		if err != nil {
+			last = err
+			continue
+		}
+		sent++
+	}
+	switch {
+	case sent > 0:
+		return done("sent", "")
+	case len(m.To) == 1 && !errors.Is(last, providers.ErrPermanent) && !errors.Is(last, providers.ErrUnreachable):
+		return fmt.Errorf("send notification: %w", last) // transient: retry
+	default:
+		return done("failed", last.Error())
 	}
 }
 

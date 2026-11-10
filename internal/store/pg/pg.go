@@ -494,17 +494,18 @@ func (s *Store) Enroll(ctx context.Context, tenant, journey int64, contact uint3
 		node    string
 		status  string
 		created time.Time
+		jumps   int
 	}
 	err = s.db.QueryRow(ctx, `
-		SELECT id, node, status, created_at FROM journey_enrollments
+		SELECT id, node, status, created_at, jumps FROM journey_enrollments
 		WHERE journey_id = $1 AND contact_id = $2 ORDER BY created_at DESC LIMIT 1`, journey, int64(contact)).
-		Scan(&last.id, &last.node, &last.status, &last.created)
+		Scan(&last.id, &last.node, &last.status, &last.created, &last.jumps)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 	case err != nil:
 		return en, false, err
 	case last.status == "active" || last.status == "waiting":
-		en.ID = last.id
+		en.ID, en.Jumps = last.id, last.jumps
 		return en, last.status == "active" && last.node == entryNode, nil
 	case re.Mode == "always":
 	case re.Mode == "after_days" && time.Since(last.created) >= time.Duration(re.Days)*24*time.Hour:
@@ -624,7 +625,7 @@ type EventWait struct {
 
 func (s *Store) EventWaits(ctx context.Context, tenant int64, contact uint32, eventName string) ([]EventWait, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT w.enrollment_id, e.journey_id, w.wait_node, w.yes_node, w.message_id FROM journey_event_waits w
+		SELECT w.enrollment_id, e.journey_id, e.jumps, w.wait_node, w.yes_node, w.message_id FROM journey_event_waits w
 		JOIN journey_enrollments e ON e.id = w.enrollment_id
 		WHERE w.tenant_id = $1 AND w.contact_id = $2 AND w.event = $3`, tenant, int64(contact), eventName)
 	if err != nil {
@@ -632,7 +633,7 @@ func (s *Store) EventWaits(ctx context.Context, tenant int64, contact uint32, ev
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (EventWait, error) {
 		w := EventWait{Enrollment: model.Enrollment{TenantID: tenant, ContactID: contact}}
-		err := r.Scan(&w.Enrollment.ID, &w.Enrollment.JourneyID, &w.WaitNode, &w.YesNode, &w.MessageID)
+		err := r.Scan(&w.Enrollment.ID, &w.Enrollment.JourneyID, &w.Enrollment.Jumps, &w.WaitNode, &w.YesNode, &w.MessageID)
 		return w, err
 	})
 }
@@ -679,14 +680,14 @@ func (s *Store) ClaimDueTimers(ctx context.Context, limit int, fn func(model.Tim
 		UPDATE journey_timers t SET due_at = now() + $2::interval
 		FROM due, journey_enrollments e
 		WHERE t.enrollment_id = due.enrollment_id AND e.id = t.enrollment_id
-		RETURNING t.enrollment_id, t.node, t.due_at, coalesce(t.wait_node, ''), e.tenant_id, e.journey_id, e.contact_id`, limit, timerLease)
+		RETURNING t.enrollment_id, t.node, t.due_at, coalesce(t.wait_node, ''), e.tenant_id, e.journey_id, e.contact_id, e.jumps`, limit, timerLease)
 	if err != nil {
 		return 0, err
 	}
 	timers, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.Timer, error) {
 		var t model.Timer
 		var contact int64
-		err := r.Scan(&t.Enrollment.ID, &t.Node, &t.DueAt, &t.WaitNode, &t.Enrollment.TenantID, &t.Enrollment.JourneyID, &contact)
+		err := r.Scan(&t.Enrollment.ID, &t.Node, &t.DueAt, &t.WaitNode, &t.Enrollment.TenantID, &t.Enrollment.JourneyID, &contact, &t.Enrollment.Jumps)
 		t.Enrollment.ContactID = uint32(contact)
 		return t, err
 	})

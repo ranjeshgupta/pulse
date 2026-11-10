@@ -194,6 +194,11 @@ function DeliveryRulesPanel({ admin }: { admin: boolean }) {
             <KeywordField label="Unsubscribe" value={rules.keywords?.opt_out ?? []} onChange={(opt_out) => edit({ keywords: { opt_in: rules.keywords?.opt_in ?? [], opt_out } })} />
             <KeywordField label="Subscribe again" value={rules.keywords?.opt_in ?? []} onChange={(opt_in) => edit({ keywords: { opt_out: rules.keywords?.opt_out ?? [], opt_in } })} />
           </div>
+          <h4 className="small" style={{ margin: "6px 0 8px" }}>Reply tracking</h4>
+          <Field label="Reply tracking address" hint="e.g. replies@inbound.example.com — point this domain's MX at your email provider's inbound parse, and its webhook at the Reply webhook URL shown under Bounces">
+            <input className="input" type="email" value={rules.reply_to ?? ""} placeholder="replies@inbound.example.com" onChange={(e) => edit({ reply_to: e.target.value.trim() || undefined })} />
+          </Field>
+          <p className="xs muted" style={{ marginTop: -6, marginBottom: 14 }}>Journey emails use it as their Reply-To, so a "Replies to email" decision can see who answered.</p>
           {admin && <button className="btn primary" disabled={!r || save.isPending} onClick={() => save.mutate()}>Save delivery rules</button>}
         </fieldset>
       </div>
@@ -262,9 +267,9 @@ const BOUNCE_SERVICES: Record<string, string> = {
 // BouncesPanel shows where the email service should report bounces and complaints, and what each does.
 function BouncesPanel() {
   const toast = useToast();
-  const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<{ url: string; formats: string[] }>("/v1/settings/bounces") });
+  const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<{ url: string; formats: string[]; reply_url?: string }>("/v1/settings/bounces") });
   const copy = (text: string) =>
-    navigator.clipboard.writeText(text).then(() => toast({ text: "Bounce URL copied" }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
+    navigator.clipboard.writeText(text).then(() => toast({ text: "URL copied" }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
   const formats = q.data?.formats ?? Object.keys(BOUNCE_SERVICES);
   return (
     <section className="panel section">
@@ -279,6 +284,15 @@ function BouncesPanel() {
             <code style={{ background: "var(--porcelain)", border: "1px solid var(--rule)", borderRadius: "var(--r-sm)", padding: "6px 10px", wordBreak: "break-all", flex: 1 }}>{q.data.url}</code>
             <button className="btn sm" onClick={() => copy(q.data.url)}>Copy</button>
           </div>
+        )}
+        {q.data?.reply_url && (
+          <>
+            <p className="small muted" style={{ marginBottom: 8 }}>Reply webhook URL: point your email provider's inbound parse here so replies to journey emails are recorded (set the reply tracking address under Delivery rules).</p>
+            <div className="row" style={{ marginBottom: 16, flexWrap: "nowrap" }}>
+              <code style={{ background: "var(--porcelain)", border: "1px solid var(--rule)", borderRadius: "var(--r-sm)", padding: "6px 10px", wordBreak: "break-all", flex: 1 }}>{q.data.reply_url}</code>
+              <button className="btn sm" onClick={() => copy(q.data!.reply_url!)}>Copy</button>
+            </div>
+          </>
         )}
         <div className="grid-2">
           <div>

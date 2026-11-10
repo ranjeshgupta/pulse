@@ -14,7 +14,9 @@ import (
 
 	"pulse/internal/attr"
 	"pulse/internal/event"
+	"pulse/internal/journey"
 	"pulse/internal/kafka"
+	"pulse/internal/model"
 	"pulse/internal/segment"
 	"pulse/internal/store/pg"
 )
@@ -155,13 +157,14 @@ func (s *Server) getSegment(w http.ResponseWriter, r *http.Request, tenant int64
 	writeJSON(w, http.StatusOK, seg)
 }
 
-func (s *Server) createJourney(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) createJourney(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	var req journeyReq
 	if !decode(w, r, &req) {
 		return
 	}
 	win, ok := req.valid(w, s.now())
-	if !ok || !s.journeyRefsOK(w, r, tenant, req.Graph) {
+	if !ok || !s.journeyRefsOK(w, r, p, 0, req.Graph) {
 		return
 	}
 	id, err := s.Store.CreateJourney(r.Context(), tenant, req.Name, req.Graph, win)
@@ -172,7 +175,8 @@ func (s *Server) createJourney(w http.ResponseWriter, r *http.Request, tenant in
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "draft"})
 }
 
-func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	id, ok := pathID(w, r)
 	if !ok {
 		return
@@ -181,6 +185,18 @@ func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, tenant in
 	if status == "" {
 		writeErr(w, http.StatusNotFound, "unknown action")
 		return
+	}
+	if status == "active" {
+		if us, ok := s.Store.(UIStore); ok {
+			j, err := us.GetJourney(r.Context(), tenant, id)
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+			if g, err := journey.ParseGraph(j.Graph); err == nil && !deletePermOK(w, p, g) {
+				return
+			}
+		}
 	}
 	if err := s.Store.SetJourneyStatus(r.Context(), tenant, id, status); err != nil {
 		s.fail(w, err)

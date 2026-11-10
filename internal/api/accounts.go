@@ -257,20 +257,6 @@ func (s *Server) stageLookup(tenant int64) func(ctx context.Context, name string
 	}
 }
 
-// journeyRefsOK checks what a journey refers to that only the workspace knows (stages).
-func (s *Server) journeyRefsOK(w http.ResponseWriter, r *http.Request, tenant int64, graph json.RawMessage) bool {
-	err := s.checkJourneyStages(r.Context(), tenant, graph)
-	if errors.Is(err, errBadJourney) {
-		writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), errBadJourney.Error()+": "))
-		return false
-	}
-	if err != nil {
-		s.fail(w, err)
-		return false
-	}
-	return true
-}
-
 // knownContact loads a contact for a change and refuses one that was merged into another.
 func (s *Server) knownContact(w http.ResponseWriter, r *http.Request, tenant int64, ext string) (model.Contact, bool) {
 	c, err := s.Store.ContactByExternalID(r.Context(), tenant, ext)

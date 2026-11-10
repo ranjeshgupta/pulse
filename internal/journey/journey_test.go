@@ -56,6 +56,7 @@ func TestParseGraphInvalid(t *testing.T) {
 // ---- executor ----
 
 type fakeStore struct {
+	jumps      int
 	lastMsgID  string
 	eventWaits []string
 	nodes      map[int64][2]string // enrollment -> {node, status}
@@ -164,4 +165,10 @@ func TestExecutorPropagatesSendErrors(t *testing.T) {
 	if _, moved := store.nodes[1]; moved {
 		t.Error("enrollment advanced although the send failed")
 	}
+}
+
+func (f *fakeStore) Jump(_ context.Context, en int64, target string) (int, error) {
+	f.jumps++
+	f.nodes[en] = [2]string{target, StatusActive}
+	return f.jumps, nil
 }

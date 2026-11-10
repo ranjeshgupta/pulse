@@ -29,6 +29,8 @@ type Store interface {
 	SetNode(ctx context.Context, enrollment int64, node, status string) error
 	Wait(ctx context.Context, enrollment int64, waitNode, resumeNode string, due time.Time) error
 	WaitForEvent(ctx context.Context, en model.Enrollment, waitNode, eventName, messageID, yesNode, timeoutNode string, due time.Time) error
+	// Jump moves the enrollment to target and counts the jump; it returns the new jump count.
+	Jump(ctx context.Context, enrollment int64, target string) (int, error)
 }
 
 type Membership interface {
@@ -59,6 +61,14 @@ type Executor struct {
 	Counters func(tenant int64, contact uint32, asOf time.Time) segment.Counter
 	HTTP     *http.Client // webhook steps; must refuse private addresses (safehttp)
 	Now      func() time.Time
+
+	// Collaborators of the builder's newer steps (nil: those steps fail with "not configured").
+	Data    Data        // users, companies, journey states, devices, inbox, form context
+	Onsite  Onsite      // per-contact focus items and DWC content
+	History History     // past page views and form submissions (ClickHouse)
+	Deleter Deleter     // permanent contact deletion (the cleanup path)
+	MX      MXChecker   // email domain checks
+	Stats   StepCounter // per-step entered / yes / no counts (best effort)
 }
 
 // Run walks the graph from node `from` until the enrollment waits or exits.
@@ -77,11 +87,13 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 		}
 		return *contact, nil
 	}
-	for steps := 0; steps <= len(g.Nodes); steps++ { // validated graphs are acyclic
+	// Validated graphs are acyclic except through jump steps, which are capped per enrollment.
+	for steps := 0; steps <= (len(g.Nodes)+1)*(MaxJumps+2); steps++ {
 		n, ok := g.Nodes[id]
 		if !ok {
 			return fmt.Errorf("journey %d: unknown node %q", en.JourneyID, id)
 		}
+		x.count(ctx, en, id, "entered")
 		switch n.Type {
 		case NodeWait:
 			due := x.Now().Add(time.Duration(n.Seconds) * time.Second)
@@ -103,9 +115,13 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			due := x.Now().Add(time.Duration(n.Seconds) * time.Second)
 			return x.Store.WaitForEvent(ctx, en, id, n.Event, "", n.Yes, n.No, due)
 
+		case NodeOnForm, NodeOnAsset, NodeOnPage, NodeOnDevice, NodeOnDWC:
+			due := x.Now().Add(time.Duration(n.Seconds) * time.Second)
+			return x.Store.WaitForEvent(ctx, en, id, DecisionEvent(n), "", n.Yes, n.No, due)
+
 		case NodeMessageDecision:
 			due := x.Now().Add(time.Duration(n.Seconds) * time.Second)
-			name, msgID := g.MessageEvent(en.ID, n)
+			name, msgID := g.MessageEventFor(en, n)
 			return x.Store.WaitForEvent(ctx, en, id, name, msgID, n.Yes, n.No, due)
 
 		case NodeCondition:
@@ -113,10 +129,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			if err != nil {
 				return err
 			}
-			id = n.No
-			if in {
-				id = n.Yes
-			}
+			id = x.branch(ctx, en, id, n, in)
 
 		case NodeCheck:
 			rule, err := segment.Parse(n.Rule)
@@ -131,10 +144,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			if err != nil {
 				return err
 			}
-			id = n.No
-			if ok {
-				id = n.Yes
-			}
+			id = x.branch(ctx, en, id, n, ok)
 
 		case NodeSplit:
 			path, decided := pickPath(n.Variants, en.ID, id), false
@@ -148,13 +158,14 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 				}
 				v := n.Variants[path]
 				if err := x.Events.PublishEvent(ctx, event.Event{
-					ID: fmt.Sprintf("jsplit:%d:%s", en.ID, id), TenantID: en.TenantID, ExternalID: c.ExternalID,
+					ID: "jsplit:" + StepKey(en, id), TenantID: en.TenantID, ExternalID: c.ExternalID,
 					Name: event.JourneySplit, Ts: x.Now().UTC(),
 					Props: map[string]any{"journey_id": en.JourneyID, "step": id, "path": path, "label": v.Label, "decided": decided},
 				}); err != nil {
 					return err
 				}
 			}
+			x.count(ctx, en, id, "v"+strconv.Itoa(path))
 			id = n.Variants[path].Next
 
 		case NodeUpdate:
@@ -162,14 +173,15 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			if err != nil {
 				return err
 			}
+			attrs := ResolveAttrs(n.Attrs, c, x.Now())
 			if err := x.Events.PublishEvent(ctx, event.Event{
-				ID: fmt.Sprintf("jattr:%d:%s", en.ID, id), TenantID: en.TenantID, ExternalID: c.ExternalID,
-				Name: event.Identify, Ts: x.Now().UTC(), Attrs: n.Attrs,
+				ID: "jattr:" + StepKey(en, id), TenantID: en.TenantID, ExternalID: c.ExternalID,
+				Name: event.Identify, Ts: x.Now().UTC(), Attrs: attrs,
 				Props: map[string]any{"journey_id": en.JourneyID, "step": id},
 			}); err != nil {
 				return err
 			}
-			for k, v := range n.Attrs { // later checks in this run see the new values
+			for k, v := range attrs { // later checks in this run see the new values
 				contact.Attrs[k] = v
 			}
 			id = n.Next
@@ -180,7 +192,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 				return err
 			}
 			for i, e := range audienceEvents(n) {
-				e.ID = fmt.Sprintf("jaud:%d:%s:%d", en.ID, id, i)
+				e.ID = fmt.Sprintf("jaud:%s:%d", StepKey(en, id), i)
 				e.TenantID, e.ExternalID, e.Ts = en.TenantID, c.ExternalID, x.Now().UTC()
 				e.Props["journey_id"], e.Props["step"] = en.JourneyID, id
 				if err := x.Events.PublishEvent(ctx, e); err != nil {
@@ -203,7 +215,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 
 		case NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox:
 			err := x.Sender.Send(ctx, model.Message{
-				ID:                 fmt.Sprintf("%d:%s", en.ID, id),
+				ID:                 StepKey(en, id),
 				TenantID:           en.TenantID,
 				ContactID:          en.ContactID,
 				Channel:            SendChannel(n.Type),
@@ -221,6 +233,18 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 				return err
 			}
 			return x.Milestone(ctx, en, "journey_completed")
+
+		default:
+			if n.Type != NodeIfBefore && n.Type != NodeJump {
+				if _, err := loadContact(); err != nil {
+					return err
+				}
+			}
+			next, stop, err := x.runStep(ctx, g, &en, id, n, contact)
+			if err != nil || stop {
+				return err
+			}
+			id = next
 		}
 	}
 	return fmt.Errorf("journey %d: step limit exceeded", en.JourneyID)
@@ -320,7 +344,7 @@ func (x *Executor) webhook(ctx context.Context, n Node, en model.Enrollment, ste
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", "Pulse-Webhook/1")
-		req.Header.Set("X-Pulse-Idempotency-Key", fmt.Sprintf("%d:%s", en.ID, step))
+		req.Header.Set("X-Pulse-Idempotency-Key", StepKey(en, step))
 		resp, err := x.HTTP.Do(req)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
@@ -337,7 +361,7 @@ func (x *Executor) webhook(ctx context.Context, n Node, en model.Enrollment, ste
 		}
 	}
 	return x.Events.PublishEvent(ctx, event.Event{
-		ID: fmt.Sprintf("jhook:%d:%s", en.ID, step), TenantID: en.TenantID, ExternalID: c.ExternalID,
+		ID: "jhook:" + StepKey(en, step), TenantID: en.TenantID, ExternalID: c.ExternalID,
 		Name: "webhook_failed", Ts: x.Now().UTC(),
 		Props: map[string]any{"journey_id": en.JourneyID, "step": step, "url": n.URL, "error": last},
 	})

@@ -119,6 +119,8 @@ type Enrollment struct {
 	TenantID  int64  `json:"tenant_id"`
 	JourneyID int64  `json:"journey_id"`
 	ContactID uint32 `json:"contact_id"`
+	// Jumps counts the jump steps this enrollment has taken (capped); step keys carry it.
+	Jumps int `json:"jumps,omitempty"`
 }
 
 // Timer is a due wait: resume the enrollment at Node.
@@ -146,6 +148,10 @@ type Message struct {
 	BroadcastID int64  `json:"broadcast_id,omitempty"`
 	Run         int64  `json:"run,omitempty"`
 	Variant     string `json:"variant,omitempty"`
+	// To, when set, sends an internal notification (journey "send email to user"): the template is
+	// rendered with the contact's data and sent to these addresses instead of the contact. It isn't
+	// consent-gated, capped or tracked, and records notification_sent / notification_failed.
+	To []string `json:"to,omitempty"`
 }
 
 // Provider is a configured delivery provider of a workspace. Secrets are write-only.

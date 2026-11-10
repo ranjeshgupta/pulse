@@ -14,6 +14,7 @@ import (
 
 	"pulse/internal/attr"
 	"pulse/internal/event"
+	"pulse/internal/journey"
 	"pulse/internal/model"
 	"pulse/internal/segment"
 	"pulse/internal/store/ch"
@@ -68,6 +69,14 @@ func (s *Server) journeyReport(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	out := map[string]any{"messages": rep, "enrollments": stats}
+	if s.RDB != nil {
+		steps, err := journey.ReadStepStats(r.Context(), s.RDB, tenant, id)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		out["steps"] = steps
+	}
 	if us, ok := s.Store.(UIStore); ok {
 		if j, err := us.GetJourney(r.Context(), tenant, id); err == nil {
 			if splits := s.journeySplits(r.Context(), j); len(splits) > 0 {

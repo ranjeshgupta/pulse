@@ -48,7 +48,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
-| Visual canvas | ✅ | ✅ | ✅ grouped palette: Actions, Conditions, Decisions, Waits | |
+| Visual canvas | ✅ | ✅ | ✅ "+" on every path opens Action · Decision · Condition · Wait · Split, then a searchable list (disabled items say why); drag-and-drop palette; Yes/No colours and labels, step numbers, Tidy up, zoom to fit, minimap, undo/redo, per-step counts. See [Campaign builder](#campaign-builder-batch-7b) | |
 | Triggers: segment entry, event | ✅ | ✅ | ✅ | |
 | Schedule: start required, end optional (empty = runs forever) | ✅ | ✅ | ✅ this change | |
 | Wait for a duration | ✅ | ✅ | ✅ durable timers | |
@@ -65,7 +65,10 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Re-entry rules (once, every time, after N days) | 🟡 | ✅ | ✅ one live enrollment at a time | |
 | Frequency capping across journeys | ⬜ | ✅ | ✅ per channel, per contact, across journeys and broadcasts; transactional exempt | |
 | Quiet hours / DND, send in contact's time zone | ⬜ | ✅ | ✅ messages are held and sent when quiet hours end, in the contact's zone | |
-| Per-step stats | ✅ | ✅ | ✅ live | |
+| Per-step stats | ✅ | ✅ | ✅ live: entered, Yes / No, per split path (Redis counters), contacts at the step now, sends and opens per step | |
+| Every Mautic campaign decision, action and condition | ✅ | 🟡 | ✅ batch 7b, see [Campaign builder](#campaign-builder-batch-7b) | |
+| Multi-channel message with fallback (first reachable channel) | ✅ marketing messages | ✅ | ✅ `send_message`: ordered channel → template list | |
+| Jump to step (loops) | ✅ | ⬜ | ✅ `jump`, capped at 25 jumps per enrollment | |
 
 ## Broadcasts (one-time and recurring campaigns)
 
@@ -175,7 +178,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    - **Batch 7, analytics (done):** cohorts and retention (Analyze → Cohorts), revenue attribution and UTM capture
      (Analyze → Revenue; revenue in broadcast and journey reports), funnel breakdown by attribute, the custom report
      builder (Analyze → Reports), and automatic A/B winners on journey split steps.
-   - **Batch 7b, builders like Mautic and WebEngage (requested 2026-11-11, right after batch 7):**
+   - **Batch 7b, builders like Mautic and WebEngage (requested 2026-11-11, right after batch 7), done ✅:**
      - ✅ **Segment builder (done 2026-11-11)**, see [Segment builder](#segment-builder-batch-7b) for the Mautic filter mapping.
        Requested: one searchable filter picker grouped as Contact (every built-in and custom field, with icons), Primary
        company, Behaviour and actions, Points; a clear nested "Match ALL / ANY" group UI. New data for Mautic's filters: device
@@ -183,13 +186,9 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
        manual vs self-service unsubscribes, browsing sessions; behaviour filters for clicks (any channel / email / SMS, with
        dates), asset downloads, reads of a specific email or X times, sends, URL visits (X times, landing page, referrer,
        source, page title).
-     - ⬜ Campaign builder: "+" asks Decision, Action or Condition, then a searchable list with descriptions. Decisions: opens /
-       clicks / replies to email, downloads asset, submits form, visits page, device visit, requests dynamic content. Actions:
-       send email / email to user / marketing message / webhook, show focus item, push dynamic content, update contact /
-       owner / company, change stage, adjust points, tags, segments and lists, add to company, company score, change
-       campaigns, jump to step, add/remove Do Not Contact, delete contact (confirmed), push to integration (with batch 8).
-       Conditions: contact field value, segments, tags, stages, points, owner, device, campaigns, form field value, visited
-       page, valid email, DNC, active notification, prevent action after date.
+     - ✅ **Campaign builder (done 2026-11-11)**, see [Campaign builder](#campaign-builder-batch-7b) for the Mautic
+       element mapping. "+" asks Action, Decision, Condition, Wait or Split, then a searchable list with descriptions;
+       every Mautic decision, action and condition is there (push to integration waits for batch 8).
    - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native
      Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file uploads and multi-page
      forms, audit log export.
@@ -205,6 +204,82 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
        one Import flow under Contacts (upload, map columns, choose segment, review; large files run in the background; one
        history).
    - **Then:** update every doc to match the final app, and write step-by-step tutorials with the product owner.
+
+## Campaign builder (batch 7b)
+
+**What it is.** Journeys → a journey. Every outgoing path (an edge, or a free Yes / No / split handle) has a "+". It opens
+"Add a step": first **Action** (do something), **Decision** (wait for the contact to do something: Yes if they do within
+the time limit, No if not), **Condition** (check something now: Yes or No), **Wait** or **Split** (A/B or percentage), then
+a searchable list of that kind's steps with a description each. Steps that can't go there are greyed with the reason
+("Opens email: add a Send email step above it first", "Ends the path: add it at the end of a path", "Needs edit access to
+contacts"). The step is inserted on that path and connected; its Yes and No paths get their own "+". The palette (drag and
+drop, or Enter to add after the selected step) stays. The canvas numbers steps (used by "Jump to step"), colours Yes green
+and No red with labels ("No — after 2 days"), shows split paths as "A · 50%", and draws jumps as dashed lines; the toolbar
+has Undo / Redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z), Tidy up (automatic layout), Zoom to fit, a minimap and "Show stats"
+(entered, Yes / No, here now, sent / opened per step). The issues list ("Step 4 · Send SMS: choose a template.") mirrors
+the server's validation. Web: `web/src/journeyCatalog.ts` (the chooser's items), `web/src/journeyGraph.ts` (graph edits,
+insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/nodes.go` (validation) and `steps.go`
+(execution).
+
+### Mautic campaign element mapping
+
+| Mautic element | Pulse step (chooser label) | Node | Note |
+|---|---|---|---|
+| **Decisions** | | | all take a time limit (1 minute to 365 days); Yes when it happens, No at the limit |
+| Opens email | Opens email | `message_decision` outcome `opened` | needs a Send email step above it (validated) |
+| Clicks email | Clicks email | `message_decision` outcome `clicked`, optional `url` (link contains) | any link or a specific URL |
+| Replies to email | Replies to email | `message_decision` outcome `replied` | needs reply tracking: Channels → Delivery "Reply tracking address" and the provider's inbound webhook (see architecture, "Inbound replies") |
+| Downloads asset | Downloads asset | `on_asset`, optional `asset_id` | gated downloads by known contacts (`asset_downloaded`) |
+| Submits form | Submits form | `on_form`, optional `form_id` | the submission is kept on the enrollment for "Form field value" |
+| Visits a page | Visits a page | `on_page`: `url` contains, or a landing page `page_id` | web SDK `page_view` / `landing_page_viewed` |
+| Device visit | Device visit | `on_device`: `device_type` and/or `os` | a page view from that device (SDK device properties) |
+| Request dynamic content | Requests dynamic content | `on_dwc` `slot` | the decide API records `dwc_requested` for known contacts; put "Push dynamic content" on Yes |
+| **Actions** | | | |
+| Add Do Not Contact | Add Do Not Contact | `dnc_add` channel (or all), reason | `unsubscribed` with method manual, source journey |
+| Remove Do Not Contact | Remove Do Not Contact | `dnc_remove` | `resubscribed` |
+| Add to company | Add to company | `add_company` | links the contact (`company_linked`) |
+| Update contact's primary company | Update contact's primary company | `add_company` | approximate: a Pulse contact has one company, so "primary" is the company |
+| Add to company's score | Add to company's score | `company_points` | adds to the company's `score` attribute (once per step, even on retries); contacts see it as `company_score` |
+| Update company (Mautic's company fields) | Update company | `update_company` `company_attrs` | the contact's linked company; skipped without one |
+| Adjust contact points | Adjust contact points | `adjust_points` | |
+| Change campaigns | Change campaigns | `change_journey` add / remove journeys | through a `journey_change` event; only active journeys enroll (their schedule and re-entry apply); removed enrollments get status `removed` |
+| Change contact's stage | Change contact's stage | `change_stage` | |
+| Delete contact | Delete contact | `delete_contact` `confirm: "DELETE"` | permanent, through the cleanup deletion path; typed confirmation; saving or activating it needs edit access to contacts |
+| Jump to Event | Jump to step | `jump` `target` | ends the path; at most 25 jumps per enrollment, then the contact leaves (`journey_jump_limit`) |
+| Modify contact's segments | Modify contact's segments | `update_list` `add_lists` / `remove_lists` | static lists only: dynamic segments follow their rules (the inspector says so) |
+| Modify contact's tags | Modify contact's tags | `update_tags` | |
+| Push contact to integration | Push contact to integration | — | **missing**: shown disabled, "coming with integrations (batch 8)" |
+| Push dynamic content | Push dynamic content | `push_dwc` slot, HTML, days | per contact, returned by the decide API for that slot (wins over the slot's variants) |
+| Send a webhook | Send a webhook | `webhook` | |
+| Send email | Send email | `send_email` | also SMS, WhatsApp, RCS, push, app inbox steps |
+| Send email to user | Send email to user | `notify_user` | users, the contact's owner and/or fixed addresses; the template rendered with the contact's data; not consent-gated, not tracked |
+| Send marketing message | Send marketing message | `send_message` channels in order | approximate: Mautic's "marketing message" is a saved object; Pulse keeps the ordered channel → template list on the step and sends on the first channel the contact can receive and has consented to (address, consent, bounce, push device) |
+| Show Focus Item | Show focus item | `show_focus` | shown to this contact on their next page view, once (even a draft item: journey-only) |
+| Update contact | Update contact | `update_attr` | values may use `{contactfield=x}`, `{{.Attrs.x}}`, `now`, `now+3hours`, `now-2days` … |
+| Update contact owner | Update contact owner | `update_owner` | `owner_changed`; 0 unassigns |
+| **Conditions** | | | Yes / No right now |
+| Contact campaigns | Contact campaigns | `if_journey` active / completed / entered | |
+| Contact device | Contact device | `check` preset device | last-seen device attributes |
+| Contact field value | Contact field value | `check` preset field | the segment builder's filters |
+| Contact owner | Contact owner | `check` preset owner | |
+| Contact points | Contact points | `check` preset points | |
+| Contact segments | Contact segments | `condition` | segments and lists |
+| Contact stages | Contact stages | `check` preset stage | |
+| Contact tags | Contact tags | `check` preset tags | any / all of |
+| Form field value | Form field value | `if_form_field` | the submission that started or resumed the enrollment, else the latest (ClickHouse) |
+| Has active notification | Has active notification | `if_notification` push / inbox / any | defined as: a push device (and not opted out of push), or an unread, unexpired app inbox message |
+| Has valid email address | Has valid email address | `if_valid_email` | syntax, a domain that accepts mail (MX, or A per RFC 5321; null MX refused; 3 s timeout, cached 6 h; DNS failures pass), optional disposable-domain list |
+| Marked as DNC | Marked as Do Not Contact | `if_dnc` channel or any | unsubscribed from it or everything, or bounced (email, SMS) |
+| Prevent action after date | Prevent action after date | `if_before` | Yes until the date |
+| Visited page | Visited page | `if_visited` url contains, days (0 = ever) | ClickHouse page views ("ever" = all history kept) |
+
+WebEngage extras in the same chooser: message outcome on any channel (delivered / read / clicked), wait for any event,
+wait until a date or time of day, A/B split with an automatic winner, percentage split, goal exit, frequency caps and
+quiet hours (delivery settings).
+
+**Not covered / approximate:** push to integration (batch 8); Mautic's saved "marketing message" object (the list lives
+on the step); a message decision can't watch a "Send marketing message" step (its channel is chosen per contact); device
+visit uses web page views (not app screens); per-step counts are best effort (a retried step can count twice).
 
 ## Segment builder (batch 7b)
 

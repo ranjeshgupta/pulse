@@ -159,14 +159,67 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 ```
 
 - Triggers: `segment_entered` (optionally ignoring backfill) and `event` (by name).
-- Nodes (see `internal/journey/graph.go`):
-  - Actions: `send_email`, `send_sms`, `send_whatsapp` and `send_rcs` (optional SMS fallback), `send_push`, `send_inbox`,
-    `update_attr`, `update_tags`, `adjust_points`, `update_list`, `change_stage` (a stage of the workspace), `webhook`.
-  - Conditions: `condition` (segment or list membership), `check` (any segment rule, evaluated now), `split` (A/B/n by weight).
-  - Waits and decisions: `wait` (a duration), `wait_until` (a date, or a time of day in the contact's zone),
-    `wait_for_event` (yes when the event happens, no at the timeout), `message_decision` (yes when an earlier send step's own
-    message is opened, clicked, delivered or read, no at the timeout; matched on the message id `{enrollment}:{step}`); `exit`.
+- Nodes (`internal/journey/graph.go`, the builder's newer steps in `nodes.go` / `steps.go`). Outputs: actions and waits
+  have `next`; decisions and conditions `yes` / `no`; splits one path per variant; `exit`, `jump` and `delete_contact` end
+  the path.
+  - **Actions:** `send_email`, `send_sms`, `send_whatsapp` and `send_rcs` (optional SMS fallback), `send_push`,
+    `send_inbox`; `send_message` (marketing message: `channels` [{channel, template_id}] in priority order, sent on the
+    first the contact can receive: an address or push device, consent, no bounce; none reachable records
+    `message_unreachable`); `notify_user` (email to users, the contact's owner or fixed addresses, the template rendered
+    with the contact's data; the message carries `To`, so the dispatcher skips consent, caps, quiet hours and tracking and
+    records `notification_sent` / `notification_failed`); `webhook`; `update_attr` (values may use `{contactfield=x}`,
+    `{{.Attrs.x}}`, and `now`, `now+3hours`, `now-2days`… resolved at run time); `update_tags`, `adjust_points`,
+    `update_list` (`list_id`+`list_action`, or `add_lists` / `remove_lists`: static lists only), `change_stage`,
+    `update_owner` (`owner_changed`), `add_company` (`company_linked`; one company per contact, so also "primary
+    company"), `update_company` (merges `company_attrs` into the contact's company, then `company_updated` to every
+    member), `company_points` (adds to the company's `score` attribute once per step key, recorded in `journey_effects`),
+    `change_journey` (records `journey_change {add, remove}`; the journey engine removes the contact from those journeys —
+    status `removed` — and enrolls them in the active ones), `dnc_add` / `dnc_remove` (`unsubscribed` / `resubscribed`
+    with method manual, source journey), `show_focus`, `push_dwc` (see below), `jump`, `delete_contact`.
+  - **Decisions** (park on `journey_event_waits` with a timeout; Yes when the event comes, No at the timeout):
+    `wait_for_event` (any event); `message_decision` (an earlier send step's own message, matched on the message id
+    `{enrollment}:{step}`: opened, clicked — optionally a link containing `url` —, delivered, read, replied (email);
+    the send step must be upstream); `on_form` (`form_submitted`, optional `form_id`), `on_asset` (`asset_downloaded`),
+    `on_page` (`page_view` whose url contains `url`, or `landing_page_viewed` of `page_id`), `on_device` (`page_view`
+    with `device_type` / `os`), `on_dwc` (`dwc_requested` for `slot`). The wait stores only the event name; the engine
+    checks the step's filters (`Node.Matches`) against the event's props before resuming.
+  - **Conditions** (now): `condition` (segment or list), `check` (any segment rule; `preset` tells the builder which
+    form made it: field, tags, stage, points, owner, device), `if_journey` (active / completed / entered other journeys),
+    `if_form_field` (a field of the submission recorded on the enrollment — the form_submitted that started or resumed
+    it — else the latest in ClickHouse; compared like a segment rule), `if_notification` (has a push device and isn't
+    opted out of push, or has an unread, unexpired app inbox message), `if_valid_email` (syntax, then MX — or A/AAAA,
+    RFC 5321's implicit MX; a null MX fails — with a 3 s timeout, cached 6 h, DNS errors pass and are cached 1 minute;
+    optional disposable-domain list), `if_dnc` (unsubscribed from the channel or everything, or bounced), `if_before`
+    (Yes until a date: Mautic's "prevent action after date"), `if_visited` (ClickHouse page views, url contains, last N
+    days or ever).
+  - **Waits and splits:** `wait` (a duration), `wait_until` (a date, or a time of day in the contact's zone), `split`
+    (A/B/n by weight, optional automatic winner).
   - Journey settings: trigger (`segment_entered`, `event`), re-entry (`once`, `always`, `after_days`), goal event, schedule window.
+- **Jumps.** A graph must be acyclic except through `jump` steps, whose target isn't an edge. `journey_enrollments.jumps`
+  counts an enrollment's jumps; at 25 the next jump ends the enrollment (completed, `journey_jump_limit` recorded). Step
+  keys are `{enrollment}:{step}` plus `:j{n}` after n jumps, so a step repeated after a jump sends (and records) again,
+  and a message decision waits for that pass's message. A jump also moves the pending safety timer to the target.
+- **Delete contact** uses the cleanup deletion path (`maintenance.Cleaner.DeleteContacts`: ClickHouse rows first, then
+  Postgres: contact, devices, inbox, enrollments). The step needs `confirm: "DELETE"`; saving or activating a journey
+  with it needs edit access to contacts. Events still in flight for that contact can create a new, empty profile.
+- **Per-contact on-site content** (`internal/onsite/pushes.go`, Redis): `show_focus` adds the focus item to
+  `ofocus:{tenant}:{contact}` (30 days); the decide API (`POST /v1/web/decide`) for a known — verified, when identity
+  verification is on — contact takes and clears it and appends the item (any status: a draft item is journey-only).
+  `push_dwc` sets `odwc:{tenant}:{contact}` slot → HTML for N days (default 30); the decide API returns it for that slot
+  instead of the slot's own content. The decide API also records `dwc_requested {slot, url}` for each requested slot of a
+  known contact, which `on_dwc` decisions wait for.
+- **Inbound replies** (`internal/replies`). Set Channels → Delivery → "Reply tracking address" (`reply_to`, e.g.
+  `replies@inbound.example.com`; point that domain's MX at the email provider's inbound parse). Every tracked email then
+  gets `Reply-To: replies+r<code>@inbound.example.com`: a random 16-character lower-case code stored in Redis
+  (`rtok:<code>`, 30 days) with the message's tracking token. The provider posts replies to the workspace's
+  `POST /v1/replies/{token}` (the same secret as the bounce URL; shown as `reply_url` under bounces). SendGrid Inbound
+  Parse (multipart), Mailgun routes (form) and Postmark inbound (JSON, `MailboxHash`) are read, plus generic JSON
+  `{to, from, subject, text}`. Each code found among the recipients records `email_replied` (message, template, journey
+  or broadcast ids, from, subject, text) on the message's contact. Replies go to that address, not to the sender's inbox:
+  forward them on at the provider if people should read them.
+- **Per-step counts** for the canvas: the executor and engine count `entered`, `yes`, `no` and `v{i}` per step in a
+  Redis hash `jsteps:{tenant}:{journey}` (best effort; a retried step can count twice); `GET /v1/journeys/{id}/report`
+  returns them as `steps`.
 - Entering and finishing a journey record `journey_entered` and `journey_completed` events (props `journey_id`), so segments can
   select contacts by journey with ordinary event rules.
 - `journey_enrollments(tenant_id, journey_id, contact_id, node, status)` keeps one live enrollment per (journey, contact); re-entry

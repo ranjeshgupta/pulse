@@ -60,6 +60,12 @@ const (
 	SessionStart = "session_start"
 	PageView     = "page_view"
 	ScreenView   = "screen_view"
+
+	// Recorded by Pulse for the journey builder (see internal/journey/nodes.go).
+	JourneyChange    = "journey_change"     // a change_journey step: props add, remove (journey ids)
+	JourneyJumpLimit = "journey_jump_limit" // an enrollment hit the jump cap and left
+	DWCRequested     = "dwc_requested"      // the decide API served a slot to a known contact: props slot, url
+	EmailReplied     = "email_replied"      // the inbound reply webhook matched a reply: props message_id, ...
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -67,7 +73,8 @@ const (
 func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
-		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged:
+		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged,
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied:
 		return true
 	}
 	return false
@@ -77,7 +84,8 @@ func ServerOnly(name string) bool {
 // which validate it), so POST /v1/events refuses it.
 func PlatformOnly(name string) bool {
 	switch name {
-	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged:
+	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied:
 		return true
 	}
 	return false

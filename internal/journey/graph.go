@@ -19,6 +19,7 @@ import (
 	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
+	"pulse/internal/model"
 	"pulse/internal/profile"
 	"pulse/internal/segment"
 )
@@ -138,8 +139,42 @@ type Node struct {
 	ListID     int64           `json:"list_id,omitempty"`     // update_list
 	ListAction string          `json:"list_action,omitempty"` // update_list: add | remove
 	Stage      string          `json:"stage,omitempty"`       // change_stage: the stage's name
-	URL        string          `json:"url,omitempty"`         // webhook
+	URL        string          `json:"url,omitempty"`         // webhook; message_decision (clicked: link contains); on_page, if_visited (contains)
 	Body       string          `json:"body,omitempty"`        // webhook: JSON template; empty sends the contact
+
+	// Steps added with the Mautic-style builder (see nodes.go for what each one takes).
+	FormID           int64            `json:"form_id,omitempty"`           // on_form, if_form_field (0 = any form)
+	AssetID          int64            `json:"asset_id,omitempty"`          // on_asset (0 = any asset)
+	PageID           int64            `json:"page_id,omitempty"`           // on_page: a landing page
+	DeviceType       string           `json:"device_type,omitempty"`       // on_device
+	OS               string           `json:"os,omitempty"`                // on_device
+	Slot             string           `json:"slot,omitempty"`              // on_dwc, push_dwc
+	HTML             string           `json:"html,omitempty"`              // push_dwc
+	Days             int              `json:"days,omitempty"`              // if_visited (0 = ever), push_dwc (how long)
+	Preset           string           `json:"preset,omitempty"`            // check: the builder preset (UI hint)
+	JourneyIDs       []int64          `json:"journey_ids,omitempty"`       // if_journey
+	JourneyState     string           `json:"journey_state,omitempty"`     // if_journey: active | completed | entered
+	Field            string           `json:"field,omitempty"`             // if_form_field
+	Op               string           `json:"op,omitempty"`                // if_form_field
+	Value            string           `json:"value,omitempty"`             // if_form_field
+	Notify           string           `json:"notify,omitempty"`            // if_notification: push | inbox | any
+	RejectDisposable bool             `json:"reject_disposable,omitempty"` // if_valid_email
+	Channel          string           `json:"channel,omitempty"`           // if_dnc, dnc_add, dnc_remove
+	Reason           string           `json:"reason,omitempty"`            // dnc_add
+	UserIDs          []int64          `json:"user_ids,omitempty"`          // notify_user
+	ToOwner          bool             `json:"to_owner,omitempty"`          // notify_user
+	Emails           []string         `json:"emails,omitempty"`            // notify_user
+	Channels         []ChannelMessage `json:"channels,omitempty"`          // send_message, in priority order
+	FocusID          int64            `json:"focus_id,omitempty"`          // show_focus
+	OwnerID          *int64           `json:"owner_id,omitempty"`          // update_owner (0 = unassign)
+	CompanyAttrs     map[string]any   `json:"company_attrs,omitempty"`     // update_company
+	CompanyID        int64            `json:"company_id,omitempty"`        // add_company
+	AddLists         []int64          `json:"add_lists,omitempty"`         // update_list
+	RemoveLists      []int64          `json:"remove_lists,omitempty"`      // update_list
+	AddJourneys      []int64          `json:"add_journeys,omitempty"`      // change_journey
+	RemoveJourneys   []int64          `json:"remove_journeys,omitempty"`   // change_journey
+	Target           string           `json:"target,omitempty"`            // jump
+	Confirm          string           `json:"confirm,omitempty"`           // delete_contact: "DELETE"
 	// UI layout, ignored by the engine.
 	X float64 `json:"x,omitempty"`
 	Y float64 `json:"y,omitempty"`
@@ -238,8 +273,14 @@ func (g Graph) Validate() error {
 				return fmt.Errorf("wait for event %q: the timeout must be 1 second to 365 days", id)
 			}
 		case NodeCheck:
+			if len(bytes.TrimSpace(n.Rule)) == 0 || string(bytes.TrimSpace(n.Rule)) == "null" {
+				return fmt.Errorf("check %q: describe who takes the Yes path", id)
+			}
 			if _, err := segment.Parse(n.Rule); err != nil {
 				return fmt.Errorf("check %q: %w", id, err)
+			}
+			if !slices.Contains(checkPresets, n.Preset) {
+				return fmt.Errorf("check %q: unknown preset %q", id, n.Preset)
 			}
 		case NodeSplit:
 			if len(n.Variants) < 2 || len(n.Variants) > 5 {
@@ -267,6 +308,9 @@ func (g Graph) Validate() error {
 					return fmt.Errorf("update %q: %q can't be set here (Pulse manages it: consent, tags, points, stage and company change through their own events and steps)", id, k)
 				}
 			}
+			if err := validUpdateValues(n.Attrs); err != nil {
+				return fmt.Errorf("update %q: %w", id, err)
+			}
 		case NodeTags:
 			if len(n.AddTags)+len(n.RemoveTags) == 0 {
 				return fmt.Errorf("tags %q: add or remove at least one tag", id)
@@ -281,8 +325,8 @@ func (g Graph) Validate() error {
 				return fmt.Errorf("points %q: enter a non-zero number of points", id)
 			}
 		case NodeList:
-			if n.ListID <= 0 || (n.ListAction != "add" && n.ListAction != "remove") {
-				return fmt.Errorf("list %q: choose a list and whether to add or remove", id)
+			if err := validList(n); err != nil {
+				return fmt.Errorf("list %q: %w", id, err)
 			}
 		case NodeStage:
 			if !profile.ValidStageName(n.Stage) {
@@ -295,7 +339,13 @@ func (g Graph) Validate() error {
 			}
 		case NodeExit:
 		default:
-			return fmt.Errorf("node %q: unknown type %q", id, n.Type)
+			ok, err := g.validNew(id, n)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("node %q: unknown type %q", id, n.Type)
+			}
 		}
 	}
 	return g.checkAcyclic()
@@ -314,6 +364,12 @@ func (n Node) edges() []string {
 			out[i] = v.Next
 		}
 		return out
+	}
+	switch kindOf(n.Type) {
+	case kindAction:
+		return []string{n.Next}
+	case kindDecision, kindCondition:
+		return []string{n.Yes, n.No}
 	}
 	return nil
 }
@@ -393,7 +449,7 @@ func (n Node) Decision() *SplitDecision { return n.decided }
 
 // Outcomes lists what a message decision can wait for on each channel.
 var Outcomes = map[string][]string{
-	channel.Email:    {"opened", "clicked", "delivered"},
+	channel.Email:    {"opened", "clicked", "delivered", "replied"},
 	channel.SMS:      {"delivered"},
 	channel.WhatsApp: {"delivered", "read"},
 	channel.RCS:      {"delivered", "read"},
@@ -413,12 +469,54 @@ func (g Graph) validMessageDecision(id string, n Node) error {
 	if n.Seconds < 60 || n.Seconds > maxWaitSecs {
 		return fmt.Errorf("message decision %q: wait 1 minute to 365 days for it", id)
 	}
+	if n.URL != "" && (n.Outcome != "clicked" || len(n.URL) > maxURLFilter) {
+		return fmt.Errorf("message decision %q: a link filter (up to %d characters) only applies to clicks", id, maxURLFilter)
+	}
+	if !g.reaches(n.Step, id) {
+		return fmt.Errorf("message decision %q: put the send step it watches (%q) above it", id, n.Step)
+	}
 	return nil
+}
+
+// reaches reports whether a contact at step from can arrive at step to (following edges, not jumps).
+func (g Graph) reaches(from, to string) bool {
+	seen := map[string]bool{}
+	stack := []string{from}
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		for _, next := range g.Nodes[id].edges() {
+			if next == to {
+				return true
+			}
+			stack = append(stack, next)
+		}
+	}
+	return false
 }
 
 // MessageEvent is the event and message id a message decision waits for.
 func (g Graph) MessageEvent(enrollment int64, n Node) (string, string) {
-	return sendNodes[g.Nodes[n.Step].Type] + "_" + n.Outcome, strconv.FormatInt(enrollment, 10) + ":" + n.Step
+	return g.MessageEventFor(model.Enrollment{ID: enrollment}, n)
+}
+
+// MessageEventFor is MessageEvent for an enrollment that may have jumped (its message ids carry the jump count).
+func (g Graph) MessageEventFor(en model.Enrollment, n Node) (string, string) {
+	return sendNodes[g.Nodes[n.Step].Type] + "_" + n.Outcome, StepKey(en, n.Step)
+}
+
+// StepKey is the idempotency key of a step for an enrollment: "{enrollment}:{step}", plus ":j{n}"
+// once the enrollment has jumped back n times, so a step repeated after a jump really runs again.
+func StepKey(en model.Enrollment, step string) string {
+	k := strconv.FormatInt(en.ID, 10) + ":" + step
+	if en.Jumps > 0 {
+		k += ":j" + strconv.Itoa(en.Jumps)
+	}
+	return k
 }
 
 var timeOfDay = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)

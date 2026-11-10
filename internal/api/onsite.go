@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"pulse/internal/event"
 	"pulse/internal/model"
 	"pulse/internal/onsite"
 	"pulse/internal/store/pg"
@@ -275,8 +277,10 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	member := map[int64]bool{}
+	var known *model.Contact
 	if id := strings.TrimSpace(req.ExternalID); id != "" {
 		if c, err := s.Store.ContactByExternalID(r.Context(), t.ID, id); err == nil {
+			known = &c
 			for _, seg := range onsite.Segments(set.items, set.slots) {
 				if in, err := s.Members.IsMember(r.Context(), t.ID, seg, c.ID); err == nil && in {
 					member[seg] = true
@@ -284,5 +288,62 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, onsite.Decide(set.items, set.slots, req.Slots, req.URL, s.now(), func(id int64) bool { return member[id] }))
+	d := onsite.Decide(set.items, set.slots, req.Slots, req.URL, s.now(), func(id int64) bool { return member[id] })
+	if known != nil {
+		s.journeyOnsite(r.Context(), t.ID, *known, req.URL, req.Slots, &d)
+	}
+	writeJSON(w, http.StatusOK, d)
 }
+
+// journeyOnsite applies what journeys set for a known contact: focus items queued by "show focus
+// item" steps (shown on this page view, once), content pushed into slots by "push dynamic content"
+// steps (it wins over the slot's own content), and dwc_requested for every requested slot, which
+// "requests dynamic content" decisions wait for.
+func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contact, pageURL string, slots []string, d *onsite.Decision) {
+	if s.RDB == nil {
+		return
+	}
+	p := onsite.Pushes{RDB: s.RDB}
+	if ids, err := p.TakeFocus(ctx, tenant, c.ID); err == nil {
+		shown := map[int64]bool{}
+		for _, f := range d.Focus {
+			shown[f.ID] = true
+		}
+		for _, id := range ids {
+			if shown[id] {
+				continue
+			}
+			if f, err := s.onsite().GetFocusItem(ctx, tenant, id); err == nil {
+				d.Focus = append(d.Focus, f)
+				shown[id] = true
+			}
+		}
+	} else {
+		s.Log.Error("journey focus items", "err", err)
+	}
+	var wanted []string
+	for _, sl := range slots {
+		if slotKey.MatchString(sl) {
+			wanted = append(wanted, sl)
+		}
+	}
+	if len(wanted) == 0 {
+		return
+	}
+	if pushed, err := p.DWC(ctx, tenant, c.ID, wanted); err == nil {
+		for k, v := range pushed {
+			d.Content[k] = v
+		}
+	} else {
+		s.Log.Error("journey dynamic content", "err", err)
+	}
+	evs := make([]event.Event, len(wanted))
+	for i, sl := range wanted {
+		evs[i] = event.Event{ExternalID: c.ExternalID, Name: event.DWCRequested, Props: map[string]any{"slot": sl, "url": pageURL}}
+	}
+	if err := s.publishEvents(ctx, tenant, evs); err != nil {
+		s.Log.Error("record dwc_requested", "err", err)
+	}
+}
+
+var slotKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)

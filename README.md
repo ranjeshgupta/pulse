@@ -66,6 +66,16 @@ and journeys within seconds, not on a 15-minute cron.
   unsubscribes (`method` on `unsubscribed`), and SMS / RCS link click tracking (`/t/s/{code}`, `sms_clicked`). New rule
   operators: doesn't contain, starts / ends with, is not one of, is not set, between, on a date. Mautic filter mapping:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#segment-builder-batch-7b).
+- **Batch 7b, campaign builder (done):** "+" on every journey path asks Action, Decision, Condition, Wait or Split, then
+  a searchable list with descriptions (disabled items say why); every Mautic campaign decision, action and condition is
+  a step: form / asset / page / device / dynamic content decisions, opens / clicks (any or one link) / replies to email
+  (inbound reply tracking: `reply_to` delivery setting, `POST /v1/replies/{token}`), marketing messages with channel
+  fallback, email to users, show focus item and push dynamic content per contact, owner / company / company score,
+  change campaigns, jump to step (25 jumps per enrollment at most), Do Not Contact, delete contact (typed confirmation,
+  contacts edit access), and conditions on campaigns, form fields, notifications, valid email (MX), DNC, a date and page
+  history. The canvas has Yes/No colours, step numbers, Tidy up, zoom to fit, minimap, undo/redo and per-step counts.
+  Mapping: [docs/05-feature-parity.md](docs/05-feature-parity.md#campaign-builder-batch-7b). Push to integration waits for
+  batch 8.
 - **Still to build:** the campaign builder part of batch 7b, then the rest of P2 in the feature-parity doc (batch 8).
 
 ## Run it
@@ -159,7 +169,7 @@ test/e2e/           end-to-end tests against the running stack
 
 ## Known Phase 1 limits
 
-- Journeys are enter-once per contact. Exit-on-segment-exit, A/B splits and wait-for-event come later.
+- Journeys don't exit contacts when they leave the trigger segment (use a condition, a goal or "Change campaigns").
 - A backfill that runs while live events arrive for the same segment can overwrite a fresh streaming
   change. The next sweep fixes it.
 - Postgres Row-Level Security is not enabled yet. Tenant isolation is enforced in every query (and tested at the API level).

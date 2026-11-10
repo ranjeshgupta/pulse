@@ -6,6 +6,7 @@ package delivery
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,6 +32,10 @@ type Rules struct {
 	Caps     map[string]Cap `json:"caps"`
 	Quiet    QuietHours     `json:"quiet"`
 	Keywords Keywords       `json:"keywords"`
+	// ReplyTo is the workspace's reply tracking address (e.g. replies@inbound.example.com): emails
+	// get Reply-To: replies+r<code>@inbound.example.com so replies can be matched (see package
+	// replies). Empty: replies aren't tracked.
+	ReplyTo string `json:"reply_to,omitempty"`
 }
 
 // Keywords are replies (SMS, WhatsApp) that opt a contact out of, or back in to, that channel.
@@ -88,6 +93,12 @@ func (k Keywords) Match(text string) (string, string) {
 var hhmm = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 
 func (r Rules) Validate() error {
+	if r.ReplyTo != "" {
+		a, err := mail.ParseAddress(r.ReplyTo)
+		if err != nil || a.Address != r.ReplyTo || !strings.Contains(r.ReplyTo, "@") || strings.Contains(r.ReplyTo, "+") {
+			return errors.New("reply tracking address: an address like replies@inbound.example.com (without +)")
+		}
+	}
 	for ch, c := range r.Caps {
 		if !channel.Valid(ch) {
 			return fmt.Errorf("unknown channel %q", ch)

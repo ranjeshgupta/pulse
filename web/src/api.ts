@@ -148,6 +148,8 @@ export interface DeliveryRules {
   quiet: { enabled: boolean; start: string; end: string; timezone: string; channels: Channel[] };
   /** Replies (SMS, WhatsApp) that opt a contact out of, or back in to, that channel. */
   keywords: { opt_out: string[]; opt_in: string[] };
+  /** Reply-To address on journey emails, so a "Replies to email" decision can see replies (its domain's inbound parse posts to the Reply webhook). */
+  reply_to?: string;
 }
 
 export interface JourneyNode {
@@ -158,10 +160,57 @@ export interface JourneyNode {
   add_tags?: string[]; remove_tags?: string[]; points?: number; list_id?: number; list_action?: "add" | "remove";
   /** change_stage: the stage's name. */
   stage?: string;
-  /** message_decision: the send step whose message it watches, and what it waits for. */
-  step?: string; outcome?: "opened" | "clicked" | "delivered" | "read";
+  /** message_decision: the send step whose message it watches, and what it waits for ("replied": email only;
+   * with "clicked", url is what the link must contain, empty = any link). */
+  step?: string; outcome?: "opened" | "clicked" | "delivered" | "read" | "replied";
   /** split: pick a winning path automatically (an A/B test). */
   winner?: SplitWinner | null;
+  /** on_form, if_form_field: the form (absent = any form). */
+  form_id?: number;
+  /** on_asset: the asset (absent = any asset). */
+  asset_id?: number;
+  /** on_page: a landing page (instead of url). */
+  page_id?: number;
+  /** on_device: "desktop" | "mobile" | "tablet", and/or an OS such as "iOS". */
+  device_type?: string; os?: string;
+  /** on_dwc, push_dwc: the Dynamic Web Content slot; push_dwc: its HTML for this contact, for days (default 30). */
+  slot?: string; html?: string;
+  /** if_visited: 0 = ever, else within the last N days; push_dwc: how long the content stays. */
+  days?: number;
+  /** check: which preset built the rule (a UI hint; the rule is the truth). */
+  preset?: "field" | "tags" | "stage" | "points" | "owner" | "device";
+  /** if_journey: the journeys and the state the contact must be in. */
+  journey_ids?: number[]; journey_state?: "active" | "completed" | "entered";
+  /** if_form_field: the field, comparison and value. */
+  field?: string; op?: string; value?: string;
+  /** if_notification. */
+  notify?: "push" | "inbox" | "any";
+  /** if_valid_email. */
+  reject_disposable?: boolean;
+  /** if_dnc ("any" = everything), dnc_add / dnc_remove ("all" = every channel). */
+  channel?: string;
+  /** dnc_add: why (shown on the contact). */
+  reason?: string;
+  /** notify_user: who gets the internal email (template_id is an email template). */
+  user_ids?: number[]; to_owner?: boolean; emails?: string[];
+  /** send_message: channels in priority order; the first the contact can receive is used. */
+  channels?: { channel: Channel; template_id?: number }[];
+  /** show_focus. */
+  focus_id?: number;
+  /** update_owner: 0 = unassign. */
+  owner_id?: number;
+  /** update_company: attributes set on the contact's company. */
+  company_attrs?: Record<string, string | number | boolean>;
+  /** add_company. */
+  company_id?: number;
+  /** update_list (new form): static lists to add to and remove from. */
+  add_lists?: number[]; remove_lists?: number[];
+  /** change_journey: journeys to add the contact to / remove them from. */
+  add_journeys?: number[]; remove_journeys?: number[];
+  /** jump: the step to continue from. */
+  target?: string;
+  /** delete_contact: must be "DELETE". */
+  confirm?: string;
 }
 /** A split's A/B test: after after_seconds, once every path has min_per_variant contacts, the best rate of metric wins. */
 export interface SplitWinner { metric: "opened" | "clicked" | "converted"; after_seconds: number; min_per_variant: number }
@@ -228,7 +277,9 @@ export interface MessageReport {
 export interface RevenueCounts { revenue: number; orders: number; buyers: number }
 /** A split step in the journey report: contacts (and, for A/B tests, hits of the metric) per path. */
 export interface SplitReport { metric?: string; paths: PathStat[]; decision?: SplitDecision }
-export interface JourneyReport { messages: MessageReport; enrollments: Stats; splits?: Record<string, SplitReport> }
+/** Contacts per step: entered, and per output (yes / no / v0, v1, …). */
+export type StepStats = { entered?: number; yes?: number; no?: number; [output: string]: number | undefined };
+export interface JourneyReport { messages: MessageReport; enrollments: Stats; splits?: Record<string, SplitReport>; steps?: Record<string, StepStats> }
 
 export type FormFieldType = "text" | "email" | "tel" | "number" | "textarea" | "select" | "checkbox" | "hidden";
 export interface FormField { key: string; label: string; type: FormFieldType; required?: boolean; options?: string[]; default?: string; progressive?: boolean }

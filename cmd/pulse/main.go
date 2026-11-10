@@ -40,6 +40,7 @@ import (
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
 	"pulse/internal/maintenance"
+	"pulse/internal/onsite"
 	"pulse/internal/profile"
 	"pulse/internal/providers"
 	"pulse/internal/safehttp"
@@ -329,12 +330,22 @@ func runJourneys(ctx context.Context, d *deps) error {
 	}
 	sender := journey.KafkaSender{Pub: prod}
 	rdb := d.redis()
+	chs, err := d.ch(ctx)
+	if err != nil {
+		return err
+	}
 	eng := journey.NewEngine(pgs, &journey.Executor{
 		Membership: segment.Membership{RDB: rdb}, Sender: sender, Events: sender, Contacts: pgs,
 		Counters: func(tenant int64, contact uint32, asOf time.Time) segment.Counter {
 			return segment.NewRedisCounter(rdb, tenant, contact, asOf)
 		},
-		HTTP: safehttp.Client(10*time.Second, d.cfg.AllowPrivateWebhooks),
+		HTTP:    safehttp.Client(10*time.Second, d.cfg.AllowPrivateWebhooks),
+		Data:    pgs,
+		Onsite:  onsite.Pushes{RDB: rdb},
+		History: chs,
+		Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
+		MX:      &journey.DNSChecker{},
+		Stats:   journey.RedisStepStats{RDB: rdb},
 	}, d.log)
 	if err := eng.Refresh(ctx); err != nil {
 		return err
@@ -435,6 +446,20 @@ func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
 		return err
 	}
 	c := &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log}
+	go func() {
+		tick := time.NewTicker(time.Hour)
+		defer tick.Stop()
+		for {
+			if err := pgs.PruneJourneyEffects(ctx); err != nil && ctx.Err() == nil {
+				d.log.Error("prune journey effects", "err", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+		}
+	}()
 	return c.Loop(ctx, d.cfg.MaintenanceInterval)
 }
 
