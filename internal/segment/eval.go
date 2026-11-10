@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"pulse/internal/attr"
 )
@@ -128,8 +129,41 @@ func compare(op string, raw any, present bool, value any) bool {
 			}
 		}
 		return false
+	case "before", "after", "within_days", "older_than_days":
+		d, ok := DatePart(s)
+		if !ok {
+			return false
+		}
+		switch op {
+		case "before":
+			return d < value.(string)
+		case "after":
+			return d > value.(string)
+		}
+		today := Today()
+		from := today.AddDate(0, 0, -int(value.(float64))).Format(time.DateOnly)
+		if op == "within_days" {
+			return d >= from && d <= today.Format(time.DateOnly)
+		}
+		return d < from
 	default:
 		f, ok := attr.Number(s)
 		return ok && cmpFloat(op, f, value.(float64))
 	}
+}
+
+// Today is the UTC date relative date rules compare with (a variable for tests).
+var Today = func() time.Time { return time.Now().UTC() }
+
+// DatePart returns the YYYY-MM-DD at the start of an attribute value (a date or an RFC 3339
+// timestamp), the same way the SQL compiler reads it.
+func DatePart(s string) (string, bool) {
+	if len(s) < 10 {
+		return "", false
+	}
+	d := s[:10]
+	if _, err := time.Parse(time.DateOnly, d); err != nil {
+		return "", false
+	}
+	return d, true
 }

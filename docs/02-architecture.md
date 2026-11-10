@@ -113,6 +113,13 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   journey workers can run without double-firing a step.
 - Each send carries the idempotency key `{enrollment}:{node}`. The dispatcher drops duplicates with Redis `SET NX`.
 
+## Segment rules
+- Rule types: attribute comparisons (`eq`, `ne`, `contains`, `in`, `exists`, `gt`/`gte`/`lt`/`lte`, and dates: `before`, `after`,
+  `within_days`, `older_than_days`), event counts in a window with property filters, tags, and membership of another segment or list.
+- Every profile keeps `first_seen` (first event time) and `last_seen` (UTC date of the latest event) for recency rules.
+- Rules that depend on today (event windows, relative dates) are swept periodically; the Go evaluator and the ClickHouse compiler
+  must agree on every rule (`make it`).
+
 ## Dispatch
 - Per-tenant token bucket in Redis (`EMAIL_RATE_PER_SEC`).
 - Templates use Go `html/template` and `text/template` over `{contact, attrs}`.

@@ -92,6 +92,16 @@ func (b *sqlBuilder) compare(expr string, op string, value any, existsExpr strin
 			b.args = append(b.args, attr.String(v))
 		}
 		return expr + " IN (" + strings.Join(marks, ", ") + ")"
+	case "before", "after":
+		b.args = append(b.args, value.(string))
+		return "ifNull(toDateOrNull(substring(" + expr + ", 1, 10)) " + map[string]string{"before": "<", "after": ">"}[op] + " toDate(?), 0)"
+	case "within_days":
+		from := b.asOf.AddDate(0, 0, -int(value.(float64))).Format(time.DateOnly)
+		b.args = append(b.args, from, b.asOf.Format(time.DateOnly))
+		return "ifNull(toDateOrNull(substring(" + expr + ", 1, 10)) BETWEEN toDate(?) AND toDate(?), 0)"
+	case "older_than_days":
+		b.args = append(b.args, b.asOf.AddDate(0, 0, -int(value.(float64))).Format(time.DateOnly))
+		return "ifNull(toDateOrNull(substring(" + expr + ", 1, 10)) < toDate(?), 0)"
 	default: // gt gte lt lte
 		b.args = append(b.args, value.(float64))
 		return "ifNull(toFloat64OrNull(" + expr + ") " + cmpOps[op] + " ?, 0)"

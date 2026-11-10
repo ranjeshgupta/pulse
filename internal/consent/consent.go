@@ -27,7 +27,7 @@ func Key(ch string) string { return "optout_" + ch }
 // Tags, points and merged_into are reserved the same way: they change only through their events.
 func IsReserved(attrName string) bool {
 	switch attrName {
-	case Key(All), "tags", "points", "merged_into", AttrEmailBounced:
+	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, "first_seen", "last_seen":
 		return true
 	}
 	for _, ch := range channel.All {

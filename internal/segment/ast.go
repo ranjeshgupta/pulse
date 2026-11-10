@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"time"
 
 	"pulse/internal/attr"
 	"pulse/internal/event"
@@ -168,6 +169,9 @@ func (r Rule) validateEvent() error {
 		if err := validCompare(fmt.Sprintf("event %q property %q", r.Event, f.Prop), f.Op, f.Value); err != nil {
 			return err
 		}
+		if RelativeDateOp(f.Op) {
+			return fmt.Errorf("event %q property %q: use before or after for event properties (the event's own window covers recency)", r.Event, f.Prop)
+		}
 	}
 	return nil
 }
@@ -207,6 +211,16 @@ func validCompare(what, op string, value any) error {
 	case "exists":
 		if value != nil {
 			return fmt.Errorf("%s: exists takes no value", what)
+		}
+	case "before", "after":
+		s, _ := value.(string)
+		if _, err := time.Parse(time.DateOnly, s); err != nil {
+			return fmt.Errorf("%s: %s needs a date like 2026-11-30", what, op)
+		}
+	case "within_days", "older_than_days":
+		n, ok := value.(float64)
+		if !ok || n < 1 || n > maxDays*10 || n != float64(int(n)) {
+			return fmt.Errorf("%s: %s needs a whole number of days (1-%d)", what, op, maxDays*10)
 		}
 	default:
 		return fmt.Errorf("%s: unknown op %q", what, op)
@@ -296,13 +310,16 @@ func CounterName(ev string, where []PropFilter) string {
 	return ev + "#" + hex.EncodeToString(sum[:6])
 }
 
-// HasWindow reports whether membership can change just because time passes (any event rule).
-// Such segments are re-checked by the periodic sweep.
+// HasWindow reports whether membership can change just because time passes (an event rule, or a
+// date compared with today). Such segments are re-checked by the periodic sweep.
 func (r Rule) HasWindow() bool {
 	found := false
-	r.walk(func(n Rule) { found = found || n.Event != "" })
+	r.walk(func(n Rule) { found = found || n.Event != "" || RelativeDateOp(n.Op) })
 	return found
 }
+
+// RelativeDateOp reports whether op compares a date with today.
+func RelativeDateOp(op string) bool { return op == "within_days" || op == "older_than_days" }
 
 func (r Rule) walk(fn func(Rule)) {
 	fn(r)

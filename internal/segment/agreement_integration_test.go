@@ -41,6 +41,8 @@ func TestSQLAgreesWithEval(t *testing.T) {
 	rng := rand.New(rand.NewSource(seed))
 	tenant := int64(1_000_000 + rng.Intn(1_000_000_000)) // isolated from other runs
 	asOf := time.Date(2026, 11, 10, 18, 30, 0, 0, time.UTC)
+	segment.Today = func() time.Time { return asOf } // relative date rules compare with the same day as the SQL
+	defer func() { segment.Today = func() time.Time { return time.Now().UTC() } }()
 
 	contacts, events := fixtures(rng, tenant, asOf, 300)
 	// Segments 1 and 2 hold random members; later rows (higher versions) flip some back out, so
@@ -74,7 +76,7 @@ func TestSQLAgreesWithEval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rules := append(fixedRules(t), randomRules(rng, 300)...)
+	rules := append(fixedRules(t), randomRules(rng, asOf, 300)...)
 	// Filtered event rules read their own counters, which the profile service increments only for
 	// events whose properties match (segment.MatchProps).
 	filters := map[string]segment.Filter{}
@@ -174,6 +176,10 @@ func fixtures(rng *rand.Rand, tenant int64, asOf time.Time, n int) ([]ch.Contact
 				attrs[key] = domain[rng.Intn(len(domain))]
 			}
 		}
+		if rng.Intn(4) > 0 { // dates: plain, RFC 3339, and junk
+			d := asOf.AddDate(0, 0, -rng.Intn(60)).Add(time.Duration(rng.Intn(48)-24) * time.Hour)
+			attrs["seen"] = []any{d.Format(time.DateOnly), d.Format(time.RFC3339), "soon", ""}[rng.Intn(4)]
+		}
 		if rng.Intn(3) > 0 {
 			tags := []any{}
 			for _, tg := range tagSet {
@@ -244,7 +250,7 @@ func fixedRules(t *testing.T) []segment.Rule {
 	return out
 }
 
-func randomRules(rng *rand.Rand, n int) []segment.Rule {
+func randomRules(rng *rand.Rand, asOf time.Time, n int) []segment.Rule {
 	ops := []string{"eq", "ne", "gt", "gte", "lt", "lte"}
 	var leaf func() segment.Rule
 	leaf = func() segment.Rule {
@@ -252,7 +258,7 @@ func randomRules(rng *rand.Rand, n int) []segment.Rule {
 			c := rng.Intn(4)
 			return segment.Rule{Event: names[rng.Intn(len(names))], Op: ops[rng.Intn(len(ops))], Count: &c, Days: 1 + rng.Intn(14)}
 		}
-		switch k := rng.Intn(9); k {
+		switch k := rng.Intn(11); k {
 		case 6:
 			return segment.Rule{Tag: tagSet[rng.Intn(len(tagSet))], Op: []string{"has", "not_has"}[rng.Intn(2)]}
 		case 7:
@@ -275,6 +281,11 @@ func randomRules(rng *rand.Rand, n int) []segment.Rule {
 			return segment.Rule{Attr: []string{"city", "age", "plan", "vip", "nope"}[rng.Intn(5)], Op: "exists"}
 		case 4:
 			return segment.Rule{Attr: "vip", Op: "eq", Value: rng.Intn(2) == 0}
+		case 9:
+			return segment.Rule{Attr: "seen", Op: []string{"within_days", "older_than_days"}[rng.Intn(2)], Value: float64(1 + rng.Intn(45))}
+		case 10:
+			d := asOf.AddDate(0, 0, -rng.Intn(60)).Format(time.DateOnly)
+			return segment.Rule{Attr: "seen", Op: []string{"before", "after"}[rng.Intn(2)], Value: d}
 		default:
 			return segment.Rule{Attr: "city", Op: "contains", Value: []string{"D", "un", ""}[rng.Intn(3)]}
 		}

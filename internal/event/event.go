@@ -47,6 +47,8 @@ const (
 	AttrTags       = "tags"
 	AttrPoints     = "points"
 	AttrMergedInto = "merged_into"
+	AttrFirstSeen  = "first_seen" // RFC 3339 time of the contact's first event
+	AttrLastSeen   = "last_seen"  // UTC date (YYYY-MM-DD) of the latest event
 )
 
 // Kafka topics.

@@ -36,6 +36,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | "In / not in another segment" rule | ✅ | ✅ | ✅ evaluated in dependency order in the same pass; cycles refused | |
 | Static lists (manual add/remove, import to list) | ✅ | ✅ | ✅ Lists page, API, CSV import into a list, journey step | |
 | Event property filters (purchase where amount > 1000) | 🟡 | ✅ | ✅ up to 5 filters per event rule; history seeded from ClickHouse | |
+| Date rules (before/after a date, within the last N days, more than N days ago) | ✅ | ✅ | ✅ on any date attribute and on first_seen / last_seen, which every profile keeps | |
 
 ## Journeys / campaigns
 
@@ -147,8 +148,9 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      than N days, audit entries older than N days; expired inbox messages and old webhook deliveries are always pruned.
    - Journeys built from Actions, Conditions and Decisions (Mautic's model, WebEngage's blocks): ✅ decisions on a specific
      message's engagement (`message_decision`); the builder's grouped palette is next.
-   - Segment builder with every Mautic and WebEngage filter (geo, device and platform, first/last seen, page visits,
-     message engagement, campaign membership, "did not do").
+   - Segment builder with every Mautic and WebEngage filter: ✅ date rules and first/last seen; geo (geo_* attributes),
+     page visits (page_view with URL filters), message engagement (email_opened etc. with broadcast_id/journey_id filters)
+     and "did not do" (count = 0) already work as rules; journey membership and builder presets for all of them are next.
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
      mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
 7. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.

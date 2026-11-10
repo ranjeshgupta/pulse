@@ -160,7 +160,7 @@ func TestHandleEnrichesAndCountsOnce(t *testing.T) {
 	}
 	var out event.Event
 	_ = json.Unmarshal(pub.recs[0].Value, &out)
-	if out.ContactID != 1 || !out.NewContact || out.Profile["city"] != "Delhi" || !reflect.DeepEqual(out.ChangedAttrs, []string{"city"}) {
+	if out.ContactID != 1 || !out.NewContact || out.Profile["city"] != "Delhi" || !reflect.DeepEqual(out.ChangedAttrs, []string{"city", "first_seen", "last_seen"}) || out.Profile["last_seen"] != "2026-11-10" {
 		t.Errorf("enriched = %+v", out)
 	}
 	if string(pub.recs[0].Key) != "1:1" || pub.recs[0].Topic != event.TopicEnriched {

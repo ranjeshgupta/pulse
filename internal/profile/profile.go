@@ -243,6 +243,31 @@ type merge struct {
 }
 
 // Handle processes a single record (kept for callers and tests that work record by record).
+// StampSeen keeps first_seen (the first event's time) and last_seen (the UTC date of the latest
+// event, so it changes at most once a day per contact) on the profile, for "first seen" and
+// "last active" segment rules.
+func StampSeen(p map[string]any, changed []string, ts time.Time) (map[string]any, []string) {
+	day := ts.UTC().Format(time.DateOnly)
+	_, hasFirst := p[event.AttrFirstSeen]
+	last, _ := p[event.AttrLastSeen].(string)
+	if hasFirst && last >= day {
+		return p, changed
+	}
+	out := make(map[string]any, len(p)+2)
+	for k, v := range p {
+		out[k] = v
+	}
+	if !hasFirst {
+		out[event.AttrFirstSeen] = ts.UTC().Format(time.RFC3339)
+		changed = append(changed, event.AttrFirstSeen)
+	}
+	if last < day {
+		out[event.AttrLastSeen] = day
+		changed = append(changed, event.AttrLastSeen)
+	}
+	return out, changed
+}
+
 func (s *Service) Handle(ctx context.Context, r *kgo.Record) error {
 	return s.HandleBatch(ctx, []*kgo.Record{r})
 }
@@ -349,6 +374,7 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 			}
 		}
 		merged, changed := MergeScored(cur, e, scoring[e.TenantID][e.Name])
+		merged, changed = StampSeen(merged, changed, e.Ts)
 		profiles[k] = merged
 		if len(changed) > 0 || len(fromAnon) > 0 {
 			dirty[k] = true
