@@ -113,6 +113,8 @@ export interface JourneyNode {
   until?: string; time_of_day?: string; timezone?: string; event?: string; rule?: Rule;
   variants?: { weight: number; next?: string; label?: string }[]; attrs?: Record<string, unknown>; url?: string; body?: string;
   add_tags?: string[]; remove_tags?: string[]; points?: number; list_id?: number; list_action?: "add" | "remove";
+  /** message_decision: the send step whose message it watches, and what it waits for. */
+  step?: string; outcome?: "opened" | "clicked" | "delivered" | "read";
 }
 export interface JourneyGraph {
   trigger: { type: "segment_entered" | "event"; segment_id?: number; event?: string; include_backfill?: boolean; reentry?: "once" | "always" | "after_days"; days?: number };

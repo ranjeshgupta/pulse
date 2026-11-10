@@ -38,8 +38,9 @@ and journeys within seconds, not on a 15-minute cron.
   `POST /v1/web/inapp` for the app SDK (android, ios); the Flutter SDK renders modal, banner and full-screen messages.
   Segment targeting counts for signed-in users only with their user hash. (On-site focus items follow the workspace's
   identity-verification setting instead.)
-- **Batch 5 (in progress):** GeoIP and the anonymous-tracking switch, and retention cleanup are done (Settings → Data &
-  privacy); journey Actions/Conditions/Decisions with message-engagement decisions and the full segment filter set are next.
+- **Batch 5 (done):** GeoIP and the anonymous-tracking switch, retention cleanup (Settings → Data & privacy), journeys
+  grouped into Actions/Conditions/Decisions/Waits with message-engagement decisions, and segment presets with date rules.
+- **Still to build:** P2 in the feature-parity doc.
 
 ## Run it
 

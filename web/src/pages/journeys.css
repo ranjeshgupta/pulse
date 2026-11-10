@@ -1,0 +1,8 @@
+/* Journey builder: grouped palette and decision/condition node colours. Uses the tokens from styles.css. */
+.palette-group { margin-bottom: 14px; }
+.palette-group h5 { margin: 0 0 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding-left: 8px; border-left: 3px solid var(--ink-3); }
+.palette-group.g-condition h5 { border-left-color: var(--ch-rcs); }
+.palette-group.g-decision h5 { border-left-color: var(--step-decision); }
+.palette-group.g-wait h5 { border-left-color: var(--faint); }
+.palette .palette-item { flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 9px; }
+.palette .palette-item small { font-size: 11.5px; color: var(--muted); line-height: 1.3; }

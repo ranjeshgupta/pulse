@@ -42,7 +42,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
-| Visual canvas | ✅ | ✅ | ✅ | |
+| Visual canvas | ✅ | ✅ | ✅ grouped palette: Actions, Conditions, Decisions, Waits | |
 | Triggers: segment entry, event | ✅ | ✅ | ✅ | |
 | Schedule: start required, end optional (empty = runs forever) | ✅ | ✅ | ✅ this change | |
 | Wait for a duration | ✅ | ✅ | ✅ durable timers | |
@@ -140,18 +140,17 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 5. **P1 batch 4, done:** custom roles, audit log, outbound webhooks, background imports, the Flutter SDK, bounce and
    complaint handling, standard web push, and the custom HTTP gateway (webhook channel).
    **P1 is complete:** in-app messages and the app inbox are done too.
-6. **Batch 5, requested 2026-11-10:**
-   - ✅ Anonymous visitors: GeoIP with a MaxMind GeoLite2/GeoIP2 City database (`PULSE_GEOIP_DB`) sets geo_country,
-     geo_country_code, geo_region, geo_city, geo_postal, geo_timezone on web and app events; quiet hours fall back to
-     geo_timezone; Data & privacy switch to track anonymous visitors or not.
-   - ✅ Cleanup like Mautic's maintenance (hourly): anonymous visitors idle for N days with their events, events older
-     than N days, audit entries older than N days; expired inbox messages and old webhook deliveries are always pruned.
-   - Journeys built from Actions, Conditions and Decisions (Mautic's model, WebEngage's blocks): ✅ decisions on a specific
-     message's engagement (`message_decision`); the builder's grouped palette is next.
-   - Segment builder with every Mautic and WebEngage filter: ✅ date rules and first/last seen; geo (geo_* attributes),
-     page visits (page_view with URL filters), message engagement (email_opened etc. with broadcast_id/journey_id filters)
-     and "did not do" (count = 0) already work as rules; ✅ journey membership (journey_entered / journey_completed events);
-     builder presets for all of them are next.
+6. **Batch 5 (requested 2026-11-10), done:**
+   - Anonymous visitors: GeoIP with a MaxMind GeoLite2/GeoIP2 City database (`PULSE_GEOIP_DB`) sets geo_country,
+     geo_country_code, geo_region, geo_city, geo_postal, geo_timezone; quiet hours fall back to geo_timezone; Data &
+     privacy switch to track anonymous visitors or not.
+   - Cleanup like Mautic's maintenance (hourly): anonymous visitors idle for N days with their events, events older than N
+     days, audit entries older than N days; expired inbox messages and old webhook deliveries are always pruned.
+   - Journeys: palette grouped into Actions, Conditions, Decisions and Waits; `message_decision` on a step's own message
+     (email opened/clicked/delivered, SMS/push delivered, WhatsApp/RCS delivered/read, inbox opened/clicked).
+   - Segments: date rules, first_seen / last_seen, and an "Add condition" menu with presets for profile, location, first
+     seen / last active / inactive, events done or not done, page visits, form submissions, email/WhatsApp/SMS engagement
+     with a campaign or journey, unsubscribes, bounces, journey entered/completed, tags and segment/list membership.
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
      mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
 7. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.

@@ -1,0 +1,16 @@
+/* Segment builder: the "Add condition" menu. Uses the tokens from styles.css. */
+.rule-add { margin-top: 6px; }
+.rule-menu {
+  margin-top: 8px; padding: 12px; border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--surface);
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 14px;
+  box-shadow: 0 6px 20px rgba(21, 34, 56, 0.08);
+}
+.rule-menu-group { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rule-menu-group h5 { margin: 6px 0 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.rule-menu-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--r-sm);
+  background: transparent; font: inherit; font-size: var(--fs-sm); color: var(--text); text-align: left; cursor: pointer;
+}
+.rule-menu-item small { font-size: var(--fs-xs); color: var(--muted); line-height: 1.35; }
+.rule-menu-item:hover { background: var(--cobalt-wash); }
+.rule-menu-item:focus-visible { outline: none; box-shadow: var(--focus); }

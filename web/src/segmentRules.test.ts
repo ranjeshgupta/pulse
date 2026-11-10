@@ -1,6 +1,6 @@
 import { describe as suite, expect, it } from "vitest";
 import type { Rule } from "./api";
-import { describe, fromRule, newGroup, problems, rootFromRule, segmentRefs, toRule, type Group } from "./segmentRules";
+import { describe, eventProps, formatDay, fromRule, isDateAttr, newGroup, PRESETS, problems, rootFromRule, segmentRefs, toRule, type Group } from "./segmentRules";
 
 const rule: Rule = {
   all: [
@@ -60,5 +60,97 @@ suite("segment rule editing model", () => {
 
   it("describes rules in words", () => {
     expect(describe(rule)).toBe("city is one of Pune, Mumbai and age is at least 18 and (did purchase at least 2× in 30 days or never did login in 14 days)");
+  });
+});
+
+suite("date comparisons", () => {
+  it("sends dates as text and day counts as numbers, and round-trips them", () => {
+    const r: Rule = {
+      all: [
+        { attr: "signup_date", op: "before", value: "2026-01-31" },
+        { attr: "first_seen", op: "after", value: "2025-12-01" },
+        { attr: "last_seen", op: "within_days", value: 7 },
+        { attr: "renewal", op: "older_than_days", value: 90 },
+      ],
+    };
+    expect(toRule(fromRule(r))).toEqual(r);
+    expect(toRule({ kind: "attr", attr: "last_seen", op: "within_days", value: "14" })).toEqual({ attr: "last_seen", op: "within_days", value: 14 });
+    expect(problems(rootFromRule(r))).toEqual([]);
+  });
+
+  it("describes date comparisons in plain words", () => {
+    expect(describe({ attr: "signup_date", op: "before", value: "2026-01-31" })).toBe("signup_date is before 31 Jan 2026");
+    expect(describe({ attr: "first_seen", op: "after", value: "2025-12-01" })).toBe("first seen is after 1 Dec 2025");
+    expect(describe({ attr: "last_seen", op: "within_days", value: 30 })).toBe("last active is in the last 30 days");
+    expect(describe({ attr: "last_seen", op: "within_days", value: 1 })).toBe("last active is in the last day");
+    expect(describe({ attr: "renewal", op: "older_than_days", value: 90 })).toBe("renewal is more than 90 days ago");
+    expect(describe({ attr: "geo_country", op: "eq", value: "India" })).toBe("country is India");
+  });
+
+  it("checks dates and day counts", () => {
+    expect(problems({ kind: "attr", attr: "d", op: "before", value: "2026-02-30" })).toEqual(['"d" needs a date.']);
+    expect(problems({ kind: "attr", attr: "d", op: "after", value: "" })).toEqual(['"d" needs a date.']);
+    expect(problems({ kind: "attr", attr: "d", op: "within_days", value: "0" })).toEqual(['"d" needs a whole number of days, 1 to 3650.']);
+    expect(problems({ kind: "attr", attr: "d", op: "older_than_days", value: "2.5" })).toHaveLength(1);
+    expect(problems({ kind: "attr", attr: "d", op: "older_than_days", value: "3650" })).toEqual([]);
+    // Event properties can be before/after a date, but not relative to today.
+    const ev = (op: "after" | "within_days", value: string) => problems({ kind: "event", event: "purchase", op: "gte", count: 1, days: 30, where: [{ prop: "shipped", op, value }] });
+    expect(ev("after", "2026-03-01")).toEqual([]);
+    expect(ev("within_days", "7")[0]).toMatch(/Use "is before" or "is after" on "shipped"/);
+  });
+
+  it("knows which attributes hold dates", () => {
+    expect(isDateAttr("first_seen")).toBe(true);
+    expect(isDateAttr(" last_seen ")).toBe(true);
+    expect(isDateAttr("renewal", [{ key: "renewal", type: "date" }])).toBe(true);
+    expect(isDateAttr("city", [{ key: "city", type: "string" }])).toBe(false);
+  });
+
+  it("formats days", () => {
+    expect([formatDay("2026-11-05"), formatDay("2026-13-01"), formatDay("soon")]).toEqual(["5 Nov 2026", "2026-13-01", "soon"]);
+  });
+});
+
+suite("known events and presets", () => {
+  const refs = { forms: { 3: "Contact us" }, broadcasts: { 5: "Diwali sale" }, journeys: { 8: "Onboarding" } };
+
+  it("describes Pulse's own events like a marketer would", () => {
+    expect(describe({ event: "email_opened", op: "gte", count: 1, days: 30, where: [{ prop: "broadcast_id", op: "eq", value: "5" }] }, {}, refs))
+      .toBe("opened an email from campaign “Diwali sale” in the last 30 days");
+    expect(describe({ event: "email_clicked", op: "eq", count: 0, days: 14, where: [{ prop: "journey_id", op: "eq", value: "8" }] }, {}, refs))
+      .toBe("didn't click a link in an email from journey “Onboarding” in the last 14 days");
+    expect(describe({ event: "form_submitted", op: "gte", count: 2, days: 90, where: [{ prop: "form_id", op: "eq", value: "3" }] }, {}, refs))
+      .toBe("submitted the form “Contact us” at least 2 times in the last 90 days");
+    expect(describe({ event: "journey_completed", op: "gte", count: 1, days: 1, where: [{ prop: "journey_id", op: "eq", value: "9" }] }, {}, refs))
+      .toBe("completed the journey #9 in the last day");
+    expect(describe({ event: "page_view", op: "gte", count: 1, days: 7, where: [{ prop: "url", op: "contains", value: "/pricing" }] }))
+      .toBe("visited a page whose URL contains /pricing in the last 7 days");
+    expect(describe({ event: "unsubscribed", op: "gte", count: 1, days: 365, where: [{ prop: "channel", op: "eq", value: "whatsapp" }] }))
+      .toBe("unsubscribed from WhatsApp in the last 365 days");
+    expect(describe({ event: "whatsapp_read", op: "gte", count: 1, days: 30, where: [{ prop: "broadcast_id", op: "ne", value: 5 }] }, {}, refs))
+      .toBe("read a WhatsApp message not from campaign “Diwali sale” in the last 30 days");
+    expect(describe({ event: "email_bounced", op: "gte", count: 1, days: 90 })).toBe("had an email bounce in the last 90 days");
+  });
+
+  it("offers presets that insert valid rules once their blanks are filled", () => {
+    const all = PRESETS.flatMap((g) => g.items);
+    expect(new Set(all.map((p) => p.id)).size).toBe(all.length);
+    const byId = Object.fromEntries(all.map((p) => [p.id, p]));
+    expect(toRule(byId.inactive.make())).toEqual({ attr: "last_seen", op: "older_than_days", value: 30 });
+    expect(problems(byId.inactive.make())).toEqual([]);
+    expect(problems(byId.bounced.make())).toEqual([]);
+    expect(problems(byId.unsubscribed.make())).toEqual([]);
+    // Pickers start empty and say what to choose.
+    expect(problems(byId.form.make())).toEqual(["Choose a form."]);
+    expect(problems(byId.email_opened.make())).toEqual(["Choose a campaign."]);
+    expect(problems(byId.journey_entered.make())).toEqual(["Choose a journey."]);
+    expect(problems(byId.page.make())).toEqual(['"url" needs some text to look for.']);
+    expect(toRule(byId.didnt.make())).toMatchObject({ op: "eq", count: 0 });
+  });
+
+  it("suggests the properties each event carries", () => {
+    expect(eventProps("page_view")).toEqual(["url", "path", "title"]);
+    expect(eventProps("sms_delivered")).toContain("broadcast_id");
+    expect(eventProps("purchase")).toEqual([]);
   });
 });

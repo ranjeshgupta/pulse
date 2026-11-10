@@ -2,30 +2,99 @@
 // is the source of truth: edges are derived from each node's next / yes / no fields, so every edit
 // on the canvas is an edit of the graph.
 import type { Edge, Node as FlowNode } from "@xyflow/react";
-import type { Channel, JourneyGraph, JourneyNode } from "./api";
+import { CHANNEL_NAMES, type Channel, type JourneyGraph, type JourneyNode } from "./api";
 
 export const TRIGGER_ID = "__trigger";
 
-export const NODE_TYPES: { type: string; label: string; channel?: Channel }[] = [
-  { type: "send_email", label: "Send email", channel: "email" },
-  { type: "send_sms", label: "Send SMS", channel: "sms" },
-  { type: "send_whatsapp", label: "Send WhatsApp", channel: "whatsapp" },
-  { type: "send_rcs", label: "Send RCS", channel: "rcs" },
-  { type: "send_push", label: "Send push", channel: "push" },
-  { type: "send_inbox", label: "Send to app inbox", channel: "inbox" },
-  { type: "wait", label: "Wait" },
-  { type: "wait_until", label: "Wait until" },
-  { type: "wait_for_event", label: "Wait for event" },
-  { type: "condition", label: "Check segment" },
-  { type: "check", label: "Check contact" },
-  { type: "split", label: "A/B split" },
-  { type: "update_attr", label: "Update profile" },
-  { type: "update_tags", label: "Tag contact" },
-  { type: "adjust_points", label: "Adjust points" },
-  { type: "update_list", label: "Add to list" },
-  { type: "webhook", label: "Call webhook" },
-  { type: "exit", label: "Exit" },
+export type StepGroup = "action" | "condition" | "decision" | "wait";
+export const STEP_GROUPS: { group: StepGroup; label: string; hint: string }[] = [
+  { group: "action", label: "Actions", hint: "Do something for the contact, then carry on." },
+  { group: "condition", label: "Conditions", hint: "Check the contact right now and pick a path." },
+  { group: "decision", label: "Decisions", hint: "Wait for the contact to act, up to a time limit." },
+  { group: "wait", label: "Waits", hint: "Pause before the next step." },
 ];
+
+export const NODE_TYPES: { type: string; label: string; group: StepGroup; hint: string; channel?: Channel }[] = [
+  { type: "send_email", label: "Send email", group: "action", hint: "Send an email template.", channel: "email" },
+  { type: "send_sms", label: "Send SMS", group: "action", hint: "Send a text message.", channel: "sms" },
+  { type: "send_whatsapp", label: "Send WhatsApp", group: "action", hint: "Send a WhatsApp template, with an SMS fallback.", channel: "whatsapp" },
+  { type: "send_rcs", label: "Send RCS", group: "action", hint: "Send a rich message, with an SMS fallback.", channel: "rcs" },
+  { type: "send_push", label: "Send push", group: "action", hint: "Send a web or mobile push notification.", channel: "push" },
+  { type: "send_inbox", label: "Send to app inbox", group: "action", hint: "Put a message in the contact's app inbox.", channel: "inbox" },
+  { type: "update_attr", label: "Update profile", group: "action", hint: "Set attributes on the contact." },
+  { type: "update_tags", label: "Tag contact", group: "action", hint: "Add or remove tags." },
+  { type: "adjust_points", label: "Adjust points", group: "action", hint: "Add or take away points." },
+  { type: "update_list", label: "Add to list", group: "action", hint: "Add to or remove from a list." },
+  { type: "webhook", label: "Call webhook", group: "action", hint: "Send the contact to another system." },
+  { type: "exit", label: "Exit", group: "action", hint: "End the journey here." },
+  { type: "condition", label: "Check segment", group: "condition", hint: "Is the contact in a segment?" },
+  { type: "check", label: "Check contact", group: "condition", hint: "Does the contact match a rule, e.g. city is Pune?" },
+  { type: "split", label: "A/B split", group: "condition", hint: "Send contacts down paths at random, by share." },
+  { type: "message_decision", label: "Message outcome?", group: "decision", hint: "Waits for an earlier message to be opened, clicked, delivered or read; else takes \u201cNo\u201d after the time limit." },
+  { type: "wait_for_event", label: "Wait for event", group: "decision", hint: "Waits for the contact to do an event, e.g. purchase; else takes \u201ctimed out\u201d." },
+  { type: "wait", label: "Wait", group: "wait", hint: "Wait a set time, e.g. 2 days." },
+  { type: "wait_until", label: "Wait until", group: "wait", hint: "Wait for a date, or a time of day in the contact's zone." },
+];
+
+/** What a message decision can wait for, by the channel of the step it watches (mirrors the backend). */
+export type Outcome = NonNullable<JourneyNode["outcome"]>;
+export const OUTCOMES: Record<Channel, Outcome[]> = {
+  email: ["opened", "clicked", "delivered"],
+  sms: ["delivered"],
+  whatsapp: ["delivered", "read"],
+  rcs: ["delivered", "read"],
+  push: ["delivered"],
+  inbox: ["opened", "clicked"],
+};
+/** Outcomes in words: for the inspector ("the message …") and the canvas. */
+export const OUTCOME_WORDS: Record<Outcome, { long: string; short: string }> = {
+  opened: { long: "is opened", short: "opened" },
+  clicked: { long: "a link is clicked", short: "clicked" },
+  delivered: { long: "is delivered", short: "delivered" },
+  read: { long: "is read", short: "read" },
+};
+/** The shortest and longest time limit of a message decision, in seconds. */
+export const DECISION_MIN = 60;
+export const MAX_WAIT = 365 * 86400;
+
+/** sendSteps lists the journey's send steps, which a message decision can watch. */
+export function sendSteps(g: JourneyGraph): [string, JourneyNode, Channel][] {
+  return Object.entries(g.nodes).flatMap(([id, n]) => {
+    const ch = nodeChannel(n.type);
+    return ch ? [[id, n, ch] as [string, JourneyNode, Channel]] : [];
+  });
+}
+
+/** upstream lists the steps a contact can pass through before reaching id (the trigger excluded). */
+export function upstream(g: JourneyGraph, id: string): Set<string> {
+  const parents = new Map<string, string[]>();
+  for (const [pid, n] of Object.entries(g.nodes)) {
+    for (const [h] of outputs(n)) {
+      const t = target(n, h);
+      if (t) parents.set(t, [...(parents.get(t) ?? []), pid]);
+    }
+  }
+  const seen = new Set<string>();
+  const stack = [...(parents.get(id) ?? [])];
+  while (stack.length) {
+    const p = stack.pop()!;
+    if (p === id || seen.has(p)) continue;
+    seen.add(p);
+    stack.push(...(parents.get(p) ?? []));
+  }
+  return seen;
+}
+
+/** decisionText words a message decision for the canvas, e.g. "Email ‘Welcome’ opened within 2 days?".
+ * templateName names the watched step's template, when known. */
+export function decisionText(g: JourneyGraph, n: JourneyNode, templateName?: (id: number) => string | undefined): string {
+  const step = n.step ? g.nodes[n.step] : undefined;
+  const ch = step ? nodeChannel(step.type) : undefined;
+  if (!step || !ch) return "choose a message";
+  const name = (step.template_id && templateName?.(step.template_id)) || n.step;
+  const what = n.outcome && OUTCOMES[ch].includes(n.outcome) ? OUTCOME_WORDS[n.outcome].short : "…";
+  return `${CHANNEL_NAMES[ch]} \u2018${name}\u2019 ${what} within ${formatWait(n.seconds)}?`;
+}
 
 // Which outgoing handles a step has: [handle id, label].
 export function outputs(n: JourneyNode): [string, string | undefined][] {
@@ -34,6 +103,7 @@ export function outputs(n: JourneyNode): [string, string | undefined][] {
     case "condition": return [["yes", "in segment"], ["no", "not in segment"]];
     case "check": return [["yes", "matches"], ["no", "doesn't match"]];
     case "wait_for_event": return [["yes", "did it"], ["no", "timed out"]];
+    case "message_decision": return [["yes", "yes"], ["no", "no"]];
     case "split": return (n.variants ?? []).map((v, i) => [`v${i}`, `${v.label || String.fromCharCode(65 + i)} ${share(n, i)}%`]);
     default: return [["next", undefined]];
   }
@@ -114,7 +184,7 @@ export function removeNode(g: JourneyGraph, id: string): JourneyGraph {
   for (const [k, n] of Object.entries(g.nodes)) {
     if (k === id) continue;
     const copy = { ...n };
-    for (const f of ["next", "yes", "no"] as const) if (copy[f] === id) delete copy[f];
+    for (const f of ["next", "yes", "no", "step"] as const) if (copy[f] === id) delete copy[f];
     if (copy.variants) copy.variants = copy.variants.map((v) => (v.next === id ? { ...v, next: undefined } : v));
     nodes[k] = copy;
   }
@@ -123,7 +193,7 @@ export function removeNode(g: JourneyGraph, id: string): JourneyGraph {
 
 export function addNode(g: JourneyGraph, type: string, x: number, y: number): { graph: JourneyGraph; id: string } {
   let n = 1;
-  const base = type.replace("send_", "");
+  const base = type === "message_decision" ? "decision" : type.replace("send_", "");
   while (g.nodes[`${base}${n}`]) n++;
   const id = `${base}${n}`;
   const node: JourneyNode = { type, x, y };
@@ -135,6 +205,12 @@ export function addNode(g: JourneyGraph, type: string, x: number, y: number): { 
   if (type === "update_tags") node.add_tags = [];
   if (type === "adjust_points") node.points = 10;
   if (type === "update_list") node.list_action = "add";
+  if (type === "message_decision") {
+    // With a single send step there's only one message to watch, so choose it.
+    const sends = sendSteps(g);
+    node.seconds = 2 * 86400;
+    if (sends.length === 1) Object.assign(node, { step: sends[0][0], outcome: OUTCOMES[sends[0][2]][0] });
+  }
   return { graph: { ...g, nodes: { ...g.nodes, [id]: node } }, id };
 }
 
@@ -169,6 +245,13 @@ export function problems(g: JourneyGraph): string[] {
     if (n.type === "split" && (n.variants ?? []).some((v) => !(v.weight >= 1))) out.push(`${name}: every path needs a share of at least 1.`);
     if (n.type.startsWith("send_") && !n.template_id) out.push(`${name}: choose a template.`);
     if (n.type === "wait" && !(n.seconds && n.seconds > 0)) out.push(`${name}: set how long to wait.`);
+    if (n.type === "message_decision") {
+      const step = n.step ? g.nodes[n.step] : undefined;
+      const ch = step ? nodeChannel(step.type) : undefined;
+      if (!ch) out.push(`${name}: choose the message it waits on.`);
+      else if (!n.outcome || !OUTCOMES[ch].includes(n.outcome)) out.push(`${name}: choose what should happen to the ${CHANNEL_NAMES[ch]} message.`);
+      if (!(n.seconds !== undefined && n.seconds >= DECISION_MIN && n.seconds <= MAX_WAIT)) out.push(`${name}: wait between 1 minute and 365 days.`);
+    }
   }
   return out;
 }

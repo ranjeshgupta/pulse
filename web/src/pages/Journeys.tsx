@@ -8,11 +8,12 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, type Channel, type Journey, type JourneyGraph, type JourneyNode, type JourneyReport, type Segment, type Template } from "../api";
 import {
-  addNode, connect, disconnect, emptyGraph, formatWait, moveNode, nodeChannel, nodeLabel, NODE_TYPES, outputs, problems,
-  removeNode, share, toFlow, TRIGGER_ID, type FlowData,
+  addNode, connect, decisionText, disconnect, emptyGraph, formatWait, moveNode, nodeChannel, nodeLabel, NODE_TYPES, OUTCOME_WORDS, OUTCOMES, outputs,
+  problems, removeNode, sendSteps, share, STEP_GROUPS, toFlow, TRIGGER_ID, upstream, type FlowData, type Outcome,
 } from "../journeyGraph";
-import { describe, problems as ruleProblems, rootFromRule, toRule } from "../segmentRules";
-import { GroupEditor } from "./Segments";
+import { describe, problems as ruleProblems, rootFromRule, toRule, type RefNames } from "../segmentRules";
+import { GroupEditor, useRefObjects } from "./Segments";
+import "./journeys.css";
 import { TemplateActions } from "../messagePreview";
 import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { describeWindow, fromLocalInput, nowISO, ScheduleFields, scheduleProblem, toLocalInput } from "../schedule";
@@ -61,8 +62,8 @@ export function JourneyList() {
 }
 
 // Lookups the canvas nodes need to describe themselves.
-type Ctx = { segments: Map<number, string>; templates: Map<number, Template>; counts: Record<string, number>; graph: JourneyGraph };
-const CanvasCtx = createContext<Ctx>({ segments: new Map(), templates: new Map(), counts: {}, graph: emptyGraph() });
+type Ctx = { segments: Map<number, string>; templates: Map<number, Template>; counts: Record<string, number>; graph: JourneyGraph; refs: RefNames };
+const CanvasCtx = createContext<Ctx>({ segments: new Map(), templates: new Map(), counts: {}, graph: emptyGraph(), refs: {} });
 
 // TagListInput edits a list of tags as comma-separated text, keeping what's typed until it parses.
 function TagListInput({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) {
@@ -76,7 +77,7 @@ function TagListInput({ value, onChange }: { value: string[]; onChange: (tags: s
 }
 
 function PulseNode({ data, selected }: NodeProps) {
-  const { segments, templates, counts, graph } = useContext(CanvasCtx);
+  const { segments, templates, counts, graph, refs } = useContext(CanvasCtx);
   const d = data as FlowData;
   if (d.isTrigger) {
     const t = graph.trigger;
@@ -100,7 +101,8 @@ function PulseNode({ data, selected }: NodeProps) {
   else if (n.type === "exit") body = "journey ends";
   else if (n.type === "wait_until") body = n.until ? `until ${new Date(n.until).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : n.time_of_day ? `until ${n.time_of_day} in their time zone` : "choose when";
   else if (n.type === "wait_for_event") body = n.event ? `for ${n.event}, up to ${formatWait(n.seconds)}` : "choose an event";
-  else if (n.type === "check") body = n.rule ? describe(n.rule, Object.fromEntries(segments)) : "describe who matches";
+  else if (n.type === "check") body = n.rule ? describe(n.rule, Object.fromEntries(segments), refs) : "describe who matches";
+  else if (n.type === "message_decision") body = decisionText(graph, n, (tid) => templates.get(tid)?.name);
   else if (n.type === "update_tags") body = [n.add_tags?.length ? `add ${n.add_tags.join(", ")}` : "", n.remove_tags?.length ? `remove ${n.remove_tags.join(", ")}` : ""].filter(Boolean).join("; ") || "choose tags";
   else if (n.type === "adjust_points") body = n.points ? `${n.points > 0 ? "+" : ""}${n.points} points` : "set points";
   else if (n.type === "update_list") body = n.list_id ? `${n.list_action === "remove" ? "remove from" : "add to"} "${segments.get(n.list_id) ?? n.list_id}"` : "choose a list";
@@ -165,11 +167,13 @@ function JourneyEditor() {
   const winProblem = scheduleProblem(win.start_at, win.end_at);
   const issues = winProblem ? [...problems(graph), winProblem] : problems(graph);
 
+  const refs = useRefObjects().names;
   const ctx: Ctx = {
     segments: new Map(segs.data?.segments.map((s) => [s.id, s.name])),
     templates: new Map(tpls.data?.templates.map((t) => [t.id, t])),
     counts: stats.data?.node ?? {},
     graph,
+    refs,
   };
 
   const onNodesChange = (changes: NodeChange[]) => {
@@ -244,10 +248,16 @@ function JourneyEditor() {
         <div className="journey-layout">
           <aside className="palette">
             <h4>Add a step</h4>
-            {NODE_TYPES.map((t) => (
-              <button key={t.type} className="palette-item" disabled={locked} onClick={() => add(t.type)}>
-                {t.channel ? <span className={`chan chan-${t.channel}`}>{t.label}</span> : t.label}
-              </button>
+            {STEP_GROUPS.map((grp) => (
+              <section className={`palette-group g-${grp.group}`} key={grp.group}>
+                <h5 title={grp.hint}>{grp.label}</h5>
+                {NODE_TYPES.filter((t) => t.group === grp.group).map((t) => (
+                  <button key={t.type} className="palette-item" disabled={locked} onClick={() => add(t.type)} title={t.hint}>
+                    <span className="palette-label">{t.channel ? <span className={`chan chan-${t.channel}`}>{t.label}</span> : t.label}</span>
+                    <small>{t.hint}</small>
+                  </button>
+                ))}
+              </section>
             ))}
             <p className="xs muted" style={{ marginTop: 14 }}>Drag from a step's bottom dot to the next step to connect them. Select a line and press Backspace to remove it.</p>
           </aside>
@@ -426,6 +436,7 @@ function Inspector({ graph, setGraph, win, setWin, selected, locked, segments, t
           <WaitField label='Give up and take the "timed out" path after' seconds={n.seconds ?? 0} onChange={(seconds) => setN({ seconds })} />
         </>
       )}
+      {n.type === "message_decision" && <DecisionFields id={selected} n={n} graph={graph} templates={templates} setN={setN} />}
       {n.type === "check" && <CheckFields key={selected} n={n} setN={setN} />}
       {n.type === "split" && <SplitFields n={n} setN={setN} />}
       {n.type === "update_attr" && <AttrFields attrs={n.attrs ?? {}} onChange={(attrs) => setN({ attrs })} />}
@@ -497,6 +508,49 @@ function Inspector({ graph, setGraph, win, setWin, selected, locked, segments, t
         <button className="btn danger sm" style={{ marginTop: 8 }} onClick={() => onDelete(selected)}>Remove step</button>
       ) : null}
     </fieldset>
+  );
+}
+
+// DecisionFields sets up a message decision: which earlier message, what should happen to it,
+// and how long to wait before taking the "no" path.
+function DecisionFields({ id, n, graph, templates, setN }: { id: string; n: JourneyNode; graph: JourneyGraph; templates: Template[]; setN: (p: Partial<JourneyNode>) => void }) {
+  const sends = sendSteps(graph);
+  const before = upstream(graph, id);
+  const name = (sid: string, s: JourneyNode, ch: Channel) => {
+    const tpl = templates.find((t) => t.id === s.template_id);
+    return `${CHANNEL_NAMES[ch]} ${tpl ? `‘${tpl.name}’` : "(no template yet)"} · ${sid}`;
+  };
+  const earlier = sends.filter(([sid]) => before.has(sid));
+  const others = sends.filter(([sid]) => !before.has(sid));
+  const step = n.step ? sends.find(([sid]) => sid === n.step) : undefined;
+  const ch = step?.[2];
+  const allowed = ch ? OUTCOMES[ch] : [];
+  const pickStep = (sid: string) => {
+    const c = sends.find(([x]) => x === sid)?.[2];
+    const keep = c && n.outcome && OUTCOMES[c].includes(n.outcome);
+    setN({ step: sid || undefined, outcome: keep ? n.outcome : c ? OUTCOMES[c][0] : undefined });
+  };
+  return (
+    <>
+      <p className="xs muted" style={{ marginBottom: 10 }}>Contacts wait here. They take “yes” the moment their message does what you choose below, or “no” once the time limit passes.</p>
+      <Field label="Which message?">
+        <select className="select" value={n.step ?? ""} onChange={(e) => pickStep(e.target.value)}>
+          <option value="">Choose a send step</option>
+          {earlier.length > 0 && <optgroup label="Earlier in this journey">{earlier.map(([sid, s, c]) => <option key={sid} value={sid}>{name(sid, s, c)}</option>)}</optgroup>}
+          {others.length > 0 && <optgroup label={earlier.length ? "Other send steps" : "Send steps"}>{others.map(([sid, s, c]) => <option key={sid} value={sid}>{name(sid, s, c)}</option>)}</optgroup>}
+        </select>
+      </Field>
+      {sends.length === 0 && <p className="xs muted" style={{ marginTop: -8, marginBottom: 12 }}>Add a send step first, then connect it to this decision.</p>}
+      {step && !before.has(step[0]) && <p className="xs muted" style={{ marginTop: -8, marginBottom: 12 }}>Connect this decision after that step; until then contacts reach it without the message.</p>}
+      <Field label="Take “yes” if the message">
+        <select className="select" value={n.outcome ?? ""} disabled={!ch} onChange={(e) => setN({ outcome: (e.target.value || undefined) as Outcome | undefined })}>
+          {!ch && <option value="">Choose a message first</option>}
+          {allowed.map((o) => <option key={o} value={o}>{OUTCOME_WORDS[o].long}</option>)}
+        </select>
+      </Field>
+      {ch === "email" && n.outcome === "opened" && <p className="xs muted" style={{ marginTop: -8, marginBottom: 12 }}>Some mail apps hide opens, so "a link is clicked" is the surer signal.</p>}
+      <WaitField label="Take “no” if it hasn't happened within" seconds={n.seconds ?? 0} onChange={(seconds) => setN({ seconds })} />
+    </>
   );
 }
 

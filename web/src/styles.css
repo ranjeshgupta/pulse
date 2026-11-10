@@ -28,6 +28,7 @@
   --ch-rcs: #6b4fd8;
   --ch-push: #b46d00;
   --ch-inbox: #6a4bc4;
+  --step-decision: #c0496b;
 
   --font: "Schibsted Grotesk Variable", system-ui, sans-serif;
   /* Type scale (1.2 minor third from 15px) */
@@ -273,6 +274,9 @@ code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 .jnode.t-send_rcs { border-top-color: var(--ch-rcs); }
 .jnode.t-send_push { border-top-color: var(--ch-push); }
 .jnode.t-send_inbox { border-top-color: var(--ch-inbox); }
+.jnode.t-check, .jnode.t-split { border-top-color: var(--ch-rcs); }
+.jnode.t-message_decision, .jnode.t-wait_for_event { border-top-color: var(--step-decision); }
+.jnode.t-wait_until { border-top-color: var(--faint); }
 .handle-label { font-size: 10px; color: var(--muted); position: absolute; bottom: -16px; }
 
 /* ---------- template editors ---------- */

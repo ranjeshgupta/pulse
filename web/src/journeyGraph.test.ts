@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { JourneyGraph } from "./api";
-import { addNode, connect, disconnect, emptyGraph, formatWait, problems, removeNode, toFlow, TRIGGER_ID } from "./journeyGraph";
+import {
+  addNode, connect, decisionText, disconnect, emptyGraph, formatWait, NODE_TYPES, OUTCOMES, problems, removeNode, sendSteps, STEP_GROUPS, toFlow, TRIGGER_ID, upstream,
+} from "./journeyGraph";
 
 const g: JourneyGraph = {
   trigger: { type: "segment_entered", segment_id: 4 },
@@ -94,5 +96,70 @@ describe("new step types", () => {
     ]));
     const hook = addNode(emptyGraph(), "webhook", 0, 0);
     expect(problems(hook.graph)).toContain(`"${hook.id}": enter the webhook's https:// address.`);
+  });
+});
+
+describe("app inbox and message decisions", () => {
+  const md: JourneyGraph = {
+    trigger: { type: "event", event: "signup" },
+    entry: "email1",
+    nodes: {
+      email1: { type: "send_email", template_id: 7, next: "decision1" },
+      decision1: { type: "message_decision", step: "email1", outcome: "opened", seconds: 2 * 86400, yes: "inbox1", no: "x" },
+      inbox1: { type: "send_inbox", template_id: 9, next: "x" },
+      x: { type: "exit" },
+    },
+  };
+
+  it("puts every step type in a palette group", () => {
+    const groups = new Set(STEP_GROUPS.map((g) => g.group));
+    expect(NODE_TYPES.every((t) => groups.has(t.group) && t.hint.length > 0)).toBe(true);
+    expect(NODE_TYPES.find((t) => t.type === "message_decision")?.group).toBe("decision");
+    expect(NODE_TYPES.find((t) => t.type === "send_inbox")?.channel).toBe("inbox");
+  });
+
+  it("gives a message decision yes and no paths", () => {
+    const edges = toFlow(md).edges;
+    expect(edges.map((e) => e.id)).toEqual(expect.arrayContaining(["decision1:yes", "decision1:no", "inbox1:next"]));
+    expect(connect(md, "decision1", "no", "inbox1").nodes.decision1.no).toBe("inbox1");
+    expect(problems(md)).toEqual([]);
+  });
+
+  it("describes the decision on the canvas", () => {
+    expect(decisionText(md, md.nodes.decision1, (id) => (id === 7 ? "Welcome" : undefined))).toBe("Email \u2018Welcome\u2019 opened within 2 days?");
+    expect(decisionText(md, { ...md.nodes.decision1, outcome: "read" })).toBe("Email \u2018email1\u2019 \u2026 within 2 days?");
+    expect(decisionText(md, { type: "message_decision" })).toBe("choose a message");
+  });
+
+  it("checks the step, the outcome for its channel and the time limit like the server", () => {
+    const with_ = (patch: object) => problems({ ...md, nodes: { ...md.nodes, decision1: { ...md.nodes.decision1, ...patch } } });
+    expect(with_({ step: "x" })).toContain('"decision1": choose the message it waits on.');
+    expect(with_({ step: undefined })).toContain('"decision1": choose the message it waits on.');
+    expect(with_({ outcome: "read" })).toContain('"decision1": choose what should happen to the Email message.');
+    expect(with_({ step: "inbox1", outcome: "clicked" })).toEqual([]);
+    expect(with_({ step: "inbox1", outcome: "delivered" })).toContain('"decision1": choose what should happen to the App inbox message.');
+    expect(with_({ seconds: 30 })).toContain('"decision1": wait between 1 minute and 365 days.');
+    expect(with_({ seconds: 60 })).toEqual([]);
+    expect(OUTCOMES.sms).toEqual(["delivered"]);
+    expect(OUTCOMES.whatsapp).toEqual(["delivered", "read"]);
+  });
+
+  it("forgets a removed send step and preselects the only one", () => {
+    expect(removeNode(md, "email1").nodes.decision1.step).toBeUndefined();
+    const a = addNode(md, "message_decision", 0, 0);
+    expect(a.id).toBe("decision2");
+    expect(a.graph.nodes.decision2).toMatchObject({ seconds: 172800 }); // two send steps: nothing chosen
+    expect(a.graph.nodes.decision2.step).toBeUndefined();
+    const one = addNode(removeNode(md, "inbox1"), "message_decision", 0, 0);
+    expect(one.graph.nodes[one.id]).toMatchObject({ step: "email1", outcome: "opened" });
+  });
+
+  it("lists send steps and what comes before a step", () => {
+    expect(sendSteps(md).map(([id, , ch]) => [id, ch])).toEqual([["email1", "email"], ["inbox1", "inbox"]]);
+    expect([...upstream(md, "decision1")]).toEqual(["email1"]);
+    expect([...upstream(md, "x")].sort()).toEqual(["decision1", "email1", "inbox1"]);
+    expect(addNode(md, "send_inbox", 0, 0).id).toBe("inbox2");
+    const p = problems(addNode(md, "send_inbox", 0, 0).graph);
+    expect(p).toContain('"inbox2": choose a template.');
   });
 });
