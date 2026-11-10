@@ -166,6 +166,20 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      descriptions (hosted form and web SDK) and in-app / inbox message bodies (the Flutter SDK draws `Text`).
    - **Batch 7, analytics:** cohorts and retention, revenue attribution and UTM, funnel breakdown by attribute, custom report
      builder, automatic A/B winners in journeys.
+   - **Batch 7b, builders like Mautic and WebEngage (requested 2026-11-11, right after batch 7):**
+     - Segment builder: one searchable filter picker grouped as Contact (every built-in and custom field, with icons), Primary
+       company, Behaviour and actions, Points; a clear nested "Match ALL / ANY" group UI. New data for Mautic's filters: device
+       brand/model/OS/type (SDKs), email domain, date added / identified / modified, contact owner, preferred locale, SMS bounces,
+       manual vs self-service unsubscribes, browsing sessions; behaviour filters for clicks (any channel / email / SMS, with
+       dates), asset downloads, reads of a specific email or X times, sends, URL visits (X times, landing page, referrer,
+       source, page title).
+     - Campaign builder: "+" asks Decision, Action or Condition, then a searchable list with descriptions. Decisions: opens /
+       clicks / replies to email, downloads asset, submits form, visits page, device visit, requests dynamic content. Actions:
+       send email / email to user / marketing message / webhook, show focus item, push dynamic content, update contact /
+       owner / company, change stage, adjust points, tags, segments and lists, add to company, company score, change
+       campaigns, jump to step, add/remove Do Not Contact, delete contact (confirmed), push to integration (with batch 8).
+       Conditions: contact field value, segments, tags, stages, points, owner, device, campaigns, form field value, visited
+       page, valid email, DNC, active notification, prevent action after date.
    - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native
      Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file uploads and multi-page
      forms, audit log export.
