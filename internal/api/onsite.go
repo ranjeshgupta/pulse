@@ -233,7 +233,7 @@ func (s *Server) activeOnsite(ctx context.Context, tenant int64) (onsiteSet, err
 func cors(w http.ResponseWriter) {
 	h := w.Header()
 	h.Set("Access-Control-Allow-Origin", "*") // public, credential-less API keyed by the site key
-	h.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	h.Set("Vary", "Origin")
 	h.Set("Access-Control-Allow-Headers", "Content-Type, X-Pulse-Site-Key")
 	h.Set("Access-Control-Max-Age", "86400")

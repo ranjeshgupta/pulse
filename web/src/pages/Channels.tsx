@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, CHANNEL_NAMES, CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderKind, type SandboxMessage } from "../api";
+import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderKind, type SandboxMessage } from "../api";
 import { useIsAdmin } from "../auth";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 
@@ -17,7 +17,7 @@ export function Channels() {
     <div className="page">
       <PageHead title="Channels" intro="Where each channel's messages go out. Every channel uses its default provider; use the sandbox to try journeys without sending anything real." />
       <ErrorNote error={cat.error ?? list.error} />
-      {CHANNELS.map((ch) => {
+      {PROVIDER_CHANNELS.map((ch) => {
         const mine = providers.filter((p) => p.channel === ch);
         return (
           <section className="panel" key={ch} style={{ marginBottom: 16 }}>
@@ -47,6 +47,13 @@ export function Channels() {
           </section>
         );
       })}
+      <section className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3><span className="chan chan-inbox">App inbox</span></h3><span className="xs muted">Built in</span></div>
+        <div className="panel-body small muted">
+          Pulse keeps inbox messages itself, so there's nothing to connect. Apps show them with the Flutter SDK, and websites with
+          {" "}<code>Pulse.inbox</code> in the web SDK. Messages expire after 30 days unless the template says otherwise.
+        </div>
+      </section>
       <DeliveryRulesPanel admin={admin} />
       {admin && <BouncesPanel />}
       {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
@@ -199,6 +206,7 @@ const TO_LABEL: Record<Channel, [string, string]> = {
   sms: ["Send to phone number", "+919812345678"],
   whatsapp: ["Send to WhatsApp number", "+919812345678"],
   rcs: ["Send to phone number", "+919812345678"],
+  inbox: ["Send to contact (external ID)", "u-1042"],
   push: ["Send to device token", "FCM registration token"],
 };
 

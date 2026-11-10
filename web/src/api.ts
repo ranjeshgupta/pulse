@@ -33,10 +33,12 @@ export const api = {
 
 // ---- models (mirror internal/model) ----
 
-export type Channel = "email" | "sms" | "whatsapp" | "rcs" | "push";
-export const CHANNELS: Channel[] = ["email", "sms", "whatsapp", "rcs", "push"];
+export type Channel = "email" | "sms" | "whatsapp" | "rcs" | "push" | "inbox";
+export const CHANNELS: Channel[] = ["email", "sms", "whatsapp", "rcs", "push", "inbox"];
+/** Channels sent through a provider; the app inbox is delivered by Pulse itself. */
+export const PROVIDER_CHANNELS: Channel[] = ["email", "sms", "whatsapp", "rcs", "push"];
 export const CHANNEL_NAMES: Record<Channel, string> = {
-  email: "Email", sms: "SMS", whatsapp: "WhatsApp", rcs: "RCS", push: "Push",
+  email: "Email", sms: "SMS", whatsapp: "WhatsApp", rcs: "RCS", push: "Push", inbox: "App inbox",
 };
 
 export interface Workspace { id: number; name: string; slug: string; site_key: string }
@@ -94,6 +96,7 @@ export interface ChannelContent {
   suggestions?: { type: "reply" | "url" | "dial"; text: string; value?: string }[];
   card?: { title: string; description?: string; image_url?: string } | null;
   title?: string; body?: string; image_url?: string; url?: string; data?: Record<string, string>;
+  expires_days?: number; category?: string; // inbox
 }
 export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; updated_at: string }
 

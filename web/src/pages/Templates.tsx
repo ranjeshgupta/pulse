@@ -58,13 +58,13 @@ function summary(t: Template) {
     case "sms": return c.text;
     case "whatsapp": return c.preview_text || `Approved template "${c.template_name}"`;
     case "rcs": return c.text || c.card?.title;
-    case "push": return `${c.title}: ${c.body}`;
+    case "push": case "inbox": return `${c.title}: ${c.body}`;
   }
 }
 
 const BLANK: Record<Channel, ChannelContent> = {
   email: {}, sms: { text: "" }, whatsapp: { template_name: "", language: "en", body_params: [] },
-  rcs: { text: "", suggestions: [] }, push: { title: "", body: "" },
+  rcs: { text: "", suggestions: [] }, push: { title: "", body: "" }, inbox: { title: "", body: "" },
 };
 
 export function TemplateEdit() {
@@ -183,6 +183,22 @@ export function TemplateEdit() {
           )}
 
           {t.channel === "rcs" && <RcsFields c={c} setC={setC} />}
+
+          {t.channel === "inbox" && (
+            <>
+              <p className="xs muted" style={{ marginTop: 0 }}>Stays in the contact's app inbox (the mobile and web SDKs show it) until it expires or they delete it. Pulse delivers it itself: no provider needed.</p>
+              <Field label="Title"><input className="input" value={c.title ?? ""} onChange={(e) => setC({ title: e.target.value })} /></Field>
+              <Field label="Message" hint={PERSONALIZE}><textarea className="textarea" value={c.body ?? ""} onChange={(e) => setC({ body: e.target.value })} /></Field>
+              <div className="grid-2">
+                <Field label="Image URL (optional)"><input className="input" value={c.image_url ?? ""} onChange={(e) => setC({ image_url: e.target.value })} /></Field>
+                <Field label="Open this link when tapped"><input className="input" value={c.url ?? ""} onChange={(e) => setC({ url: e.target.value })} placeholder="https:// or app deep link" /></Field>
+                <Field label="Category (optional)" hint="Lets the app filter its inbox, e.g. offers or orders."><input className="input" value={c.category ?? ""} onChange={(e) => setC({ category: e.target.value })} /></Field>
+                <Field label="Keep for (days)" hint="Then it disappears from the inbox. 1-365; 30 if empty.">
+                  <input className="input" type="number" min={1} max={365} value={c.expires_days ?? ""} onChange={(e) => setC({ expires_days: e.target.value ? Number(e.target.value) : undefined })} />
+                </Field>
+              </div>
+            </>
+          )}
 
           {t.channel === "push" && (
             <>

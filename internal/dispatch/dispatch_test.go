@@ -52,10 +52,15 @@ type memStore struct {
 	providers map[string]model.Provider // by channel
 	deleted   []string
 	rules     delivery.Rules
+	inbox     []model.InboxMessage
 }
 
 func (m *memStore) DeliveryRules(context.Context, int64) (delivery.Rules, error) { return m.rules, nil }
 func (m *memStore) VAPIDKeys(context.Context, int64) (string, []byte, error)     { return "", nil, nil }
+func (m *memStore) InsertInbox(_ context.Context, im model.InboxMessage) error {
+	m.inbox = append(m.inbox, im)
+	return nil
+}
 
 func (m *memStore) ContactByID(_ context.Context, _ int64, id uint32) (model.Contact, error) {
 	if c, ok := m.contacts[id]; ok {

@@ -100,6 +100,8 @@ func (s *Server) prefState(ctx context.Context, tenant int64, c model.Contact) (
 			if c.Email == "" {
 				continue
 			}
+		case channel.Inbox:
+			continue // the app inbox is part of the app, not a channel people subscribe to
 		case channel.Push:
 			devs, err := s.Store.(deviceLister).ContactDevices(ctx, tenant, c.ID)
 			if err != nil {

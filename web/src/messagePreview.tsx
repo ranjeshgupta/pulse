@@ -41,6 +41,18 @@ export function MessagePreview({ channel, r, label }: { channel: Channel; r: Ren
       </>
     );
   }
+  if (channel === "inbox") {
+    body = (
+      <div className="notif" style={{ alignItems: "flex-start" }}>
+        <div style={{ width: 8, height: 8, borderRadius: 4, background: "var(--ch-inbox)", marginTop: 6, flex: "none" }} aria-label="Unread" />
+        <div>
+          <strong>{c.title || "Title"}</strong><br /><span className="small">{c.body || "Message"}</span>
+          {c.image_url && <img src={c.image_url} alt="" style={{ width: "100%", borderRadius: 6, marginTop: 6 }} />}
+          {c.category && <div className="xs muted" style={{ marginTop: 4 }}>{c.category}</div>}
+        </div>
+      </div>
+    );
+  }
   if (channel === "push") {
     body = (
       <div className="notif">

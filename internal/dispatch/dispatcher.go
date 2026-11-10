@@ -43,7 +43,7 @@ const (
 
 // DefaultRates are per-workspace send rates (messages/second) by channel.
 var DefaultRates = map[string]float64{
-	channel.Email: 200, channel.SMS: 100, channel.WhatsApp: 80, channel.RCS: 50, channel.Push: 500,
+	channel.Email: 200, channel.SMS: 100, channel.WhatsApp: 80, channel.RCS: 50, channel.Push: 500, channel.Inbox: 2000,
 }
 
 var e164 = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
@@ -57,6 +57,8 @@ type Store interface {
 	DeliveryRules(ctx context.Context, tenant int64) (delivery.Rules, error)
 	// VAPIDKeys returns the workspace's web push key pair (private key sealed); empty when unset.
 	VAPIDKeys(ctx context.Context, tenant int64) (public string, sealedPrivate []byte, err error)
+	// InsertInbox stores an app inbox message (once per message id).
+	InsertInbox(ctx context.Context, m model.InboxMessage) error
 }
 
 type Config struct {
@@ -217,7 +219,13 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	// Browser push subscriptions go through Web Push with the workspace's VAPID keys; everything
 	// else through the channel's default provider (fetched only when needed).
 	var p providers.Provider
+	if m.Channel == channel.Inbox {
+		p = &inboxSender{store: d.store, contact: c, msg: m}
+	}
 	for _, tg := range targets {
+		if p != nil {
+			break
+		}
 		if m.Channel == channel.Push && providers.IsWebPushSubscription(tg.to) {
 			continue
 		}
@@ -303,6 +311,8 @@ func (d *Dispatcher) recipients(ctx context.Context, ch string, c model.Contact)
 			return nil, nil
 		}
 		return []target{{to: c.Email}}, nil
+	case channel.Inbox:
+		return []target{{to: c.ExternalID}}, nil
 	case channel.Push:
 		devs, err := d.store.ContactDevices(ctx, c.TenantID, c.ID)
 		if err != nil {
@@ -595,6 +605,33 @@ func (d *Dispatcher) buildSender(ctx context.Context, tenant int64, ch string) (
 		return nil, err
 	}
 	return providers.New(cfg.Kind, d.cfg.Providers, cfg.Config, secrets)
+}
+
+// inboxSender "delivers" an inbox message by storing it, carrying the message's ids so reads and
+// clicks count in its journey or broadcast report.
+type inboxSender struct {
+	store   Store
+	contact model.Contact
+	msg     model.Message
+}
+
+func (s *inboxSender) Send(ctx context.Context, o providers.Outbound) (providers.Result, error) {
+	c := o.Rendered.Content
+	days := c.ExpiresDays
+	if days == 0 {
+		days = 30
+	}
+	meta := map[string]any{"template_id": s.msg.TemplateID, "journey_id": s.msg.JourneyID}
+	if s.msg.BroadcastID != 0 {
+		meta["broadcast_id"], meta["run"] = s.msg.BroadcastID, s.msg.Run
+		if s.msg.Variant != "" {
+			meta["variant"] = s.msg.Variant
+		}
+	}
+	err := s.store.InsertInbox(ctx, model.InboxMessage{TenantID: o.TenantID, ContactID: s.contact.ID, MessageID: o.MessageID,
+		Title: c.Title, Body: c.Body, ImageURL: c.ImageURL, URL: c.URL, Category: c.Category, Data: c.Data, Meta: meta,
+		ExpiresAt: time.Now().AddDate(0, 0, days)})
+	return providers.Result{}, err
 }
 
 // webPusher sends to browser push subscriptions with the workspace's VAPID keys.

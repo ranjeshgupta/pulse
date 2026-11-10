@@ -339,6 +339,7 @@ func runJourneys(ctx context.Context, d *deps) error {
 	g.Go(func() error { return eng.RunTimers(ctx) })
 	g.Go(func() error { return runBroadcasts(ctx, pgs, d, prod) })
 	g.Go(func() error { return runImports(ctx, pgs, d, prod) })
+	g.Go(func() error { return runMaintenance(ctx, pgs, d) })
 	g.Go(func() error { return c.Run(ctx, eng.Handle) })
 	return g.Wait()
 }
@@ -405,6 +406,24 @@ func pushSubject(publicURL string) string {
 		return publicURL
 	}
 	return "mailto:push@pulse.invalid"
+}
+
+// runMaintenance deletes data past its retention: expired and deleted inbox messages.
+func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		if n, err := pgs.PurgeInbox(ctx); err != nil && ctx.Err() == nil {
+			d.log.Error("purge inbox", "err", err)
+		} else if n > 0 {
+			d.log.Info("purged inbox messages", "count", n)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
 }
 
 // runImports streams queued background imports through the pipeline.

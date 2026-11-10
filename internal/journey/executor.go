@@ -178,7 +178,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			}
 			id = n.Next
 
-		case NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush:
+		case NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox:
 			err := x.Sender.Send(ctx, model.Message{
 				ID:                 fmt.Sprintf("%d:%s", en.ID, id),
 				TenantID:           en.TenantID,

@@ -140,6 +140,39 @@ export async function enablePush(opts: { serviceWorker?: string } = {}): Promise
   return true;
 }
 
+// ---------- app inbox ----------
+
+export interface InboxMessage {
+  id: number; message_id: string; title: string; body: string; image_url?: string; url?: string; category?: string;
+  data?: Record<string, string>; created_at: string; read_at?: string; expires_at: string;
+}
+
+async function inboxAction(action: "read" | "delete" | "click", ids: number[]) {
+  await post("/v1/web/inbox", { id: currentId(), user_hash: userHash(), action, message_ids: ids });
+}
+
+/**
+ * inbox reads and updates this visitor's app inbox. list() returns the newest 50 messages (pass
+ * before: the last id for older ones) and the unread count. Opening and clicking are counted in the
+ * sending journey's or broadcast's report.
+ */
+export const inbox = {
+  async list(before?: number): Promise<{ messages: InboxMessage[]; unread: number }> {
+    if (!cfg) return { messages: [], unread: 0 };
+    const q = new URLSearchParams({ site_key: cfg.siteKey, id: currentId() });
+    const uh = userHash();
+    if (uh) q.set("user_hash", uh);
+    if (before) q.set("before", String(before));
+    const res = await fetch(`${cfg.host}/v1/web/inbox?${q}`).catch(() => undefined);
+    return res?.ok ? res.json() : { messages: [], unread: 0 };
+  },
+  /** markRead marks these messages read (none given: all of them). */
+  markRead: (ids: number[] = []) => inboxAction("read", ids),
+  remove: (ids: number[] = []) => inboxAction("delete", ids),
+  /** click records a tap on a message; open its url yourself. */
+  click: (id: number) => inboxAction("click", [id]),
+};
+
 // ---------- on-site content ----------
 
 const shown = new Set<number>();

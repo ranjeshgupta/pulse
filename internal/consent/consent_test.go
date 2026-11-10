@@ -35,7 +35,7 @@ func TestUpdates(t *testing.T) {
 	if got := Updates(Resubscribed, map[string]any{"channel": "sms"}); !reflect.DeepEqual(got, map[string]any{"optout_sms": false, "optout_all": false}) {
 		t.Errorf("resubscribe sms = %v", got)
 	}
-	if got := Updates(Resubscribed, map[string]any{"channel": "all"}); len(got) != 6 || got["optout_push"] != false {
+	if got := Updates(Resubscribed, map[string]any{"channel": "all"}); len(got) != 7 || got["optout_push"] != false {
 		t.Errorf("resubscribe all = %v", got)
 	}
 	if Updates(Unsubscribed, map[string]any{"channel": "fax"}) != nil || Updates("purchase", nil) != nil {

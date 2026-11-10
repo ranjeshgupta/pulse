@@ -29,6 +29,7 @@ const (
 	NodeSendWhatsApp = "send_whatsapp"
 	NodeSendRCS      = "send_rcs"
 	NodeSendPush     = "send_push"
+	NodeSendInbox    = "send_inbox" // a message in the contact's app inbox
 	NodeExit         = "exit"
 	NodeWaitUntil    = "wait_until"     // a date/time, or the next time of day in the contact's zone
 	NodeWaitForEvent = "wait_for_event" // until the contact does an event (yes) or the timeout passes (no)
@@ -51,7 +52,7 @@ const (
 // sendNodes maps each send node type to its channel.
 var sendNodes = map[string]string{
 	NodeSendEmail: channel.Email, NodeSendSMS: channel.SMS, NodeSendWhatsApp: channel.WhatsApp,
-	NodeSendRCS: channel.RCS, NodeSendPush: channel.Push,
+	NodeSendRCS: channel.RCS, NodeSendPush: channel.Push, NodeSendInbox: channel.Inbox,
 }
 
 // SendChannel returns the channel of a send node ("" for other node types).
@@ -178,7 +179,7 @@ func (g Graph) Validate() error {
 			if n.SegmentID <= 0 {
 				return fmt.Errorf("condition %q needs segment_id", id)
 			}
-		case NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush:
+		case NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox:
 			if n.TemplateID <= 0 {
 				return fmt.Errorf("%s %q needs template_id", n.Type, id)
 			}
@@ -255,7 +256,7 @@ func (g Graph) Validate() error {
 
 func (n Node) edges() []string {
 	switch n.Type {
-	case NodeWait, NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeWaitUntil, NodeUpdate, NodeWebhook,
+	case NodeWait, NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox, NodeWaitUntil, NodeUpdate, NodeWebhook,
 		NodeTags, NodePoints, NodeList:
 		return []string{n.Next}
 	case NodeCondition, NodeCheck, NodeWaitForEvent:

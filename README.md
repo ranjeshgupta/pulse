@@ -31,7 +31,9 @@ and journeys within seconds, not on a 15-minute cron.
 - **P1 batch 4 (done):** custom roles, audit log, outbound webhooks (`webhooks` role), background imports, bounce and
   complaint webhooks, standard web push, a custom HTTP gateway for any channel, and the Flutter SDK
   ([sdks/flutter/pulse_sdk](sdks/flutter/pulse_sdk)).
-- **Still to build:** in-app messages and app inbox, then P2 in the feature-parity doc.
+- **App inbox (done):** an `inbox` channel kept by Pulse itself; journeys (`send_inbox`) and broadcasts send to it, the
+  SDKs list and update it (`GET/POST /v1/web/inbox`, `Pulse.inbox`), reads and clicks count in reports.
+- **Still to build:** in-app messages, then batch 5 and P2 in the feature-parity doc.
 
 ## Run it
 

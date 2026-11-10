@@ -12,6 +12,7 @@ export const NODE_TYPES: { type: string; label: string; channel?: Channel }[] = 
   { type: "send_whatsapp", label: "Send WhatsApp", channel: "whatsapp" },
   { type: "send_rcs", label: "Send RCS", channel: "rcs" },
   { type: "send_push", label: "Send push", channel: "push" },
+  { type: "send_inbox", label: "Send to app inbox", channel: "inbox" },
   { type: "wait", label: "Wait" },
   { type: "wait_until", label: "Wait until" },
   { type: "wait_for_event", label: "Wait for event" },

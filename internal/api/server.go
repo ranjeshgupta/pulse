@@ -171,6 +171,7 @@ func (s *Server) Handler() http.Handler {
 	s.backgroundImportRoutes(mux)
 	s.bounceRoutes(mux)
 	s.webPushRoutes(mux)
+	s.inboxRoutes(mux)
 	s.auditRoutes(mux)
 	s.preferenceRoutes(mux)
 

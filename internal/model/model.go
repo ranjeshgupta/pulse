@@ -159,6 +159,24 @@ type Provider struct {
 	WebhookURL string            `json:"webhook_url,omitempty"` // where the provider posts delivery receipts
 }
 
+// InboxMessage is a message in a contact's app inbox.
+type InboxMessage struct {
+	ID        int64             `json:"id"`
+	TenantID  int64             `json:"-"`
+	ContactID uint32            `json:"-"`
+	MessageID string            `json:"message_id"`
+	Title     string            `json:"title"`
+	Body      string            `json:"body"`
+	ImageURL  string            `json:"image_url,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Category  string            `json:"category,omitempty"`
+	Data      map[string]string `json:"data,omitempty"`
+	Meta      map[string]any    `json:"-"`
+	CreatedAt time.Time         `json:"created_at"`
+	ReadAt    *time.Time        `json:"read_at,omitempty"`
+	ExpiresAt time.Time         `json:"expires_at"`
+}
+
 // Device is a push token of a contact.
 type Device struct {
 	Token    string `json:"token"`

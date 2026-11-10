@@ -81,7 +81,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | RCS (Google RBM) with SMS fallback | ⬜ | ✅ | ✅ | |
 | Mobile push (FCM) | ✅ | ✅ | ✅ adapter, tokens via API | SDK next |
 | Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work | Click tracking: P2 |
-| In-app messages, app inbox | ⬜ | ✅ | ⬜ | P1, needs mobile SDKs |
+| App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
+| In-app messages (modal, banner, full screen) | ⬜ | ✅ | ⬜ | P1, in progress |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
 | Facebook / Google audience sync | 🟡 | ✅ | ⬜ | P2 |
 
@@ -134,7 +135,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    goals, journey and broadcast reports, funnels.
 5. **P1 batch 4, done:** custom roles, audit log, outbound webhooks, background imports, the Flutter SDK, bounce and
    complaint handling, standard web push, and the custom HTTP gateway (webhook channel).
-   **Left from P1:** in-app messages and app inbox (they build on the Flutter SDK).
+   **Left from P1:** in-app messages (the app inbox is done).
 6. **Batch 5, requested 2026-11-10:**
    - Anonymous visitors: GeoIP (MaxMind GeoLite2/GeoIP2 database: country, state, city, time zone) on web and app
      events; workspace switch to track anonymous visitors or not.

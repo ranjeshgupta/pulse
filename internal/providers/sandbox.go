@@ -17,7 +17,7 @@ type SandboxSink interface {
 // app's test inbox. Recipients ending with the "unreachable suffix" behave as if the number is not on
 // WhatsApp / RCS (or the push token is dead), so fallbacks can be tested without real accounts.
 func init() {
-	for _, ch := range channel.All {
+	for _, ch := range channel.External {
 		register(Kind{
 			ID: "sandbox_" + ch, Channel: ch, Name: "Sandbox (test inbox)",
 			Description: "Records messages in Pulse's test inbox instead of delivering them.",

@@ -25,7 +25,7 @@ import (
 )
 
 func init() {
-	for _, ch := range channel.All {
+	for _, ch := range channel.External {
 		register(Kind{
 			ID: "http_" + ch, Channel: ch, Name: "Custom HTTP gateway",
 			Description: "POSTs each message as signed JSON to your endpoint, for any gateway Pulse has no adapter for.",

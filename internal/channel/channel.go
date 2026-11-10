@@ -20,10 +20,15 @@ const (
 	WhatsApp = "whatsapp"
 	RCS      = "rcs"
 	Push     = "push"
+	Inbox    = "inbox" // the app inbox: messages kept in Pulse, shown by the SDKs
 )
 
 // All lists every channel, in the order the UI shows them.
-var All = []string{Email, SMS, WhatsApp, RCS, Push}
+var All = []string{Email, SMS, WhatsApp, RCS, Push, Inbox}
+
+// External lists the channels delivered through a provider (every channel but the inbox, which
+// Pulse delivers itself).
+var External = []string{Email, SMS, WhatsApp, RCS, Push}
 
 // Topic is the Kafka topic a channel's send requests go to.
 func Topic(ch string) string { return "messages." + ch }
@@ -62,6 +67,9 @@ type Content struct {
 	ImageURL string            `json:"image_url,omitempty"`
 	URL      string            `json:"url,omitempty"`
 	Data     map[string]string `json:"data,omitempty"`
+	// inbox (also uses title, body, image_url, url, data)
+	ExpiresDays int    `json:"expires_days,omitempty"` // gone from the inbox after this many days (default 30)
+	Category    string `json:"category,omitempty"`     // for filtering in the app, e.g. "offers"
 }
 
 type Suggestion struct {
@@ -132,6 +140,12 @@ func Validate(t model.Template) error {
 	case Push:
 		need("content.title", c.Title)
 		need("content.body", c.Body)
+	case Inbox:
+		need("content.title", c.Title)
+		need("content.body", c.Body)
+		if c.ExpiresDays < 0 || c.ExpiresDays > 365 {
+			return errors.New("inbox messages expire after 1 to 365 days")
+		}
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("%s template needs %s", t.Channel, strings.Join(missing, ", "))
