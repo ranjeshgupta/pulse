@@ -18,6 +18,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"pulse/internal/attr"
+	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
@@ -385,7 +386,27 @@ func MergeIdentity(anon, known map[string]any) map[string]any {
 	if aok || kok {
 		out[event.AttrPoints] = a + k
 	}
+	// Opt-outs and hard bounces are sticky: if either profile has one, the merged contact keeps
+	// it, so merging never starts messages to someone who unsubscribed or whose address bounced.
+	for _, key := range stickyFlags() {
+		if truthy(anon[key]) || truthy(known[key]) {
+			out[key] = true
+		}
+	}
 	return out
+}
+
+func stickyFlags() []string {
+	keys := []string{consent.Key(consent.All), consent.AttrEmailBounced}
+	for _, ch := range channel.All {
+		keys = append(keys, consent.Key(ch))
+	}
+	return keys
+}
+
+func truthy(v any) bool {
+	s := attr.String(v)
+	return s == "true" || s == "1" || s == "yes"
 }
 
 // merge is one identity merge found in a batch (anonymous visitor or duplicate contact).

@@ -222,3 +222,15 @@ func TestDuplicateMerge(t *testing.T) {
 		t.Errorf("merging the winner into its own loser: %+v, winner %v", back, store.contacts["main"].Attrs)
 	}
 }
+
+func TestMergeKeepsOptOuts(t *testing.T) {
+	loser := map[string]any{"optout_email": true, "email_bounced": true, "city": "Pune"}
+	winner := map[string]any{"optout_email": false, "optout_sms": true}
+	out := MergeIdentity(loser, winner)
+	if out["optout_email"] != true || out["email_bounced"] != true || out["optout_sms"] != true || out["city"] != "Pune" {
+		t.Errorf("merged = %v: opt-outs and bounces must survive a merge", out)
+	}
+	if _, set := out["optout_whatsapp"]; set {
+		t.Error("merge must not invent opt-outs")
+	}
+}
