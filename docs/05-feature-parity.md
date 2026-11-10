@@ -183,3 +183,15 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native
      Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file uploads and multi-page
      forms, audit log export.
+
+9. **After batch 8 (requested 2026-11-11), in this order:**
+   - **Batch 9, contact views and one clear navigation:**
+     - Contacts: "View contacts" from any segment or list; Mautic-style search filters (`is:anonymous`, `is:identified`,
+       `is:unsubscribed`, `is:bounced`, `segment:`, `list:`, `tag:`, `stage:`, `company:`, `owner:`, `points:>N`) as chips;
+       save a filtered view as a segment.
+     - Review the whole app for duplicated or ambiguous concepts and fix them to industry standard. Decided so far:
+       Focus items + In-app messages become one "On-site & in-app" area (Website or App chosen first); Segments + Lists become
+       one Segments page with Dynamic and Static segments (Mautic / WebEngage style); the Imports page and "Import CSV" become
+       one Import flow under Contacts (upload, map columns, choose segment, review; large files run in the background; one
+       history).
+   - **Then:** update every doc to match the final app, and write step-by-step tutorials with the product owner.
