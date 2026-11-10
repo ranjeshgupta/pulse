@@ -32,6 +32,14 @@ func TestRunStopsOnHugeQuotedFields(t *testing.T) {
 	}
 }
 
+func TestRunStopsOnMalformedQuotes(t *testing.T) {
+	src := "external_id,note\nu1,ok\nu2,a\"b\nu3," + strings.Repeat("x\n", 10)
+	res, err := Run(context.Background(), &nopPub{}, strings.NewReader(src), Options{Tenant: 1, ImportID: "t"})
+	if !errors.Is(err, ErrMalformed) || res.Imported != 1 || len(res.Errors) != 1 || res.Errors[0].Row != 3 {
+		t.Fatalf("res %+v err %v, want a stop at row 3", res, err)
+	}
+}
+
 func TestRunImportsAndReportsBadRows(t *testing.T) {
 	pub := &nopPub{}
 	src := "email,age\na@x.co,30\nb@x.co,old\n,40\n"

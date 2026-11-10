@@ -71,7 +71,7 @@ func (s *Server) importContacts(w http.ResponseWriter, r *http.Request, tenant i
 	case errors.Is(err, importer.ErrBadHeader):
 		writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), importer.ErrBadHeader.Error()+": "))
 		return
-	case errors.Is(err, importer.ErrLineTooLong):
+	case errors.Is(err, importer.ErrLineTooLong), errors.Is(err, importer.ErrMalformed):
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	case errors.Is(err, importer.ErrTooManyRows):

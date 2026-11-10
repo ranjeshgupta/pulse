@@ -72,6 +72,9 @@ func (j *Jobs) run(ctx context.Context, id, tenant, list int64) {
 	case errors.Is(err, ErrBadHeader):
 		_ = j.finish(ctx, id, res, "failed", strings.TrimPrefix(err.Error(), ErrBadHeader.Error()+": "))
 		return
+	case errors.Is(err, ErrMalformed):
+		_ = j.finish(ctx, id, res, "failed", err.Error())
+		return
 	case errors.Is(err, ErrLineTooLong):
 		_ = j.finish(ctx, id, res, "failed", fmt.Sprintf("Stopped at row %d: %v", res.Rows+1, ErrLineTooLong))
 		return

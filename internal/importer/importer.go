@@ -55,6 +55,9 @@ type Result struct {
 
 func (r Result) Skipped() int64 { return r.Rows - r.Imported }
 
+// ErrMalformed stops an import at broken CSV quoting.
+var ErrMalformed = errors.New("the file isn't valid CSV")
+
 // ErrTooManyRows stops an import over Options.MaxRows.
 var ErrTooManyRows = errors.New("too many rows")
 
@@ -148,11 +151,13 @@ func Run(ctx context.Context, pub kafka.Publisher, src io.Reader, o Options) (Re
 		}
 		if err != nil {
 			var pe *csv.ParseError
-			if !errors.As(err, &pe) || errors.Is(err, ErrLineTooLong) {
-				return res, err // the source failed, or a line is too long: stop, don't loop on it
+			if errors.As(err, &pe) && !errors.Is(err, ErrLineTooLong) {
+				// Malformed quoting: stop rather than skip. Until the first bad quote the file is
+				// well-formed, so lineLimit's quote tracking matches the parser and the size cap holds.
+				res.Errors = appendErr(res.Errors, line, "can't be read as CSV: "+pe.Err.Error())
+				return res, fmt.Errorf("%w: row %d: %v", ErrMalformed, line, pe.Err)
 			}
-			res.Errors = appendErr(res.Errors, line, "can't be read as CSV: "+err.Error())
-			continue
+			return res, err // the source failed, or a row is too long
 		}
 		krs, rowErr := rowEvents(cols, idCol, emailCol, rec, o)
 		if rowErr != nil {
