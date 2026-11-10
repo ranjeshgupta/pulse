@@ -72,7 +72,8 @@ func TestStages(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	other := "st2-" + run
 	jsonCall(t, c, "POST", "/v1/events", map[string]any{"external_id": other, "name": "contract_signed"}, 202)
-	waitFor(t, 10*time.Second, func() bool { return slices.Contains(segmentsOf(t, c, other), mql) })
+	// Generous: right after a container restart Kafka may still be assigning the journey workers' partitions.
+	waitFor(t, 30*time.Second, func() bool { return slices.Contains(segmentsOf(t, c, other), mql) })
 
 	// Renaming a stage renames it on its contacts (and keeps when they entered it).
 	since := attrsOf(t, c, other)["stage_changed_at"]
