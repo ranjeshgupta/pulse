@@ -75,6 +75,9 @@ func digits(e164 string) string { return strings.TrimPrefix(e164, "+") }
 
 // ---- Google service accounts (RBM, FCM) ----
 
+// googleTokenURL is the only token endpoint service accounts may use (a variable for tests).
+var googleTokenURL = "https://oauth2.googleapis.com/token"
+
 type serviceAccount struct {
 	Type         string `json:"type"`
 	ClientEmail  string `json:"client_email"`
@@ -97,9 +100,12 @@ func serviceAccountTokens(d Deps, keyJSON, scope string) (oauth2.TokenSource, er
 	if blk, _ := pem.Decode([]byte(sa.PrivateKey)); blk == nil {
 		return nil, errors.New("service account JSON: private_key is not a PEM key")
 	}
-	if sa.TokenURI == "" {
-		sa.TokenURI = "https://oauth2.googleapis.com/token"
+	// The token endpoint comes from an uploaded key file: only Google's is accepted, so a crafted
+	// file can't point the server's signed request somewhere else.
+	if sa.TokenURI != "" && sa.TokenURI != googleTokenURL {
+		return nil, errors.New("service account JSON: token_uri must be " + googleTokenURL)
 	}
+	sa.TokenURI = googleTokenURL
 	cfg := &jwt.Config{Email: sa.ClientEmail, PrivateKey: []byte(sa.PrivateKey), PrivateKeyID: sa.PrivateKeyID,
 		Scopes: []string{scope}, TokenURL: sa.TokenURI}
 	ctx := context.Background()

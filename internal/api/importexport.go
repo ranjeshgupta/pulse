@@ -251,7 +251,7 @@ func (s *Server) exportContacts(w http.ResponseWriter, r *http.Request, tenant i
 			return
 		}
 		for _, c := range page {
-			row := []string{c.ExternalID, c.Email, c.CreatedAt.UTC().Format(time.RFC3339), c.UpdatedAt.UTC().Format(time.RFC3339)}
+			row := []string{csvSafe(c.ExternalID), csvSafe(c.Email), c.CreatedAt.UTC().Format(time.RFC3339), c.UpdatedAt.UTC().Format(time.RFC3339)}
 			for _, k := range keys {
 				v, ok := c.Attrs[k]
 				if !ok {

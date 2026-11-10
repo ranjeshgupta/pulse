@@ -28,6 +28,12 @@ type Config struct {
 	AllowSignup   bool
 	// AllowPrivateWebhooks lets journey webhooks call private addresses (local development only).
 	AllowPrivateWebhooks bool
+	// AllowPrivateSSO lets workspace SSO discovery reach private addresses (an IdP on the internal
+	// network, like the dev Keycloak). Off by default: any workspace admin can enter these URLs.
+	AllowPrivateSSO bool
+	// TrustProxy uses the right-most X-Forwarded-For entry (appended by your reverse proxy) as the
+	// client IP for rate limits. Leave off unless Pulse is only reachable through that proxy.
+	TrustProxy bool
 }
 
 func Load() Config {
@@ -50,6 +56,8 @@ func Load() Config {
 		SecretKey:            env("PULSE_SECRET_KEY", ""),
 		AllowSignup:          env("PULSE_ALLOW_SIGNUP", "true") == "true",
 		AllowPrivateWebhooks: env("PULSE_ALLOW_PRIVATE_WEBHOOKS", "false") == "true",
+		AllowPrivateSSO:      env("PULSE_ALLOW_PRIVATE_SSO", "false") == "true",
+		TrustProxy:           env("PULSE_TRUST_PROXY", "false") == "true",
 	}
 }
 

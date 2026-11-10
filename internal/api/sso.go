@@ -20,6 +20,7 @@ import (
 
 	"pulse/internal/auth"
 	"pulse/internal/model"
+	"pulse/internal/safehttp"
 	"pulse/internal/store/pg"
 )
 
@@ -33,6 +34,7 @@ type ssoClient struct {
 	cfg      model.SSOConfig
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
+	http     *http.Client // refuses private addresses unless the operator allows them
 	exp      time.Time
 }
 
@@ -78,6 +80,10 @@ func (s *Server) ssoClient(ctx context.Context, tenant int64) (*ssoClient, error
 		discovery = cfg.DiscoveryURL
 		dctx = oidc.InsecureIssuerURLContext(dctx, cfg.Issuer)
 	}
+	// Workspace admins type these URLs, so calls to them can't reach the server's own network
+	// unless the operator allows it (an IdP on the internal network).
+	client := safehttp.Client(10*time.Second, s.AllowPrivateSSO)
+	dctx = oidc.ClientContext(dctx, client)
 	provider, err := oidc.NewProvider(dctx, discovery)
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery: %w", err)
@@ -93,6 +99,7 @@ func (s *Server) ssoClient(ctx context.Context, tenant int64) (*ssoClient, error
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
 		exp:      s.now().Add(providerTTL),
+		http:     client,
 	}
 	s.sso.mu.Lock()
 	s.sso.clients[tenant] = c
@@ -163,7 +170,7 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		loginRedirect(w, r, "sso_unavailable")
 		return
 	}
-	tok, err := c.oauth.Exchange(r.Context(), q.Get("code"), oauth2.VerifierOption(verifier))
+	tok, err := c.oauth.Exchange(context.WithValue(r.Context(), oauth2.HTTPClient, c.http), q.Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		s.Log.Error("sso code exchange", "tenant", tenant, "err", err)
 		loginRedirect(w, r, "sso_failed")

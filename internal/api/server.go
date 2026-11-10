@@ -89,6 +89,10 @@ type Deps struct {
 	PublicURL   string          // e.g. https://app.example.com, used for SSO redirects and Secure cookies
 	AllowSignup bool
 	Log         *slog.Logger
+	// AllowPrivateSSO lets SSO discovery and token calls reach private addresses (internal IdPs).
+	AllowPrivateSSO bool
+	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
+	TrustProxy bool
 }
 
 type Server struct {

@@ -219,6 +219,7 @@ func runAPI(ctx context.Context, d *deps) error {
 	server := api.New(api.Deps{
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
+		AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy,
 		Tracking: d.tracking(box),
 	})
 	srv := &http.Server{

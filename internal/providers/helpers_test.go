@@ -86,6 +86,9 @@ func jsonPath(v any, keys ...any) any {
 // testServiceAccount returns a service account key file whose token endpoint is tokenURL.
 func testServiceAccount(t *testing.T, tokenURL string) string {
 	t.Helper()
+	prev := googleTokenURL
+	googleTokenURL = tokenURL
+	t.Cleanup(func() { googleTokenURL = prev })
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)

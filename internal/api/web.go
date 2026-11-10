@@ -8,6 +8,7 @@ package api
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -58,7 +59,7 @@ func (s *Server) allowRate(ctx context.Context, prefix string, tenant int64, r *
 	if s.RDB == nil {
 		return true
 	}
-	key := prefix + ":" + strconv.FormatInt(tenant, 10) + ":" + clientIP(r) + ":" + strconv.FormatInt(time.Now().Unix()/60, 10)
+	key := prefix + ":" + strconv.FormatInt(tenant, 10) + ":" + clientIP(r, s.TrustProxy) + ":" + strconv.FormatInt(time.Now().Unix()/60, 10)
 	c, err := s.RDB.IncrBy(ctx, key, int64(n)).Result()
 	if err != nil {
 		return true
@@ -69,18 +70,23 @@ func (s *Server) allowRate(ctx context.Context, prefix string, tenant int64, r *
 	return c <= int64(limit)
 }
 
-func clientIP(r *http.Request) string {
-	ip := r.Header.Get("X-Forwarded-For")
-	if i := strings.IndexByte(ip, ','); i >= 0 {
-		ip = ip[:i]
-	}
-	if ip == "" {
-		ip = r.RemoteAddr
-		if i := strings.LastIndexByte(ip, ':'); i >= 0 {
-			ip = ip[:i]
+// clientIP is the caller's address. Clients can write anything into X-Forwarded-For, so it's only
+// used behind a trusted proxy, and then only its right-most entry (the one the proxy appended).
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		xff := r.Header.Get("X-Forwarded-For")
+		if i := strings.LastIndexByte(xff, ','); i >= 0 {
+			xff = xff[i+1:]
+		}
+		if ip := strings.TrimSpace(xff); ip != "" {
+			return ip
 		}
 	}
-	return strings.TrimSpace(ip)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {

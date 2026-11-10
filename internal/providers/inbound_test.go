@@ -2,6 +2,7 @@ package providers
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -37,5 +38,17 @@ func TestMetaWhatsAppInbound(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestServiceAccountTokenURIPinned(t *testing.T) {
+	key := testServiceAccount(t, "https://oauth2.googleapis.com/token")
+	googleTokenURL = "https://oauth2.googleapis.com/token"
+	evil := strings.Replace(key, "https://oauth2.googleapis.com/token", "http://169.254.169.254/latest", 1)
+	if _, err := serviceAccountTokens(Deps{}, evil, "scope"); err == nil {
+		t.Error("a key file pointing at another token endpoint must be refused")
+	}
+	if _, err := serviceAccountTokens(Deps{}, key, "scope"); err != nil {
+		t.Error(err)
 	}
 }
