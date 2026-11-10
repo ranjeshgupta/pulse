@@ -440,3 +440,46 @@ type Import struct {
 	StartedAt  *time.Time      `json:"started_at,omitempty"`
 	FinishedAt *time.Time      `json:"finished_at,omitempty"`
 }
+
+// InAppMessage is an in-app campaign: a modal, banner or full-screen message the app SDK shows when
+// a trigger event or screen happens, to contacts in its segments.
+type InAppMessage struct {
+	ID        int64          `json:"id"`
+	TenantID  int64          `json:"tenant_id"`
+	Name      string         `json:"name"`
+	Layout    string         `json:"layout"` // modal | banner | fullscreen
+	Content   InAppContent   `json:"content"`
+	Targeting InAppTargeting `json:"targeting"`
+	Priority  int            `json:"priority"` // higher shows first when several match
+	Status    string         `json:"status"`   // draft | active
+	StartAt   time.Time      `json:"start_at"`
+	EndAt     *time.Time     `json:"end_at,omitempty"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+type InAppContent struct {
+	Title       string        `json:"title"`
+	Body        string        `json:"body"`
+	ImageURL    string        `json:"image_url,omitempty"`
+	Buttons     []InAppButton `json:"buttons,omitempty"` // up to 2
+	Background  string        `json:"background,omitempty"`
+	TextColor   string        `json:"text_color,omitempty"`
+	ButtonColor string        `json:"button_color,omitempty"`
+	Position    string        `json:"position,omitempty"` // banner: top | bottom
+}
+
+type InAppButton struct {
+	Text   string `json:"text"`
+	Action string `json:"action"`          // url (link or deep link) | dismiss
+	Value  string `json:"value,omitempty"` // url: where to go
+}
+
+type InAppTargeting struct {
+	SegmentIDs        []int64  `json:"segment_ids,omitempty"`         // members of any (empty: everyone)
+	ExcludeSegmentIDs []int64  `json:"exclude_segment_ids,omitempty"` // never members of any
+	Platforms         []string `json:"platforms,omitempty"`           // android | ios (empty: both); websites use focus items
+	TriggerEvent      string   `json:"trigger_event"`                 // e.g. app_open, screen_view, add_to_cart
+	Screen            string   `json:"screen,omitempty"`              // screen_view only: this screen name
+	DelaySeconds      int      `json:"delay_seconds,omitempty"`       // wait after the trigger
+	Frequency         string   `json:"frequency"`                     // once | session | daily | always
+}

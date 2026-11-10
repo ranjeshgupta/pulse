@@ -73,7 +73,8 @@ func (s *Store) InboxUpdate(ctx context.Context, tenant int64, contact uint32, a
 // InboxMessage returns one of a contact's messages (for click tracking).
 func (s *Store) InboxMessage(ctx context.Context, tenant int64, contact uint32, id int64) (model.InboxMessage, error) {
 	var m model.InboxMessage
-	err := s.db.QueryRow(ctx, `SELECT id, message_id, url, meta FROM inbox_messages WHERE tenant_id = $1 AND contact_id = $2 AND id = $3`,
+	err := s.db.QueryRow(ctx, `SELECT id, message_id, url, meta FROM inbox_messages
+		WHERE tenant_id = $1 AND contact_id = $2 AND id = $3 AND deleted_at IS NULL AND expires_at > now()`,
 		tenant, int64(contact), id).Scan(&m.ID, &m.MessageID, &m.URL, &m.Meta)
 	return m, notFound(err)
 }

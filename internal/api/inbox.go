@@ -1,14 +1,16 @@
 package api
 
-// The app inbox API for the SDKs (site key): list, mark read, delete, record clicks. A known user
-// needs their user hash when the workspace requires identity verification, so nobody can read
-// someone else's inbox with the public site key. Reads and clicks become inbox_opened and
+// The app inbox API for the SDKs (site key): list, mark read, delete, record clicks. Inboxes are
+// private, so a known user always needs their user hash (from the customer's server), whether or
+// not the workspace requires identity verification for events; anonymous visitors (random anon-
+// ids from the SDK) don't. Reads and clicks become inbox_opened and
 // inbox_clicked events, counted in the sending journey's or broadcast's report.
 
 import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"pulse/internal/event"
 	"pulse/internal/model"
@@ -33,8 +35,12 @@ func (s *Server) inbox() InboxStore { return s.Store.(InboxStore) }
 
 // inboxContact resolves the SDK caller to a contact. ok=false has already answered.
 func (s *Server) inboxContact(w http.ResponseWriter, r *http.Request, t model.Tenant, id, hash string) (model.Contact, bool) {
-	if id == "" || !webIdentityOK(t, id, hash) {
-		writeErr(w, http.StatusForbidden, "user_hash is missing or wrong for this user id")
+	if id == "" || !strings.HasPrefix(id, "anon-") && !validUserHash(t.IdentitySecret, id, hash) {
+		writeErr(w, http.StatusForbidden, "the inbox of a signed-in user needs their user_hash (identity verification)")
+		return model.Contact{}, false
+	}
+	if !s.allowWeb(r.Context(), t.ID, r, 1) {
+		writeErr(w, http.StatusTooManyRequests, "too many requests from this browser")
 		return model.Contact{}, false
 	}
 	c, err := s.Store.ContactByExternalID(r.Context(), t.ID, id)
@@ -81,10 +87,6 @@ func (s *Server) webInboxAction(w http.ResponseWriter, r *http.Request) {
 		MessageIDs []int64 `json:"message_ids"`
 	}
 	if !decode(w, r, &req) {
-		return
-	}
-	if !s.allowWeb(r.Context(), t.ID, r, 1) {
-		writeErr(w, http.StatusTooManyRequests, "too many requests from this browser")
 		return
 	}
 	c, ok := s.inboxContact(w, r, t, req.ID, req.UserHash)

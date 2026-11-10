@@ -8,6 +8,7 @@ package ch
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"pulse/internal/model"
@@ -311,4 +312,30 @@ func (s *Store) FormSubmissions(ctx context.Context, tenant, form int64, limit i
 		st.PerDay = append(st.PerDay, d)
 	}
 	return st, drows.Err()
+}
+
+// InAppStats counts unique contacts who saw, tapped and dismissed each in-app campaign.
+func (s *Store) InAppStats(ctx context.Context, tenant int64) (map[int64]map[string]uint64, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT JSONExtractUInt(props, 'inapp_id') AS m, name, uniqExact(contact_id) FROM events
+		WHERE tenant_id = ? AND name IN ('inapp_shown', 'inapp_clicked', 'inapp_dismissed')
+		GROUP BY m, name`, uint64(tenant))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]map[string]uint64{}
+	for rows.Next() {
+		var id uint64
+		var name string
+		var n uint64
+		if err := rows.Scan(&id, &name, &n); err != nil {
+			return nil, err
+		}
+		if out[int64(id)] == nil {
+			out[int64(id)] = map[string]uint64{}
+		}
+		out[int64(id)][strings.TrimPrefix(name, "inapp_")] = n
+	}
+	return out, rows.Err()
 }

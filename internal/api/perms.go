@@ -18,7 +18,7 @@ var areaByPrefix = map[string]string{
 	"segments": auth.AreaSegments, "lists": auth.AreaSegments, "attributes": auth.AreaSegments, "scoring": auth.AreaSegments,
 	"journeys":   auth.AreaJourneys,
 	"broadcasts": auth.AreaBroadcasts,
-	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent,
+	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
 	"stats": auth.AreaReports, "funnels": auth.AreaReports,
 	"channels": auth.AreaChannels, "sandbox": auth.AreaChannels,
 	"settings": auth.AreaSettings, "users": auth.AreaSettings, "roles": auth.AreaSettings, "audit": auth.AreaSettings,

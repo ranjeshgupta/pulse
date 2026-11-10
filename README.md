@@ -33,7 +33,9 @@ and journeys within seconds, not on a 15-minute cron.
   ([sdks/flutter/pulse_sdk](sdks/flutter/pulse_sdk)).
 - **App inbox (done):** an `inbox` channel kept by Pulse itself; journeys (`send_inbox`) and broadcasts send to it, the
   SDKs list and update it (`GET/POST /v1/web/inbox`, `Pulse.inbox`), reads and clicks count in reports.
-- **Still to build:** in-app messages, then batch 5 and P2 in the feature-parity doc.
+  A signed-in user's inbox always needs their user hash (identity verification); anonymous visitors' doesn't.
+- **In-app campaigns (backend done):** `/v1/inapp` to manage them, `POST /v1/web/inapp` for the app SDK (android, ios).
+- **Still to build:** in-app rendering in the Flutter SDK and the editor page, then batch 5 and P2 in the feature-parity doc.
 
 ## Run it
 

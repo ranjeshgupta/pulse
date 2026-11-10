@@ -82,7 +82,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Mobile push (FCM) | ✅ | ✅ | ✅ adapter, tokens via API | SDK next |
 | Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work | Click tracking: P2 |
 | App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
-| In-app messages (modal, banner, full screen) | ⬜ | ✅ | ⬜ | P1, in progress |
+| In-app messages (modal, banner, full screen) | ⬜ | ✅ | 🟡 campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; `/v1/inapp` and the SDK endpoint `POST /v1/web/inapp`; shown/clicked/dismissed stats | Rendering in the Flutter SDK and the editor page: in progress |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
 | Facebook / Google audience sync | 🟡 | ✅ | ⬜ | P2 |
 

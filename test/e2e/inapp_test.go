@@ -4,6 +4,9 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,6 +44,11 @@ func TestAppInbox(t *testing.T) {
 	c, siteKey := workspace(t, "Inbox")
 	run := fmt.Sprint(time.Now().UnixNano())
 	ext := "inb-" + run
+	secret := jsonCall(t, c, "GET", "/v1/settings/identity", nil, 200)["secret"].(string)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ext))
+	hash := hex.EncodeToString(mac.Sum(nil))
+	q := "/v1/web/inbox?id=" + url.QueryEscape(ext) + "&user_hash=" + hash
 	tpl := jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "welcome", "channel": "inbox",
 		"content": map[string]any{"title": "Hi {{.Attrs.first_name}}", "body": "Your welcome offer is here", "url": "app://offers", "category": "offers", "expires_days": 7}}, 201)["id"]
 	jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "bad", "channel": "inbox", "content": map[string]any{"title": "x"}}, 400)
@@ -55,7 +63,7 @@ func TestAppInbox(t *testing.T) {
 
 	var inbox map[string]any
 	took := waitFor(t, 15*time.Second, func() bool {
-		_, inbox = webCall(t, "GET", "/v1/web/inbox?id="+url.QueryEscape(ext), siteKey, nil)
+		_, inbox = webCall(t, "GET", q, siteKey, nil)
 		return len(asList(inbox["messages"])) == 1
 	})
 	t.Logf("broadcast -> app inbox in %v", took)
@@ -63,11 +71,14 @@ func TestAppInbox(t *testing.T) {
 	if m["title"] != "Hi Mira" || m["category"] != "offers" || inbox["unread"] != 1.0 || m["read_at"] != nil {
 		t.Fatalf("inbox = %v", inbox)
 	}
-	if code, _ := webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "action": "read"}); code != 200 {
+	if code, _ := webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "action": "read"}); code != 403 {
+		t.Errorf("reading a known user's inbox without user_hash: %d, want 403", code)
+	}
+	if code, _ := webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "user_hash": hash, "action": "read"}); code != 200 {
 		t.Fatalf("mark read: %d", code)
 	}
-	webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "action": "click", "message_ids": []any{m["id"]}})
-	_, inbox = webCall(t, "GET", "/v1/web/inbox?id="+url.QueryEscape(ext), siteKey, nil)
+	webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "user_hash": hash, "action": "click", "message_ids": []any{m["id"]}})
+	_, inbox = webCall(t, "GET", q, siteKey, nil)
 	if inbox["unread"] != 0.0 {
 		t.Errorf("unread after reading = %v", inbox["unread"])
 	}
@@ -79,14 +90,57 @@ func TestAppInbox(t *testing.T) {
 		t.Errorf("events = %v", evs)
 	}
 	// Deleting empties it; the admin view agrees.
-	webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "action": "delete"})
+	webCall(t, "POST", "/v1/web/inbox", siteKey, map[string]any{"id": ext, "user_hash": hash, "action": "delete"})
 	if n := len(asList(jsonCall(t, c, "GET", "/v1/contacts/"+ext+"/inbox", nil, 200)["messages"])); n != 0 {
 		t.Errorf("admin inbox after delete has %d messages", n)
 	}
 
-	// With identity verification on, a known user's inbox needs their hash.
-	jsonCall(t, c, "PUT", "/v1/settings/identity", map[string]any{"required": true}, 200)
+	// Even with identity verification off for events, a known user's inbox needs their hash.
 	if code, _ := webCall(t, "GET", "/v1/web/inbox?id="+url.QueryEscape(ext), siteKey, nil); code != 403 {
 		t.Errorf("inbox without user_hash: %d, want 403", code)
 	}
+}
+
+// TestInAppCampaigns: the SDK gets only the active campaigns its visitor's segments and platform match.
+func TestInAppCampaigns(t *testing.T) {
+	c, siteKey := workspace(t, "InApp")
+	run := fmt.Sprint(time.Now().UnixNano())
+	seg := jsonCall(t, c, "POST", "/v1/segments", map[string]any{"name": "vips", "rule": map[string]any{"attr": "tier", "op": "eq", "value": "vip"}}, 201)["id"]
+	time.Sleep(3 * time.Second)
+	vip, other := "ia-vip-"+run, "ia-other-"+run
+	jsonCall(t, c, "POST", "/v1/events", map[string]any{"events": []any{
+		map[string]any{"external_id": vip, "name": "identify", "attrs": map[string]any{"tier": "vip"}},
+		map[string]any{"external_id": other, "name": "identify", "attrs": map[string]any{"tier": "basic"}},
+	}}, 202)
+	waitFor(t, 10*time.Second, func() bool { return jsonCall(t, c, "GET", fmt.Sprint("/v1/segments/", seg), nil, 200)["size"] == 1.0 })
+	campaign := map[string]any{"name": "VIP welcome", "layout": "modal", "status": "active",
+		"content":   map[string]any{"title": "Welcome back", "body": "Your VIP gift", "buttons": []any{map[string]any{"text": "Open", "action": "url", "value": "myapp://gift"}}},
+		"targeting": map[string]any{"segment_ids": []any{seg}, "platforms": []any{"android", "ios"}, "trigger_event": "app_open", "frequency": "once"}}
+	id := jsonCall(t, c, "POST", "/v1/inapp", campaign, 200)["id"]
+	campaign["name"], campaign["status"] = "Draft", "draft"
+	jsonCall(t, c, "POST", "/v1/inapp", campaign, 200)
+	jsonCall(t, c, "POST", "/v1/inapp", map[string]any{"name": "bad", "layout": "modal", "content": map[string]any{"title": "x"},
+		"targeting": map[string]any{"trigger_event": "app_open", "frequency": "once", "segment_ids": []any{999999}}}, 400)
+
+	count := func(who, platform string) int {
+		_, out := webCall(t, "POST", "/v1/web/inapp", siteKey, map[string]any{"id": who, "platform": platform})
+		return len(asList(out["messages"]))
+	}
+	if n := count(vip, "android"); n != 1 {
+		t.Errorf("VIP on android sees %d campaigns, want 1", n)
+	}
+	if code, _ := webCall(t, "POST", "/v1/web/inapp", siteKey, map[string]any{"id": vip, "platform": "web"}); code != 400 {
+		t.Errorf("web platform: %d, want 400 (websites use focus items)", code)
+	}
+	if n := count(other, "android"); n != 0 {
+		t.Errorf("non-VIP sees %d, want 0", n)
+	}
+	// The SDK reports what happened; the list shows it.
+	webEvents(t, siteKey, map[string]any{"external_id": vip, "name": "inapp_shown", "props": map[string]any{"inapp_id": id}},
+		map[string]any{"external_id": vip, "name": "inapp_clicked", "props": map[string]any{"inapp_id": id, "button": "Open"}})
+	waitFor(t, 15*time.Second, func() bool {
+		st, _ := jsonCall(t, c, "GET", "/v1/inapp", nil, 200)["stats"].(map[string]any)
+		s, _ := st[fmt.Sprint(id)].(map[string]any)
+		return s["shown"] == 1.0 && s["clicked"] == 1.0
+	})
 }
