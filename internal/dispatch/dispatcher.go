@@ -182,6 +182,9 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	if m.Channel == channel.Email && attr.String(c.Attrs[consent.AttrEmailBounced]) == "true" {
 		return d.finish(ctx, sentKey, m, c, "suppressed", "the email address bounced")
 	}
+	if m.Channel == channel.SMS && attr.String(c.Attrs[consent.AttrSMSBounced]) == "true" {
+		return d.finish(ctx, sentKey, m, c, "suppressed", "the phone number bounced")
+	}
 	if t.Channel != m.Channel {
 		return d.finish(ctx, sentKey, m, c, "failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
 	}
@@ -236,6 +239,9 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	if token != "" {
 		rendered.HTML = d.cfg.Tracking.Instrument(rendered.HTML, token)
 		rendered.Content.Text = d.cfg.Tracking.InstrumentText(rendered.Content.Text, token)
+	}
+	if err := d.shortenLinks(ctx, m, c, &rendered); err != nil {
+		return err
 	}
 	var files []providers.Attachment
 	if m.Channel == channel.Email && len(rendered.Content.Attachments) > 0 {
@@ -317,11 +323,48 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 		return d.finish(ctx, sentKey, m, c, "sent", "")
 	case lastErr == nil:
 		return d.finish(ctx, sentKey, m, c, "failed", "nothing was sent")
+	case m.Channel == channel.SMS && providers.Bounced(lastErr):
+		return d.bounce(ctx, sentKey, m, c, lastErr.Error())
 	case unreachable == len(targets):
 		return d.unreachable(ctx, sentKey, m, c, lastErr.Error())
 	default:
 		return d.finish(ctx, sentKey, m, c, "failed", lastErr.Error())
 	}
+}
+
+// shortenLinks replaces the links of an SMS or RCS message whose template tracks links with short
+// tracked links (tracking.ShortenText), and stores what they stand for.
+func (d *Dispatcher) shortenLinks(ctx context.Context, m model.Message, c model.Contact, r *channel.Rendered) error {
+	if !r.Content.TrackLinks || d.cfg.Tracking == nil || (m.Channel != channel.SMS && m.Channel != channel.RCS) {
+		return nil
+	}
+	base, code := d.cfg.Tracking.Base(), tracking.NewShortCode()
+	var urls []string
+	r.Content.Text, urls = tracking.ShortenText(r.Content.Text, base, code, urls)
+	for i, sg := range r.Content.Suggestions {
+		if sg.Type == "url" && sg.Value != "" {
+			r.Content.Suggestions[i].Value, urls = tracking.ShortenText(sg.Value, base, code, urls)
+		}
+	}
+	if len(urls) == 0 {
+		return nil
+	}
+	tok := tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID, Channel: m.Channel,
+		TemplateID: m.TemplateID, JourneyID: m.JourneyID, BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant}
+	return tracking.SaveShort(ctx, d.rdb, code, tracking.ShortLink{Token: tok, URLs: urls})
+}
+
+// bounce records an SMS that failed because of the phone number: sms_failed with props.bounce,
+// and sms_bounced on the contact, so later SMS are suppressed until the number changes.
+func (d *Dispatcher) bounce(ctx context.Context, sentKey string, m model.Message, c model.Contact, reason string) error {
+	rec, err := d.eventRecordWith("msg:"+m.ID+":"+m.Channel+"_failed", m, c, "failed", reason, true)
+	if err != nil {
+		return err
+	}
+	if err := d.mark(ctx, sentKey, "failed"); err != nil {
+		return err
+	}
+	return d.pub.Publish(ctx, rec)
 }
 
 func addressName(ch string) string {
@@ -419,6 +462,11 @@ func (d *Dispatcher) outcomeEvent(m model.Message, c model.Contact, outcome, rea
 }
 
 func (d *Dispatcher) eventRecord(id string, m model.Message, c model.Contact, outcome, reason string) (*kgo.Record, error) {
+	return d.eventRecordWith(id, m, c, outcome, reason, false)
+}
+
+// eventRecordWith is eventRecord; bounce marks an SMS bounce (props.bounce, attribute sms_bounced).
+func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact, outcome, reason string, bounce bool) (*kgo.Record, error) {
 	props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID}
 	if reason != "" {
 		props["reason"] = reason
@@ -435,6 +483,10 @@ func (d *Dispatcher) eventRecord(id string, m model.Message, c model.Contact, ou
 	name := m.Channel + "_" + outcome
 	ev := event.Event{ID: id, TenantID: m.TenantID, ExternalID: c.ExternalID,
 		Name: name, Ts: d.now().UTC(), Props: props}
+	if bounce {
+		props["bounce"] = true
+		ev.Attrs = map[string]any{consent.AttrSMSBounced: true}
+	}
 	return kafka.JSON(event.TopicRaw, ev.RawKey(), ev)
 }
 
@@ -575,7 +627,8 @@ func (d *Dispatcher) handleReceipt(ctx context.Context, r *kgo.Record) error {
 		return d.fallback(ctx, m, "delivery failed: "+rr.Receipt.Reason)
 	case rr.Receipt.Status == "delivered" || rr.Receipt.Status == "failed" || rr.Receipt.Status == "read":
 		// The id makes it one event per (message, status), even if the provider repeats the webhook.
-		rec, err := d.eventRecord("rcpt:"+m.ID+":"+rr.Receipt.Status, m, c, rr.Receipt.Status, rr.Receipt.Reason)
+		bounce := m.Channel == channel.SMS && rr.Receipt.Status == "failed" && rr.Receipt.Unreachable
+		rec, err := d.eventRecordWith("rcpt:"+m.ID+":"+rr.Receipt.Status, m, c, rr.Receipt.Status, rr.Receipt.Reason, bounce)
 		if err != nil {
 			return err
 		}

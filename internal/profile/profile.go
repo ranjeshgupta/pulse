@@ -127,9 +127,27 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 		stageUpdates(cur, e, updates)
 	case event.CompanyLinked, event.CompanyUpdated, event.CompanyUnlinked:
 		removes = companyUpdates(cur, e, updates)
+	case event.OwnerChanged:
+		removes = ownerUpdates(e, updates)
+	}
+	if event.CarriesDevice(e.Name) {
+		removes = append(removes, deviceUpdates(e.Props, updates)...)
 	}
 	if e.Email != "" {
 		updates["email"] = e.Email
+	}
+	if v, ok := updates["email"]; ok {
+		if d := EmailDomain(attr.String(v)); d != "" {
+			updates[event.AttrEmailDomain] = d
+		} else {
+			removes = append(removes, event.AttrEmailDomain)
+		}
+	}
+	// A new phone number hasn't bounced (unless this event says so itself).
+	if v, ok := updates["phone"]; ok && attr.String(v) != attr.String(cur["phone"]) && truthy(cur[event.AttrSMSBounced]) {
+		if _, set := updates[event.AttrSMSBounced]; !set {
+			updates[event.AttrSMSBounced] = false
+		}
 	}
 	for k, v := range optouts {
 		updates[k] = v
@@ -180,6 +198,80 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 	}
 	sort.Strings(changed)
 	return merged, changed
+}
+
+// maxDeviceValue is the longest device property kept on a profile.
+const maxDeviceValue = 100
+
+// deviceUpdates copies the device properties of an SDK event to the last-seen device attributes.
+// An event that names a device (device_type or os) replaces the whole device: attributes it
+// doesn't carry are removed, so a model never sticks to the next device's profile. The locale
+// property sets locale.
+func deviceUpdates(props map[string]any, updates map[string]any) []string {
+	if loc := deviceValue(props["locale"]); loc != "" {
+		if _, set := updates[event.AttrLocale]; !set {
+			updates[event.AttrLocale] = loc
+		}
+	}
+	if deviceValue(props["device_type"]) == "" && deviceValue(props["os"]) == "" {
+		return nil
+	}
+	var removes []string
+	for prop, key := range event.DeviceProps {
+		if v := deviceValue(props[prop]); v != "" {
+			updates[key] = v
+		} else {
+			removes = append(removes, key)
+		}
+	}
+	return removes
+}
+
+func deviceValue(v any) string {
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	s = strings.TrimSpace(s)
+	if len(s) > maxDeviceValue {
+		s = s[:maxDeviceValue]
+	}
+	return s
+}
+
+// ownerUpdates applies owner_changed: owner_id and owner_name, or removes both when unassigned.
+func ownerUpdates(e *event.Event, updates map[string]any) []string {
+	id, ok := attr.Number(attr.String(e.Props["owner_id"]))
+	if !ok || id <= 0 {
+		return []string{event.AttrOwnerID, event.AttrOwnerName}
+	}
+	updates[event.AttrOwnerID] = id
+	updates[event.AttrOwnerName] = attr.String(e.Props["owner_name"])
+	return nil
+}
+
+// EmailDomain is the lower-case domain of an email address, or "" when it has none.
+func EmailDomain(email string) string {
+	i := strings.LastIndexByte(email, '@')
+	if i < 0 || i == len(email)-1 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(email[i+1:]))
+}
+
+// NormalizeConsent records how an unsubscribe happened (props.method: self or manual, see
+// consent.Method), so segments can tell a contact's own unsubscribe from one made for them.
+func NormalizeConsent(e *event.Event) {
+	if e.Name != consent.Unsubscribed {
+		return
+	}
+	if m := attr.String(e.Props["method"]); m == consent.MethodSelf || m == consent.MethodManual {
+		return
+	}
+	if e.Props == nil {
+		e.Props = map[string]any{}
+	}
+	e.Props["method"] = consent.Method(attr.String(e.Props["source"]))
 }
 
 // MaxStageName is the longest stage name.
@@ -379,6 +471,9 @@ func MergeIdentity(anon, known map[string]any) map[string]any {
 	if a, k := attr.String(anon[event.AttrLastSeen]), attr.String(known[event.AttrLastSeen]); a > k {
 		out[event.AttrLastSeen] = a
 	}
+	if a, k := attr.String(anon[event.AttrDateAdded]), attr.String(known[event.AttrDateAdded]); a != "" && (k == "" || a < k) {
+		out[event.AttrDateAdded] = a
+	}
 	if anon[event.AttrTags] != nil || known[event.AttrTags] != nil {
 		out[event.AttrTags] = applyTags(NormalizeTags(known[event.AttrTags]), NormalizeTags(anon[event.AttrTags]), true)
 	}
@@ -398,7 +493,7 @@ func MergeIdentity(anon, known map[string]any) map[string]any {
 }
 
 func stickyFlags() []string {
-	keys := []string{consent.Key(consent.All), consent.AttrEmailBounced}
+	keys := []string{consent.Key(consent.All), consent.AttrEmailBounced, consent.AttrSMSBounced}
 	for _, ch := range channel.All {
 		keys = append(keys, consent.Key(ch))
 	}
@@ -440,6 +535,49 @@ func StampSeen(p map[string]any, changed []string, ts time.Time) (map[string]any
 		out[event.AttrLastSeen] = day
 		changed = append(changed, event.AttrLastSeen)
 	}
+	return out, changed
+}
+
+// dateOnlyKeys never make date_modified move: they change on their own (every day, or once).
+var dateOnlyKeys = map[string]bool{event.AttrFirstSeen: true, event.AttrLastSeen: true, event.AttrDateAdded: true,
+	event.AttrDateIdentified: true, event.AttrDateModified: true}
+
+// StampDates keeps date_added (when the contact was created: created, or ts if unknown),
+// date_identified (the first event at which the contact had a known id or an email) and
+// date_modified (the UTC day of the latest attribute change, so it is written at most once a day).
+// changed are the keys this event changed so far.
+func StampDates(p map[string]any, changed []string, ts, created time.Time, externalID string) (map[string]any, []string) {
+	set := map[string]any{}
+	if _, ok := p[event.AttrDateAdded]; !ok {
+		if created.IsZero() {
+			created = ts
+		}
+		set[event.AttrDateAdded] = created.UTC().Format(time.RFC3339)
+	}
+	if _, ok := p[event.AttrDateIdentified]; !ok && (!strings.HasPrefix(externalID, "anon-") || attr.String(p["email"]) != "") {
+		set[event.AttrDateIdentified] = ts.UTC().Format(time.RFC3339)
+	}
+	day := ts.UTC().Format(time.DateOnly)
+	if attr.String(p[event.AttrDateModified]) < day {
+		for _, k := range changed {
+			if !dateOnlyKeys[k] {
+				set[event.AttrDateModified] = day
+				break
+			}
+		}
+	}
+	if len(set) == 0 {
+		return p, changed
+	}
+	out := make(map[string]any, len(p)+len(set))
+	for k, v := range p {
+		out[k] = v
+	}
+	for k, v := range set {
+		out[k] = v
+		changed = append(changed, k)
+	}
+	sort.Strings(changed)
 	return out, changed
 }
 
@@ -550,8 +688,10 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 				merges = append(merges, merge{anonKey: ak, knownKey: k, source: e, anonAttrs: fromAnon})
 			}
 		}
+		NormalizeConsent(e)
 		merged, changed := MergeScored(cur, e, scoring[e.TenantID][e.Name])
 		merged, changed = StampSeen(merged, changed, e.Ts)
+		merged, changed = StampDates(merged, changed, e.Ts, c.CreatedAt, e.ExternalID)
 		if st := StageForPoints(stages[e.TenantID], attr.String(merged[event.AttrStage]), pointsOf(before), pointsOf(merged)); st != "" {
 			from := attr.String(merged[event.AttrStage])
 			move := event.Event{ID: e.ID + ":stage", TenantID: e.TenantID, ExternalID: e.ExternalID, Name: event.StageChanged, Ts: e.Ts,

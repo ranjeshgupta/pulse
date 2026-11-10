@@ -62,6 +62,9 @@ var twilioPermanent = map[int]string{
 	21614: "'To' number is not a mobile number",
 }
 
+// twilioBadNumber are the permanent errors caused by the number itself (an SMS bounce).
+var twilioBadNumber = map[int]bool{21211: true, 21214: true, 21612: true, 21614: true}
+
 func (t *Twilio) Send(ctx context.Context, o Outbound) (Result, error) {
 	form := url.Values{"To": {o.To}, "Body": {o.Rendered.Content.Text}}
 	if t.MessagingServiceSID != "" {
@@ -94,6 +97,9 @@ func (t *Twilio) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{ProviderMessageID: r.SID}, nil
 	}
 	if reason, ok := twilioPermanent[r.Code]; ok {
+		if twilioBadNumber[r.Code] {
+			return Result{}, BadNumber(fmt.Sprintf("twilio %d: %s: %s", r.Code, reason, r.Message))
+		}
 		return Result{}, Permanent(fmt.Sprintf("twilio %d: %s: %s", r.Code, reason, r.Message))
 	}
 	if code >= 200 && code < 300 {
@@ -139,6 +145,8 @@ func (t *Twilio) ParseReceipts(r *http.Request) ([]Receipt, error) {
 		if m := form.Get("ErrorMessage"); m != "" {
 			rc.Reason += ": " + m
 		}
+		// 30003 unreachable handset, 30005 unknown destination, 30006 landline or unreachable carrier.
+		rc.Unreachable = c == "30003" || c == "30005" || c == "30006"
 	}
 	if rc.ProviderMessageID == "" {
 		return nil, errors.New("twilio callback without MessageSid")

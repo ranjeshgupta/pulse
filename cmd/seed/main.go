@@ -133,6 +133,13 @@ func main() {
 
 	rng := rand.New(rand.NewSource(7))
 	cities := []string{"Pune", "Mumbai", "Delhi", "Bengaluru", "Chennai"}
+	devices := []map[string]any{
+		{"platform": "web", "device_type": "mobile", "os": "Android", "os_version": "14", "browser": "Chrome", "device_brand": "Samsung", "device_model": "SM-S918B", "locale": "en-IN"},
+		{"platform": "web", "device_type": "mobile", "os": "iOS", "os_version": "17.4", "browser": "Safari", "device_brand": "Apple", "device_model": "iPhone", "locale": "en-IN"},
+		{"platform": "web", "device_type": "desktop", "os": "Windows", "os_version": "11", "browser": "Chrome", "locale": "en-IN"},
+		{"platform": "web", "device_type": "desktop", "os": "macOS", "os_version": "10.15", "browser": "Safari", "locale": "en-GB"},
+		{"platform": "web", "device_type": "tablet", "os": "iPadOS", "os_version": "17.4", "browser": "Safari", "device_brand": "Apple", "device_model": "iPad", "locale": "hi-IN"},
+	}
 	names := []string{"Asha", "Ravi", "Meera", "Arjun", "Kavya", "Rohan", "Isha", "Vikram", "Neha", "Kabir"}
 	var evs []map[string]any
 	flush := func() {
@@ -153,9 +160,29 @@ func main() {
 		if rng.Intn(3) == 0 {
 			evs = append(evs, map[string]any{"external_id": ext, "name": "signup"})
 		}
-		for k := rng.Intn(6); k > 0; k-- {
-			evs = append(evs, map[string]any{"external_id": ext, "name": "page_view", "props": map[string]any{"path": "/p/" + fmt.Sprint(rng.Intn(90))}})
+		// The device the web SDK would report, on a session start and its page views.
+		dev := devices[rng.Intn(len(devices))]
+		withDev := func(p map[string]any) map[string]any {
+			for k, v := range dev {
+				p[k] = v
+			}
+			return p
 		}
+		evs = append(evs, map[string]any{"external_id": ext, "name": "session_start", "props": withDev(map[string]any{"session_id": fmt.Sprint("s", i)})})
+		for k := rng.Intn(6); k > 0; k-- {
+			evs = append(evs, map[string]any{"external_id": ext, "name": "page_view", "props": withDev(map[string]any{"path": "/p/" + fmt.Sprint(rng.Intn(90))})})
+		}
+		// Engagement with the welcome email, VIP tags and points, for the segment builder's filters.
+		if rng.Intn(10) < 4 {
+			evs = append(evs, map[string]any{"external_id": ext, "name": "email_sent", "props": map[string]any{"template_id": welcome}})
+			if rng.Intn(2) == 0 {
+				evs = append(evs, map[string]any{"external_id": ext, "name": "email_opened", "props": map[string]any{"template_id": welcome}})
+			}
+		}
+		if rng.Intn(6) == 0 {
+			evs = append(evs, map[string]any{"external_id": ext, "name": "tag_added", "props": map[string]any{"tags": []string{"vip"}}})
+		}
+		evs = append(evs, map[string]any{"external_id": ext, "name": "points_changed", "props": map[string]any{"delta": rng.Intn(101), "reason": "seed"}})
 		if rng.Intn(4) == 0 {
 			evs = append(evs, map[string]any{"external_id": ext, "name": "add_to_cart"})
 		}

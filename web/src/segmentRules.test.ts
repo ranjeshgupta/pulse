@@ -1,6 +1,9 @@
 import { describe as suite, expect, it } from "vitest";
 import type { Rule } from "./api";
-import { describe, eventProps, formatDay, fromRule, isDateAttr, newGroup, PRESETS, problems, rootFromRule, segmentRefs, toRule, type Group } from "./segmentRules";
+import { buildCatalog } from "./segmentCatalog";
+import { describe, eventProps, formatDay, fromRule, isDateAttr, newAttr, newGroup, problems, rootFromRule, segmentRefs, toRule, type Group } from "./segmentRules";
+
+const catalog = Object.fromEntries(buildCatalog().map((it) => [it.id, it]));
 
 const rule: Rule = {
   all: [
@@ -34,7 +37,10 @@ suite("segment rule editing model", () => {
   });
 
   it("reports what must be fixed", () => {
-    expect(problems(newGroup())).toEqual(["Enter an attribute name, e.g. city."]);
+    expect(problems(newGroup())).toEqual(["A group needs at least one filter."]);
+    expect(problems(newGroup("all", [newAttr()]))).toEqual(["Enter an attribute name, e.g. city.", '"attribute" needs a value (or choose "is empty").']);
+    expect(problems(newAttr("city", "eq", " "))).toEqual(['"City" needs a value (or choose "is empty").']);
+    expect(problems(newAttr("city", "empty"))).toEqual([]);
     expect(problems({ kind: "attr", attr: "age", op: "gt", value: "old" })).toEqual(['"age" needs a number.']);
     expect(problems({ kind: "event", event: "buy", op: "gte", count: 1, days: 400, where: [] })).toContain("Event windows are 1 to 365 days.");
     expect(problems(rootFromRule(rule))).toEqual([]);
@@ -132,39 +138,38 @@ suite("known events and presets", () => {
     expect(describe({ event: "email_bounced", op: "gte", count: 1, days: 90 })).toBe("had an email bounce in the last 90 days");
   });
 
-  it("offers presets that insert valid rules once their blanks are filled", () => {
-    const all = PRESETS.flatMap((g) => g.items);
-    expect(new Set(all.map((p) => p.id)).size).toBe(all.length);
-    const byId = Object.fromEntries(all.map((p) => [p.id, p]));
-    expect(toRule(byId.inactive.make())).toEqual({ attr: "last_seen", op: "older_than_days", value: 30 });
-    expect(problems(byId.inactive.make())).toEqual([]);
-    expect(problems(byId.bounced.make())).toEqual([]);
-    expect(problems(byId.unsubscribed.make())).toEqual([]);
+  it("offers catalog filters that insert valid rules once their blanks are filled", () => {
+    expect(toRule(catalog["field:last_seen"].make())).toEqual({ attr: "last_seen", op: "within_days", value: 30 });
+    expect(problems(catalog["field:last_seen"].make())).toEqual([]);
+    expect(problems(catalog.email_bounce_event.make())).toEqual([]);
+    expect(problems(catalog.unsub_event.make())).toEqual([]);
     // Pickers start empty and say what to choose.
-    expect(problems(byId.form.make())).toEqual(["Choose a form."]);
-    expect(problems(byId.email_opened.make())).toEqual(["Choose a campaign."]);
-    expect(problems(byId.journey_entered.make())).toEqual(["Choose a journey."]);
-    expect(problems(byId.page.make())).toEqual(['"url" needs some text to look for.']);
-    expect(toRule(byId.didnt.make())).toMatchObject({ op: "eq", count: 0 });
+    expect(problems(catalog.form.make())).toEqual(["Choose a form."]);
+    expect(problems(catalog.email_opened_campaign.make())).toEqual(["Choose a campaign."]);
+    expect(problems(catalog.email_read_specific.make())).toEqual(["Choose an email."]);
+    expect(problems(catalog.journey_entered.make())).toEqual(["Choose a journey."]);
+    expect(problems(catalog.asset.make())).toEqual(["Choose an asset."]);
+    expect(problems(catalog.page_url.make())).toEqual(['"url" needs some text to look for.']);
+    expect(toRule(catalog.didnt.make())).toMatchObject({ op: "eq", count: 0 });
   });
 
   it("suggests the properties each event carries", () => {
-    expect(eventProps("page_view")).toEqual(["url", "path", "title"]);
+    expect(eventProps("page_view").slice(0, 3)).toEqual(["url", "path", "title"]);
+    expect(eventProps("page_view")).toContain("utm_source");
     expect(eventProps("sms_delivered")).toContain("broadcast_id");
     expect(eventProps("purchase")).toEqual([]);
   });
 });
 
 suite("stage and company conditions", () => {
-  const presets = Object.fromEntries(PRESETS.flatMap((g) => g.items).map((p) => [p.id, p.make()]));
-
-  it("offers stage and company presets that need a choice", () => {
-    expect(presets.stage).toEqual({ kind: "attr", attr: "stage", op: "eq", value: "" });
-    expect(problems(presets.stage)).toEqual(["Choose a stage."]);
-    expect(problems(presets.company)).toEqual(["Choose a company."]);
-    expect(problems(presets.company_attr)).toEqual(["Finish the company attribute's name, e.g. company_industry."]);
-    expect(problems({ kind: "attr", attr: "company_industry", op: "eq", value: "Retail" })).toEqual([]);
-    expect(problems(presets.stage_recent)).toEqual([]);
+  it("offers stage and company filters that need a choice", () => {
+    expect(catalog["field:stage"].make()).toEqual({ kind: "attr", attr: "stage", op: "eq", value: "" });
+    expect(problems(catalog["field:stage"].make())).toEqual(["Choose a stage."]);
+    expect(problems(catalog["field:company_id"].make())).toEqual(["Choose a company."]);
+    expect(problems(catalog["field:owner_id"].make())).toEqual(["Choose an owner."]);
+    expect(problems(catalog.company_attr.make())[0]).toBe("Finish the company attribute's name, e.g. company_industry.");
+    expect(problems(newAttr("company_industry", "eq", "Retail"))).toEqual([]);
+    expect(problems(catalog.stage_recent.make())).toEqual([]);
     expect(isDateAttr("stage_changed_at")).toBe(true);
   });
 

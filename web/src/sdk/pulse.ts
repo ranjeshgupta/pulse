@@ -5,9 +5,13 @@
 //           onload="Pulse.init({ siteKey: 'sk_...' })"></script>
 //
 // Visitors are anonymous ("anon-…") until identify(userId). Focus items render in a Shadow DOM so
-// neither the site's CSS nor ours leaks across.
+// neither the site's CSS nor ours leaks across. Events are grouped into sessions (30 minutes without
+// an event ends one, shared across tabs); identify, page_view and session_start carry the device's
+// platform, type, OS, browser and locale.
 
 import { pageProps, parseTouch, profileAttrs, touchFromUrl } from "./attribution";
+import { parseUserAgent, type UAData } from "./device";
+import { nextSession, parseActivity } from "./session";
 
 type Props = Record<string, unknown>;
 interface Config {
@@ -79,12 +83,18 @@ function userHash() {
   return store.get("pulse.uid") ? store.get("pulse.uh") || undefined : undefined;
 }
 
-function enqueue(ev: Props) {
+function push(ev: Props) {
   const hash = userHash();
   const props = hash ? { ...(ev.props as Props | undefined), user_hash: hash } : ev.props;
   queue.push({ external_id: currentId(), ts: new Date().toISOString(), id: randomId(), ...ev, props });
   if (queue.length >= 20) flush();
   else if (!timer) timer = window.setTimeout(flush, 1000);
+}
+
+/** enqueue queues an event, preceded by session_start when it begins a new session. */
+function enqueue(ev: Props) {
+  session();
+  push(ev);
 }
 
 export function flush(beacon = false) {
@@ -108,7 +118,7 @@ export function identify(userId: string, attrs?: Props, opts?: { userHash?: stri
   const { email, ...rest } = attrs ?? {};
   // First- and last-touch campaigns go with every identify (your own attributes win).
   const merged = { ...attribution(), ...rest };
-  enqueue({ name: "identify", email: typeof email === "string" ? email : undefined, attrs: merged, props: { anonymous_id: previous } });
+  enqueue({ name: "identify", email: typeof email === "string" ? email : undefined, attrs: merged, props: { ...deviceProps(), anonymous_id: previous } });
   flush();
   window.setTimeout(refresh, 1500); // new segments can change what this person should see
 }
@@ -120,14 +130,94 @@ export function reset() {
   store.del("pulse.aid");
   store.del("pulse.ft"); // campaigns belong to the person, not the browser
   store.del("pulse.lt");
+  store.del("pulse.sid"); // the next event starts a new session
+  memSid = null;
 }
 
 export function page(props?: Props) {
+  const sid = session();
   track("page_view", {
     url: location.href, path: location.pathname, title: document.title, referrer: document.referrer,
     ...pageProps(parseTouch(store.sget("pulse.st"))), // this session's campaign, for revenue attribution
+    ...deviceProps(), session_id: sid,
     ...props,
   });
+}
+
+// ---------- device and session ----------
+
+type UAHints = UAData & { getHighEntropyValues?: (hints: string[]) => Promise<Record<string, unknown>> };
+const nav = () => navigator as Navigator & { userAgentData?: UAHints };
+let device: Record<string, string> | null = null;
+
+/** highEntropy reads the cached model and platformVersion Client Hints, ignoring anything malformed. */
+function highEntropy(): Pick<UAData, "model" | "platformVersion"> {
+  try {
+    const v = JSON.parse(store.sget("pulse.uah") || "{}") as Record<string, unknown>;
+    const str = (x: unknown) => (typeof x === "string" ? x.slice(0, 100) : undefined);
+    return { model: str(v.model), platformVersion: str(v.platformVersion) };
+  } catch { return {}; }
+}
+
+/** loadHighEntropy asks the browser once per session for the device model and exact OS version
+ * (Chromium only). Events never wait for it; device props use it once it has arrived. */
+function loadHighEntropy() {
+  const ua = nav().userAgentData;
+  if (!ua?.getHighEntropyValues || store.sget("pulse.uah")) return;
+  ua.getHighEntropyValues(["model", "platformVersion"]).then((v) => {
+    store.sset("pulse.uah", JSON.stringify({ model: v.model, platformVersion: v.platformVersion }));
+    device = null;
+  }).catch(() => { /* not allowed: keep the low-entropy values */ });
+}
+
+/** deviceProps are this browser's platform, device_type, os, os_version, browser, device_brand,
+ * device_model and locale (unknown ones left out), sent with identify, page_view and session_start. */
+export function deviceProps(): Record<string, string> {
+  if (!device) {
+    const n = nav();
+    const ua = n.userAgentData;
+    const data: UAData | undefined = ua ? { mobile: ua.mobile, platform: ua.platform, brands: ua.brands, ...highEntropy() } : undefined;
+    const d: Record<string, string> = { ...parseUserAgent(n.userAgent, data, n.maxTouchPoints) };
+    const locale = n.language?.trim().slice(0, 100);
+    if (locale) d.locale = locale;
+    device = d;
+  }
+  return device;
+}
+
+// The session lives in localStorage (shared by tabs); without usable storage, in memory.
+let memSid: string | null = null;
+let memLast: number | null = null;
+let lsUsable: boolean | undefined;
+function storageWorks() {
+  if (lsUsable === undefined) {
+    try { localStorage.setItem("pulse.t", "1"); localStorage.removeItem("pulse.t"); lsUsable = true; } catch { lsUsable = false; }
+  }
+  return lsUsable;
+}
+
+/** session returns the current session id, starting a new session (and queueing session_start)
+ * after 30 minutes without events, and records this moment as the last activity. */
+function session(): string {
+  const now = Date.now();
+  const ls = storageWorks();
+  const sid = ls ? store.get("pulse.sid") : memSid;
+  const last = ls ? parseActivity(store.get("pulse.sla")) : memLast;
+  const s = nextSession(now, last, sid, randomId);
+  memLast = now;
+  store.set("pulse.sla", String(now));
+  if (s.started) {
+    memSid = s.sid;
+    store.set("pulse.sid", s.sid);
+    push({
+      name: "session_start",
+      props: {
+        session_id: s.sid, url: location.href, path: location.pathname, referrer: document.referrer,
+        ...deviceProps(), ...pageProps(parseTouch(store.sget("pulse.st"))),
+      },
+    });
+  }
+  return s.sid;
 }
 
 // ---------- UTM attribution ----------
@@ -389,6 +479,7 @@ export function init(c: Config) {
   cfg.host = cfg.host.replace(/\/$/, "");
   anonymousId();
   captureTouch();
+  loadHighEntropy();
   if (cfg.autoPageview) page();
   const go = () => { mountForms(); void refresh(); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);

@@ -5,8 +5,9 @@ signed-in users (with identity verification), register push tokens, show the app
 messages.
 
 It mirrors the web SDK (`web/src/sdk/pulse.ts`): people are anonymous (`anon-` + 24 hex characters)
-until `identify`, and `identify` merges the anonymous visitor into the user. Events are queued on the
-device, persisted (they survive app restarts) and sent in batches.
+until `identify`, and `identify` merges the anonymous visitor into the user. Events are grouped into
+sessions, and identify, screen views and session starts carry the device's platform, OS and locale
+(see [Device and session data](#device-and-session-data)). Events are queued on the device, persisted (they survive app restarts) and sent in batches.
 
 The SDK only uses the workspace's public **site key**. Never put an API key or the identity
 verification secret in an app.
@@ -40,7 +41,8 @@ Future<void> main() async {
 }
 ```
 
-Other options: `maxQueue` (default 1,000 events kept while offline; the oldest are dropped beyond
+Other options: `appVersion`, `deviceModel`, `deviceBrand` and `osVersion` (see
+[Device and session data](#device-and-session-data)), `maxQueue` (default 1,000 events kept while offline; the oldest are dropped beyond
 that), `flushOnBackground` (default true, see below), `requestTimeout` (default 30 s),
 `inAppMessages` (default true) and `onInAppAction` (see [In-app messages](#in-app-messages)).
 
@@ -130,6 +132,72 @@ class PulseNavigatorObserver extends NavigatorObserver {
 }
 // MaterialApp(navigatorObservers: [PulseNavigatorObserver()], ...)
 ```
+
+## Device and session data
+
+The SDK adds the device's details to `identify`, `screen_view` and `session_start` as flat props,
+and Pulse keeps the latest values as profile attributes (for segments such as "Android users on app
+version 2.3"):
+
+| Prop | Value | Source |
+|---|---|---|
+| `platform` | `android` or `ios` | `defaultTargetPlatform` |
+| `device_type` | `mobile` or `tablet` (shortest side of the app's view 600+ logical pixels) | the first `FlutterView` |
+| `os` | `Android` or `iOS` | `defaultTargetPlatform` |
+| `os_version` | e.g. `14`, `17.4` | `Platform.operatingSystemVersion`, or `PulseConfig.osVersion` |
+| `locale` | BCP 47, e.g. `en-IN` | the device locale |
+| `app_version` | e.g. `2.3.0` | `PulseConfig.appVersion` |
+| `device_model` | e.g. `SM-S918B`, `Pixel 8`, `iPhone15,2` | `PulseConfig.deviceModel` (iOS default: `iPhone` / `iPad`) |
+| `device_brand` | e.g. `Samsung`, `Google` | `PulseConfig.deviceBrand` (iOS default: `Apple`) |
+
+Unknown values are left out, and each value is cut to 100 characters. Custom `track` events don't
+carry them (they stay small). `Pulse.instance.deviceProperties` shows what is sent.
+
+The SDK has no plugin dependencies, so the app version and device model come from your app. With
+[package_info_plus](https://pub.dev/packages/package_info_plus) and
+[device_info_plus](https://pub.dev/packages/device_info_plus):
+
+```dart
+import 'dart:io' show Platform;
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final app = await PackageInfo.fromPlatform();
+  final info = DeviceInfoPlugin();
+  String? model, brand, osVersion;
+  if (Platform.isAndroid) {
+    final a = await info.androidInfo;
+    model = a.model;                 // "SM-S918B"
+    brand = a.manufacturer;          // "samsung"
+    osVersion = a.version.release;   // "14"
+  } else if (Platform.isIOS) {
+    final i = await info.iosInfo;
+    model = i.utsname.machine;       // "iPhone15,2"
+    osVersion = i.systemVersion;     // "17.4.1"
+  }
+  await Pulse.init(PulseConfig(
+    host: 'https://pulse.example.com',
+    siteKey: 'sk_...',
+    appVersion: app.version,         // or '${app.version}+${app.buildNumber}'
+    deviceModel: model,
+    deviceBrand: brand,
+    osVersion: osVersion,            // optional: more exact than the detected version on Android
+  ));
+  runApp(const MyApp());
+}
+```
+
+### Sessions
+
+A session starts with the first event after `init` and again after **30 minutes** without events or
+in the background (measured from when the app was paused; a resume after 30+ minutes starts the new
+session straight away). Each session begins with a `session_start` event,
+`{session_id, ...device props}`, and every `screen_view` carries `session_id`. The session id and the
+last activity time are stored, so a restart within 30 minutes continues the session. `reset` ends the
+session: the next event starts a new one. `Pulse.instance.sessionId` is the current id (null before
+the first event).
 
 ## Delivery, flushing and retries
 
@@ -325,7 +393,7 @@ Turn the feature off with `PulseConfig(inAppMessages: false)`.
 ## Testing
 
 `Pulse.init` accepts an `http.Client` (use `MockClient` from `package:http/testing.dart`) and a
-`PulseStorage` (use `InMemoryPulseStorage`). Call `TestWidgetsFlutterBinding.ensureInitialized()` at
+`PulseStorage` (use `InMemoryPulseStorage`), and a `clock` to move time forward (sessions). Call `TestWidgetsFlutterBinding.ensureInitialized()` at
 the top of `main()`, set `flushOnBackground: false` (and `inAppMessages: false` unless you test
 in-app messages) in unit tests, and call `Pulse.instance.dispose()` in `tearDown` (or at the end of a
 `testWidgets` body).

@@ -654,7 +654,7 @@ function CheckFields({ n, setN }: { n: JourneyNode; setN: (p: Partial<JourneyNod
   return (
     <>
       <p className="xs muted" style={{ marginBottom: 6 }}>Contacts who match take the "matches" path, checked the moment they reach this step. Event counts work too, e.g. did email_opened at least 1 time in 3 days.</p>
-      <GroupEditor group={root} depth={2} onChange={(g) => { setRoot(g); setN({ rule: ruleProblems(g).length ? undefined : toRule(g) }); }} />
+      <GroupEditor group={root} onChange={(g) => { setRoot(g); setN({ rule: ruleProblems(g).length ? undefined : toRule(g) }); }} />
       {issues.length > 0 && <p className="xs" style={{ color: "var(--danger)" }}>{issues[0]}</p>}
     </>
   );

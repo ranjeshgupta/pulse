@@ -160,3 +160,46 @@ func TestMatchProps(t *testing.T) {
 		t.Errorf("counter names: %q %q", a, b)
 	}
 }
+
+func TestTextNumberAndDateOps(t *testing.T) {
+	attrs := map[string]any{"city": "Delhi", "age": 30.0, "plan": "pro", "seen": "2026-11-01T10:00:00Z"}
+	cases := []struct {
+		js   string
+		want bool
+	}{
+		{`{"attr":"city","op":"not_contains","value":"elh"}`, false},
+		{`{"attr":"city","op":"not_contains","value":"Pune"}`, true},
+		{`{"attr":"city","op":"starts_with","value":"De"}`, true},
+		{`{"attr":"city","op":"ends_with","value":"hi"}`, true},
+		{`{"attr":"city","op":"ends_with","value":"De"}`, false},
+		{`{"attr":"plan","op":"not_in","value":["pro","team"]}`, false},
+		{`{"attr":"plan","op":"not_in","value":["team"]}`, true},
+		{`{"attr":"nope","op":"not_exists"}`, true},
+		{`{"attr":"city","op":"not_exists"}`, false},
+		{`{"attr":"age","op":"between","value":[18,30]}`, true},
+		{`{"attr":"age","op":"between","value":[31,40]}`, false},
+		{`{"attr":"city","op":"between","value":[0,100]}`, false},
+		{`{"attr":"seen","op":"on","value":"2026-11-01"}`, true},
+		{`{"attr":"seen","op":"on","value":"2026-11-02"}`, false},
+	}
+	for _, c := range cases {
+		r, err := Parse([]byte(c.js))
+		if err != nil {
+			t.Fatalf("%s: %v", c.js, err)
+		}
+		if got, _ := Eval(context.Background(), r, attrs, nil); got != c.want {
+			t.Errorf("%s = %v, want %v", c.js, got, c.want)
+		}
+	}
+	for _, bad := range []string{
+		`{"attr":"age","op":"between","value":[40,18]}`,
+		`{"attr":"age","op":"between","value":[18]}`,
+		`{"attr":"city","op":"starts_with","value":3}`,
+		`{"attr":"seen","op":"on","value":"yesterday"}`,
+		`{"attr":"city","op":"not_exists","value":"x"}`,
+	} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("%s should not parse", bad)
+		}
+	}
+}

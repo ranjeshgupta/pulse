@@ -404,3 +404,48 @@ func (s *Store) AssetDownloads(ctx context.Context, tenant, asset int64) (downlo
 		uint64(tenant), uint64(asset)).Scan(&downloads, &contacts)
 	return downloads, contacts, err
 }
+
+// valueSample bounds how many rows a value suggestion reads, so it stays cheap on large workspaces;
+// the result is the most common values of that sample.
+const valueSample = 200_000
+
+// ValueCount is one suggested value and how often it appeared in the sample.
+type ValueCount struct {
+	Value string `json:"value"`
+	Count uint64 `json:"count"`
+}
+
+// AttrValues returns the most common non-empty values of a contact attribute (approximate: a
+// sample of contact rows, without deduplicating versions).
+func (s *Store) AttrValues(ctx context.Context, tenant int64, key string, limit int) ([]ValueCount, error) {
+	return s.topValues(ctx, `SELECT v, count() AS c FROM (SELECT attrs[?] AS v FROM contacts WHERE tenant_id = ? AND mapContains(attrs, ?) LIMIT ?)
+		WHERE v != '' GROUP BY v ORDER BY c DESC, v LIMIT ?`, key, uint64(tenant), key, valueSample, limit)
+}
+
+// PropValues returns the most common non-empty values of an event property over the last 30 days
+// (a sample of the event rows).
+func (s *Store) PropValues(ctx context.Context, tenant int64, name, prop string, limit int) ([]ValueCount, error) {
+	expr, args := segment.PropValueSQL(prop)
+	all := append(args, uint64(tenant), name, time.Now().AddDate(0, 0, -30), valueSample, limit)
+	return s.topValues(ctx, `SELECT v, count() AS c FROM (SELECT `+expr+` AS v FROM events WHERE tenant_id = ? AND name = ? AND ts >= ? LIMIT ?)
+		WHERE v != '' GROUP BY v ORDER BY c DESC, v LIMIT ?`, all...)
+}
+
+func (s *Store) topValues(ctx context.Context, q string, args ...any) ([]ValueCount, error) {
+	rows, err := s.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ValueCount{}
+	for rows.Next() {
+		var v ValueCount
+		if err := rows.Scan(&v.Value, &v.Count); err != nil {
+			return nil, err
+		}
+		if len(v.Value) <= 200 {
+			out = append(out, v)
+		}
+	}
+	return out, rows.Err()
+}

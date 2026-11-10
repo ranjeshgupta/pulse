@@ -19,7 +19,25 @@ const (
 	// AttrEmailBounced marks an address that hard-bounced: email to it is suppressed. Set by bounce
 	// webhooks; a server can clear it (false) once the address is fixed.
 	AttrEmailBounced = "email_bounced"
+	// AttrSMSBounced is the same for SMS: a permanent failure of the phone number.
+	AttrSMSBounced = "sms_bounced"
 )
+
+// Methods of an unsubscribe, recorded as props.method on unsubscribed events.
+const (
+	MethodSelf   = "self"   // the contact did it: a link, a keyword reply, the preference center, a form, a complaint
+	MethodManual = "manual" // someone else did it: an admin in the app, an API call, an import
+)
+
+// Method classifies an unsubscribed event's source as self-service or manual.
+func Method(source string) string {
+	switch {
+	case source == "email_link", source == "one_click", source == "preference_center", source == "form",
+		source == "complaint", source == "sms_link", strings.HasSuffix(source, "_keyword"):
+		return MethodSelf
+	}
+	return MethodManual
+}
 
 // Key is the attribute that records an opt-out from ch (or from everything, for All).
 func Key(ch string) string { return "optout_" + ch }
@@ -30,7 +48,9 @@ func Key(ch string) string { return "optout_" + ch }
 // company_name, company_<key>) are reserved the same way: they change only through their events.
 func IsReserved(attrName string) bool {
 	switch attrName {
-	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, "first_seen", "last_seen", "stage", "stage_changed_at":
+	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, AttrSMSBounced, "first_seen", "last_seen", "stage", "stage_changed_at",
+		"date_added", "date_identified", "date_modified", "email_domain", "owner_id", "owner_name",
+		"device_type", "device_os", "device_os_version", "device_brand", "device_model", "browser", "app_version":
 		return true
 	}
 	if strings.HasPrefix(attrName, "company_") {

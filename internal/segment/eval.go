@@ -116,25 +116,41 @@ func compare(op string, raw any, present bool, value any) bool {
 	switch op {
 	case "exists":
 		return present
+	case "not_exists":
+		return !present
 	case "eq":
 		return s == attr.String(value)
 	case "ne":
 		return s != attr.String(value)
 	case "contains":
 		return strings.Contains(s, attr.String(value))
-	case "in":
+	case "not_contains":
+		return !strings.Contains(s, attr.String(value))
+	case "starts_with":
+		return strings.HasPrefix(s, attr.String(value))
+	case "ends_with":
+		return strings.HasSuffix(s, attr.String(value))
+	case "in", "not_in":
+		found := false
 		for _, v := range value.([]any) {
 			if s == attr.String(v) {
-				return true
+				found = true
+				break
 			}
 		}
-		return false
-	case "before", "after", "within_days", "older_than_days":
+		return found == (op == "in")
+	case "between":
+		f, ok := attr.Number(s)
+		list := value.([]any)
+		return ok && f >= list[0].(float64) && f <= list[1].(float64)
+	case "on", "before", "after", "within_days", "older_than_days":
 		d, ok := DatePart(s)
 		if !ok {
 			return false
 		}
 		switch op {
+		case "on":
+			return d == value.(string)
 		case "before":
 			return d < value.(string)
 		case "after":

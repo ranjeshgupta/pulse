@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"html/template"
 	"net/http"
 	"strings"
@@ -20,6 +21,7 @@ import (
 func (s *Server) trackingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /t/o/{file}", s.trackOpen)
 	mux.HandleFunc("GET /t/c/{token}", s.trackClick)
+	mux.HandleFunc("GET /t/s/{code}", s.trackShortClick)
 	mux.HandleFunc("GET /u/{token}", s.unsubscribePage)
 	mux.HandleFunc("POST /u/{token}", s.unsubscribe)
 }
@@ -64,6 +66,25 @@ func (s *Server) trackClick(w http.ResponseWriter, r *http.Request) {
 		sum := sha256.Sum256([]byte(dest))
 		s.trackEvent(r.Context(), t, t.Channel+"_clicked", "click:"+t.MessageID+":"+hex.EncodeToString(sum[:6]), map[string]any{"url": dest})
 	}
+	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// trackShortClick follows a short link from a text message (SMS, RCS) and records <channel>_clicked.
+func (s *Server) trackShortClick(w http.ResponseWriter, r *http.Request) {
+	if s.RDB == nil {
+		http.Error(w, "This link is invalid or has expired.", http.StatusNotFound)
+		return
+	}
+	t, dest, err := tracking.ResolveShort(r.Context(), s.RDB, r.PathValue("code"))
+	if errors.Is(err, tracking.ErrNoShortLink) || err == nil && !(strings.HasPrefix(dest, "https://") || strings.HasPrefix(dest, "http://")) {
+		http.Error(w, "This link is invalid or has expired.", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "Try again in a moment.", http.StatusServiceUnavailable)
+		return
+	}
+	sum := sha256.Sum256([]byte(dest))
+	s.trackEvent(r.Context(), t, t.Channel+"_clicked", "click:"+t.MessageID+":"+hex.EncodeToString(sum[:6]), map[string]any{"url": dest})
 	http.Redirect(w, r, dest, http.StatusFound)
 }
 

@@ -190,29 +190,39 @@ func validCompare(what, op string, value any) error {
 		if !isScalar(value) {
 			return fmt.Errorf("%s: %s needs a string, number or boolean value", what, op)
 		}
-	case "contains":
+	case "contains", "not_contains", "starts_with", "ends_with":
 		if _, ok := value.(string); !ok {
-			return fmt.Errorf("%s: contains needs a string value", what)
+			return fmt.Errorf("%s: %s needs a string value", what, op)
 		}
 	case "gt", "gte", "lt", "lte":
 		if _, ok := value.(float64); !ok {
 			return fmt.Errorf("%s: %s needs a number value", what, op)
 		}
-	case "in":
+	case "in", "not_in":
 		list, ok := value.([]any)
 		if !ok || len(list) == 0 || len(list) > maxIn {
-			return fmt.Errorf("%s: in needs a list of 1-%d values", what, maxIn)
+			return fmt.Errorf("%s: %s needs a list of 1-%d values", what, op, maxIn)
 		}
 		for _, v := range list {
 			if !isScalar(v) {
 				return fmt.Errorf("%s: in values must be strings, numbers or booleans", what)
 			}
 		}
-	case "exists":
+	case "exists", "not_exists":
 		if value != nil {
-			return fmt.Errorf("%s: exists takes no value", what)
+			return fmt.Errorf("%s: %s takes no value", what, op)
 		}
-	case "before", "after":
+	case "between":
+		list, ok := value.([]any)
+		if !ok || len(list) != 2 {
+			return fmt.Errorf("%s: between needs two numbers [low, high]", what)
+		}
+		lo, ok1 := list[0].(float64)
+		hi, ok2 := list[1].(float64)
+		if !ok1 || !ok2 || lo > hi {
+			return fmt.Errorf("%s: between needs two numbers [low, high], low first", what)
+		}
+	case "on", "before", "after":
 		s, _ := value.(string)
 		if _, err := time.Parse(time.DateOnly, s); err != nil {
 			return fmt.Errorf("%s: %s needs a date like 2026-11-30", what, op)

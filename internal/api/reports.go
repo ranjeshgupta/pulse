@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"pulse/internal/attr"
+	"pulse/internal/event"
 	"pulse/internal/model"
 	"pulse/internal/segment"
 	"pulse/internal/store/ch"
@@ -27,6 +29,8 @@ type FunnelStore interface {
 func (s *Server) reportRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/journeys/{id}/report", s.tenant(s.journeyReport))
 	mux.HandleFunc("GET /v1/events/names", s.tenant(s.eventNames))
+	mux.HandleFunc("GET /v1/attributes/{key}/values", s.tenant(s.attrValues))
+	mux.HandleFunc("GET /v1/events/{name}/values", s.tenant(s.propValues))
 	mux.HandleFunc("GET /v1/funnels", s.tenant(s.listFunnels))
 	mux.HandleFunc("POST /v1/funnels", s.tenant(s.saveFunnel))
 	mux.HandleFunc("GET /v1/funnels/{id}", s.tenant(s.getFunnel))
@@ -261,4 +265,68 @@ func funnelResults(steps []model.FunnelStep, reached []uint64) []funnelStepResul
 		out[i] = res
 	}
 	return out
+}
+
+// ValueSuggester suggests values for the segment builder: the most common values of an attribute
+// or of an event property, from a sample (see ch.Store.AttrValues).
+type ValueSuggester interface {
+	AttrValues(ctx context.Context, tenant int64, key string, limit int) ([]ch.ValueCount, error)
+	PropValues(ctx context.Context, tenant int64, name, prop string, limit int) ([]ch.ValueCount, error)
+}
+
+const (
+	suggestLimit = 25
+	suggestTTL   = 10 * time.Minute
+)
+
+// attrValues: GET /v1/attributes/{key}/values, the most common values of a contact attribute.
+func (s *Server) attrValues(w http.ResponseWriter, r *http.Request, tenant int64) {
+	key := r.PathValue("key")
+	if !attr.ValidKey(key) {
+		writeErr(w, http.StatusBadRequest, "invalid attribute name")
+		return
+	}
+	s.suggest(w, r, fmt.Sprintf("vals:%d:a:%s", tenant, key), func(vs ValueSuggester) ([]ch.ValueCount, error) {
+		return vs.AttrValues(r.Context(), tenant, key, suggestLimit)
+	})
+}
+
+// propValues: GET /v1/events/{name}/values?prop=url, the most common values of an event property
+// in the last 30 days.
+func (s *Server) propValues(w http.ResponseWriter, r *http.Request, tenant int64) {
+	name, prop := r.PathValue("name"), r.URL.Query().Get("prop")
+	if !event.ValidName(name) || !attr.ValidKey(prop) {
+		writeErr(w, http.StatusBadRequest, "invalid event or property name")
+		return
+	}
+	s.suggest(w, r, fmt.Sprintf("vals:%d:e:%s:%s", tenant, name, prop), func(vs ValueSuggester) ([]ch.ValueCount, error) {
+		return vs.PropValues(r.Context(), tenant, name, prop, suggestLimit)
+	})
+}
+
+// suggest answers from a short Redis cache, so typing in the builder doesn't rescan ClickHouse.
+func (s *Server) suggest(w http.ResponseWriter, r *http.Request, key string, load func(ValueSuggester) ([]ch.ValueCount, error)) {
+	if s.RDB != nil {
+		if b, err := s.RDB.Get(r.Context(), key).Bytes(); err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(b)
+			return
+		}
+	}
+	vs, ok := s.Analytics.(ValueSuggester)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"values": []ch.ValueCount{}})
+		return
+	}
+	vals, err := load(vs)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	b, _ := json.Marshal(map[string]any{"values": vals})
+	if s.RDB != nil {
+		s.RDB.Set(r.Context(), key, b, suggestTTL)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(b)
 }

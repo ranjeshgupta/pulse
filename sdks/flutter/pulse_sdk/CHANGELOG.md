@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- Device data: `identify`, `screen_view` and `session_start` carry flat props `platform`
+  (`android`/`ios`), `device_type` (`mobile`/`tablet`, from the first view's shortest side, 600+
+  logical pixels is a tablet), `os`, `os_version` (from `Platform.operatingSystemVersion`, shortened
+  to e.g. "14" / "17.4"), `locale` (BCP 47), and `app_version`, `device_model`, `device_brand` from the
+  new `PulseConfig.appVersion`, `deviceModel`, `deviceBrand` (plus `osVersion` to override the
+  detected version). On iOS the brand defaults to Apple and the model to iPhone/iPad. Unknown values
+  are left out; every value is cut to 100 characters. The server keeps the latest as profile attributes.
+- Sessions: a session starts with the first event and again after 30 minutes without events or in the
+  background. Each starts with a `session_start` event `{session_id, ...device props}`; `screen_view`
+  carries `session_id`. The session survives app restarts within 30 minutes; `reset` ends it.
+  `Pulse.instance.sessionId` and `deviceProperties` expose the current values.
+- `Pulse.init` takes an optional `clock` (for tests). The lifecycle observer is now always registered
+  (it measures time in the background), so `init` always calls `WidgetsFlutterBinding.ensureInitialized`.
+- Custom `track` events are unchanged (no device props).
+
 ## 0.2.0
 
 - App inbox: `Pulse.instance.inbox` with `list({before})`, `markRead([ids])`, `delete([ids])`,

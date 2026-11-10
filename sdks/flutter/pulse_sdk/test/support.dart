@@ -35,10 +35,15 @@ class FakeServer {
 
   List<Map<String, dynamic>> get eventRequests => bodies('/v1/web/events');
 
-  List<Map<String, dynamic>> get events => [
+  /// Every event sent, session_start included.
+  List<Map<String, dynamic>> get allEvents => [
         for (final body in eventRequests)
           for (final e in body['events'] as List) (e as Map).cast<String, dynamic>()
       ];
+
+  /// The events sent, without the SDK's own session_start events.
+  List<Map<String, dynamic>> get events =>
+      allEvents.where((e) => e['name'] != 'session_start').toList();
 }
 
 PulseConfig config({int maxBatch = 50, bool inApp = false, void Function(String)? onInAppAction}) =>

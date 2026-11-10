@@ -1,23 +1,32 @@
 // Editing model for segment rules. The builder edits a tree of groups and conditions in a
-// form-friendly shape; toRule/fromRule convert to and from the API's rule JSON.
+// form-friendly shape; toRule/fromRule convert to and from the API's rule JSON, and treeReducer
+// applies edits by path (so nested groups stay pure data).
 import type { PropFilter, Rule } from "./api";
 
-/** A property filter on an event condition, edited like an attribute condition. */
-export type Where = { prop: string; op: AttrOp; value: string };
+/** A property filter on an event condition, edited like an attribute condition. values holds the
+ * list for "is one of" / "is not one of"; value2 the upper bound of "is between". */
+export type Where = { prop: string; op: AttrOp; value: string; value2?: string; values?: string[] };
 
+export type AttrCond = { kind: "attr"; attr: string; op: AttrOp; value: string; value2?: string; values?: string[] };
+export type EventCond = { kind: "event"; event: string; op: EventOp; count: number; days: number; where: Where[] };
 export type Cond =
-  | { kind: "attr"; attr: string; op: AttrOp; value: string }
-  | { kind: "event"; event: string; op: EventOp; count: number; days: number; where: Where[] }
+  | AttrCond
+  | EventCond
   | { kind: "segment"; segment: number; op: "in" | "not_in" }
   | { kind: "tag"; tag: string; op: "has" | "not_has" };
 export type Group = { kind: "group"; match: "all" | "any"; children: Node[] };
 export type Node = Cond | Group;
 
-export type AttrOp = "eq" | "ne" | "contains" | "in" | "gt" | "gte" | "lt" | "lte" | "exists" | DateOp;
-/** Date comparisons: before/after a calendar date, or relative to today in whole days. */
-export type DateOp = "before" | "after" | "within_days" | "older_than_days";
+/** Comparison ops. "empty" / "not_empty" are the builder's words for eq "" / ne "" (a missing
+ * attribute reads as empty). */
+export type AttrOp =
+  | "eq" | "ne" | "contains" | "not_contains" | "starts_with" | "ends_with" | "in" | "not_in"
+  | "gt" | "gte" | "lt" | "lte" | "between" | "exists" | "not_exists" | "empty" | "not_empty" | DateOp;
+/** Date comparisons: on/before/after a calendar date, or relative to today in whole days. */
+export type DateOp = "on" | "before" | "after" | "within_days" | "older_than_days";
 export type EventOp = "gte" | "gt" | "eq" | "lt" | "lte" | "none";
 
+/** The comparisons offered by the report, funnel and cohort editors (they share Where). */
 export const ATTR_OPS: { op: AttrOp; label: string }[] = [
   { op: "eq", label: "is" },
   { op: "ne", label: "is not" },
@@ -29,6 +38,49 @@ export const ATTR_OPS: { op: AttrOp; label: string }[] = [
   { op: "lte", label: "is at most" },
   { op: "exists", label: "is set" },
 ];
+
+/** Every comparison's words, for menus and sentences. */
+export const OP_LABELS: Record<AttrOp, string> = {
+  eq: "is", ne: "is not", contains: "contains", not_contains: "doesn't contain", starts_with: "starts with", ends_with: "ends with",
+  in: "is one of", not_in: "is not one of", gt: "is greater than", gte: "is at least", lt: "is less than", lte: "is at most",
+  between: "is between", exists: "is set", not_exists: "is not set", empty: "is empty", not_empty: "is not empty",
+  on: "is on", before: "is before", after: "is after", within_days: "is in the last", older_than_days: "is more than",
+};
+
+/** The kind of value a field holds; it decides the operators and the value input. */
+export type FieldType = "text" | "number" | "boolean" | "date";
+
+/** Operators the segment builder offers for each field type, in menu order. */
+export const OPS_BY_TYPE: Record<FieldType, AttrOp[]> = {
+  text: ["eq", "ne", "contains", "not_contains", "starts_with", "ends_with", "in", "not_in", "empty", "not_empty"],
+  number: ["eq", "ne", "gt", "gte", "lt", "lte", "between", "empty", "not_empty"],
+  boolean: ["eq", "ne", "exists", "not_exists"],
+  date: ["within_days", "older_than_days", "on", "before", "after", "empty", "not_empty"],
+};
+/** Event properties can't compare with today: their event's own window covers recency. */
+export const PROP_OPS_BY_TYPE: Record<FieldType, AttrOp[]> = {
+  ...OPS_BY_TYPE,
+  text: [...OPS_BY_TYPE.text, "exists", "not_exists"],
+  date: ["on", "before", "after", "exists", "not_exists"],
+};
+
+/** opsFor lists the operators for a field type, keeping a saved rule's op visible if it isn't offered. */
+export function opsFor(type: FieldType, current?: AttrOp, prop = false): AttrOp[] {
+  const ops = (prop ? PROP_OPS_BY_TYPE : OPS_BY_TYPE)[type];
+  return current && !ops.includes(current) ? [...ops, current] : ops;
+}
+
+/** valueShape says which value input an op needs. */
+export function valueShape(op: AttrOp): "none" | "one" | "list" | "range" | "date" | "days" {
+  switch (op) {
+    case "exists": case "not_exists": case "empty": case "not_empty": return "none";
+    case "in": case "not_in": return "list";
+    case "between": return "range";
+    case "on": case "before": case "after": return "date";
+    case "within_days": case "older_than_days": return "days";
+  }
+  return "one";
+}
 
 export const EVENT_OPS: { op: EventOp; label: string }[] = [
   { op: "gte", label: "at least" },
@@ -48,73 +100,166 @@ export const DATE_OPS: { op: DateOp; label: string; suffix?: string }[] = [
   { op: "within_days", label: "is in the last", suffix: "days" },
   { op: "older_than_days", label: "is more than", suffix: "days ago" },
 ];
-export const isDateOp = (op: string): op is DateOp => DATE_OPS.some((o) => o.op === op);
+export const isDateOp = (op: string): op is DateOp => op === "on" || DATE_OPS.some((o) => o.op === op);
 /** Relative date ops compare with today; event properties can't use them. */
 export const RELATIVE_DATE_OPS: AttrOp[] = ["within_days", "older_than_days"];
 /** The longest relative window, in days (the backend allows 1-3650). */
 export const MAX_DATE_DAYS = 3650;
+/** The backend's limits: rules nest at most 8 levels (the top group is level 1) and hold at most 200 nodes. */
+export const MAX_RULE_DEPTH = 8;
+export const MAX_RULE_NODES = 200;
 
-/** Attributes every profile has, filled by Pulse itself. */
-export const BUILTIN_ATTRS: { key: string; label: string; date?: boolean; hint: string }[] = [
-  { key: "first_seen", label: "first seen", date: true, hint: "When Pulse first saw this contact do anything" },
-  { key: "last_seen", label: "last active", date: true, hint: "The day of this contact's latest event" },
-  { key: "geo_country", label: "country", hint: "From the visitor's IP, e.g. India" },
-  { key: "geo_country_code", label: "country code", hint: "From the visitor's IP, e.g. IN" },
-  { key: "geo_region", label: "state or region", hint: "From the visitor's IP, e.g. Maharashtra" },
-  { key: "geo_city", label: "city (from IP)", hint: "From the visitor's IP, e.g. Pune" },
-  { key: "geo_postal", label: "postal code", hint: "From the visitor's IP" },
-  { key: "geo_timezone", label: "time zone", hint: "From the visitor's IP, e.g. Asia/Kolkata" },
-  { key: "stage", label: "lifecycle stage", hint: "The contact's stage, e.g. MQL" },
-  { key: "stage_changed_at", label: "stage changed", date: true, hint: "When the contact last moved to another stage" },
-  { key: "company_name", label: "company name", hint: "The linked company's name" },
-  { key: "company_id", label: "company", hint: "The linked company" },
+/** Fields Pulse knows by name: its own attributes and the standard contact fields. group is the
+ * picker group; pick marks fields chosen from the workspace's own stages, companies or users. */
+export type FieldInfo = { key: string; label: string; type: FieldType; group: string; hint: string; pick?: "stage" | "company" | "owner" };
+export const FIELDS: FieldInfo[] = [
+  // Contact (standard fields your data fills)
+  { key: "email", label: "Email", type: "text", group: "contact", hint: "Their email address" },
+  { key: "email_domain", label: "Email domain", type: "text", group: "contact", hint: "The part after @, e.g. gmail.com (kept by Pulse)" },
+  { key: "first_name", label: "First name", type: "text", group: "contact", hint: "Standard field" },
+  { key: "last_name", label: "Last name", type: "text", group: "contact", hint: "Standard field" },
+  { key: "phone", label: "Mobile", type: "text", group: "contact", hint: "Phone number in E.164, e.g. +919812345678" },
+  { key: "address1", label: "Address line 1", type: "text", group: "contact", hint: "Standard field" },
+  { key: "locale", label: "Preferred locale", type: "text", group: "contact", hint: "e.g. en-IN, from the SDKs or your data" },
+  { key: "owner_id", label: "Owner", type: "text", group: "contact", hint: "The teammate who owns the contact", pick: "owner" },
+  { key: "date_added", label: "Date added", type: "date", group: "contact", hint: "When Pulse created the contact" },
+  { key: "date_identified", label: "Date identified", type: "date", group: "contact", hint: "When they first had a known ID or an email" },
+  { key: "last_seen", label: "Date last active", type: "date", group: "contact", hint: "The day of their latest event" },
+  { key: "first_seen", label: "First seen", type: "date", group: "contact", hint: "When Pulse first saw them do anything" },
+  { key: "date_modified", label: "Modified date", type: "date", group: "contact", hint: "The day their profile last changed" },
+  { key: "attribution", label: "Attribution", type: "number", group: "contact", hint: "Revenue attributed to the contact, if your data sets it" },
+  { key: "attribution_date", label: "Attribution date", type: "date", group: "contact", hint: "When attribution was last set, if your data sets it" },
+  { key: "last_utm_source", label: "UTM source", type: "text", group: "contact", hint: "Latest campaign they arrived from (web SDK)" },
+  { key: "last_utm_medium", label: "UTM medium", type: "text", group: "contact", hint: "Latest campaign they arrived from (web SDK)" },
+  { key: "last_utm_campaign", label: "UTM campaign", type: "text", group: "contact", hint: "Latest campaign they arrived from (web SDK)" },
+  { key: "last_utm_content", label: "UTM content", type: "text", group: "contact", hint: "Latest campaign they arrived from (web SDK)" },
+  { key: "last_utm_term", label: "UTM term", type: "text", group: "contact", hint: "Latest campaign they arrived from (web SDK)" },
+  { key: "first_utm_source", label: "First UTM source", type: "text", group: "contact", hint: "The campaign that first brought them" },
+  { key: "first_utm_campaign", label: "First UTM campaign", type: "text", group: "contact", hint: "The campaign that first brought them" },
+  // Company
+  { key: "company_id", label: "Company", type: "text", group: "company", hint: "The linked company", pick: "company" },
+  { key: "company_name", label: "Company name", type: "text", group: "company", hint: "The linked company's name" },
+  // Location
+  { key: "city", label: "City", type: "text", group: "location", hint: "From your data" },
+  { key: "state", label: "State", type: "text", group: "location", hint: "From your data" },
+  { key: "country", label: "Country", type: "text", group: "location", hint: "From your data" },
+  { key: "zip", label: "Zip code", type: "text", group: "location", hint: "From your data" },
+  { key: "geo_city", label: "City (from IP)", type: "text", group: "location", hint: "Located by the visitor's IP, e.g. Pune" },
+  { key: "geo_region", label: "State or region (from IP)", type: "text", group: "location", hint: "e.g. Maharashtra" },
+  { key: "geo_country", label: "Country (from IP)", type: "text", group: "location", hint: "e.g. India" },
+  { key: "geo_country_code", label: "Country code (from IP)", type: "text", group: "location", hint: "e.g. IN" },
+  { key: "geo_postal", label: "Postal code (from IP)", type: "text", group: "location", hint: "Located by the visitor's IP" },
+  { key: "geo_timezone", label: "Time zone (from IP)", type: "text", group: "location", hint: "e.g. Asia/Kolkata" },
+  // Device (last seen, from the SDKs)
+  { key: "device_type", label: "Device type", type: "text", group: "device", hint: "desktop, mobile or tablet" },
+  { key: "device_os", label: "Device OS", type: "text", group: "device", hint: "e.g. Android, iOS, Windows" },
+  { key: "device_os_version", label: "OS version", type: "text", group: "device", hint: "e.g. 14, 17.4" },
+  { key: "device_brand", label: "Device brand", type: "text", group: "device", hint: "e.g. Samsung, Apple" },
+  { key: "device_model", label: "Device model", type: "text", group: "device", hint: "e.g. SM-S918B, iPhone" },
+  { key: "browser", label: "Browser", type: "text", group: "device", hint: "e.g. Chrome, Safari" },
+  { key: "app_version", label: "App version", type: "text", group: "device", hint: "From the mobile SDK" },
+  // Consent and deliverability
+  { key: "optout_email", label: "Unsubscribed from email", type: "boolean", group: "consent", hint: "Opted out of email" },
+  { key: "optout_sms", label: "Unsubscribed from SMS", type: "boolean", group: "consent", hint: "Opted out of SMS" },
+  { key: "optout_whatsapp", label: "Unsubscribed from WhatsApp", type: "boolean", group: "consent", hint: "Opted out of WhatsApp" },
+  { key: "optout_rcs", label: "Unsubscribed from RCS", type: "boolean", group: "consent", hint: "Opted out of RCS" },
+  { key: "optout_push", label: "Unsubscribed from push", type: "boolean", group: "consent", hint: "Opted out of push" },
+  { key: "optout_all", label: "Unsubscribed from everything", type: "boolean", group: "consent", hint: "Opted out of every channel" },
+  { key: "email_bounced", label: "Bounced: email", type: "boolean", group: "consent", hint: "Their address hard-bounced; email is suppressed" },
+  { key: "sms_bounced", label: "Bounced: SMS", type: "boolean", group: "consent", hint: "Their number failed permanently; SMS is suppressed" },
+  // Points and stage
+  { key: "points", label: "Points", type: "number", group: "points", hint: "Their score" },
+  { key: "stage", label: "Stage", type: "text", group: "points", hint: "Lifecycle stage, e.g. MQL", pick: "stage" },
+  { key: "stage_changed_at", label: "Stage changed", type: "date", group: "points", hint: "When they last moved to another stage" },
 ];
-const ATTR_WORDS: Record<string, string> = Object.fromEntries(BUILTIN_ATTRS.map((a) => [a.key, a.label]));
+const FIELD_BY_KEY: Record<string, FieldInfo> = Object.fromEntries(FIELDS.map((f) => [f.key, f]));
+export const fieldInfo = (key: string): FieldInfo | undefined => FIELD_BY_KEY[key.trim()];
 
-/** isDateAttr reports whether an attribute holds dates: a defined date attribute, or first_seen/last_seen. */
-export function isDateAttr(key: string, defs: { key: string; type: string }[] = []): boolean {
+/** Attributes every profile has or Pulse fills itself (kept for the report builder's suggestions). */
+export const BUILTIN_ATTRS: { key: string; label: string; date?: boolean; hint: string }[] = FIELDS.map((f) => ({
+  key: f.key, label: f.label.toLowerCase(), date: f.type === "date" || undefined, hint: f.hint,
+}));
+
+/** Lower-case words for describe(), e.g. "last active". */
+const ATTR_WORDS: Record<string, string> = {
+  ...Object.fromEntries(FIELDS.map((f) => [f.key, f.label.toLowerCase()])),
+  first_seen: "first seen", last_seen: "last active", geo_country: "country", geo_country_code: "country code", geo_region: "state or region",
+  geo_city: "city (from IP)", geo_postal: "postal code", geo_timezone: "time zone", stage: "lifecycle stage", company_id: "company",
+  phone: "mobile", email_bounced: "email bounced", sms_bounced: "SMS bounced",
+};
+
+export type AttrDefLike = { key: string; type: string };
+
+/** fieldType is a field's value type: Pulse's own fields, else the attribute definition, else text. */
+export function fieldType(key: string, defs: AttrDefLike[] = []): FieldType {
   const k = key.trim();
-  return BUILTIN_ATTRS.some((a) => a.date && a.key === k) || defs.some((d) => d.key === k && d.type === "date");
+  const f = FIELD_BY_KEY[k];
+  if (f) return f.type;
+  const d = defs.find((x) => x.key === k)?.type;
+  if (d === "number" || d === "boolean" || d === "date") return d;
+  if (k.startsWith("optout_")) return "boolean";
+  return "text";
 }
 
-export const newAttr = (): Cond => ({ kind: "attr", attr: "", op: "eq", value: "" });
+/** isDateAttr reports whether an attribute holds dates: a defined date attribute, or one of Pulse's date fields. */
+export function isDateAttr(key: string, defs: AttrDefLike[] = []): boolean {
+  return fieldType(key, defs) === "date";
+}
+
+export const newAttr = (attr = "", op: AttrOp = "eq", value = ""): AttrCond => ({ kind: "attr", attr, op, value });
 export const newEvent = (): Cond => ({ kind: "event", event: "", op: "gte", count: 1, days: 30, where: [] });
 export const newSegmentRef = (): Cond => ({ kind: "segment", segment: 0, op: "in" });
 export const newTag = (): Cond => ({ kind: "tag", tag: "", op: "has" });
 export const newWhere = (): Where => ({ prop: "", op: "eq", value: "" });
+/** A new group starts empty: the builder opens its filter picker right away. */
+export const newGroup = (match: "all" | "any" = "all", children: Node[] = []): Group => ({ kind: "group", match, children });
 
 const TAG_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
 
+const splitList = (value: string) => value.split(",").map((s) => s.trim()).filter(Boolean);
+const listOf = (c: { value: string; values?: string[] }) => (c.values ? c.values.map((s) => s.trim()).filter(Boolean) : splitList(c.value));
+
 // compare converts an attribute-style comparison to the API's op/value pair.
-function compare(op: AttrOp, value: string): { op: string; value?: unknown } {
+function compare(c: { op: AttrOp; value: string; value2?: string; values?: string[] }): { op: string; value?: unknown } {
+  const { op, value } = c;
   switch (op) {
-    case "exists": return { op };
-    case "in": return { op, value: value.split(",").map((s) => s.trim()).filter(Boolean) };
+    case "exists": case "not_exists": return { op };
+    case "empty": return { op: "eq", value: "" };
+    case "not_empty": return { op: "ne", value: "" };
+    case "in": case "not_in": return { op, value: listOf(c) };
+    case "between": return { op, value: [Number(value), Number(c.value2 ?? "")] };
     case "gt": case "gte": case "lt": case "lte": return { op, value: Number(value) };
     case "within_days": case "older_than_days": return { op, value: Number(value) };
-    case "before": case "after": return { op, value: value.trim() };
-    default: return { op, value };
+    case "on": case "before": case "after": return { op, value: value.trim() };
+    default: return { op, value: value === "true" ? true : value === "false" ? false : value };
   }
 }
 
 function compareText(v: unknown) {
   return Array.isArray(v) ? v.join(", ") : v === undefined ? "" : String(v);
 }
-export const newGroup = (match: "all" | "any" = "all"): Group => ({ kind: "group", match, children: [newAttr()] });
+
+// fromCompare is compare's inverse for the editing model.
+function fromCompare(op: string, value: unknown): { op: AttrOp; value: string; value2?: string; values?: string[] } {
+  if ((op === "eq" || op === "ne") && value === "") return { op: op === "eq" ? "empty" : "not_empty", value: "" };
+  if ((op === "in" || op === "not_in") && Array.isArray(value)) return { op, value: compareText(value), values: value.map(String) };
+  if (op === "between" && Array.isArray(value)) return { op, value: String(value[0] ?? ""), value2: String(value[1] ?? "") };
+  return { op: op as AttrOp, value: compareText(value) };
+}
 
 export function toRule(n: Node): Rule {
   if (n.kind === "group") return n.match === "all" ? { all: n.children.map(toRule) } : { any: n.children.map(toRule) };
   if (n.kind === "segment") return { segment: n.segment, op: n.op };
   if (n.kind === "tag") return { tag: n.tag.trim(), op: n.op };
   if (n.kind === "event") {
-    const where: PropFilter[] = n.where.map((w) => ({ prop: w.prop.trim(), ...compare(w.op, w.value) }));
+    const where: PropFilter[] = n.where.map((w) => ({ prop: w.prop.trim(), ...compare(w) }));
     const base = n.op === "none"
       ? { event: n.event.trim(), op: "eq", count: 0, days: n.days }
       : { event: n.event.trim(), op: n.op, count: n.count, days: n.days };
     return where.length ? { ...base, where } : base;
   }
-  return { attr: n.attr.trim(), ...compare(n.op, n.value) };
+  return { attr: n.attr.trim(), ...compare(n) };
 }
 
 export function fromRule(r: Rule): Node {
@@ -124,10 +269,10 @@ export function fromRule(r: Rule): Node {
   if ("tag" in r) return { kind: "tag", tag: r.tag, op: r.op };
   if ("event" in r) {
     const none = r.op === "eq" && r.count === 0;
-    const where = (r.where ?? []).map((f) => ({ prop: f.prop, op: f.op as AttrOp, value: compareText(f.value) }));
+    const where = (r.where ?? []).map((f) => ({ prop: f.prop, ...fromCompare(f.op, f.value) }));
     return { kind: "event", event: r.event, op: none ? "none" : (r.op as EventOp), count: r.count, days: r.days, where };
   }
-  return { kind: "attr", attr: r.attr, op: r.op as AttrOp, value: compareText(r.value) };
+  return { kind: "attr", attr: r.attr, ...fromCompare(r.op, r.value) };
 }
 
 // The top level is always a group, so the builder has one consistent shape.
@@ -137,11 +282,84 @@ export function rootFromRule(r?: Rule): Group {
   return n.kind === "group" ? n : { kind: "group", match: "all", children: [n] };
 }
 
+// ---- editing the tree by path ----
+
+/** A node's path: child indexes from the top group ([] is the top group itself). */
+export type Path = number[];
+export type TreeAction =
+  | { type: "add"; group: Path; node: Node }
+  | { type: "replace"; path: Path; node: Node }
+  | { type: "remove"; path: Path }
+  | { type: "match"; group: Path; match: "all" | "any" };
+
+function updateGroup(g: Group, path: Path, fn: (g: Group) => Group): Group {
+  if (path.length === 0) return fn(g);
+  const [i, ...rest] = path;
+  const child = g.children[i];
+  if (!child || child.kind !== "group") return g;
+  return { ...g, children: g.children.map((c, j) => (j === i ? updateGroup(child, rest, fn) : c)) };
+}
+
+/** treeReducer applies one edit. Removing a nested group's last filter removes the group too, so no
+ * empty box is left behind; the top group may be empty (the builder then asks for a first filter). */
+export function treeReducer(root: Group, a: TreeAction): Group {
+  switch (a.type) {
+    case "add":
+      return updateGroup(root, a.group, (g) => ({ ...g, children: [...g.children, a.node] }));
+    case "match":
+      return updateGroup(root, a.group, (g) => ({ ...g, match: a.match }));
+    case "replace": {
+      if (a.path.length === 0) return a.node.kind === "group" ? a.node : root;
+      const parent = a.path.slice(0, -1), i = a.path[a.path.length - 1];
+      return updateGroup(root, parent, (g) => ({ ...g, children: g.children.map((c, j) => (j === i ? a.node : c)) }));
+    }
+    case "remove": {
+      if (a.path.length === 0) return { ...root, children: [] };
+      const parent = a.path.slice(0, -1), i = a.path[a.path.length - 1];
+      const next = updateGroup(root, parent, (g) => ({ ...g, children: g.children.filter((_, j) => j !== i) }));
+      const p = nodeAt(next, parent);
+      if (parent.length > 0 && p?.kind === "group" && p.children.length === 0) return treeReducer(next, { type: "remove", path: parent });
+      return next;
+    }
+  }
+}
+
+export function nodeAt(root: Group, path: Path): Node | undefined {
+  let n: Node | undefined = root;
+  for (const i of path) n = n?.kind === "group" ? n.children[i] : undefined;
+  return n;
+}
+
+/** groupDepth is a group's level in the rule: the top group is 1. */
+export const groupDepth = (path: Path) => path.length + 1;
+/** canNest reports whether a group at path may hold another group (whose filters sit one level deeper). */
+export const canNest = (path: Path) => groupDepth(path) + 2 <= MAX_RULE_DEPTH;
+/** MAX_GROUP_LEVELS is how many group levels a rule can have (filters need the last level). */
+export const MAX_GROUP_LEVELS = MAX_RULE_DEPTH - 1;
+
+export function countNodes(n: Node): number {
+  return n.kind === "group" ? 1 + n.children.reduce((s, c) => s + countNodes(c), 0) : 1;
+}
+
+/** depthOf is the depth of a node's deepest level when placed at level 1. */
+export function depthOf(n: Node): number {
+  return n.kind === "group" ? 1 + Math.max(0, ...n.children.map(depthOf)) : 1;
+}
+
+// ---- validation ----
+
 // problems lists what must be fixed before the rule can be saved or previewed.
 export function problems(n: Node): string[] {
+  const out = nodeProblems(n);
+  if (n.kind === "group" && countNodes(n) > MAX_RULE_NODES) out.push(`A segment can hold at most ${MAX_RULE_NODES} filters and groups.`);
+  if (n.kind === "group" && depthOf(n) > MAX_RULE_DEPTH) out.push(`Groups can be nested at most ${MAX_GROUP_LEVELS} levels deep.`);
+  return out;
+}
+
+function nodeProblems(n: Node): string[] {
   if (n.kind === "group") {
-    if (n.children.length === 0) return ["A group needs at least one condition."];
-    return n.children.flatMap(problems);
+    if (n.children.length === 0) return ["A group needs at least one filter."];
+    return n.children.flatMap(nodeProblems);
   }
   if (n.kind === "segment") return n.segment > 0 ? [] : ["Choose a segment or list."];
   if (n.kind === "tag") return TAG_RE.test(n.tag.trim()) ? [] : ["Enter a tag: letters, digits, - and _."];
@@ -153,41 +371,60 @@ export function problems(n: Node): string[] {
     if (n.where.length > 5) out.push("Use at most 5 property filters per event.");
     for (const w of n.where) {
       if (!KEY_RE.test(w.prop.trim())) out.push("Enter a property name, e.g. amount.");
+      const pick = PICK_PROPS[w.prop.trim()] || (n.event.trim() === "unsubscribed" && (w.prop.trim() === "channel" || w.prop.trim() === "method"));
       if (RELATIVE_DATE_OPS.includes(w.op)) out.push(`Use "is before" or "is after" on "${w.prop || "property"}"; the event's own days window covers recency.`);
-      else out.push(...compareProblems(w.prop || "property", w.op, w.value));
-      const pick = PICK_PROPS[w.prop.trim()];
-      if (pick && (w.op === "eq" || w.op === "ne") && !w.value.trim()) out.push(`Choose a ${pick.noun}.`);
+      else out.push(...compareProblems(w.prop || "property", w, !!pick));
+      if (PICK_PROPS[w.prop.trim()] && (w.op === "eq" || w.op === "ne") && !w.value.trim()) out.push(`Choose ${article(pickNoun(w.prop.trim(), n.event.trim()))}.`);
     }
     return out;
   }
   const out: string[] = [];
-  if (!KEY_RE.test(n.attr.trim())) out.push("Enter an attribute name, e.g. city.");
-  else if (n.attr.trim() === "company_") out.push("Finish the company attribute's name, e.g. company_industry.");
-  out.push(...compareProblems(n.attr || "attribute", n.op, n.value));
-  const pick = PICK_ATTRS[n.attr.trim()];
-  if (pick && (n.op === "eq" || n.op === "ne") && !n.value.trim()) out.push(`Choose a ${pick.noun}.`);
+  const key = n.attr.trim();
+  if (!KEY_RE.test(key)) out.push("Enter an attribute name, e.g. city.");
+  else if (key === "company_") out.push("Finish the company attribute's name, e.g. company_industry.");
+  const pick = fieldInfo(key)?.pick;
+  out.push(...compareProblems(fieldInfo(key)?.label ?? (n.attr || "attribute"), n, !!pick));
+  if (pick && (n.op === "eq" || n.op === "ne") && !n.value.trim()) out.push(`Choose ${article(pick === "owner" ? "owner" : pick)}.`);
   return out;
 }
 
-function compareProblems(name: string, op: AttrOp, value: string): string[] {
-  if (op === "before" || op === "after") return validDate(value) ? [] : [`"${name}" needs a date.`];
+const article = (noun: string) => `${/^[aeiou]/i.test(noun) && !/^(one|user)/i.test(noun) ? "an" : "a"} ${noun}`;
+
+// compareProblems checks a comparison's value. picked: the value comes from a picker that reports
+// its own "Choose a …".
+function compareProblems(name: string, c: { op: AttrOp; value: string; value2?: string; values?: string[] }, picked = false): string[] {
+  const { op, value } = c;
+  // A blank "is" would quietly mean "is empty"; that has its own operator.
+  if ((op === "eq" || op === "ne") && !value.trim() && !picked) return [`"${name}" needs a value (or choose "is empty").`];
+  if (op === "on" || op === "before" || op === "after") return validDate(value) ? [] : [`"${name}" needs a date.`];
   if (RELATIVE_DATE_OPS.includes(op)) {
     const n = Number(value);
     return value.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= MAX_DATE_DAYS ? [] : [`"${name}" needs a whole number of days, 1 to ${MAX_DATE_DAYS}.`];
   }
-  if (NUMERIC_OPS.includes(op) && (value.trim() === "" || isNaN(Number(value)))) return [`"${name}" needs a number.`];
-  if (op === "in" && value.split(",").every((s) => !s.trim())) return ["List at least one value, separated by commas."];
-  if (op === "contains" && !value.trim()) return [`"${name}" needs some text to look for.`];
+  const num = (v?: string) => v !== undefined && v.trim() !== "" && !isNaN(Number(v));
+  if (NUMERIC_OPS.includes(op) && !num(value)) return [`"${name}" needs a number.`];
+  if (op === "between") {
+    if (!num(value) || !num(c.value2)) return [`"${name}" needs two numbers.`];
+    if (Number(value) > Number(c.value2)) return [`"${name}": put the smaller number first.`];
+  }
+  if ((op === "in" || op === "not_in") && listOf(c).length === 0) return [`"${name}": list at least one value.`];
+  if ((op === "contains" || op === "not_contains" || op === "starts_with" || op === "ends_with") && !value.trim()) return [`"${name}" needs some text to look for.`];
   return [];
 }
 
-/** Names for objects rules point at by id, so sentences read as words. */
-export type RefNames = { forms?: Record<number, string>; broadcasts?: Record<number, string>; journeys?: Record<number, string>; companies?: Record<number, string> };
+// ---- names for objects rules point at ----
 
-/** Attributes whose value is picked from the workspace's stages (by name) or companies (by id). */
+/** Names for objects rules point at by id, so sentences read as words. */
+export type RefNames = {
+  forms?: Record<number, string>; broadcasts?: Record<number, string>; journeys?: Record<number, string>; companies?: Record<number, string>;
+  templates?: Record<number, string>; assets?: Record<number, string>; pages?: Record<number, string>; users?: Record<number, string>;
+};
+
+/** Attributes whose value is picked from the workspace's stages (by name), companies or users (by id). */
 export const PICK_ATTRS: Record<string, { noun: string }> = {
   stage: { noun: "stage" },
   company_id: { noun: "company" },
+  owner_id: { noun: "owner" },
 };
 
 /** Event properties that hold the id of something with a name; the builder offers a picker for them. */
@@ -195,24 +432,44 @@ export const PICK_PROPS: Record<string, { noun: string; refs: keyof RefNames | n
   form_id: { noun: "form", refs: "forms" },
   broadcast_id: { noun: "campaign", refs: "broadcasts" },
   journey_id: { noun: "journey", refs: "journeys" },
+  template_id: { noun: "template", refs: "templates" },
+  asset_id: { noun: "asset", refs: "assets" },
+  page_id: { noun: "landing page", refs: "pages" },
 };
 
-/** Events Pulse records itself, worded for sentences: did / didn't, the thing, and the property naming it. */
-export const KNOWN_EVENTS: Record<string, { did: string; didnt: string; what: string; label: string; message?: boolean }> = {
+/** pickNoun words a picked property for an event: a template of an email event is "email". */
+export function pickNoun(prop: string, event: string): string {
+  if (prop === "template_id") {
+    const ch = event.split("_")[0];
+    return ({ email: "email", sms: "SMS", whatsapp: "WhatsApp message", rcs: "RCS message", push: "push notification", inbox: "app inbox message" } as Record<string, string>)[ch] ?? "template";
+  }
+  return PICK_PROPS[prop]?.noun ?? prop;
+}
+
+/** Events Pulse records itself, worded for sentences: did / didn't, the thing, and the property naming it.
+ * one is the thing once a specific message is chosen ("the email" → the email “Welcome”). */
+export type KnownEvent = { did: string; didnt: string; what: string; label: string; message?: boolean; one?: string; channel?: string };
+export const KNOWN_EVENTS: Record<string, KnownEvent> = {
   page_view: { did: "visited", didnt: "didn't visit", what: "a page", label: "Visited a page" },
+  session_start: { did: "started", didnt: "didn't start", what: "a browsing session", label: "Started a browsing session" },
+  landing_page_viewed: { did: "visited", didnt: "didn't visit", what: "a landing page", label: "Visited a landing page" },
   form_submitted: { did: "submitted", didnt: "didn't submit", what: "a form", label: "Submitted a form" },
-  email_sent: { did: "was sent", didnt: "wasn't sent", what: "an email", label: "Was sent an email", message: true },
-  email_opened: { did: "opened", didnt: "didn't open", what: "an email", label: "Opened an email", message: true },
-  email_clicked: { did: "clicked", didnt: "didn't click", what: "a link in an email", label: "Clicked a link in an email", message: true },
+  asset_downloaded: { did: "downloaded", didnt: "didn't download", what: "an asset", label: "Downloaded an asset" },
+  email_sent: { did: "was sent", didnt: "wasn't sent", what: "an email", label: "Was sent an email", message: true, one: "the email", channel: "email" },
+  email_opened: { did: "opened", didnt: "didn't open", what: "an email", label: "Opened an email", message: true, one: "the email", channel: "email" },
+  email_clicked: { did: "clicked", didnt: "didn't click", what: "a link in an email", label: "Clicked a link in an email", message: true, one: "a link in the email", channel: "email" },
   email_bounced: { did: "had", didnt: "didn't have", what: "an email bounce", label: "An email bounced", message: true },
-  sms_sent: { did: "was sent", didnt: "wasn't sent", what: "an SMS", label: "Was sent an SMS", message: true },
-  sms_delivered: { did: "received", didnt: "didn't receive", what: "an SMS", label: "Received an SMS", message: true },
-  whatsapp_delivered: { did: "received", didnt: "didn't receive", what: "a WhatsApp message", label: "Received a WhatsApp message", message: true },
-  whatsapp_read: { did: "read", didnt: "didn't read", what: "a WhatsApp message", label: "Read a WhatsApp message", message: true },
-  rcs_read: { did: "read", didnt: "didn't read", what: "an RCS message", label: "Read an RCS message", message: true },
-  push_sent: { did: "was sent", didnt: "wasn't sent", what: "a push notification", label: "Was sent a push", message: true },
-  inbox_opened: { did: "opened", didnt: "didn't open", what: "an app inbox message", label: "Opened an app inbox message", message: true },
-  inbox_clicked: { did: "clicked", didnt: "didn't click", what: "an app inbox message", label: "Clicked an app inbox message", message: true },
+  sms_sent: { did: "was sent", didnt: "wasn't sent", what: "an SMS", label: "Was sent an SMS", message: true, one: "the SMS", channel: "sms" },
+  sms_delivered: { did: "received", didnt: "didn't receive", what: "an SMS", label: "Received an SMS", message: true, one: "the SMS", channel: "sms" },
+  sms_clicked: { did: "clicked", didnt: "didn't click", what: "a link in an SMS", label: "Clicked a link in an SMS", message: true, one: "a link in the SMS", channel: "sms" },
+  sms_failed: { did: "had", didnt: "didn't have", what: "an SMS fail", label: "An SMS failed", message: true },
+  whatsapp_delivered: { did: "received", didnt: "didn't receive", what: "a WhatsApp message", label: "Received a WhatsApp message", message: true, one: "the WhatsApp message", channel: "whatsapp" },
+  whatsapp_read: { did: "read", didnt: "didn't read", what: "a WhatsApp message", label: "Read a WhatsApp message", message: true, one: "the WhatsApp message", channel: "whatsapp" },
+  rcs_read: { did: "read", didnt: "didn't read", what: "an RCS message", label: "Read an RCS message", message: true, one: "the RCS message", channel: "rcs" },
+  rcs_clicked: { did: "clicked", didnt: "didn't click", what: "a link in an RCS message", label: "Clicked a link in an RCS message", message: true, one: "a link in the RCS message", channel: "rcs" },
+  push_sent: { did: "was sent", didnt: "wasn't sent", what: "a push notification", label: "Was sent a push", message: true, one: "the push notification", channel: "push" },
+  inbox_opened: { did: "opened", didnt: "didn't open", what: "an app inbox message", label: "Opened an app inbox message", message: true, one: "the app inbox message", channel: "inbox" },
+  inbox_clicked: { did: "clicked", didnt: "didn't click", what: "an app inbox message", label: "Clicked an app inbox message", message: true, one: "the app inbox message", channel: "inbox" },
   unsubscribed: { did: "unsubscribed", didnt: "didn't unsubscribe", what: "", label: "Unsubscribed" },
   journey_entered: { did: "entered", didnt: "didn't enter", what: "a journey", label: "Entered a journey" },
   journey_completed: { did: "completed", didnt: "didn't complete", what: "a journey", label: "Completed a journey" },
@@ -220,17 +477,27 @@ export const KNOWN_EVENTS: Record<string, { did: string; didnt: string; what: st
   inapp_clicked: { did: "clicked", didnt: "didn't click", what: "an in-app message", label: "Clicked an in-app message" },
 };
 
-/** Properties each known event carries, for suggestions. Message events all carry broadcast_id and journey_id. */
+/** Properties each known event carries, for suggestions. Message events all carry broadcast_id, journey_id and template_id. */
 export function eventProps(event: string): string[] {
   const own: Record<string, string[]> = {
     page_view: ["url", "path", "title"], form_submitted: ["form_id"], unsubscribed: ["channel"],
     journey_entered: ["journey_id"], journey_completed: ["journey_id"], inapp_shown: ["inapp_id"], inapp_clicked: ["inapp_id"],
+    session_start: ["url", "referrer", "utm_source", "utm_campaign", "device_type", "browser"], landing_page_viewed: ["page_id", "utm_source", "utm_campaign"],
+    asset_downloaded: ["asset_id"],
   };
-  return KNOWN_EVENTS[event]?.message ? ["broadcast_id", "journey_id", "template_id"] : own[event] ?? [];
+  const extra: Record<string, string[]> = {
+    page_view: ["referrer", "referrer_domain", "utm_source", "utm_medium", "utm_campaign", "device_type", "session_id"],
+    unsubscribed: ["method", "source"], email_clicked: ["url"], sms_clicked: ["url"], rcs_clicked: ["url"],
+  };
+  if (KNOWN_EVENTS[event]?.message) return ["broadcast_id", "journey_id", "template_id", ...(extra[event] ?? [])];
+  return [...(own[event] ?? []), ...(extra[event] ?? [])];
 }
 
 const CHANNEL_WORDS: Record<string, string> = { email: "email", sms: "SMS", whatsapp: "WhatsApp", rcs: "RCS", push: "push", inbox: "app inbox", all: "everything" };
-const PROP_WORDS: Record<string, string> = { url: "URL", path: "path", title: "title" };
+const PROP_WORDS: Record<string, string> = {
+  url: "URL", path: "path", title: "page title", referrer: "referrer", referrer_domain: "referring site", utm_source: "campaign source",
+  utm_medium: "campaign medium", utm_campaign: "campaign", device_type: "device type", session_id: "session",
+};
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** formatDay turns 2026-11-30 into "30 Nov 2026"; anything else is returned as is. */
@@ -266,8 +533,8 @@ export function describe(r: Rule | null, names: Record<number, string> = {}, ref
   return describeAttr(r, refs);
 }
 
-// describeAttr words attribute rules, with stages and companies in their own words:
-// "in stage “MQL”", "works at “Acme”", "company industry is Retail".
+// describeAttr words attribute rules, with stages, companies and owners in their own words:
+// "in stage “MQL”", "works at “Acme”", "owned by “Ravi”", "company industry is Retail".
 function describeAttr(r: Extract<Rule, { attr: string }>, refs: RefNames): string {
   const v = compareText(r.value);
   if (r.attr === "stage" && (r.op === "eq" || r.op === "ne") && v) return `${r.op === "eq" ? "in" : "not in"} stage “${v}”`;
@@ -276,6 +543,14 @@ function describeAttr(r: Extract<Rule, { attr: string }>, refs: RefNames): strin
     if ((r.op === "eq" || r.op === "ne") && v) {
       const name = refs.companies?.[Number(v)];
       return `${r.op === "eq" ? "works at" : "doesn't work at"} ${name ? `“${name}”` : `company #${v}`}`;
+    }
+  }
+  if (r.attr === "owner_id") {
+    if (r.op === "exists") return "has an owner";
+    if (r.op === "not_exists") return "has no owner";
+    if ((r.op === "eq" || r.op === "ne") && v) {
+      const name = refs.users?.[Number(v)];
+      return `${r.op === "eq" ? "owned by" : "not owned by"} ${name ? `“${name}”` : `user #${v}`}`;
     }
   }
   const words = ATTR_WORDS[r.attr] ?? (r.attr.startsWith("company_") ? `company ${r.attr.slice(8).replace(/_/g, " ")}` : r.attr);
@@ -294,15 +569,21 @@ function describeKnownEvent(r: Extract<Rule, { event: string }>, refs: RefNames)
     if (pick && (f.op === "eq" || f.op === "ne") && f.value !== undefined && f.value !== "") {
       const id = Number(f.value);
       const name = pick.refs ? refs[pick.refs]?.[id] : undefined;
-      const obj = name ? `${pick.noun} “${name}”` : `${pick.noun} #${compareText(f.value)}`;
+      const noun = pickNoun(f.prop, r.event);
+      const label = name ? `“${name}”` : `#${compareText(f.value)}`;
       const not = f.op === "ne" ? "not " : "";
+      if (f.prop === "template_id" && w.one && !not) what = `${w.one} ${label}`;
       // "a form" + form_id -> "the form “Contact us”"; message events say where the message came from.
-      if (what === `a ${pick.noun}` && !not) what = `the ${obj}`;
-      else parts.push(`${not}from ${obj}`);
+      else if (what.replace(/^an? /, "") === noun && !not) what = `the ${noun} ${label}`;
+      else parts.push(`${not}from ${noun} ${label}`);
       continue;
     }
     if (f.prop === "channel" && f.op === "eq" && r.event === "unsubscribed") {
       parts.push(`from ${CHANNEL_WORDS[String(f.value)] ?? String(f.value)}`);
+      continue;
+    }
+    if (f.prop === "method" && f.op === "eq" && r.event === "unsubscribed") {
+      parts.push(f.value === "manual" ? "manually (by your team or API)" : "by themselves");
       continue;
     }
     rest.push(describeCompare(PROP_WORDS[f.prop] ?? f.prop, f.op, f.value));
@@ -319,88 +600,20 @@ function describeKnownEvent(r: Extract<Rule, { event: string }>, refs: RefNames)
 
 function describeCompare(name: string, op: string, value: unknown) {
   if (op === "exists") return `${name} is set`;
-  if (op === "before" || op === "after") return `${name} is ${op} ${formatDay(compareText(value))}`;
+  if (op === "not_exists") return `${name} is not set`;
+  if ((op === "eq" || op === "ne") && value === "") return `${name} ${op === "eq" ? "is empty" : "is not empty"}`;
+  if ((op === "eq" || op === "ne") && typeof value === "boolean") return `${name} ${op === "eq" ? "is" : "is not"} ${value ? "yes" : "no"}`;
+  if (op === "on" || op === "before" || op === "after") return `${name} is ${op} ${formatDay(compareText(value))}`;
   if (op === "within_days") return `${name} is in the last ${Number(value) === 1 ? "day" : days(Number(value))}`;
   if (op === "older_than_days") return `${name} is more than ${days(Number(value))} ago`;
-  const label = ATTR_OPS.find((o) => o.op === op)?.label ?? op;
+  if (op === "between" && Array.isArray(value)) return `${name} is between ${value[0]} and ${value[1]}`;
+  const label = OP_LABELS[op as AttrOp] ?? op;
   return `${name} ${label} ${compareText(value)}`;
 }
 
 function describeNested(r: Rule, names: Record<number, string>, refs: RefNames) {
   return "all" in r || "any" in r ? `(${describe(r, names, refs)})` : describe(r, names, refs);
 }
-
-// ---- presets: ready-made conditions the "Add condition" menu inserts ----
-
-export type Preset = { id: string; label: string; hint: string; make: () => Node };
-const ev = (event: string, days: number, where: Where[] = [], op: EventOp = "gte"): Cond => ({ kind: "event", event, op, count: 1, days, where });
-const pickWhere = (prop: string): Where[] => [{ prop, op: "eq", value: "" }];
-
-/** PRESETS groups the conditions a marketer usually wants, in their words. Each inserts a rule to tweak. */
-export const PRESETS: { group: string; items: Preset[] }[] = [
-  {
-    group: "Profile",
-    items: [
-      { id: "attr", label: "Profile attribute", hint: "Any field on the contact, e.g. plan is pro", make: newAttr },
-      { id: "first_seen", label: "First seen", hint: "New contacts, e.g. first seen in the last 7 days", make: () => ({ kind: "attr", attr: "first_seen", op: "within_days", value: "7" }) },
-      { id: "last_active", label: "Last active", hint: "Recently active, e.g. in the last 30 days", make: () => ({ kind: "attr", attr: "last_seen", op: "within_days", value: "30" }) },
-      { id: "inactive", label: "Inactive for a while", hint: "Last active more than 30 days ago", make: () => ({ kind: "attr", attr: "last_seen", op: "older_than_days", value: "30" }) },
-    ],
-  },
-  {
-    group: "Location",
-    items: [
-      { id: "country", label: "Country", hint: "From the visitor's IP address", make: () => ({ kind: "attr", attr: "geo_country", op: "eq", value: "" }) },
-      { id: "region", label: "State or region", hint: "From the visitor's IP address", make: () => ({ kind: "attr", attr: "geo_region", op: "eq", value: "" }) },
-      { id: "city", label: "City", hint: "From the visitor's IP address", make: () => ({ kind: "attr", attr: "geo_city", op: "eq", value: "" }) },
-    ],
-  },
-  {
-    group: "Behaviour",
-    items: [
-      { id: "did", label: "Did an event", hint: "Counted over the last N days", make: newEvent },
-      { id: "didnt", label: "Didn't do an event", hint: "Never did it in the last N days", make: () => ev("", 30, [], "none") },
-      { id: "page", label: "Visited a page", hint: "A page whose URL contains some text", make: () => ev("page_view", 30, [{ prop: "url", op: "contains", value: "" }]) },
-      { id: "form", label: "Submitted a form", hint: "One of your forms", make: () => ev("form_submitted", 90, pickWhere("form_id")) },
-    ],
-  },
-  {
-    group: "Messages",
-    items: [
-      { id: "email_opened", label: "Opened an email from a campaign", hint: "A broadcast you sent", make: () => ev("email_opened", 30, pickWhere("broadcast_id")) },
-      { id: "email_clicked", label: "Clicked an email from a campaign", hint: "Clicked any link in it", make: () => ev("email_clicked", 30, pickWhere("broadcast_id")) },
-      { id: "email_opened_journey", label: "Opened an email from a journey", hint: "Any email the journey sent", make: () => ev("email_opened", 30, pickWhere("journey_id")) },
-      { id: "email_not_opened", label: "Didn't open an email from a campaign", hint: "Good for resending", make: () => ev("email_opened", 30, pickWhere("broadcast_id"), "none") },
-      { id: "whatsapp_read", label: "Read a WhatsApp message", hint: "From a campaign or a journey", make: () => ev("whatsapp_read", 30, pickWhere("broadcast_id")) },
-      { id: "sms_delivered", label: "Received an SMS", hint: "Delivered, from a campaign or a journey", make: () => ev("sms_delivered", 30, pickWhere("broadcast_id")) },
-      { id: "unsubscribed", label: "Unsubscribed from a channel", hint: "Email, SMS, WhatsApp and more", make: () => ev("unsubscribed", 365, [{ prop: "channel", op: "eq", value: "email" }]) },
-      { id: "bounced", label: "An email bounced", hint: "Their address may be bad", make: () => ev("email_bounced", 90) },
-    ],
-  },
-  {
-    group: "Journeys",
-    items: [
-      { id: "journey_entered", label: "Entered a journey", hint: "Started it in the last N days", make: () => ev("journey_entered", 90, pickWhere("journey_id")) },
-      { id: "journey_completed", label: "Completed a journey", hint: "Reached its end", make: () => ev("journey_completed", 90, pickWhere("journey_id")) },
-    ],
-  },
-  {
-    group: "Lifecycle and accounts",
-    items: [
-      { id: "stage", label: "In stage", hint: "A lifecycle stage, e.g. MQL", make: () => ({ kind: "attr", attr: "stage", op: "eq", value: "" }) },
-      { id: "stage_recent", label: "Changed stage recently", hint: "Moved to their stage in the last 7 days", make: () => ({ kind: "attr", attr: "stage_changed_at", op: "within_days", value: "7" }) },
-      { id: "company", label: "Works at company", hint: "Linked to one of your companies", make: () => ({ kind: "attr", attr: "company_id", op: "eq", value: "" }) },
-      { id: "company_attr", label: "Company attribute", hint: "A field of their company, e.g. industry is Retail", make: () => ({ kind: "attr", attr: "company_", op: "eq", value: "" }) },
-    ],
-  },
-  {
-    group: "Tags and lists",
-    items: [
-      { id: "tag", label: "Has a tag", hint: "Or doesn't have it", make: newTag },
-      { id: "segment", label: "In a segment or list", hint: "Or not in it", make: newSegmentRef },
-    ],
-  },
-];
 
 /** segmentRefs lists the segments and lists a rule references. */
 export function segmentRefs(r: Rule | null): number[] {

@@ -5,6 +5,15 @@ import 'package:pulse_sdk/pulse_sdk.dart';
 
 import 'support.dart';
 
+/// An event's props without the device and session props the SDK adds.
+Map<String, dynamic> appProps(Map<String, dynamic> e) => {
+      ...?(e['props'] as Map?)?.cast<String, dynamic>(),
+    }..removeWhere((k, _) => deviceKeys.contains(k) || k == 'session_id');
+
+const deviceKeys = {
+  'platform', 'device_type', 'os', 'os_version', 'device_brand', 'device_model', 'app_version', 'locale',
+};
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late FakeServer server;
@@ -70,7 +79,8 @@ void main() {
       await p.flush();
       final e = server.events.single;
       expect(e['name'], 'screen_view');
-      expect(e['props'], {'step': 2, 'screen': 'Checkout'});
+      expect(appProps(e), {'step': 2, 'screen': 'Checkout'});
+      expect((e['props'] as Map)['session_id'], p.sessionId);
     });
 
     test('validates event names', () async {
@@ -81,7 +91,7 @@ void main() {
       for (final good in ['a', 'order.completed', 'cart:add', 'x-y_z', 'A${'b' * 63}']) {
         await p.track(good);
       }
-      expect(p.pendingEvents, 5);
+      expect(p.pendingEvents, 6); // and session_start
       expect(() => p.screen(''), throwsArgumentError);
     });
   });
@@ -98,7 +108,7 @@ void main() {
       final e = server.events.single;
       expect(e['name'], 'identify');
       expect(e['external_id'], 'user-42');
-      expect(e['props'], {'anonymous_id': anon});
+      expect(appProps(e), {'anonymous_id': anon});
       expect(e['attrs'], {'plan': 'pro'});
       expect(e['email'], 'a@example.com');
 
@@ -119,7 +129,7 @@ void main() {
       await p.identify('u1');
       await p.identify('u2');
       await p.flush();
-      expect(server.events.last['props'], isNull);
+      expect(appProps(server.events.last), isEmpty);
     });
 
     test('identity persists across restarts', () async {
@@ -176,13 +186,13 @@ void main() {
         await p.track('e$i');
       }
       await p.flush();
-      expect(p.pendingEvents, 120);
+      expect(p.pendingEvents, 121); // and session_start
 
       server
         ..fail = false
         ..requests.clear();
       await p.flush();
-      expect(server.eventRequests.map((b) => (b['events'] as List).length), [50, 50, 20]);
+      expect(server.eventRequests.map((b) => (b['events'] as List).length), [50, 50, 21]);
       expect(server.events.map((e) => e['name']), [for (var i = 0; i < 120; i++) 'e$i']);
       expect(p.pendingEvents, 0);
     });
@@ -218,7 +228,7 @@ void main() {
       final p = await start();
       await p.track('a');
       await p.flush();
-      expect(p.pendingEvents, 1);
+      expect(p.pendingEvents, 2); // a and session_start
 
       server.status = 202;
       await p.flush();
@@ -231,7 +241,7 @@ void main() {
       final p = await start();
       await p.track('a');
       await p.flush();
-      expect(p.pendingEvents, 1);
+      expect(p.pendingEvents, 2); // a and session_start
     });
 
     test('keeps events on network errors', () async {
@@ -239,7 +249,7 @@ void main() {
       final p = await start();
       await p.track('a');
       await p.flush();
-      expect(p.pendingEvents, 1);
+      expect(p.pendingEvents, 2); // a and session_start
     });
 
     test('drops the batch on 400', () async {
@@ -270,7 +280,7 @@ void main() {
       p.dispose();
 
       final again = await start();
-      expect(again.pendingEvents, 2);
+      expect(again.pendingEvents, 3); // and session_start
       server.fail = false;
       await again.flush();
       expect(server.events.map((e) => e['name']), ['a', 'screen_view']);

@@ -131,6 +131,8 @@ export interface EventRow { id: string; name: string; ts: string; props: string 
 
 export interface ChannelContent {
   text?: string; sender_id?: string;
+  /** sms, rcs: replace links with short tracked links (…/t/s/…), recorded as sms_clicked / rcs_clicked. */
+  track_links?: boolean;
   template_name?: string; language?: string; body_params?: string[]; header_image_url?: string; preview_text?: string;
   suggestions?: { type: "reply" | "url" | "dial"; text: string; value?: string }[];
   card?: { title: string; description?: string; image_url?: string } | null;

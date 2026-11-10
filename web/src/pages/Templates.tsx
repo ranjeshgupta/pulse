@@ -203,6 +203,7 @@ export function TemplateEdit() {
             <>
               <Field label="Message" hint={<SmsCount text={c.text ?? ""} />}><textarea className="textarea" value={c.text ?? ""} onChange={(e) => setC({ text: e.target.value })} /></Field>
               <Field label="Sender ID" hint="Your registered header (e.g. PULSEX for India DLT). Leave empty to use the provider's default."><input className="input" value={c.sender_id ?? ""} onChange={(e) => setC({ sender_id: e.target.value })} /></Field>
+              <TrackLinks c={c} setC={setC} />
               <p className="xs muted">{PERSONALIZE}</p>
             </>
           )}
@@ -222,7 +223,7 @@ export function TemplateEdit() {
             </>
           )}
 
-          {t.channel === "rcs" && <RcsFields c={c} setC={setC} />}
+          {t.channel === "rcs" && <><RcsFields c={c} setC={setC} /><TrackLinks c={c} setC={setC} /></>}
 
           {t.channel === "inbox" && (
             <>
@@ -400,4 +401,18 @@ function fillContent(c: ChannelContent): ChannelContent {
     title: fillPreview(c.title),
     body: fillPreview(c.body),
   };
+}
+
+// TrackLinks turns on short tracked links for an SMS or RCS template, so clicks count (sms_clicked,
+// rcs_clicked) in reports and segments. Each link becomes about 40 characters.
+function TrackLinks({ c, setC }: { c: ChannelContent; setC: (p: Partial<ChannelContent>) => void }) {
+  return (
+    <label className="row small" style={{ gap: 8, margin: "6px 0 10px" }}>
+      <input type="checkbox" checked={!!c.track_links} onChange={(e) => setC({ track_links: e.target.checked || undefined })} />
+      <span>
+        Track link clicks
+        <span className="xs muted" style={{ display: "block" }}>Links become short tracked links (…/t/s/abc123XYZ01, about 40 characters, working for 30 days), so “Clicked a link in an SMS” works in segments and reports.</span>
+      </span>
+    </label>
+  );
 }

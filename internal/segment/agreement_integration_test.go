@@ -240,6 +240,16 @@ func fixedRules(t *testing.T) []segment.Rule {
 		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"amount","op":"eq","value":true}]}`,
 		`{"event":"login","op":"gte","count":1,"days":14,"where":[{"prop":"coupon","op":"exists"}]}`,
 		`{"event":"login","op":"gte","count":1,"days":14,"where":[{"prop":"sku","op":"in","value":["A1","",7]},{"prop":"amount","op":"lt","value":260}]}`,
+		`{"attr":"city","op":"not_contains","value":"elh"}`,
+		`{"attr":"city","op":"starts_with","value":"D"}`,
+		`{"attr":"city","op":"ends_with","value":"hi"}`,
+		`{"attr":"plan","op":"not_in","value":["pro","team"]}`,
+		`{"attr":"city","op":"not_exists"}`,
+		`{"attr":"age","op":"between","value":[18,40]}`,
+		`{"attr":"seen","op":"on","value":"2026-11-01"}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"coupon","op":"not_exists"}]}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"sku","op":"starts_with","value":"A"},{"prop":"amount","op":"between","value":[0,260]}]}`,
+		`{"event":"purchase","op":"eq","count":0,"days":14,"where":[{"prop":"sku","op":"not_in","value":["A1",7]}]}`,
 	} {
 		r, err := segment.Parse([]byte(js))
 		if err != nil {
@@ -258,7 +268,27 @@ func randomRules(rng *rand.Rand, asOf time.Time, n int) []segment.Rule {
 			c := rng.Intn(4)
 			return segment.Rule{Event: names[rng.Intn(len(names))], Op: ops[rng.Intn(len(ops))], Count: &c, Days: 1 + rng.Intn(14)}
 		}
-		switch k := rng.Intn(11); k {
+		switch k := rng.Intn(14); k {
+		case 11:
+			return segment.Rule{Attr: []string{"city", "plan"}[rng.Intn(2)], Op: []string{"not_contains", "starts_with", "ends_with"}[rng.Intn(3)], Value: []string{"D", "un", "", "pro", "i"}[rng.Intn(5)]}
+		case 12:
+			lo := []float64{0, 17, 18, 34.5}[rng.Intn(4)]
+			if rng.Intn(2) == 0 {
+				return segment.Rule{Attr: "age", Op: "between", Value: []any{lo, lo + float64(rng.Intn(30))}}
+			}
+			return segment.Rule{Attr: []string{"city", "age", "plan", "nope"}[rng.Intn(4)], Op: "not_exists"}
+		case 13:
+			if rng.Intn(2) == 0 {
+				return segment.Rule{Attr: "seen", Op: "on", Value: asOf.AddDate(0, 0, -rng.Intn(60)).Format(time.DateOnly)}
+			}
+			c := rng.Intn(3)
+			f := []segment.PropFilter{
+				{Prop: "sku", Op: []string{"not_in", "in"}[rng.Intn(2)], Value: []any{skus[rng.Intn(len(skus))], skus[rng.Intn(len(skus))]}},
+				{Prop: []string{"sku", "coupon", "amount"}[rng.Intn(3)], Op: "not_exists"},
+				{Prop: "amount", Op: "between", Value: []any{0.0, []float64{99.5, 250, 300}[rng.Intn(3)]}},
+				{Prop: "sku", Op: []string{"starts_with", "ends_with", "not_contains"}[rng.Intn(3)], Value: []string{"A", "2", ""}[rng.Intn(3)]},
+			}[rng.Intn(4)]
+			return segment.Rule{Event: names[rng.Intn(len(names))], Op: ops[rng.Intn(len(ops))], Count: &c, Days: 1 + rng.Intn(14), Where: []segment.PropFilter{f}}
 		case 6:
 			return segment.Rule{Tag: tagSet[rng.Intn(len(tagSet))], Op: []string{"has", "not_has"}[rng.Intn(2)]}
 		case 7:

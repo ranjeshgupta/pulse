@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
+import 'device.dart';
 import 'exception.dart';
 import 'inapp_message.dart';
 import 'inapp_view.dart';
@@ -22,6 +24,8 @@ const _kUserId = 'pulse.uid';
 const _kUserHash = 'pulse.uh';
 const _kQueue = 'pulse.queue';
 const _kPush = 'pulse.push';
+const _kSessionId = 'pulse.sid';
+const _kSessionAt = 'pulse.sla'; // last activity, ms since the epoch
 
 const _maxBackoff = Duration(minutes: 5);
 
@@ -32,8 +36,12 @@ enum _Outcome { sent, dropped, retry }
 /// People are anonymous (`anon-` + 24 hex characters) until [identify]. Events are queued,
 /// persisted, and sent in batches every [PulseConfig.flushInterval], as soon as
 /// [PulseConfig.maxBatch] events are waiting, and whenever [flush] is called.
+///
+/// Events are grouped into sessions: a session starts with the first event and again after 30
+/// minutes in the background or without events, and begins with a `session_start` event.
+/// identify, screen_view and session_start carry the device's platform, OS, type and locale.
 class Pulse with WidgetsBindingObserver {
-  Pulse._(this.config, this._http, this._storage, this._ownsHttp) {
+  Pulse._(this.config, this._http, this._storage, this._ownsHttp, this._clock) {
     inbox = PulseInbox._(this);
     inApp = PulseInApp._(this);
   }
@@ -55,17 +63,17 @@ class Pulse with WidgetsBindingObserver {
   /// Starts the SDK: loads the stored ids and queued events and starts the flush timer.
   ///
   /// [httpClient] and [storage] are for tests and special setups; by default the SDK uses its own
-  /// `http.Client` and `shared_preferences`. Calling init again replaces the previous instance.
+  /// `http.Client` and `shared_preferences`. [clock] (for tests) replaces `DateTime.now` for event
+  /// times and sessions. Calling init again replaces the previous instance.
   static Future<Pulse> init(PulseConfig config,
-      {http.Client? httpClient, PulseStorage? storage}) async {
-    if (config.flushOnBackground || config.inAppMessages || storage == null) {
-      WidgetsFlutterBinding.ensureInitialized();
-    }
+      {http.Client? httpClient, PulseStorage? storage, DateTime Function()? clock}) async {
+    WidgetsFlutterBinding.ensureInitialized(); // lifecycle events end and resume sessions
     final p = Pulse._(
       config,
       httpClient ?? http.Client(),
       storage ?? await SharedPreferencesPulseStorage.open(),
       httpClient == null,
+      clock ?? DateTime.now,
     );
     await p._load();
     _instance?.dispose();
@@ -79,7 +87,12 @@ class Pulse with WidgetsBindingObserver {
   final http.Client _http;
   final PulseStorage _storage;
   final bool _ownsHttp;
+  final DateTime Function() _clock;
   final _random = Random.secure();
+
+  String? _sid;
+  DateTime? _lastActivity;
+  Map<String, String>? _device;
 
   late String _anonId;
   String? _userId;
@@ -100,8 +113,6 @@ class Pulse with WidgetsBindingObserver {
 
   /// In-app campaigns (see [PulseConfig.inAppMessages] and [attachNavigator]).
   late final PulseInApp inApp;
-
-  bool get _observesLifecycle => config.flushOnBackground || config.inAppMessages;
 
   // The user hash, when a user is identified with one.
   String? get _identifiedHash => _userId == null ? null : _userHash;
@@ -125,6 +136,9 @@ class Pulse with WidgetsBindingObserver {
     _userId = await _storage.read(_kUserId);
     _userHash = _userId == null ? null : await _storage.read(_kUserHash);
     _queue = _decodeQueue(await _storage.read(_kQueue));
+    _sid = await _storage.read(_kSessionId);
+    final at = int.tryParse(await _storage.read(_kSessionAt) ?? '');
+    _lastActivity = at == null ? null : DateTime.fromMillisecondsSinceEpoch(at);
     final push = await _storage.read(_kPush);
     if (push != null) {
       try {
@@ -137,7 +151,7 @@ class Pulse with WidgetsBindingObserver {
     }
     await inApp._load();
     _timer = Timer.periodic(config.flushInterval, (_) => _flushIfDue());
-    if (_observesLifecycle) WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addObserver(this);
     _log('ready as $currentId with ${_queue.length} queued events');
   }
 
@@ -181,7 +195,9 @@ class Pulse with WidgetsBindingObserver {
   /// It may show an in-app campaign triggered by `screen_view` (for any screen, or this one).
   Future<void> screen(String name, [Map<String, dynamic>? props]) {
     if (name.isEmpty) throw ArgumentError.value(name, 'name', 'is empty');
-    final saved = _enqueue('screen_view', props: {...?props, 'screen': name});
+    final sid = _session();
+    final saved = _enqueue('screen_view',
+        props: {..._deviceProps, 'session_id': sid, ...?props, 'screen': name});
     if (config.inAppMessages) inApp._onEvent('screen_view', name);
     return saved;
   }
@@ -222,7 +238,7 @@ class Pulse with WidgetsBindingObserver {
       await _storage.delete(_kUserHash);
     }
     await _enqueue('identify',
-        props: wasAnonymous ? {'anonymous_id': previous} : null,
+        props: {..._deviceProps, if (wasAnonymous) 'anonymous_id': previous},
         attrs: attributes,
         email: email,
         flushWhenFull: false);
@@ -241,6 +257,8 @@ class Pulse with WidgetsBindingObserver {
     await _storage.delete(_kUserId);
     await _storage.delete(_kUserHash);
     await _storage.write(_kAnonId, _anonId);
+    _sid = null; // the next event starts a new session
+    await _storage.delete(_kSessionId);
     // Move this device's push token off the signed-out user.
     if (_push != null) unawaited(_registerStoredToken());
     inbox._forget();
@@ -285,7 +303,85 @@ class Pulse with WidgetsBindingObserver {
     return false;
   }
 
+  /// The id of the current session, or null before the first event (and after [reset]).
+  String? get sessionId => _sid;
+
+  /// Device properties (platform, device_type, os, os_version, locale and the app's
+  /// [PulseConfig.appVersion], [PulseConfig.deviceModel], [PulseConfig.deviceBrand]), worked out
+  /// once the app's view has a size.
+  Map<String, String> get deviceProperties => Map.unmodifiable(_deviceProps);
+
+  Map<String, String> get _deviceProps {
+    final cached = _device;
+    if (cached != null) return cached;
+    final d = buildDeviceProps(
+      platform: defaultTargetPlatform,
+      osVersionRaw: _osVersionRaw(),
+      osVersion: config.osVersion,
+      locale: _locale(),
+      shortestSide: _shortestSide(),
+      appVersion: config.appVersion,
+      deviceModel: config.deviceModel,
+      deviceBrand: config.deviceBrand,
+    );
+    if (d.containsKey('device_type')) _device = d; // else the view has no size yet: try again later
+    return d;
+  }
+
+  static String? _osVersionRaw() {
+    if (kIsWeb) return null;
+    try {
+      return Platform.operatingSystemVersion;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? _locale() {
+    final tag = WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag();
+    return tag == 'und' ? null : tag;
+  }
+
+  static double? _shortestSide() {
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return null;
+    final v = views.first;
+    if (v.devicePixelRatio <= 0) return null;
+    return v.physicalSize.shortestSide / v.devicePixelRatio;
+  }
+
+  /// Returns the current session id, first starting a new session (queueing `session_start`) when
+  /// there is none or the last activity was 30+ minutes ago, and records now as the last activity.
+  String _session() {
+    final now = _clock();
+    final s = nextSession(now, _lastActivity, _sid, () => _randomHex(12));
+    _lastActivity = now;
+    _save(_kSessionAt, '${now.millisecondsSinceEpoch}');
+    if (s.started) {
+      _sid = s.sid;
+      _save(_kSessionId, s.sid);
+      _log('session ${s.sid} started');
+      _add('session_start', props: {'session_id': s.sid, ..._deviceProps});
+    }
+    return s.sid;
+  }
+
+  void _save(String key, String value) {
+    _writes = _writes
+        .then((_) => _storage.write(key, value))
+        .catchError((Object e) => _log('could not save $key: $e', always: true));
+  }
+
   Future<void> _enqueue(String name,
+      {Map<String, dynamic>? props,
+      Map<String, dynamic>? attrs,
+      String? email,
+      bool flushWhenFull = true}) {
+    _session();
+    return _add(name, props: props, attrs: attrs, email: email, flushWhenFull: flushWhenFull);
+  }
+
+  Future<void> _add(String name,
       {Map<String, dynamic>? props,
       Map<String, dynamic>? attrs,
       String? email,
@@ -296,7 +392,7 @@ class Pulse with WidgetsBindingObserver {
       'id': _randomHex(16),
       'external_id': currentId,
       'name': name,
-      'ts': DateTime.now().toUtc().toIso8601String(),
+      'ts': _clock().toUtc().toIso8601String(),
       if (p.isNotEmpty) 'props': jsonSafe(p),
       if (attrs != null && attrs.isNotEmpty) 'attrs': jsonSafe(attrs),
       if (email != null && email.isNotEmpty) 'email': email,
@@ -403,7 +499,21 @@ class Pulse with WidgetsBindingObserver {
       .timeout(config.requestTimeout);
 
   @override
+  void didChangeLocales(List<Locale>? locales) => _device = null;
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_disposed) return;
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      // Time in the background counts from here; 30 minutes of it end the session.
+      final now = _clock();
+      _lastActivity = now;
+      _save(_kSessionAt, '${now.millisecondsSinceEpoch}');
+    } else if (state == AppLifecycleState.resumed) {
+      _session();
+    }
     if (config.flushOnBackground &&
         (state == AppLifecycleState.paused || state == AppLifecycleState.detached)) {
       unawaited(flush());
@@ -419,7 +529,7 @@ class Pulse with WidgetsBindingObserver {
     _disposed = true;
     _timer?.cancel();
     inApp._dispose();
-    if (_observesLifecycle) WidgetsBinding.instance.removeObserver(this);
+    WidgetsBinding.instance.removeObserver(this);
     if (_ownsHttp) _http.close();
     if (identical(_instance, this)) _instance = null;
   }

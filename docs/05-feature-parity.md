@@ -37,6 +37,12 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Static lists (manual add/remove, import to list) | ✅ | ✅ | ✅ Lists page, API, CSV import into a list, journey step | |
 | Event property filters (purchase where amount > 1000) | 🟡 | ✅ | ✅ up to 5 filters per event rule; history seeded from ClickHouse | |
 | Date rules (before/after a date, within the last N days, more than N days ago) | ✅ | ✅ | ✅ on any date attribute and on first_seen / last_seen, which every profile keeps | |
+| Text and number operators (contains / doesn't contain, starts / ends with, is one of / not one of, is empty / not empty, is set / not set, between, on a date) | ✅ | ✅ | ✅ `not_contains`, `starts_with`, `ends_with`, `not_in`, `not_exists`, `between`, `on` in both compilers (checked by `make it`); empty = `eq ""` | |
+| Searchable, grouped filter picker; typed rows; explicit nested ALL/ANY groups | ✅ | ✅ | ✅ batch 7b, see "Segment builder" below | |
+| Device, locale, email domain, date added / identified / modified, owner | ✅ | ✅ (device) | ✅ profile attributes kept by Pulse from SDK events and the profile service | |
+| Browsing sessions | ✅ | ✅ | ✅ `session_start` from the SDKs (30 minutes without activity), counted like any event | |
+| SMS bounces, manual vs self-service unsubscribes | ✅ | 🟡 | ✅ `sms_bounced` (suppresses SMS until the number changes); `unsubscribed` carries `method: manual / self` | |
+| SMS / RCS link click tracking | ✅ | ✅ | ✅ per-template "Track link clicks": short `/t/s/{code}` links, `sms_clicked` / `rcs_clicked` | WhatsApp buttons: not tracked (approved templates hold the URL) |
 
 ## Journeys / campaigns
 
@@ -170,13 +176,14 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      (Analyze → Revenue; revenue in broadcast and journey reports), funnel breakdown by attribute, the custom report
      builder (Analyze → Reports), and automatic A/B winners on journey split steps.
    - **Batch 7b, builders like Mautic and WebEngage (requested 2026-11-11, right after batch 7):**
-     - Segment builder: one searchable filter picker grouped as Contact (every built-in and custom field, with icons), Primary
+     - ✅ **Segment builder (done 2026-11-11)**, see [Segment builder](#segment-builder-batch-7b) for the Mautic filter mapping.
+       Requested: one searchable filter picker grouped as Contact (every built-in and custom field, with icons), Primary
        company, Behaviour and actions, Points; a clear nested "Match ALL / ANY" group UI. New data for Mautic's filters: device
        brand/model/OS/type (SDKs), email domain, date added / identified / modified, contact owner, preferred locale, SMS bounces,
        manual vs self-service unsubscribes, browsing sessions; behaviour filters for clicks (any channel / email / SMS, with
        dates), asset downloads, reads of a specific email or X times, sends, URL visits (X times, landing page, referrer,
        source, page title).
-     - Campaign builder: "+" asks Decision, Action or Condition, then a searchable list with descriptions. Decisions: opens /
+     - ⬜ Campaign builder: "+" asks Decision, Action or Condition, then a searchable list with descriptions. Decisions: opens /
        clicks / replies to email, downloads asset, submits form, visits page, device visit, requests dynamic content. Actions:
        send email / email to user / marketing message / webhook, show focus item, push dynamic content, update contact /
        owner / company, change stage, adjust points, tags, segments and lists, add to company, company score, change
@@ -198,3 +205,89 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
        one Import flow under Contacts (upload, map columns, choose segment, review; large files run in the background; one
        history).
    - **Then:** update every doc to match the final app, and write step-by-step tutorials with the product owner.
+
+## Segment builder (batch 7b)
+
+**What it is.** Segments → New segment. The rule is a set of nested boxes: the top one reads "Contacts who match
+[ALL ▾ / ANY] of the following:", every nested box "Match [ALL ▾ / ANY] of the following" with its own "+ Add filter",
+"+ Add group" and "Remove group", an indent and coloured border (ALL dark, ANY violet), and the joining word (AND / OR)
+shown between its rows. Groups nest as deep as the backend allows (7 group levels; the filters take the 8th); "+ Add
+group" is replaced by a note at the deepest level. Removing a nested group's last filter removes the group. The live
+count (preview endpoint, debounced) and the rule in words (`describe()`) stay beside the builder.
+
+**Picker.** "+ Add filter" opens one searchable list (search box = combobox; ↑ ↓ move, Enter adds, Esc closes and
+returns focus) grouped Contact, Company, Location, Device, Consent & deliverability, Behaviour (messages, web, forms &
+assets, journeys, any event), Points & stage, Segments & tags, with a group rail, an icon and a one-line hint per item,
+and the six most recently used filters first (per browser). Search covers labels, hints, attribute keys and group names.
+Every attribute definition (`GET /v1/attributes`) and every key seen on contacts is listed with its type (date, number,
+yes/no, text), so workspace fields such as "MFI Subscription End Date" or "User is Fund Subscriber" appear typed without
+being hard-coded. Clicking a row's field button reopens the picker to change that filter.
+
+**Rows.** [Field] [operator for its type] [value input for its type] [×]: text (is, is not, contains, doesn't contain,
+starts / ends with, is one of / is not one of as chips, is empty / is not empty) with the field's common values
+suggested (`GET /v1/attributes/{key}/values`, a 200k-row sample, cached 10 minutes; event properties use
+`GET /v1/events/{name}/values?prop=`); numbers (=, ≠, >, ≥, <, ≤, between); yes/no; dates (in the last N days, more than
+N days ago, on, before, after, set / not set); stage, company and owner pick from the workspace's own. Behaviour filters
+are sentences: "[Opened an email ▾] [the email ▾ Welcome ▾] [at least ▾] [1] times in the last [30] days", with
+"+ Only count events where…" for property filters and "+ A specific message" for message events.
+
+### Mautic filter mapping
+
+Every filter in Mautic's list maps to a picker entry. "Approximate" says how Pulse's meaning differs.
+
+| Mautic filter | Pulse picker entry (group) | Rule | Note |
+|---|---|---|---|
+| Address Line 1 | Address line 1 (Contact) | `address1` text | standard field name; filled by your data |
+| Attribution | Attribution (Contact) | `attribution` number | approximate: Mautic's campaign-set field; Pulse fills it only if your data sets it (revenue attribution is a report, not a contact field) |
+| Attribution Date | Attribution date (Contact) | `attribution_date` date | approximate, as above |
+| Bounced - Email | Bounced: email (Consent) | `email_bounced` yes/no | |
+| Bounced - SMS | Bounced: SMS (Consent) | `sms_bounced` yes/no | new: a permanent "bad number" failure |
+| Campaign Membership | Entered a journey / Completed a journey (Behaviour: journeys) | `journey_entered` / `journey_completed` with `journey_id` | approximate: "entered (or completed) in the last N days", at most 365; "currently in a journey" isn't a rule |
+| City / Country / State / Zip Code | City, Country, State, Zip code (Location); also City / Country / State or region / Postal code (from IP) | `city`, `country`, `state`, `zip`; `geo_*` | |
+| Date Added | Date added (Contact) | `date_added` date | new; existing contacts get it at their next event |
+| Date Identified | Date identified (Contact) | `date_identified` date | new: first event with a known id or an email |
+| Date Last Active | Date last active (Contact) | `last_seen` date | |
+| Device Brand / Model / OS / Type | Device brand, Device model, Device OS, Device type (Device); also OS version, Browser, App version | `device_*`, `browser`, `app_version` | new; last-seen device from the SDKs |
+| Email | Email (Contact) | `email` | |
+| Email Domain | Email domain (Contact) | `email_domain` | new, lower case |
+| First Name / Last Name | First name, Last name (Contact) | `first_name`, `last_name` | |
+| Mobile | Mobile (Contact) | `phone` | |
+| Modified Date | Modified date (Contact) | `date_modified` date | new; a day, not a time (avoids a write per event) |
+| Owner | Owner (Contact) | `owner_id` picked from users | new: `PUT /v1/contacts/{id}/owner`, drawer picker |
+| Points | Points (Points & stage) | `points` number | |
+| Preferred Locale | Preferred locale (Contact) | `locale` | new; SDKs send it, servers may set it |
+| Segment Membership | Segment membership (Segments & tags) | `segment` in / not in | |
+| Stage | Stage (Points & stage) | `stage` picked from stages | |
+| Tags | Tags (Segments & tags) | `tag` has / not_has | |
+| UTM Campaign / Content / Medium / Source / Term | UTM campaign, content, medium, source, term (Contact); also First UTM source / campaign | `last_utm_*`, `first_utm_*` | Mautic keeps a UTM history; Pulse keeps first and last touch |
+| Unsubscribed - Email / SMS | Unsubscribed from email / SMS (Consent); also WhatsApp, RCS, push, everything | `optout_*` yes/no | |
+| Unsubscribed Manual - Email / SMS | Unsubscribed manually: email / SMS (Consent) | group: `optout_<ch>` is yes AND `unsubscribed` where channel and `method = manual` in 365 days | approximate: the manual unsubscribe must be within a year |
+| Every custom field | listed by name with its type (Contact / Company / Consent) | attribute rule | from attribute definitions and keys seen on contacts |
+| Company Name (primary company) and company fields | Company, Company name, every `company_*` key, Other company field (Company) | `company_id`, `company_name`, `company_*` | |
+| Clicked any link from any channel | Clicked any link from any channel (Behaviour: messages) | ANY group of `email_clicked`, `sms_clicked`, `rcs_clicked`, `inbox_clicked`, `inapp_clicked` ≥ 1 | exact for "at least once"; push clicks aren't tracked yet |
+| Clicked any link from any email (+ date) | Clicked any link from any email | `email_clicked` count in N days | approximate: "in the last N days" instead of a date comparison |
+| Clicked any link from any text message (+ date) | Clicked any link from any text message | `sms_clicked` count in N days | needs "Track link clicks" on the SMS template; same date note |
+| Downloaded a specific asset | Downloaded a specific asset (Behaviour: forms & assets) | `asset_downloaded` where `asset_id` | form-gated downloads by known contacts (open downloads are anonymous) |
+| Has X number of browsing sessions | Has X number of browsing sessions (Behaviour: web) | `session_start` count in N days | |
+| Has been sent any push notification | Has been sent any push notification | `push_sent` ≥ 1 | |
+| Read a specific email | Read a specific email | `email_opened` where `template_id` | also by campaign or journey |
+| Read any email (date) | Read any email | `email_opened` ≥ 1 in N days | date note as above |
+| Read any email X number of times | Read any email X number of times | `email_opened` count | |
+| Sent any email (date) | Sent any email | `email_sent` ≥ 1 in N days | date note as above |
+| Visited X URL | Visited a URL | `page_view` where `url` contains | any text operator |
+| Visited a specific landing page | Visited a specific landing page | `landing_page_viewed` where `page_id` | |
+| Visited any URL (date) | Visited any URL | `page_view` ≥ 1 in N days | date note as above |
+| Visited any URL X number of times | Visited any URL X number of times | `page_view` count | |
+| Visited any URL from X referrer | Visited any URL from a referrer | `page_view` where `referrer` contains | |
+| Visited any URL from X source | Visited any URL from a source | `page_view` where `utm_source` | |
+| Visited any URL from X source ID | Visited any URL from a campaign (source ID) | `page_view` where `utm_campaign` | approximate: Mautic's source id is the id of the email/page that sent the visit; Pulse uses the campaign name |
+| Visited any URL with X page title | Visited a page with a title | `page_view` where `title` contains | |
+| Was sent a specific email | Was sent a specific email | `email_sent` where `template_id` | |
+| Contact group points | Points | `points` | approximate: Pulse has one score, no point groups |
+
+WebEngage extras in the same picker: reachable by email / SMS (has the address, not unsubscribed, not bounced), first
+seen, inactive (last active more than N days ago), any custom event done / not done with up to 5 property filters,
+WhatsApp read, SMS delivered, app inbox and in-app engagement, form submissions, stage changes.
+
+**Not covered:** event windows are "the last 1-365 days" (no absolute date range for behaviour, no "ever"); "currently in
+a journey"; point groups; Mautic's regexp operator.

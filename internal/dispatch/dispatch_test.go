@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -107,10 +108,14 @@ func (m *memStore) DefaultProvider(_ context.Context, _ int64, ch string) (model
 	return model.Provider{}, nil, pg.ErrNotFound
 }
 
-type memSink struct{ msgs []string } // "channel:recipient"
+type memSink struct {
+	msgs     []string // "channel:recipient"
+	payloads []string
+}
 
-func (s *memSink) RecordSandbox(_ context.Context, _ int64, ch, to, _ string, _ []byte) error {
+func (s *memSink) RecordSandbox(_ context.Context, _ int64, ch, to, _ string, payload []byte) error {
 	s.msgs = append(s.msgs, ch+":"+to)
+	s.payloads = append(s.payloads, string(payload))
 	return nil
 }
 
@@ -439,5 +444,67 @@ func TestEmailTextPartAndAttachments(t *testing.T) {
 	}
 	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_failed" {
 		t.Errorf("events = %v, want email_failed for the deleted attachment", evs)
+	}
+}
+
+func TestSMSBounceMarksAndSuppresses(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.st.providers[channel.SMS] = model.Provider{Kind: "sandbox_sms", Config: map[string]string{"unreachable_suffix": "0001"}}
+	if err := f.d.Handle(ctx, msgRecord(model.Message{ID: "b1", TenantID: 1, ContactID: 1, Channel: channel.SMS, TemplateID: 3})); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.pub.recs) != 1 {
+		t.Fatalf("published %d records", len(f.pub.recs))
+	}
+	var e event.Event
+	_ = json.Unmarshal(f.pub.recs[0].Value, &e)
+	if e.Name != "sms_failed" || e.Props["bounce"] != true || e.Attrs["sms_bounced"] != true {
+		t.Errorf("bounce event = %+v", e)
+	}
+	f.pub.take()
+	// The profile now says the number bounced: the next SMS is suppressed.
+	c := f.st.contacts[1]
+	c.Attrs["sms_bounced"] = true
+	f.st.contacts[1] = c
+	_ = f.d.Handle(ctx, msgRecord(model.Message{ID: "b2", TenantID: 1, ContactID: 1, Channel: channel.SMS, TemplateID: 3}))
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "sms_suppressed" {
+		t.Errorf("events = %v, want sms_suppressed", evs)
+	}
+	// A missing number is not a bounce.
+	_ = f.d.Handle(ctx, msgRecord(model.Message{ID: "b3", TenantID: 1, ContactID: 3, Channel: channel.SMS, TemplateID: 3}))
+	var e3 event.Event
+	_ = json.Unmarshal(f.pub.recs[0].Value, &e3)
+	if e3.Name != "sms_failed" || e3.Attrs != nil {
+		t.Errorf("invalid number event = %+v", e3)
+	}
+}
+
+func TestSMSTrackedLinks(t *testing.T) {
+	f := setup(t)
+	box, _ := auth.NewBox("9f1c2b7e4a6d8053c1e2f4a7b9d0c3e5f6a8b1c2d4e7f9a0b3c5d6e8f1a2b4c6")
+	f.d.cfg.Tracking = tracking.New(box, "9f1c2b7e4a6d8053c1e2f4a7b9d0c3e5f6a8b1c2d4e7f9a0b3c5d6e8f1a2b4c6", "https://p.example")
+	f.st.templates[7] = model.Template{ID: 7, Channel: channel.SMS, Content: json.RawMessage(`{"text":"Hi {{.Attrs.first_name}}, sale: https://shop.in/x","track_links":true}`)}
+	f.st.templates[8] = model.Template{ID: 8, Channel: channel.SMS, Content: json.RawMessage(`{"text":"Untracked https://shop.in/x"}`)}
+	ctx := context.Background()
+	for _, id := range []int64{7, 8} {
+		if err := f.d.Handle(ctx, msgRecord(model.Message{ID: fmt.Sprint("l", id), TenantID: 1, ContactID: 1, Channel: channel.SMS, TemplateID: id})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(f.sink.payloads) != 2 {
+		t.Fatalf("sent %d", len(f.sink.payloads))
+	}
+	tracked, plain := f.sink.payloads[0], f.sink.payloads[1]
+	if !strings.Contains(tracked, "Hi Asha, sale: https://p.example/t/s/") || strings.Contains(tracked, "shop.in") {
+		t.Errorf("tracked text = %s", tracked)
+	}
+	if !strings.Contains(plain, "Untracked https://shop.in/x") {
+		t.Errorf("untracked text = %s", plain)
+	}
+	i := strings.Index(tracked, "/t/s/") + 5
+	tok, dest, err := tracking.ResolveShort(ctx, f.d.rdb, tracked[i:i+11])
+	if err != nil || dest != "https://shop.in/x" || tok.MessageID != "l7" || tok.ExternalID != "u1" || tok.Channel != "sms" {
+		t.Errorf("resolve = %+v %q %v", tok, dest, err)
 	}
 }

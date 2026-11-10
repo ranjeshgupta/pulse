@@ -76,6 +76,7 @@ func (s *Server) accountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/stages/{id}", s.tenant(s.updateStage))
 	mux.HandleFunc("DELETE /v1/stages/{id}", s.tenant(s.deleteStage))
 	mux.HandleFunc("PUT /v1/contacts/{external_id}/stage", s.tenant(s.contactStage))
+	mux.HandleFunc("PUT /v1/contacts/{external_id}/owner", s.tenant(s.contactOwner))
 
 	mux.HandleFunc("GET /v1/companies", s.tenant(s.listCompanies))
 	mux.HandleFunc("POST /v1/companies", s.tenant(s.createCompany))
@@ -310,6 +311,50 @@ func (s *Server) contactStage(w http.ResponseWriter, r *http.Request, tenant int
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"stage": name})
+}
+
+// contactOwner assigns the contact to a user of the workspace ({"user_id": 7}), or unassigns it
+// ({"user_id": 0}). It records owner_changed, which sets owner_id and owner_name.
+func (s *Server) contactOwner(w http.ResponseWriter, r *http.Request, tenant int64) {
+	var req struct {
+		UserID int64 `json:"user_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	props := map[string]any{"owner_id": 0, "source": "manual"}
+	var name string
+	if req.UserID != 0 {
+		users, err := s.Store.ListUsers(r.Context(), tenant)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		found := false
+		for _, u := range users {
+			if u.ID == req.UserID {
+				found, name = true, u.Name
+				if name == "" {
+					name = u.Email
+				}
+			}
+		}
+		if !found {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("there is no user %d in this workspace", req.UserID))
+			return
+		}
+		props["owner_id"], props["owner_name"] = req.UserID, name
+	}
+	c, ok := s.knownContact(w, r, tenant, r.PathValue("external_id"))
+	if !ok {
+		return
+	}
+	ev := event.Event{ExternalID: c.ExternalID, Name: event.OwnerChanged, Props: props}
+	if err := s.publishEvents(r.Context(), tenant, []event.Event{ev}); err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "event bus unavailable, retry")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"owner_id": req.UserID, "owner_name": name})
 }
 
 // checkJourneyStages makes sure every change_stage step of a journey names a stage of the workspace.

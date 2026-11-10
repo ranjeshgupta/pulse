@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Segment } from "../api";
+import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Segment, type User } from "../api";
 import { contactCompany, isAccountAttr } from "../accounts";
 import { Drawer, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { useCompanyOptions } from "./Companies";
@@ -146,14 +146,32 @@ function StageAndCompany({ contact }: { contact: Contact }) {
     mutationFn: (s: string) => api.put(`/v1/contacts/${id}/stage`, { stage: s }),
     onSuccess: (_, s) => { toast({ text: `Moved to ${s}` }); refresh(); },
   });
+  const users = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: User[] }>("/v1/users"), staleTime: 60_000, retry: false });
+  const ownerId = contact.attrs.owner_id != null ? String(contact.attrs.owner_id) : "";
+  const ownerName = contact.attrs.owner_name != null ? String(contact.attrs.owner_name) : "";
+  const setOwner = useMutation({
+    mutationFn: (userId: number) => api.put(`/v1/contacts/${id}/owner`, { user_id: userId }),
+    onSuccess: (r) => { const o = r as { owner_name?: string }; toast({ text: o.owner_name ? `Owner: ${o.owner_name}` : "Owner removed" }); refresh(); },
+  });
   const link = useMutation({
     mutationFn: (companyId: number | null) => api.put(`/v1/contacts/${id}/company`, { company_id: companyId }),
     onSuccess: (_, companyId) => { toast({ text: companyId ? `Linked to ${companies.find((c) => c.id === companyId)?.name ?? "the company"}` : "Unlinked from the company" }); refresh(); qc.invalidateQueries({ queryKey: ["companies"] }); },
   });
   return (
     <section style={{ marginBottom: 22 }}>
-      <h3 style={{ marginBottom: 10 }}>Stage and company</h3>
+      <h3 style={{ marginBottom: 10 }}>Owner, stage and company</h3>
       <dl className="kv" style={{ marginBottom: 10 }}>
+        <dt>Owner</dt>
+        <dd>
+          <div className="row">
+            <select className="select inline" value={ownerId} disabled={setOwner.isPending} onChange={(e) => setOwner.mutate(Number(e.target.value || 0))} aria-label="Owner">
+              <option value="">No owner</option>
+              {ownerId && !users.data?.users.some((u) => String(u.id) === ownerId) && <option value={ownerId}>{ownerName || `User #${ownerId}`}</option>}
+              {users.data?.users.map((u) => <option key={u.id} value={String(u.id)}>{u.name || u.email}</option>)}
+            </select>
+            {users.isError && <span className="xs muted">You can't list teammates, so only the current owner shows.</span>}
+          </div>
+        </dd>
         <dt>Stage</dt>
         <dd>
           <div className="row">
@@ -180,7 +198,7 @@ function StageAndCompany({ contact }: { contact: Contact }) {
           <div key={k} style={{ display: "contents" }}><dt className="muted">{k}</dt><dd>{String(v)}</dd></div>
         ))}
       </dl>
-      <ErrorNote error={setStage.error ?? link.error} />
+      <ErrorNote error={setStage.error ?? link.error ?? setOwner.error} />
     </section>
   );
 }

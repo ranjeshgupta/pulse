@@ -66,6 +66,28 @@ consent, tags and points directly (imports).
 | `stage`, `stage_changed_at` | `stage_changed {stage}` | from `PUT /v1/contacts/{id}/stage`, `POST /v1/events` (stage checked against the workspace's stages), the `change_stage` journey step, or a points threshold |
 | `company_id`, `company_name`, `company_<key>` | `company_linked`, `company_updated`, `company_unlinked` | copies of the linked company's attributes, so segment rules on them work in both compilers |
 | `merged_into` | `contact_merged_into` | the contact was merged into another; it leaves every segment |
+| `date_added`, `date_identified`, `date_modified` | every event | RFC 3339 time the contact was created (contacts created before this get it at their next event, from `created_at`); RFC 3339 time of the first event with a non-`anon-` id or an email; UTC date of the latest change to any other attribute (a day, so at most one extra write per contact per day) |
+| `email_domain` | any event that sets `email` | lower-case part after `@`; removed when the email is cleared |
+| `device_type`, `device_os`, `device_os_version`, `device_brand`, `device_model`, `browser`, `app_version` | `identify`, `page_view`, `screen_view`, `session_start` | last-seen device from the event's flat props (`device_type`, `os`, `os_version`, `device_brand`, `device_model`, `browser`, `app_version`, each at most 100 characters). An event naming a device (`device_type` or `os`) replaces the whole device, so a phone's model never sticks to a desktop visit |
+| `locale` | the same events (`props.locale`) | not reserved: a server or import may set it, and an event's own `attrs.locale` wins over its props |
+| `owner_id`, `owner_name` | `owner_changed {owner_id, owner_name}` | only from `PUT /v1/contacts/{external_id}/owner {"user_id": N}` (0 unassigns); the user must belong to the workspace |
+| `sms_bounced` | `sms_failed` with `props.bounce` (attrs from the dispatcher) | like `email_bounced`: SMS to the contact is suppressed; sticky on merge; a server may clear it, and a new `phone` clears it |
+
+- **Unsubscribe method.** The profile role adds `props.method` to every `unsubscribed` event that lacks a valid one:
+  `self` for the contact's own actions (`source` email_link, one_click, preference_center, form, complaint, `*_keyword`),
+  `manual` for everything else (the app's consent panel sends `pulse_app`, API calls without a source, imports). Segments
+  use it as an event property ("Unsubscribed manually: email" = `optout_email` is yes AND an `unsubscribed` event with
+  channel email and method manual in the last 365 days).
+- **Device and sessions from the SDKs.** The web SDK parses the User-Agent (refined by User-Agent Client Hints where the
+  browser has them; the model and exact OS version are requested once per browser session and used once they arrive)
+  and sends `platform: web`, `device_type`, `os`, `os_version`, `browser`, `device_brand`, `device_model` and `locale`
+  on `identify`, `page_view` and `session_start`; custom `track()` events don't carry them. A session ends after 30
+  minutes without any event from the browser (shared by its tabs, `pulse.sid` / `pulse.sla` in localStorage); each new one
+  starts with `session_start {session_id, url, path, referrer, device props, the visit's utm_* / referrer_domain}`, and
+  page views carry `session_id`. The Flutter SDK sends `platform` (android / ios), `device_type` (tablet when the
+  shortest side is ≥ 600 logical pixels), `os`, `os_version`, `locale`, and `app_version` / `device_model` /
+  `device_brand` from `PulseConfig` (no plugin dependency); it starts a session at the first event and after 30 minutes
+  idle or in the background. "Has X browsing sessions" is an ordinary event-count rule on `session_start`.
 
 - **Stages.** A workspace orders its stages (`stages` table); a stage with `min_points` is a threshold. When a points
   change crosses a threshold upward, the profile role moves the contact to the furthest stage whose threshold the new
@@ -100,7 +122,7 @@ Segments are a JSON AST:
 ] }
 ```
 
-- Groups: `all` and `any`, nestable. Attribute ops: `eq ne gt gte lt lte in contains exists`. Event ops: `eq ne gt gte lt lte` on `count`.
+- Groups: `all` and `any`, nestable (8 levels, 200 nodes). Attribute ops: see the second "Segment rules" section below. Event ops: `eq ne gt gte lt lte` on `count`.
 - **Window semantics:** `days: N` means *today plus the previous N−1 calendar days, in UTC*. Both compilers use this definition.
 - Compiler 1, **`segment.Eval`**: a Go predicate over (attrs, counter reader). It's used per event by the streaming path.
 - Compiler 2, **`segment.ToSQL`**: ClickHouse SQL with bound parameters, which returns matching contact ids. It's used by backfill and sweeps.
@@ -154,14 +176,32 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - Each send carries the idempotency key `{enrollment}:{node}`. The dispatcher drops duplicates with Redis `SET NX`.
 
 ## Segment rules
-- Rule types: attribute comparisons (`eq`, `ne`, `contains`, `in`, `exists`, `gt`/`gte`/`lt`/`lte`, and dates: `before`, `after`,
-  `within_days`, `older_than_days`), event counts in a window with property filters, tags, and membership of another segment or list.
+- Rule types: attribute comparisons (`eq`, `ne`, `contains`, `not_contains`, `starts_with`, `ends_with`, `in`, `not_in`,
+  `exists`, `not_exists`, `gt`/`gte`/`lt`/`lte`, `between` [low, high], and dates: `on`, `before`, `after`, `within_days`,
+  `older_than_days`), event counts in a window with property filters (the same ops except the relative dates), tags,
+  and membership of another segment or list. A missing attribute reads as "" in both compilers, so "is empty" is `eq ""`.
+- The web builder (`web/src/segmentRules.ts` editing model and `treeReducer`, `web/src/segmentCatalog.ts` filter
+  catalog, `web/src/pages/SegmentBuilder.tsx` and `FilterPicker.tsx`) is described in the parity doc's "Segment builder".
+  Value suggestions come from `GET /v1/attributes/{key}/values` and `GET /v1/events/{name}/values?prop=` (top 25
+  values of a 200k-row ClickHouse sample, cached 10 minutes in Redis).
 - Every profile keeps `first_seen` (first event time) and `last_seen` (UTC date of the latest event) for recency rules.
 - Rules that depend on today (event windows, relative dates) are swept periodically; the Go evaluator and the ClickHouse compiler
   must agree on every rule (`make it`).
 
 ## Dispatch
 - Per-tenant token bucket in Redis (`EMAIL_RATE_PER_SEC`).
+- **SMS bounces.** A provider error for the number itself (`providers.BadNumber`: Twilio 21211/21214/21612/21614, or
+  an unreachable recipient, e.g. the sandbox's unreachable suffix) or a failed receipt marked unreachable (Twilio
+  30003/30005/30006) records `sms_failed {bounce: true}` with `attrs.sms_bounced = true`; later SMS are
+  `sms_suppressed` until the number changes. A contact without a valid number is a plain failure, not a bounce.
+- **SMS / RCS click tracking.** With `content.track_links` on the template (Templates → SMS or RCS, "Track link
+  clicks"), the dispatcher replaces each http(s) link in the rendered text (and RCS `url` suggestions) with
+  `{PULSE_PUBLIC_URL}/t/s/{code}`: 10 random base62 characters naming the message plus one naming the link (about 40
+  characters in all; trailing punctuation stays outside the link). The message's tracking token and destinations are one
+  Redis key per message (`slink:{code}`, 30 days). `GET /t/s/{code}` records `<channel>_clicked {url, message_id,
+  template_id, journey_id, broadcast_id…}` once per message and link, then redirects (302); unknown or expired codes get
+  404. WhatsApp is not covered: business-started WhatsApp messages are pre-approved templates whose button URLs live at
+  Meta, so Pulse can't rewrite them.
 - Templates use Go `html/template` and `text/template` over `{contact, attrs}`.
 - Providers sit behind the `channel.Sender` interface: SMTP in Phase 1, then SES, Twilio, Gupshup, MSG91, Google RBM, FCM/APNs and VAPID.
 - Every send emits an `email_sent` or `email_failed` event back into `events.raw`, so journeys and segments can react to delivery.

@@ -30,6 +30,10 @@ class PulseConfig {
     this.debug = false,
     this.inAppMessages = true,
     this.onInAppAction,
+    this.appVersion,
+    this.deviceModel,
+    this.deviceBrand,
+    this.osVersion,
   }) : host = host.replaceAll(RegExp(r'/+$'), '') {
     if (this.host.isEmpty) throw ArgumentError.value(host, 'host', 'is empty');
     if (siteKey.isEmpty) throw ArgumentError.value(siteKey, 'siteKey', 'is empty');
@@ -72,4 +76,19 @@ class PulseConfig {
   /// Called with the button's `value` when someone taps an in-app button whose action is `url`
   /// (a web link or a deep link). The app opens it; the SDK only closes the message.
   final void Function(String url)? onInAppAction;
+
+  /// The app's version, sent as `app_version` (e.g. `PackageInfo.version` from package_info_plus).
+  final String? appVersion;
+
+  /// The device model, sent as `device_model` (e.g. "SM-S918B", "Pixel 8", "iPhone15,2"; from
+  /// device_info_plus). On iOS it defaults to "iPhone" or "iPad".
+  final String? deviceModel;
+
+  /// The device maker, sent as `device_brand` (e.g. "Samsung", "Google"; from device_info_plus).
+  /// On iOS it defaults to "Apple".
+  final String? deviceBrand;
+
+  /// The OS version, sent as `os_version`, when you know it better than the SDK (e.g.
+  /// `AndroidDeviceInfo.version.release`). By default it is read from `Platform.operatingSystemVersion`.
+  final String? osVersion;
 }

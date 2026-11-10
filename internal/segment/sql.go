@@ -79,23 +79,42 @@ func (b *sqlBuilder) compare(expr string, op string, value any, existsExpr strin
 	switch op {
 	case "exists":
 		return existsExpr
+	case "not_exists":
+		return "NOT " + existsExpr
 	case "eq", "ne":
 		b.args = append(b.args, attr.String(value))
 		return expr + " " + cmpOps[op] + " ?"
 	case "contains":
 		b.args = append(b.args, attr.String(value))
 		return "position(" + expr + ", ?) > 0"
-	case "in":
+	case "not_contains":
+		b.args = append(b.args, attr.String(value))
+		return "position(" + expr + ", ?) = 0"
+	case "starts_with":
+		b.args = append(b.args, attr.String(value))
+		return "startsWith(" + expr + ", ?)"
+	case "ends_with":
+		b.args = append(b.args, attr.String(value))
+		return "endsWith(" + expr + ", ?)"
+	case "in", "not_in":
 		list := value.([]any)
 		marks := make([]string, len(list))
 		for i, v := range list {
 			marks[i] = "?"
 			b.args = append(b.args, attr.String(v))
 		}
-		return expr + " IN (" + strings.Join(marks, ", ") + ")"
-	case "before", "after":
+		in := " IN ("
+		if op == "not_in" {
+			in = " NOT IN ("
+		}
+		return expr + in + strings.Join(marks, ", ") + ")"
+	case "between":
+		list := value.([]any)
+		b.args = append(b.args, list[0].(float64), list[1].(float64))
+		return "ifNull(toFloat64OrNull(" + expr + ") BETWEEN ? AND ?, 0)"
+	case "on", "before", "after":
 		b.args = append(b.args, value.(string))
-		return "ifNull(toDateOrNull(substring(" + expr + ", 1, 10)) " + map[string]string{"before": "<", "after": ">"}[op] + " toDate(?), 0)"
+		return "ifNull(toDateOrNull(substring(" + expr + ", 1, 10)) " + map[string]string{"on": "=", "before": "<", "after": ">"}[op] + " toDate(?), 0)"
 	case "within_days":
 		from := b.asOf.AddDate(0, 0, -int(value.(float64))).Format(time.DateOnly)
 		b.args = append(b.args, from, b.asOf.Format(time.DateOnly))
@@ -119,9 +138,13 @@ func (b *sqlBuilder) props(where []PropFilter) string {
 	var sb strings.Builder
 	for _, f := range where {
 		k := f.Prop
-		if f.Op == "exists" {
+		if f.Op == "exists" || f.Op == "not_exists" {
 			b.args = append(b.args, k)
-			sb.WriteString(" AND JSONHas(props, ?)")
+			not := ""
+			if f.Op == "not_exists" {
+				not = "NOT "
+			}
+			sb.WriteString(" AND " + not + "JSONHas(props, ?)")
 			continue
 		}
 		b.args = append(b.args, k, k, k, k, k, k)

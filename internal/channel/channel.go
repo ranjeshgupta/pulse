@@ -52,6 +52,9 @@ type Content struct {
 	// sms; Text is also rcs, and email's plain-text part (generated from the HTML when empty)
 	Text     string `json:"text,omitempty"`
 	SenderID string `json:"sender_id,omitempty"` // sms: alphanumeric sender / DLT header
+	// sms, rcs: replace http(s) links in the text (and RCS url suggestions) with short tracked
+	// links (/t/s/{code}), so clicks are recorded as sms_clicked / rcs_clicked.
+	TrackLinks bool `json:"track_links,omitempty"`
 	// email: asset ids sent as attachments (checked against the workspace's assets when saved)
 	Attachments []int64 `json:"attachments,omitempty"`
 	// whatsapp: a pre-approved template on the WhatsApp Business account

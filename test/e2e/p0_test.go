@@ -172,7 +172,7 @@ func TestCSVImportExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := io.ReadAll(exp.Body)
-	if !strings.HasPrefix(string(data), "external_id,email,created_at,updated_at,city,email,first_seen,last_seen,plan\n") || !strings.Contains(string(data), "b-"+run+"@example.com") {
+	if !strings.HasPrefix(string(data), "external_id,email,created_at,updated_at,city,date_added,date_identified,date_modified,email,email_domain,first_seen,last_seen,plan\n") || !strings.Contains(string(data), "b-"+run+"@example.com") {
 		t.Errorf("export header or rows wrong:\n%s", data)
 	}
 	if !strings.Contains(string(data), "imp1-"+run) || !strings.Contains(string(data), "Pune") {

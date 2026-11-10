@@ -117,7 +117,7 @@ func TestTwilioReceipts(t *testing.T) {
 		{"delivered", url.Values{"MessageSid": {"SM1"}, "MessageStatus": {"delivered"}, "AccountSid": {"AC1"}},
 			[]Receipt{{ProviderMessageID: "SM1", Status: "delivered"}}, ""},
 		{"undelivered", url.Values{"MessageSid": {"SM2"}, "MessageStatus": {"undelivered"}, "ErrorCode": {"30003"}},
-			[]Receipt{{ProviderMessageID: "SM2", Status: "failed", Reason: "twilio error 30003"}}, ""},
+			[]Receipt{{ProviderMessageID: "SM2", Status: "failed", Reason: "twilio error 30003", Unreachable: true}}, ""},
 		{"failed", url.Values{"MessageSid": {"SM3"}, "MessageStatus": {"failed"}, "ErrorCode": {"30008"}},
 			[]Receipt{{ProviderMessageID: "SM3", Status: "failed", Reason: "twilio error 30008"}}, ""},
 		{"sent is not final", url.Values{"MessageSid": {"SM4"}, "MessageStatus": {"sent"}}, nil, ""},

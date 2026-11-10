@@ -23,7 +23,7 @@ func TestMerge(t *testing.T) {
 	merged, changed := Merge(cur, e)
 
 	// age 30.0 -> 30 has the same canonical value, so it is not a change.
-	if want := []string{"city", "email", "vip"}; !reflect.DeepEqual(changed, want) {
+	if want := []string{"city", "email", "email_domain", "vip"}; !reflect.DeepEqual(changed, want) {
 		t.Errorf("changed = %v, want %v", changed, want)
 	}
 	if merged["city"] != "Delhi" || merged["plan"] != "free" || merged["email"] != "a@b.c" {
@@ -165,7 +165,7 @@ func TestHandleEnrichesAndCountsOnce(t *testing.T) {
 	}
 	var out event.Event
 	_ = json.Unmarshal(pub.recs[0].Value, &out)
-	if out.ContactID != 1 || !out.NewContact || out.Profile["city"] != "Delhi" || !reflect.DeepEqual(out.ChangedAttrs, []string{"city", "first_seen", "last_seen"}) || out.Profile["last_seen"] != "2026-11-10" {
+	if out.ContactID != 1 || !out.NewContact || out.Profile["city"] != "Delhi" || !reflect.DeepEqual(out.ChangedAttrs, []string{"city", "date_added", "date_identified", "date_modified", "first_seen", "last_seen"}) || out.Profile["last_seen"] != "2026-11-10" {
 		t.Errorf("enriched = %+v", out)
 	}
 	if string(pub.recs[0].Key) != "1:1" || pub.recs[0].Topic != event.TopicEnriched {

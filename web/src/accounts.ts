@@ -54,7 +54,7 @@ export function contactCompany(c: Pick<Contact, "attrs">): { id: number; name: s
 
 /** Profile attributes the drawer shows in their own sections instead of the plain attribute list. */
 export function isAccountAttr(key: string): boolean {
-  return key === "stage" || key === "stage_changed_at" || key.startsWith("company_");
+  return key === "stage" || key === "stage_changed_at" || key === "owner_id" || key === "owner_name" || key.startsWith("company_");
 }
 
 /** mergePlan lists the merges that fold a duplicate group into winner: every other contact, oldest first. */

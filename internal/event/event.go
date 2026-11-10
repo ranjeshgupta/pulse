@@ -52,6 +52,14 @@ const (
 	// JourneySplit is recorded by a journey's split step for each contact it routes (props
 	// journey_id, step, path, label, decided), so A/B paths can be compared and a winner picked.
 	JourneySplit = "journey_split"
+	// OwnerChanged assigns the contact to a user of the workspace (props owner_id, owner_name;
+	// owner_id 0 or missing unassigns). Only PUT /v1/contacts/{id}/owner records it.
+	OwnerChanged = "owner_changed"
+	// SessionStart is sent by the SDKs when a visit starts (after 30 minutes without events), with
+	// props session_id and the device properties (see DeviceProps).
+	SessionStart = "session_start"
+	PageView     = "page_view"
+	ScreenView   = "screen_view"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -59,7 +67,7 @@ const (
 func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
-		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit:
+		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged:
 		return true
 	}
 	return false
@@ -69,7 +77,7 @@ func ServerOnly(name string) bool {
 // which validate it), so POST /v1/events refuses it.
 func PlatformOnly(name string) bool {
 	switch name {
-	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit:
+	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged:
 		return true
 	}
 	return false
@@ -90,12 +98,56 @@ const (
 	AttrCompanyName    = "company_name"
 	// CompanyAttrPrefix starts every copy of a company attribute on its contacts: company_<key>.
 	CompanyAttrPrefix = "company_"
+
+	AttrDateAdded      = "date_added"      // RFC 3339 time the contact was created
+	AttrDateIdentified = "date_identified" // RFC 3339 time the contact first had a known id or an email
+	AttrDateModified   = "date_modified"   // UTC date (YYYY-MM-DD) of the latest attribute change
+	AttrEmailDomain    = "email_domain"    // the part of email after @, lower case
+	AttrOwnerID        = "owner_id"        // the user who owns the contact
+	AttrOwnerName      = "owner_name"
+	AttrLocale         = "locale" // preferred locale, e.g. en-IN (SDKs send it; servers may set it)
+	// AttrSMSBounced marks a phone number that failed permanently: SMS to it is suppressed. Set by
+	// the dispatcher; a server can clear it, and a new phone number clears it.
+	AttrSMSBounced = "sms_bounced"
 )
 
+// DeviceProps maps the device properties the SDKs send on identify, page_view, screen_view and
+// session_start to the profile attributes that keep the contact's last-seen device.
+var DeviceProps = map[string]string{
+	"device_type":  "device_type",
+	"os":           "device_os",
+	"os_version":   "device_os_version",
+	"device_brand": "device_brand",
+	"device_model": "device_model",
+	"browser":      "browser",
+	"app_version":  "app_version",
+}
+
+// DeviceAttr reports whether k is one of the last-seen device attributes.
+func DeviceAttr(k string) bool {
+	for _, a := range DeviceProps {
+		if a == k {
+			return true
+		}
+	}
+	return false
+}
+
+// CarriesDevice reports whether the profile role reads device properties from this event.
+func CarriesDevice(name string) bool {
+	return name == Identify || name == PageView || name == ScreenView || name == SessionStart
+}
+
 // EventOnlyAttr reports whether a profile attribute changes only through its event, so attributes
-// sent with any event (even from a server) can't set it.
+// sent with any event (even from a server) can't set it. Derived attributes (dates, email domain,
+// device, owner) are kept by the profile role itself.
 func EventOnlyAttr(k string) bool {
-	return k == AttrMergedInto || k == AttrStage || k == AttrStageChangedAt || strings.HasPrefix(k, CompanyAttrPrefix)
+	switch k {
+	case AttrMergedInto, AttrStage, AttrStageChangedAt, AttrDateAdded, AttrDateIdentified, AttrDateModified,
+		AttrEmailDomain, AttrOwnerID, AttrOwnerName:
+		return true
+	}
+	return strings.HasPrefix(k, CompanyAttrPrefix) || DeviceAttr(k)
 }
 
 // SetOnceAttr reports whether a profile attribute keeps its first value: the first-touch

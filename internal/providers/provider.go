@@ -21,6 +21,9 @@ var (
 	ErrUnreachable = errors.New("recipient unreachable on this channel")
 	// ErrPermanent: retrying won't help (rejected template, invalid number, bad credentials).
 	ErrPermanent = errors.New("permanent delivery failure")
+	// ErrBadNumber: the phone number itself is invalid or can't receive messages (always also
+	// ErrPermanent). An SMS that fails this way marks the contact sms_bounced.
+	ErrBadNumber = errors.New("invalid or unreachable phone number")
 	// ErrUnauthorized: a webhook's signature did not verify.
 	ErrUnauthorized = errors.New("webhook signature invalid")
 )
@@ -28,6 +31,15 @@ var (
 // Unreachable and Permanent wrap a provider's own reason with the sentinel.
 func Unreachable(reason string) error { return fmt.Errorf("%w: %s", ErrUnreachable, reason) }
 func Permanent(reason string) error   { return fmt.Errorf("%w: %s", ErrPermanent, reason) }
+
+// BadNumber is a permanent failure caused by the recipient's phone number.
+func BadNumber(reason string) error {
+	return fmt.Errorf("%w: %w: %s", ErrPermanent, ErrBadNumber, reason)
+}
+
+// Bounced reports whether an SMS failure means the number bounced: the provider says the number
+// is invalid, or that it can't be reached on SMS.
+func Bounced(err error) bool { return errors.Is(err, ErrBadNumber) || errors.Is(err, ErrUnreachable) }
 
 // Outbound is one rendered message to one recipient address.
 type Outbound struct {

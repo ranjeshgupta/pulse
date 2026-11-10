@@ -57,7 +57,16 @@ and journeys within seconds, not on a 15-minute cron.
   (`first_utm_*` / `last_utm_*` profile attributes, the session's campaign on `page_view`), funnel breakdowns
   (`breakdown: {attr}`), a custom report builder (`POST /v1/reports/run`, saved under `/v1/reports`) and automatic A/B
   winners on journey split steps (`winner: {metric, after_seconds, min_per_variant}`).
-- **Still to build:** the rest of P2 in the feature-parity doc (batch 8).
+- **Batch 7b, segment builder (done):** one searchable, grouped "Add filter" picker (Contact, Company, Location, Device,
+  Consent & deliverability, Behaviour, Points & stage, Segments & tags; every custom attribute listed with its type;
+  recently used first; keyboard accessible), typed filter rows with suggested values, behaviour filters as sentences, and
+  explicit nested "Match ALL / ANY of the following" groups. New data for Mautic's filters: last-seen device and locale
+  from both SDKs, browsing sessions (`session_start`), `email_domain`, `date_added` / `date_identified` /
+  `date_modified`, contact owners (`PUT /v1/contacts/{id}/owner`), SMS bounces (`sms_bounced`), manual vs self-service
+  unsubscribes (`method` on `unsubscribed`), and SMS / RCS link click tracking (`/t/s/{code}`, `sms_clicked`). New rule
+  operators: doesn't contain, starts / ends with, is not one of, is not set, between, on a date. Mautic filter mapping:
+  [docs/05-feature-parity.md](docs/05-feature-parity.md#segment-builder-batch-7b).
+- **Still to build:** the campaign builder part of batch 7b, then the rest of P2 in the feature-parity doc (batch 8).
 
 ## Run it
 
@@ -84,10 +93,13 @@ cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies t
 
 Pulse maintains some profile attributes itself, so they can't be set directly by browsers, forms, journey "update
 profile" steps, server events or CSV imports (they are dropped there): `tags`, `points`, `stage`, `stage_changed_at`,
-`company_id`, `company_name` and every `company_*` key, `first_seen`, `last_seen`, `merged_into`, `email_bounced` (a server
-may clear it), and the `optout_*` consent flags. `first_utm_*` and `first_referrer` (first-touch attribution, set by the
+`company_id`, `company_name` and every `company_*` key, `first_seen`, `last_seen`, `date_added`, `date_identified`,
+`date_modified`, `email_domain`, `owner_id`, `owner_name`, the last-seen device (`device_type`, `device_os`,
+`device_os_version`, `device_brand`, `device_model`, `browser`, `app_version`: from the SDKs' event properties),
+`merged_into`, `email_bounced` and `sms_bounced` (a server may clear them; a new phone number clears `sms_bounced`), and
+the `optout_*` consent flags. `locale` is filled from the SDKs but may be set by your server. `first_utm_*` and `first_referrer` (first-touch attribution, set by the
 web SDK) can be set but keep their first value. Change them through their own APIs and events: tags, points, stages
-(`PUT /v1/contacts/{id}/stage`, journey step `change_stage`), companies (`PUT /v1/contacts/{id}/company`, or an identify
+(`PUT /v1/contacts/{id}/stage`, journey step `change_stage`), owners (`PUT /v1/contacts/{id}/owner`), companies (`PUT /v1/contacts/{id}/company`, or an identify
 with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`). Name your own fields differently, e.g.
 `team_size` rather than `company_size`.
 
