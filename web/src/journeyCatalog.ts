@@ -53,6 +53,8 @@ const ok = () => null;
 const base = (type: string, extra: Partial<JourneyNode> = {}) => (g?: JourneyGraph) => ({ type, ...defaultsFor(g ?? { trigger: { type: "event" }, entry: "", nodes: {} }, type), ...extra });
 // End steps may only go on a free handle or replace an Exit.
 const endsPath = (type: string) => (g: JourneyGraph, at: InsertAt) => insertProblem(g, at, type);
+// Steps that change consent or CRM data: the server refuses them without edit access to contacts.
+const needsContacts = (_g: JourneyGraph, _at: InsertAt, ctx: CatalogCtx) => (ctx.canEditContacts ? null : "Needs edit access to contacts");
 const needsEmail = (label: string) => (g: JourneyGraph, at: InsertAt) =>
   hasUpstream(g, at, (t) => t === "send_email") ? null : `${label}: add a Send email step above it first`;
 
@@ -133,12 +135,17 @@ const DEFS: Def[] = [
   { id: "push_dwc", category: "action", type: "push_dwc", label: "Push dynamic content", icon: "code", keywords: "dwc slot",
     description: "Set this contact's content for a Dynamic Web Content slot." },
   { id: "update_contact", category: "action", type: "update_attr", label: "Update contact", icon: "user", keywords: "field attribute set", description: "Set fields on the contact." },
-  { id: "update_owner", category: "action", type: "update_owner", label: "Update contact owner", icon: "user-check", keywords: "assign", description: "Assign the contact to a teammate, or unassign them." },
-  { id: "update_company", category: "action", type: "update_company", label: "Update company", icon: "building", description: "Set fields on the contact's company." },
-  { id: "add_company", category: "action", type: "add_company", label: "Add to company", icon: "building-plus", keywords: "link account", description: "Link the contact to a company." },
+  { id: "update_owner", category: "action", type: "update_owner", label: "Update contact owner", icon: "user-check", keywords: "assign", description: "Assign the contact to a teammate, or unassign them.",
+    disabled: needsContacts },
+  { id: "update_company", category: "action", type: "update_company", label: "Update company", icon: "building", description: "Set fields on the contact's company.",
+    disabled: needsContacts },
+  { id: "add_company", category: "action", type: "add_company", label: "Add to company", icon: "building-plus", keywords: "link account", description: "Link the contact to a company.",
+    disabled: needsContacts },
   { id: "primary_company", category: "action", type: "add_company", label: "Update contact's primary company", icon: "building-plus", keywords: "link account",
-    description: "Make a company the contact's company (a contact has one company)." },
-  { id: "company_points", category: "action", type: "company_points", label: "Add to company's score", icon: "trend", keywords: "points", description: "Add points to the company's score." },
+    description: "Make a company the contact's company (a contact has one company).",
+    disabled: needsContacts },
+  { id: "company_points", category: "action", type: "company_points", label: "Add to company's score", icon: "trend", keywords: "points", description: "Add points to the company's score.",
+    disabled: needsContacts },
   { id: "adjust_points", category: "action", type: "adjust_points", label: "Adjust contact points", icon: "star", keywords: "score", description: "Add or take away points." },
   { id: "change_stage", category: "action", type: "change_stage", label: "Change contact's stage", icon: "flag", keywords: "lifecycle", description: "Move the contact to a lifecycle stage, e.g. MQL." },
   { id: "update_tags", category: "action", type: "update_tags", label: "Modify contact's tags", icon: "tag", description: "Add or remove tags." },
@@ -152,10 +159,11 @@ const DEFS: Def[] = [
   { id: "dnc_add", category: "action", type: "dnc_add", label: "Add Do Not Contact", icon: "shield", keywords: "unsubscribe dnc",
     description: "Stop a channel, or everything, for this contact." },
   { id: "dnc_remove", category: "action", type: "dnc_remove", label: "Remove Do Not Contact", icon: "shield-off", keywords: "resubscribe dnc",
-    description: "Allow a channel again." },
+    description: "Allow a channel again.",
+    disabled: needsContacts },
   { id: "delete_contact", category: "action", type: "delete_contact", label: "Delete contact", icon: "trash", keywords: "remove erase gdpr",
     description: "Permanently delete the contact and all their data.",
-    disabled: (g, at, ctx) => (ctx.canEditContacts ? null : "Needs edit access to contacts") ?? endsPath("delete_contact")(g, at) },
+    disabled: (g, at, ctx) => needsContacts(g, at, ctx) ?? endsPath("delete_contact")(g, at) },
   { id: "push_integration", category: "action", type: "push_integration", label: "Push contact to integration", icon: "plug", keywords: "crm salesforce hubspot",
     description: "Send the contact to a connected CRM or tool.", make: () => ({ type: "push_integration" }),
     disabled: () => "Coming with integrations (batch 8)" },

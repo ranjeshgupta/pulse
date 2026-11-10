@@ -71,8 +71,8 @@ and journeys within seconds, not on a 15-minute cron.
   a step: form / asset / page / device / dynamic content decisions, opens / clicks (any or one link) / replies to email
   (inbound reply tracking: `reply_to` delivery setting, `POST /v1/replies/{token}`), marketing messages with channel
   fallback, email to users, show focus item and push dynamic content per contact, owner / company / company score,
-  change campaigns, jump to step (25 jumps per enrollment at most), Do Not Contact, delete contact (typed confirmation,
-  contacts edit access), and conditions on campaigns, form fields, notifications, valid email (MX), DNC, a date and page
+  change campaigns, jump to step (25 jumps per enrollment at most), Do Not Contact, delete contact (typed confirmation),
+  where deleting, removing DNC and owner / company steps need contacts edit access, and conditions on campaigns, form fields, notifications, valid email (MX), DNC, a date and page
   history. The canvas has Yes/No colours, step numbers, Tidy up, zoom to fit, minimap, undo/redo and per-step counts.
   Mapping: [docs/05-feature-parity.md](docs/05-feature-parity.md#campaign-builder-batch-7b). Push to integration waits for
   batch 8.

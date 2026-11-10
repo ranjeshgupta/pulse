@@ -32,6 +32,25 @@ func TestDeleteContactStepNeedsContactsEdit(t *testing.T) {
 	}
 }
 
+func TestConsentAndCRMStepsNeedContactsEdit(t *testing.T) {
+	marketer := model.Principal{TenantID: 1, Perms: auth.Perms{auth.AreaJourneys: auth.Publish, auth.AreaContacts: auth.View}}
+	for _, step := range []string{`{"type":"dnc_remove","channel":"email","next":"e"}`, `{"type":"update_owner","owner_id":0,"next":"e"}`,
+		`{"type":"add_company","company_id":3,"next":"e"}`} {
+		g, err := journey.ParseGraph([]byte(`{"trigger":{"type":"event","event":"x"},"entry":"s","nodes":{"s":` + step + `,"e":{"type":"exit"}}}`))
+		if err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+		w := httptest.NewRecorder()
+		if deletePermOK(w, marketer, g) || w.Code != 403 || !strings.Contains(w.Body.String(), "edit access to contacts") {
+			t.Errorf("%s saved without contacts edit: %d %s", step, w.Code, w.Body)
+		}
+	}
+	add, _ := journey.ParseGraph([]byte(`{"trigger":{"type":"event","event":"x"},"entry":"s","nodes":{"s":{"type":"dnc_add","channel":"email","next":"e"},"e":{"type":"exit"}}}`))
+	if !deletePermOK(httptest.NewRecorder(), marketer, add) {
+		t.Error("adding Do Not Contact only stops messages and needs nothing more")
+	}
+}
+
 func TestJourneyRefsRefuseItself(t *testing.T) {
 	s := New(Deps{Store: &memStore{}})
 	g, err := journey.ParseGraph([]byte(`{"trigger":{"type":"event","event":"x"},"entry":"c","nodes":{

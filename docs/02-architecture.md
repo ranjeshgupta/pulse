@@ -201,7 +201,9 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   and a message decision waits for that pass's message. A jump also moves the pending safety timer to the target.
 - **Delete contact** uses the cleanup deletion path (`maintenance.Cleaner.DeleteContacts`: ClickHouse rows first, then
   Postgres: contact, devices, inbox, enrollments). The step needs `confirm: "DELETE"`; saving or activating a journey
-  with it needs edit access to contacts. Events still in flight for that contact can create a new, empty profile.
+  with it needs edit access to contacts, as does one with Remove Do Not Contact, Update contact owner, Update company,
+  Add to company or Add to company's score (`contactSteps` in `internal/api/journeyrefs.go`; Add DNC only stops messages,
+  so it needs nothing more). Events still in flight for that contact can create a new, empty profile.
 - **Per-contact on-site content** (`internal/onsite/pushes.go`, Redis): `show_focus` adds the focus item to
   `ofocus:{tenant}:{contact}` (30 days); the decide API (`POST /v1/web/decide`) for a known — verified, when identity
   verification is on — contact takes and clears it and appends the item (any status: a draft item is journey-only).

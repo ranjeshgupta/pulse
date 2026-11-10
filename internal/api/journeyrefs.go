@@ -1,7 +1,8 @@
 package api
 
 // Checks of what a journey refers to that only the workspace knows: stages, users, other journeys,
-// focus items, companies, email templates; and who may save a journey that deletes contacts.
+// focus items, companies, email templates; and who may save a journey that deletes contacts, removes
+// Do Not Contact or changes owners and companies.
 
 import (
 	"context"
@@ -24,11 +25,29 @@ type JourneyRefStore interface {
 	GetCompany(ctx context.Context, tenant, id int64) (pg.Company, error)
 }
 
-// deletePermOK refuses a journey with a delete_contact step from someone who can't delete contacts.
+// contactSteps change consent or a contact's CRM data beyond what marketing steps do (tags, points,
+// attributes): saving or activating a journey with them needs edit access to contacts, as doing
+// the same by hand would. Adding Do Not Contact is left out: it only ever stops messages.
+var contactSteps = map[string]string{
+	journey.NodeDeleteContact: "deletes contacts",
+	journey.NodeDNCRemove:     "removes Do Not Contact",
+	journey.NodeUpdateOwner:   "changes contact owners",
+	journey.NodeUpdateCompany: "changes companies",
+	journey.NodeAddCompany:    "changes contacts' companies",
+	journey.NodeCompanyPoints: "changes company scores",
+}
+
+// deletePermOK refuses a journey with a step from contactSteps from someone who can't edit contacts.
 func deletePermOK(w http.ResponseWriter, p model.Principal, g journey.Graph) bool {
-	if g.HasType(journey.NodeDeleteContact) && !p.Perms.Allows(auth.AreaContacts, auth.Edit) {
-		writeErr(w, http.StatusForbidden, "a journey that deletes contacts needs edit access to contacts")
-		return false
+	if p.Perms.Allows(auth.AreaContacts, auth.Edit) {
+		return true
+	}
+	for _, t := range []string{journey.NodeDeleteContact, journey.NodeDNCRemove, journey.NodeUpdateOwner,
+		journey.NodeUpdateCompany, journey.NodeAddCompany, journey.NodeCompanyPoints} {
+		if g.HasType(t) {
+			writeErr(w, http.StatusForbidden, "a journey that "+contactSteps[t]+" needs edit access to contacts")
+			return false
+		}
 	}
 	return true
 }

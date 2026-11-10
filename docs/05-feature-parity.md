@@ -236,11 +236,11 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | Request dynamic content | Requests dynamic content | `on_dwc` `slot` | the decide API records `dwc_requested` for known contacts; put "Push dynamic content" on Yes |
 | **Actions** | | | |
 | Add Do Not Contact | Add Do Not Contact | `dnc_add` channel (or all), reason | `unsubscribed` with method manual, source journey |
-| Remove Do Not Contact | Remove Do Not Contact | `dnc_remove` | `resubscribed` |
-| Add to company | Add to company | `add_company` | links the contact (`company_linked`) |
+| Remove Do Not Contact | Remove Do Not Contact | `dnc_remove` | `resubscribed`; needs contacts edit access |
+| Add to company | Add to company | `add_company` | links the contact (`company_linked`); needs contacts edit access |
 | Update contact's primary company | Update contact's primary company | `add_company` | approximate: a Pulse contact has one company, so "primary" is the company |
-| Add to company's score | Add to company's score | `company_points` | adds to the company's `score` attribute (once per step, even on retries); contacts see it as `company_score` |
-| Update company (Mautic's company fields) | Update company | `update_company` `company_attrs` | the contact's linked company; skipped without one |
+| Add to company's score | Add to company's score | `company_points` | adds to the company's `score` attribute (once per step, even on retries); contacts see it as `company_score`; needs contacts edit access |
+| Update company (Mautic's company fields) | Update company | `update_company` `company_attrs` | the contact's linked company; skipped without one; needs contacts edit access |
 | Adjust contact points | Adjust contact points | `adjust_points` | |
 | Change campaigns | Change campaigns | `change_journey` add / remove journeys | through a `journey_change` event; only active journeys enroll (their schedule and re-entry apply); removed enrollments get status `removed` |
 | Change contact's stage | Change contact's stage | `change_stage` | |
@@ -256,7 +256,7 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | Send marketing message | Send marketing message | `send_message` channels in order | approximate: Mautic's "marketing message" is a saved object; Pulse keeps the ordered channel → template list on the step and sends on the first channel the contact can receive and has consented to (address, consent, bounce, push device) |
 | Show Focus Item | Show focus item | `show_focus` | shown to this contact on their next page view, once (even a draft item: journey-only) |
 | Update contact | Update contact | `update_attr` | values may use `{contactfield=x}`, `{{.Attrs.x}}`, `now`, `now+3hours`, `now-2days` … |
-| Update contact owner | Update contact owner | `update_owner` | `owner_changed`; 0 unassigns |
+| Update contact owner | Update contact owner | `update_owner` | `owner_changed`; 0 unassigns; needs contacts edit access |
 | **Conditions** | | | Yes / No right now |
 | Contact campaigns | Contact campaigns | `if_journey` active / completed / entered | |
 | Contact device | Contact device | `check` preset device | last-seen device attributes |
