@@ -58,10 +58,34 @@ func (r Result) Skipped() int64 { return r.Rows - r.Imported }
 // ErrTooManyRows stops an import over Options.MaxRows.
 var ErrTooManyRows = errors.New("too many rows")
 
+// MaxLine bounds one line of the file, so a file without line breaks can't make the CSV reader
+// buffer gigabytes.
+const MaxLine = 1 << 20
+
+// ErrLineTooLong stops an import with a line over MaxLine.
+var ErrLineTooLong = fmt.Errorf("a line is longer than %d bytes; is this a CSV file?", MaxLine)
+
+type lineLimit struct {
+	r   io.Reader
+	run int // bytes since the last newline
+}
+
+func (l *lineLimit) Read(p []byte) (int, error) {
+	n, err := l.r.Read(p)
+	for _, b := range p[:n] {
+		if b == '\n' {
+			l.run = 0
+		} else if l.run++; l.run > MaxLine {
+			return 0, ErrLineTooLong
+		}
+	}
+	return n, err
+}
+
 // Run reads the CSV and publishes its events. On error, Result says how far it got.
 func Run(ctx context.Context, pub kafka.Publisher, src io.Reader, o Options) (Result, error) {
 	res := Result{Errors: []RowError{}}
-	cr := csv.NewReader(src)
+	cr := csv.NewReader(&lineLimit{r: src})
 	cr.FieldsPerRecord = -1
 	cr.TrimLeadingSpace = true
 	cr.ReuseRecord = true
@@ -117,6 +141,10 @@ func Run(ctx context.Context, pub kafka.Publisher, src io.Reader, o Options) (Re
 			return res, ErrTooManyRows
 		}
 		if err != nil {
+			var pe *csv.ParseError
+			if !errors.As(err, &pe) || errors.Is(err, ErrLineTooLong) {
+				return res, err // the source failed, or a line is too long: stop, don't loop on it
+			}
 			res.Errors = appendErr(res.Errors, line, "can't be read as CSV: "+err.Error())
 			continue
 		}

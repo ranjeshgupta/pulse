@@ -231,11 +231,8 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, p model.Prin
 		writeErr(w, http.StatusBadRequest, "a valid email is required")
 		return
 	}
-	if ok, err := s.validRole(r.Context(), p.TenantID, req.Role); err != nil {
-		s.fail(w, err)
-		return
-	} else if !ok {
-		writeErr(w, http.StatusBadRequest, "choose a role: admin, editor, viewer or a custom role")
+	if err := s.grantable(r.Context(), p, req.Role); err != nil {
+		s.failGrant(w, err)
 		return
 	}
 	u := model.User{TenantID: p.TenantID, Email: req.Email, Name: req.Name, Role: req.Role}
@@ -261,6 +258,10 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, p model.Prin
 	}
 	if id == p.UserID {
 		writeErr(w, http.StatusBadRequest, "you cannot remove yourself")
+		return
+	}
+	if err := s.canManageUser(r.Context(), p, id); err != nil {
+		s.failGrant(w, err)
 		return
 	}
 	if err := s.Store.DeleteUser(r.Context(), p.TenantID, id); err != nil {
@@ -302,8 +303,8 @@ func (s *Server) putSSO(w http.ResponseWriter, r *http.Request, p model.Principa
 	if c.DefaultRole == "" {
 		c.DefaultRole = auth.RoleEditor
 	}
-	if ok, err := s.validRole(r.Context(), p.TenantID, c.DefaultRole); err != nil || !ok {
-		writeErr(w, http.StatusBadRequest, "default_role must be a built-in or custom role")
+	if err := s.grantable(r.Context(), p, c.DefaultRole); err != nil {
+		s.failGrant(w, err)
 		return
 	}
 	for _, u := range []string{c.Issuer, c.DiscoveryURL} {

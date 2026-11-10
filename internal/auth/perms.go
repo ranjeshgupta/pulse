@@ -60,6 +60,16 @@ type Perms map[string]Level
 // Allows reports whether the perms reach level in area.
 func (p Perms) Allows(area string, level Level) bool { return p[area] >= level }
 
+// Covers reports whether p reaches every level q has: someone may only grant access they hold.
+func (p Perms) Covers(q Perms) bool {
+	for a, l := range q {
+		if p[a] < l {
+			return false
+		}
+	}
+	return true
+}
+
 // Validate checks that every area is known.
 func (p Perms) Validate() error {
 	for a := range p {

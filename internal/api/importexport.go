@@ -71,6 +71,9 @@ func (s *Server) importContacts(w http.ResponseWriter, r *http.Request, tenant i
 	case errors.Is(err, importer.ErrBadHeader):
 		writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), importer.ErrBadHeader.Error()+": "))
 		return
+	case errors.Is(err, importer.ErrLineTooLong):
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	case errors.Is(err, importer.ErrTooManyRows):
 		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("files here are limited to %d rows; use a background import (POST /v1/imports) for more", maxImportRows))
 		return

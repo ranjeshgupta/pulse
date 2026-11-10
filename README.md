@@ -28,7 +28,10 @@ and journeys within seconds, not on a 15-minute cron.
 - **P1 batches 1-3 (done):** journey power steps, frequency caps and quiet hours; lists, tags, scoring, identity merge;
   forms (hosted `/f/{key}` and `data-pulse-form`), preference center, STOP/START replies, broadcast A/B tests,
   broadcast and journey reports, funnels.
-- **Still to build:** P1 batch 4 and P2 in the feature-parity doc (roles, audit log, webhooks, mobile SDKs, and more).
+- **P1 batch 4 (done):** custom roles, audit log, outbound webhooks (`webhooks` role), background imports, bounce and
+  complaint webhooks, standard web push, a custom HTTP gateway for any channel, and the Flutter SDK
+  ([sdks/flutter/pulse_sdk](sdks/flutter/pulse_sdk)).
+- **Still to build:** in-app messages and app inbox, then P2 in the feature-parity doc.
 
 ## Run it
 
@@ -39,7 +42,7 @@ make up        # Kafka, ClickHouse, Postgres, Redis, Mailpit, Keycloak + pulse (
 make seed      # demo workspace with data (credentials: deploy/dev-seed.md)
 make test      # Go unit tests (no infrastructure)
 make it        # SQL-vs-Go segment agreement test against ClickHouse (needs `make up`)
-make e2e       # end-to-end: pipeline latency, SSO, fallback, broadcasts, on-site (needs `make up`)
+make e2e       # end-to-end (needs `make up`); webhook tests run in a container on the compose network
 make load ARGS="-rate 10000 -duration 45s"   # load test; results in docs/03-load-test.md
 cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies the API), and its unit tests
 ```
@@ -50,6 +53,17 @@ cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies t
 | Mailpit (sent mail) | http://localhost:18025 |
 | Keycloak (dev SSO) | http://localhost:8180 |
 | ClickHouse HTTP | http://localhost:18123 (user/password `pulse`) |
+
+## Security settings for production
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links and webhook secrets |
+| `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
+| `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
+| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks and the custom gateway call private addresses (development only) |
+
+The dev compose file turns the two `ALLOW_PRIVATE` switches on for the local Keycloak and the e2e webhook receivers.
 
 ## API walkthrough
 

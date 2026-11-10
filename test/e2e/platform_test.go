@@ -146,6 +146,19 @@ func TestRolesAndAudit(t *testing.T) {
 		t.Error("the audit log contains a password")
 	}
 	jsonCall(t, ana, "GET", "/v1/audit", nil, 403) // editors can't read it
+
+	// A custom role with settings access can't hand out more than it has, or change its own role.
+	ops := jsonCall(t, owner, "POST", "/v1/roles", map[string]any{"name": "Ops", "permissions": map[string]any{"settings": "edit", "contacts": "view"}}, 200)
+	opsEmail := "ops-" + run + "@example.com"
+	jsonCall(t, owner, "POST", "/v1/users", map[string]any{"email": opsEmail, "name": "Ops", "role": ops["key"], "password": "ops password 12"}, 201)
+	jar2, _ := cookiejar.New(nil)
+	op := &http.Client{Jar: jar2, Timeout: 15 * time.Second}
+	jsonCall(t, op, "POST", "/v1/auth/login", map[string]any{"workspace": slug, "email": opsEmail, "password": "ops password 12"}, 200)
+	jsonCall(t, op, "POST", "/v1/users", map[string]any{"email": "x-" + run + "@example.com", "role": "admin", "password": "sneaky password 1"}, 403)
+	jsonCall(t, op, "POST", "/v1/roles", map[string]any{"name": "Super", "permissions": map[string]any{"journeys": "publish"}}, 403)
+	jsonCall(t, op, "PUT", fmt.Sprint("/v1/roles/", idOf(ops["id"])), map[string]any{"name": "Ops", "permissions": map[string]any{"settings": "edit"}}, 403)
+	jsonCall(t, op, "PUT", fmt.Sprintf("/v1/users/%d/role", ownerID), map[string]any{"role": "viewer"}, 403) // an admin outranks them
+	jsonCall(t, op, "POST", "/v1/users", map[string]any{"email": "v-" + run + "@example.com", "role": ops["key"], "password": "fine password 12"}, 201)
 }
 
 // TestOutboundWebhooks: events and segment entries are posted, signed, to the customer's URL;

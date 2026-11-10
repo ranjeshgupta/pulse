@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -100,10 +101,15 @@ func str(m map[string]any, k string) string {
 
 // snsURL accepts only https://sns.<region>.amazonaws.com/..., so a forged confirmation can't make
 // Pulse call an arbitrary address.
+//
+// The bounce URL itself is the credential (an unguessable per-workspace token), so SNS message
+// signatures aren't verified here.
 func snsURL(raw string) bool {
 	u, err := url.Parse(raw)
-	return err == nil && u.Scheme == "https" && strings.HasPrefix(u.Host, "sns.") && strings.HasSuffix(u.Host, ".amazonaws.com")
+	return err == nil && u.Scheme == "https" && u.Port() == "" && u.User == nil && snsHost.MatchString(u.Hostname())
 }
+
+var snsHost = regexp.MustCompile(`^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$`)
 
 func sendgrid(m map[string]any) (Bounce, bool) {
 	b := Bounce{Email: str(m, "email"), Reason: str(m, "reason"), Source: "sendgrid"}

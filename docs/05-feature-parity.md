@@ -14,7 +14,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Unsubscribe, do-not-contact, per-channel consent | ✅ | ✅ | ✅ per channel and "everything", honored by every send (`*_suppressed`), editable per contact | |
 | Preference center | ✅ | 🟡 | ✅ per-channel switches and public lists; `{{.PreferencesURL}}`, unsubscribe page link, API-minted links | |
 | SMS / WhatsApp reply keywords (STOP, START) | ✅ | ✅ | ✅ Twilio and Meta inbound webhooks; editable keyword lists; replies recorded as `<channel>_received` | RCS replies: P2 |
-| CSV import and export | ✅ | ✅ | ✅ import through the live pipeline; export with one column per attribute | Async jobs for 10M+ rows: P1 |
+| CSV import and export | ✅ | ✅ | ✅ import through the live pipeline; export with one column per attribute; background imports of any size (up to 10 GB) with progress and cancel | |
 | Attribute definitions (type, label, PII flag) | ✅ | ✅ | ✅ Settings, Attributes; typed inputs in the segment builder; imports convert numbers and yes/no | |
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
 | Points / lead scoring | ✅ | ⬜ | ✅ scoring rules per event, manual adjust, journey step; `points` attribute in rules | |
@@ -74,15 +74,15 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Provider connection test, per provider | 🟡 | ✅ | ✅ this change | |
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
 | Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{.UnsubscribeURL}}`, RFC 8058 one-click, confirm page | |
-| Bounce and complaint handling | ✅ | ✅ | 🟡 receipts plumbing only | P1 |
+| Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe | SMTP DSN mailbox parsing: P2 |
 | Plain-text part, attachments | ✅ | 🟡 | ⬜ | P2 |
 | SMS (Twilio, MSG91) | ✅ | ✅ | ✅ adapters, not tried on live accounts | |
 | WhatsApp (Meta Cloud) with SMS fallback | ⬜ | ✅ | ✅ | |
 | RCS (Google RBM) with SMS fallback | ⬜ | ✅ | ✅ | |
 | Mobile push (FCM) | ✅ | ✅ | ✅ adapter, tokens via API | SDK next |
-| Web push | ✅ | ✅ | 🟡 FCM web tokens via `Pulse.registerPushToken`; no service-worker helper yet | P1 |
+| Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work | Click tracking: P2 |
 | In-app messages, app inbox | ⬜ | ✅ | ⬜ | P1, needs mobile SDKs |
-| Webhook channel | ✅ | ✅ | ⬜ | P1 |
+| Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
 | Facebook / Google audience sync | 🟡 | ✅ | ⬜ | P2 |
 
 ## On-site
@@ -115,12 +115,12 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 |---|---|---|---|---|
 | Multi-tenant workspaces | ⬜ | ✅ | ✅ | |
 | Password sign-in, SSO (OIDC: Keycloak, Entra ID, Okta, Google) | 🟡 SAML | ✅ | ✅ tested against Keycloak | |
-| Roles | ✅ granular | ✅ | 🟡 admin / editor | P1: custom roles |
-| Audit log | 🟡 | ✅ | ⬜ | P1 |
+| Roles | ✅ granular | ✅ | ✅ admin, editor, viewer and custom roles: none/view/edit/publish per area, enforced on every route | |
+| Audit log | 🟡 | ✅ | ✅ every change through the app or API (secrets redacted) and every sign-in | Retention settings, export: P2 |
 | REST API with keys | ✅ | ✅ | ✅ | |
-| Outbound webhooks on events | ✅ | ✅ | ⬜ | P1 |
+| Outbound webhooks on events | ✅ | ✅ | ✅ any event or segment entry/exit; HMAC-signed; retries over ~7 hours; delivery log; test send | |
 | Integrations (CRM, Zapier, Shopify) | ✅ plugins | ✅ | ⬜ | P2 |
-| Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | 🟡 web SDK (track, identify with identity verification, page views, on-site, push token); mobile SDKs P1 | |
+| Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | ✅ web SDK (track, identify, page views, on-site, forms, web push); Flutter SDK for Android and iOS apps (`sdks/flutter/pulse_sdk`) | Native Kotlin and Swift SDKs: P2 |
 
 ## Order to close the gaps
 
@@ -132,6 +132,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    attribute definitions, anonymous-to-known identity merge, and identity verification (signed user IDs) for the web SDK.
 4. **P1 batch 3, done:** forms, preference center, SMS and WhatsApp reply keywords, broadcast A/B tests and conversion
    goals, journey and broadcast reports, funnels.
-5. **P1, still to do — batch 4, platform:** custom roles, audit log, outbound webhooks, background imports, mobile SDKs,
-   bounce and complaint handling, web push service worker, webhook channel.
+5. **P1 batch 4, done:** custom roles, audit log, outbound webhooks, background imports, the Flutter SDK, bounce and
+   complaint handling, standard web push, and the custom HTTP gateway (webhook channel).
+   **Left from P1:** in-app messages and app inbox (they build on the Flutter SDK).
 6. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.

@@ -47,6 +47,26 @@ func (s *Store) ListRoles(ctx context.Context, tenant int64) ([]model.Role, erro
 	})
 }
 
+// RolePerms resolves a role key (built-in or "role:<id>") to its permissions; ok is false for an
+// unknown role.
+func (s *Store) RolePerms(ctx context.Context, tenant int64, role string) (auth.Perms, bool, error) {
+	if p, ok := auth.BuiltinPerms(role); ok {
+		return p, true, nil
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(role, auth.CustomRolePrefix), 10, 64)
+	if !strings.HasPrefix(role, auth.CustomRolePrefix) || err != nil {
+		return nil, false, nil
+	}
+	var raw []byte
+	err = s.db.QueryRow(ctx, `SELECT permissions FROM roles WHERE tenant_id = $1 AND id = $2`, tenant, id).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	return rolePerms("", raw), true, nil
+}
+
 // RoleExists reports whether role ("role:12") is a custom role of the workspace.
 func (s *Store) RoleExists(ctx context.Context, tenant int64, role string) (bool, error) {
 	id, err := strconv.ParseInt(strings.TrimPrefix(role, auth.CustomRolePrefix), 10, 64)

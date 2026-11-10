@@ -47,6 +47,8 @@ func (s *Server) webPushConfig(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	// The answer depends on the site key, which may come in a header: never share it between callers.
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Add("Vary", "X-Pulse-Site-Key")
 	writeJSON(w, http.StatusOK, map[string]any{"vapid_public_key": pub})
 }

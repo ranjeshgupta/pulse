@@ -20,6 +20,52 @@ type RoleStore interface {
 	SaveRole(ctx context.Context, tenant int64, r model.Role) (int64, error)
 	DeleteRole(ctx context.Context, tenant, id int64) error
 	SetUserRole(ctx context.Context, tenant, user int64, role string) error
+	RolePerms(ctx context.Context, tenant int64, role string) (auth.Perms, bool, error)
+}
+
+var (
+	errNoSuchRole   = errors.New("choose a role: admin, editor, viewer or a custom role")
+	errBeyondCaller = errors.New("you can only give, change or remove access you have yourself")
+)
+
+// grantable checks that role exists and that p holds at least its access. It is used for every
+// way a role reaches a person (invite, role change, SSO default) and for changes to roles and
+// people who hold them, so nobody can raise their own access through a colleague or a new account.
+func (s *Server) grantable(ctx context.Context, p model.Principal, role string) error {
+	rs, ok := s.Store.(RoleStore)
+	if !ok {
+		if auth.IsBuiltin(role) && p.Perms.Covers(mustBuiltin(role)) {
+			return nil
+		}
+		return errNoSuchRole
+	}
+	perms, exists, err := rs.RolePerms(ctx, p.TenantID, role)
+	switch {
+	case err != nil:
+		return err
+	case !exists:
+		return errNoSuchRole
+	case !p.Perms.Covers(perms):
+		return errBeyondCaller
+	}
+	return nil
+}
+
+func mustBuiltin(role string) auth.Perms {
+	p, _ := auth.BuiltinPerms(role)
+	return p
+}
+
+// failGrant answers a grantable error.
+func (s *Server) failGrant(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errNoSuchRole):
+		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, errBeyondCaller):
+		writeErr(w, http.StatusForbidden, err.Error())
+	default:
+		s.fail(w, err)
+	}
 }
 
 func (s *Server) roleRoutes(mux *http.ServeMux) {
@@ -31,18 +77,6 @@ func (s *Server) roleRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) roles() RoleStore { return s.Store.(RoleStore) }
-
-// validRole reports whether role can be given to a user: built-in or a custom role of the workspace.
-func (s *Server) validRole(ctx context.Context, tenant int64, role string) (bool, error) {
-	if auth.IsBuiltin(role) {
-		return true, nil
-	}
-	rs, ok := s.Store.(RoleStore)
-	if !ok {
-		return false, nil
-	}
-	return rs.RoleExists(ctx, tenant, role)
-}
 
 // builtinRoles describes the built-in roles for the app.
 func builtinRoles() []map[string]any {
@@ -95,6 +129,21 @@ func (s *Server) saveRole(w http.ResponseWriter, r *http.Request, p model.Princi
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !p.Perms.Covers(ro.Permissions) {
+		s.failGrant(w, errBeyondCaller)
+		return
+	}
+	if ro.ID != 0 {
+		key := auth.CustomRolePrefix + strconv.FormatInt(ro.ID, 10)
+		if key == p.Role {
+			writeErr(w, http.StatusForbidden, "you can't change the role you have; ask another admin")
+			return
+		}
+		if err := s.grantable(r.Context(), p, key); err != nil { // the role as it is now
+			s.failGrant(w, err)
+			return
+		}
+	}
 	id, err := s.roles().SaveRole(r.Context(), p.TenantID, ro)
 	if err != nil {
 		s.failConflict(w, err)
@@ -106,6 +155,10 @@ func (s *Server) saveRole(w http.ResponseWriter, r *http.Request, p model.Princi
 func (s *Server) deleteRole(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	id, ok := pathID(w, r)
 	if !ok {
+		return
+	}
+	if err := s.grantable(r.Context(), p, auth.CustomRolePrefix+strconv.FormatInt(id, 10)); err != nil && !errors.Is(err, errNoSuchRole) {
+		s.failGrant(w, err)
 		return
 	}
 	if err := s.roles().DeleteRole(r.Context(), p.TenantID, id); err != nil {
@@ -130,11 +183,12 @@ func (s *Server) setUserRole(w http.ResponseWriter, r *http.Request, p model.Pri
 		writeErr(w, http.StatusBadRequest, "you can't change your own role")
 		return
 	}
-	if ok, err := s.validRole(r.Context(), p.TenantID, req.Role); err != nil {
-		s.fail(w, err)
+	if err := s.grantable(r.Context(), p, req.Role); err != nil {
+		s.failGrant(w, err)
 		return
-	} else if !ok {
-		writeErr(w, http.StatusBadRequest, "choose a role")
+	}
+	if err := s.canManageUser(r.Context(), p, id); err != nil {
+		s.failGrant(w, err)
 		return
 	}
 	if err := s.roles().SetUserRole(r.Context(), p.TenantID, id, req.Role); err != nil {
@@ -142,6 +196,19 @@ func (s *Server) setUserRole(w http.ResponseWriter, r *http.Request, p model.Pri
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "role": req.Role})
+}
+
+// canManageUser checks that p holds at least the access of the user they're changing or removing.
+func (s *Server) canManageUser(ctx context.Context, p model.Principal, user int64) error {
+	u, err := s.Store.User(ctx, p.TenantID, user)
+	if err != nil {
+		return err
+	}
+	err = s.grantable(ctx, p, u.Role)
+	if errors.Is(err, errNoSuchRole) {
+		return nil // a role that was deleted grants nothing
+	}
+	return err
 }
 
 // failConflict reports store messages meant for people (409) and everything else as usual.
