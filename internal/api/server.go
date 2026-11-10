@@ -94,6 +94,10 @@ type Deps struct {
 	AllowPrivateSSO bool
 	// AllowPrivateWebhooks lets webhook tests reach private addresses (local development).
 	AllowPrivateWebhooks bool
+	// PagesURL is a separate origin for public, workspace-authored content: landing pages, asset
+	// downloads and hosted forms (e.g. https://pages.example.com). Set it in production so that
+	// content never shares an origin (or cookies) with the app. Empty serves them from PublicURL.
+	PagesURL string
 	// Geo locates web and app visitors by IP (nil: off).
 	Geo *geoip.Locator
 	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
@@ -191,7 +195,51 @@ func (s *Server) Handler() http.Handler {
 	if s.ui != nil {
 		mux.Handle("/", s.ui)
 	}
-	return bodyLimit(securityHeaders(mux))
+	return bodyLimit(securityHeaders(s.splitPages(mux)))
+}
+
+// publicBase is where public pages live: PagesURL, or PublicURL when there's no separate origin.
+func (s *Server) publicBase() string {
+	if s.PagesURL != "" {
+		return strings.TrimRight(s.PagesURL, "/")
+	}
+	return strings.TrimRight(s.PublicURL, "/")
+}
+
+// publicPagePath reports whether a path is workspace-authored public content.
+func publicPagePath(p string) bool {
+	return strings.HasPrefix(p, "/p/") || strings.HasPrefix(p, "/a/") || strings.HasPrefix(p, "/f/")
+}
+
+// splitPages keeps public pages and the app apart when PagesURL is set: on the pages host only
+// public pages and what they load (the SDK, its API) are served; on the app host, public pages
+// redirect to the pages host.
+func (s *Server) splitPages(h http.Handler) http.Handler {
+	u, err := url.Parse(s.PagesURL)
+	if s.PagesURL == "" || err != nil || u.Host == "" {
+		return h
+	}
+	pagesHost := strings.ToLower(u.Host)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.ToLower(r.Host)
+		if fh := r.Header.Get("X-Forwarded-Host"); fh != "" && s.TrustProxy {
+			host = strings.ToLower(strings.TrimSpace(strings.Split(fh, ",")[0]))
+		}
+		p := r.URL.Path
+		if host == pagesHost {
+			if publicPagePath(p) || strings.HasPrefix(p, "/sdk/") || strings.HasPrefix(p, "/v1/web/") || p == "/healthz" {
+				h.ServeHTTP(w, r)
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+		if publicPagePath(p) {
+			http.Redirect(w, r, s.publicBase()+r.URL.RequestURI(), http.StatusPermanentRedirect)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // bodyLimit caps request bodies; CSV imports get a larger allowance than everything else.

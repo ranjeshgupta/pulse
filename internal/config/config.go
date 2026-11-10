@@ -34,6 +34,8 @@ type Config struct {
 	// TrustProxy uses the right-most X-Forwarded-For entry (appended by your reverse proxy) as the
 	// client IP for rate limits. Leave off unless Pulse is only reachable through that proxy.
 	TrustProxy bool
+	// PagesURL is a separate origin for landing pages, downloads and hosted forms (production).
+	PagesURL string
 	// GeoIPDB is a MaxMind GeoLite2-City or GeoIP2-City .mmdb file; empty turns geolocation off.
 	GeoIPDB string
 	// MaintenanceInterval is how often retention cleanup runs.
@@ -63,6 +65,7 @@ func Load() Config {
 		AllowPrivateSSO:      env("PULSE_ALLOW_PRIVATE_SSO", "false") == "true",
 		TrustProxy:           env("PULSE_TRUST_PROXY", "false") == "true",
 		GeoIPDB:              env("PULSE_GEOIP_DB", ""),
+		PagesURL:             env("PULSE_PAGES_URL", ""),
 		MaintenanceInterval:  envDuration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
 	}
 }

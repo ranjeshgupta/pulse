@@ -50,13 +50,13 @@ func (s *Server) landingRoutes(mux *http.ServeMux) {
 
 func (s *Server) pageStore() LandingStore { return s.Store.(LandingStore) }
 
-// pagesBase is where the workspace's pages live: {PublicURL}/p/{workspace slug}/.
+// pagesBase is where the workspace's pages live: {PULSE_PAGES_URL or PublicURL}/p/{workspace slug}/.
 func (s *Server) pagesBase(ctx context.Context, tenant int64) (string, error) {
 	t, err := s.Store.Tenant(ctx, tenant)
 	if err != nil {
 		return "", err
 	}
-	return s.PublicURL + "/p/" + url.PathEscape(t.Slug) + "/", nil
+	return s.publicBase() + "/p/" + url.PathEscape(t.Slug) + "/", nil
 }
 
 func (s *Server) listPages(w http.ResponseWriter, r *http.Request, tenant int64) {

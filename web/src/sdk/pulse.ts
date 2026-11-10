@@ -13,6 +13,8 @@ interface Config {
   host?: string; // defaults to the origin the script was loaded from
   autoPageview?: boolean; // default true
   onsite?: boolean; // default true: fetch and render focus items and content slots
+  /** storagePrefix namespaces this page's stored ids (Pulse-hosted pages use the site key). */
+  storagePrefix?: string;
 }
 interface FocusItem {
   id: number; kind: "modal" | "bar" | "slide";
@@ -29,12 +31,15 @@ let cfg: Required<Config> | null = null;
 let queue: Props[] = [];
 let timer: number | undefined;
 
+// Storage keys are "pulse.<name>"; with Config.storagePrefix they become "pulse.<prefix>.<name>", so
+// several workspaces on one origin (Pulse-hosted landing pages) never share a visitor's identity.
+const sk = (k: string) => (cfg?.storagePrefix ? k.replace(/^pulse\./, `pulse.${cfg.storagePrefix}.`) : k);
 const store = {
-  get(k: string) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
-  del(k: string) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
-  sget(k: string) { try { return sessionStorage.getItem(k); } catch { return null; } },
-  sset(k: string, v: string) { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } },
+  get(k: string) { try { return localStorage.getItem(sk(k)); } catch { return null; } },
+  set(k: string, v: string) { try { localStorage.setItem(sk(k), v); } catch { /* private mode */ } },
+  del(k: string) { try { localStorage.removeItem(sk(k)); } catch { /* ignore */ } },
+  sget(k: string) { try { return sessionStorage.getItem(sk(k)); } catch { return null; } },
+  sset(k: string, v: string) { try { sessionStorage.setItem(sk(k), v); } catch { /* ignore */ } },
 };
 
 function randomId() {
@@ -353,7 +358,7 @@ function mountForms() {
 
 export function init(c: Config) {
   if (!c?.siteKey) throw new Error("Pulse.init needs a siteKey");
-  cfg = { host: scriptHost, autoPageview: true, onsite: true, ...c, siteKey: c.siteKey } as Required<Config>;
+  cfg = { host: scriptHost, autoPageview: true, onsite: true, storagePrefix: "", ...c, siteKey: c.siteKey } as Required<Config>;
   cfg.host = cfg.host.replace(/\/$/, "");
   anonymousId();
   if (cfg.autoPageview) page();

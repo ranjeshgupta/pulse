@@ -11,8 +11,11 @@
 package landing
 
 import (
+	"unicode"
+
 	"errors"
 	"fmt"
+	xhtml "golang.org/x/net/html"
 	"html"
 	"regexp"
 	"strconv"
@@ -66,17 +69,8 @@ func Live(p model.LandingPage, now time.Time) bool {
 }
 
 var (
-	formToken  = regexp.MustCompile(`\{form:([A-Za-z0-9_-]{1,40})\}`)
-	formAttr   = regexp.MustCompile(`(?i)\bdata-pulse-form\s*=\s*["']([A-Za-z0-9_-]{1,40})["']`)
-	scriptElem = regexp.MustCompile(`(?is)<script\b.*?(?:</script\s*>|\z)`)
-	// Inline event handlers (onclick=...) and javascript: URLs. The CSP blocks them anyway; they are
-	// removed so the page doesn't carry dead code.
-	handlerAttr = regexp.MustCompile(`(?i)\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)`)
-	jsURL       = regexp.MustCompile(`(?i)((?:href|src|action|formaction)\s*=\s*["']?)\s*javascript:`)
-	// Elements that would change how the page loads: <base> (re-points relative URLs, including the
-	// SDK's), <meta http-equiv> (refresh redirects, policy changes).
-	baseElem  = regexp.MustCompile(`(?i)<base\b[^>]*>`)
-	metaEquiv = regexp.MustCompile(`(?i)<meta\b[^>]*http-equiv[^>]*>`)
+	formToken = regexp.MustCompile(`\{form:([A-Za-z0-9_-]{1,40})\}`)
+	formAttr  = regexp.MustCompile(`(?i)\bdata-pulse-form\s*=\s*["']([A-Za-z0-9_-]{1,40})["']`)
 )
 
 // FormKeys lists the form keys a page embeds, in order of first use.
@@ -94,14 +88,80 @@ func FormKeys(doc string) []string {
 	return keys
 }
 
-// Sanitize removes what may not run or redirect: scripts, event handlers, javascript: URLs,
-// <base> and <meta http-equiv>.
+// Sanitize removes what may not run or redirect: scripts (HTML and SVG), event handlers,
+// javascript:/vbscript:/data: URLs, srcdoc, <base>, <meta http-equiv>, <object> and <embed>. It
+// parses the page with the same HTML5 algorithm browsers use and serializes the tree, so there is
+// no parser differential to slip markup past (the page's CSP blocks scripts anyway).
 func Sanitize(doc string) string {
-	doc = scriptElem.ReplaceAllString(doc, "")
-	doc = handlerAttr.ReplaceAllString(doc, "")
-	doc = jsURL.ReplaceAllString(doc, "${1}#")
-	doc = baseElem.ReplaceAllString(doc, "")
-	return metaEquiv.ReplaceAllString(doc, "")
+	root, err := xhtml.Parse(strings.NewReader(doc))
+	if err != nil {
+		return ""
+	}
+	clean(root)
+	var b strings.Builder
+	if err := xhtml.Render(&b, root); err != nil {
+		return ""
+	}
+	return b.String()
+}
+
+var dropElems = map[string]bool{"script": true, "base": true, "object": true, "embed": true, "applet": true, "frameset": true}
+
+var urlAttrs = map[string]bool{"href": true, "src": true, "action": true, "formaction": true, "xlink:href": true,
+	"poster": true, "data": true, "background": true, "cite": true, "ping": true}
+
+func clean(n *xhtml.Node) {
+	for c := n.FirstChild; c != nil; {
+		next := c.NextSibling
+		if c.Type == xhtml.ElementNode {
+			name := strings.ToLower(c.Data)
+			if dropElems[name] || name == "meta" && hasAttr(c, "http-equiv") {
+				n.RemoveChild(c)
+				c = next
+				continue
+			}
+			attrs := c.Attr[:0]
+			for _, a := range c.Attr {
+				k := strings.ToLower(a.Key)
+				if a.Namespace != "" {
+					k = strings.ToLower(a.Namespace) + ":" + k
+				}
+				switch {
+				case strings.HasPrefix(k, "on"), k == "srcdoc":
+					continue
+				case urlAttrs[k] && unsafeURL(a.Val):
+					a.Val = "#"
+				}
+				attrs = append(attrs, a)
+			}
+			c.Attr = attrs
+		}
+		clean(c)
+		c = next
+	}
+}
+
+func hasAttr(n *xhtml.Node, key string) bool {
+	for _, a := range n.Attr {
+		if strings.EqualFold(a.Key, key) {
+			return true
+		}
+	}
+	return false
+}
+
+// unsafeURL reports whether a URL would run code: javascript:, vbscript: or data: (other than
+// images), ignoring the whitespace and control characters browsers ignore.
+func unsafeURL(v string) bool {
+	var b strings.Builder
+	for _, r := range v {
+		if r > ' ' && r != 0x7f {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	u := b.String()
+	return strings.HasPrefix(u, "javascript:") || strings.HasPrefix(u, "vbscript:") ||
+		strings.HasPrefix(u, "data:") && !strings.HasPrefix(u, "data:image/") || strings.HasPrefix(u, "data:image/svg")
 }
 
 // Page is what Render needs besides the page itself.

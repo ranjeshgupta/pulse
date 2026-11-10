@@ -6,7 +6,8 @@
   var key = s && s.getAttribute("data-site-key");
   var page = Number(s && s.getAttribute("data-page-id"));
   if (!key || !window.Pulse) return;
-  Pulse.init({ siteKey: key });
+  // Pages of every workspace share this origin: keep each workspace's visitor ids apart.
+  Pulse.init({ siteKey: key, storagePrefix: key });
   var props = { page_id: page, url: location.href, referrer: document.referrer };
   new URLSearchParams(location.search).forEach(function (v, k) {
     if (/^utm_[a-z_]{1,30}$/.test(k)) props[k] = v.slice(0, 200);

@@ -73,7 +73,7 @@ func (s *Server) assetStore() AssetStore { return s.Store.(AssetStore) }
 
 // ---- management ----
 
-func (s *Server) assetURL(a model.Asset) string { return s.PublicURL + "/a/" + a.PublicKey }
+func (s *Server) assetURL(a model.Asset) string { return s.publicBase() + "/a/" + a.PublicKey }
 
 func (s *Server) listAssets(w http.ResponseWriter, r *http.Request, tenant int64) {
 	as, err := s.assetStore().ListAssets(r.Context(), tenant)

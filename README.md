@@ -92,6 +92,7 @@ with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`
 | `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks and the custom gateway call private addresses (development only) |
 | `PULSE_GEOIP_DB` | none | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file (download with a free MaxMind licence key, e.g. via `geoipupdate`); unset turns geolocation off |
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often retention cleanup runs |
+| `PULSE_PAGES_URL` | none | A separate origin for landing pages, asset downloads and hosted forms, e.g. `https://pages.example.com`. **Set it in production**: workspace-authored pages then never share an origin or cookies with the app (no lookalike login pages on the app's domain); those paths redirect there, and that host serves nothing else |
 
 The dev compose file turns the two `ALLOW_PRIVATE` switches on for the local Keycloak and the e2e webhook receivers.
 

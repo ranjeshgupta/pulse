@@ -1,6 +1,7 @@
 package landing
 
 import (
+	xhtml "golang.org/x/net/html"
 	"strings"
 	"testing"
 	"time"
@@ -62,8 +63,38 @@ func TestSanitize(t *testing.T) {
 			t.Errorf("sanitized page still has %q:\n%s", bad, out)
 		}
 	}
-	if !strings.Contains(out, `<p class="x">Hi</p>`) || !strings.Contains(out, `<a href="#alert(1)">x</a>`) {
+	if !strings.Contains(out, `<p class="x">Hi</p>`) || !strings.Contains(out, `<a href="#">x</a>`) {
 		t.Errorf("sanitized markup = %s", out)
+	}
+	// Tricks that defeat regex sanitizers.
+	tricky := `<scr<script>x</script>ipt>alert(1)</script><svg><script>alert(1)</script></svg>` +
+		`<a href=" java&#x09;script:alert(1)">a</a><a href="JaVaScRiPt:alert(1)">b</a><iframe srcdoc="<script>alert(1)</script>"></iframe>` +
+		`<a href="data:text/html,<script>alert(1)</script>">c</a><img src="data:image/png;base64,AAAA"><form><button formaction="javascript:x">d</button></form>` +
+		`<object data="x.swf"></object><embed src="x.swf">`
+	out = Sanitize(tricky)
+	// Check what a browser would build, not the text: "<scr<script>" is one odd element named
+	// "scr<script", which is harmless.
+	root, _ := xhtml.Parse(strings.NewReader(out))
+	var walk func(n *xhtml.Node)
+	walk = func(n *xhtml.Node) {
+		if n.Type == xhtml.ElementNode && (n.Data == "script" || n.Data == "object" || n.Data == "embed") {
+			t.Errorf("tricky input kept a <%s> element:\n%s", n.Data, out)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(root)
+	for _, bad := range []string{"javascript:", "srcdoc", "data:text"} {
+		if strings.Contains(strings.ToLower(out), bad) {
+			t.Errorf("tricky input kept %q:\n%s", bad, out)
+		}
+	}
+	if !strings.Contains(out, `data:image/png`) {
+		t.Errorf("inline images should stay: %s", out)
+	}
+	if Sanitize(out) != out {
+		t.Error("sanitizing twice must change nothing")
 	}
 }
 

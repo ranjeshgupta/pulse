@@ -71,7 +71,7 @@ func (s *Server) listForms(w http.ResponseWriter, r *http.Request, tenant int64)
 	if fs == nil {
 		fs = []model.Form{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"forms": fs, "base_url": s.PublicURL})
+	writeJSON(w, http.StatusOK, map[string]any{"forms": fs, "base_url": s.publicBase()})
 }
 
 func (s *Server) getForm(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -84,7 +84,7 @@ func (s *Server) getForm(w http.ResponseWriter, r *http.Request, tenant int64) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"form": f, "hosted_url": s.PublicURL + "/f/" + f.PublicKey})
+	writeJSON(w, http.StatusOK, map[string]any{"form": f, "hosted_url": s.publicBase() + "/f/" + f.PublicKey})
 }
 
 func (s *Server) saveForm(w http.ResponseWriter, r *http.Request, tenant int64) {

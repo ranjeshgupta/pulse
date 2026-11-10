@@ -213,3 +213,13 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - `events`: `MergeTree PARTITION BY toYYYYMM(ts) ORDER BY (tenant_id, name, contact_id, ts)`. Event-window segment queries hit only the
   key range for (tenant, event name).
 - `contacts`: `ReplacingMergeTree(version) ORDER BY (tenant_id, id)` with `attrs Map(String, String)`. Queried with `FINAL`.
+
+## Public pages and origins
+- Landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`) are workspace-authored. With `PULSE_PAGES_URL` set they are
+  served only from that origin (app-host requests redirect with 308), and that origin serves nothing but those pages, the SDK
+  (`/sdk/`) and the browser API (`/v1/web/`). Session cookies are host-only, so pages never see them.
+- Landing page HTML is sanitized by parsing it with the HTML5 algorithm (`golang.org/x/net/html`) and serializing the tree:
+  scripts (HTML and SVG), event handlers, `srcdoc`, `<base>`, `<meta http-equiv>`, `<object>`, `<embed>` and javascript:/vbscript:/
+  non-image data: URLs are removed. A nonce CSP allows only the Pulse SDK scripts.
+- On Pulse-hosted pages the SDK namespaces its stored ids by site key (`storagePrefix`), so workspaces sharing the pages origin
+  never share a visitor's identity.
