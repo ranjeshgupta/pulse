@@ -156,6 +156,9 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 7. **P2, in this order:**
    - **Batch 6, contacts and content:** stages, companies and duplicate merge (done); plain-text email part and
      attachments, landing pages, assets (gated downloads).
+   - **Requested 2026-11-11, next after batch 6:** a CKEditor-style rich text editor (toolbar, links, images, tables, colours,
+     alignment, source view) for every HTML field: email templates (beside the drag-and-drop builder), landing pages, focus
+     items, web content, forms. Built on TipTap (MIT) to avoid CKEditor 5's GPL/commercial licence.
    - **Batch 7, analytics:** cohorts and retention, revenue attribution and UTM, funnel breakdown by attribute, custom report
      builder, automatic A/B winners in journeys.
    - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native
