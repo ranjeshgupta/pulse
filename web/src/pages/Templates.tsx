@@ -4,9 +4,15 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, CHANNEL_NAMES, CHANNELS, type AssetList, type Channel, type ChannelContent, type Template } from "../api";
 import { formatBytes, MessagePreview, PreviewModal, TestSendModal } from "../messagePreview";
 import { ChannelLabel, Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { initialEmailMode, replacesLayout, switchWarning, type EmailMode } from "../editorModes";
+import { RichText } from "../RichText";
+import { EMAIL_STYLE, unwrapRichText, wrapRichText } from "../richTextHtml";
 import type { EmailBuilderHandle } from "./EmailBuilder";
 
 const EmailBuilder = lazy(() => import("./EmailBuilder"));
+
+/** A new rich-text email starts from a greeting. */
+const RICH_STARTER = wrapRichText("<p>Hi {{.Attrs.first_name}},</p><p></p>", EMAIL_STYLE);
 
 const PERSONALIZE = "Personalize with {{.Attrs.first_name}}, {{.Attrs.city}} or any contact attribute.";
 
@@ -76,8 +82,8 @@ export function TemplateEdit() {
   const toast = useToast();
   const existing = useQuery({ queryKey: ["template", id], queryFn: () => api.get<Template>(`/v1/templates/${id}`), enabled: !isNew });
   const [t, setT] = useState<Template | null>(null);
-  // The email body is edited in the builder or as HTML; "text" edits the plain-text part.
-  const [emailMode, setEmailMode] = useState<"visual" | "html" | "text">("visual");
+  // The email body is edited in the builder, as rich text or as HTML; "text" edits the plain-text part.
+  const [emailMode, setEmailMode] = useState<EmailMode>("visual");
   const [testing, setTesting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const builder = useRef<EmailBuilderHandle>(null);
@@ -88,7 +94,7 @@ export function TemplateEdit() {
       setT({ id: 0, name: "", channel: ch, subject: "", html: "", content: { ...BLANK[ch] }, updated_at: "" });
     } else if (existing.data && !t) {
       setT({ ...existing.data, content: existing.data.content ?? {} });
-      if (existing.data.channel === "email" && !existing.data.builder && existing.data.html) setEmailMode("html");
+      if (existing.data.channel === "email") setEmailMode(initialEmailMode(existing.data));
     }
   }, [existing.data, isNew, params, t]);
 
@@ -100,7 +106,7 @@ export function TemplateEdit() {
         body = { ...body, html, builder: project };
         setT(body);
       }
-      if (t!.channel === "email" && emailMode === "html") body.builder = undefined;
+      if (t!.channel === "email" && replacesLayout(emailMode)) body.builder = undefined;
       return isNew ? api.post<{ id: number }>("/v1/templates", body) : api.put<{ id: number }>(`/v1/templates/${id}`, body);
     },
     onSuccess: (r) => {
@@ -117,6 +123,26 @@ export function TemplateEdit() {
   if (!t) return <div className="page"><ErrorNote error={existing.error} /></div>;
   const c = t.content;
   const setC = (patch: Partial<ChannelContent>) => setT({ ...t, content: { ...c, ...patch } });
+
+  /** Switches the email editor, pulling the builder's state in first and warning before its layout is lost. */
+  const switchEmailMode = (to: EmailMode) => {
+    if (to === emailMode) return;
+    let next = t;
+    if (emailMode === "visual" && builder.current) {
+      const r = builder.current.read();
+      next = { ...t, html: r.html, builder: r.project };
+    }
+    if (isNew && emailMode === "visual" && to === "richtext") {
+      // Nothing saved yet: start the rich text email fresh rather than from the builder's layout.
+      if (!confirm("Write this email in the rich text editor? What's in the drag-and-drop builder is discarded.")) return;
+      next = { ...next, html: RICH_STARTER, builder: undefined };
+    } else {
+      const warning = switchWarning(emailMode, to, next.builder != null);
+      if (warning && !confirm(warning)) return;
+    }
+    setT(next);
+    setEmailMode(to);
+  };
 
   return (
     <div className="page" style={t.channel === "email" ? { maxWidth: "none" } : undefined}>
@@ -145,25 +171,30 @@ export function TemplateEdit() {
           {t.channel === "email" && (
             <>
               <div className="tabs" role="tablist">
-                <button role="tab" aria-selected={emailMode === "visual"} onClick={() => setEmailMode("visual")}>Visual builder</button>
-                <button role="tab" aria-selected={emailMode === "html"} onClick={() => { if (builder.current) setT({ ...t, html: builder.current.read().html }); setEmailMode("html"); }}>HTML</button>
-                <button role="tab" aria-selected={emailMode === "text"} onClick={() => {
-                  // Keep the builder's layout: only the HTML tab replaces it.
-                  if (emailMode === "visual" && builder.current) { const r = builder.current.read(); setT({ ...t, html: r.html, builder: r.project }); }
-                  setEmailMode("text");
-                }}>Plain text{c.text ? "" : " (auto)"}</button>
+                <button role="tab" aria-selected={emailMode === "visual"} onClick={() => switchEmailMode("visual")}>Visual builder</button>
+                <button role="tab" aria-selected={emailMode === "richtext"} onClick={() => switchEmailMode("richtext")}>Rich text</button>
+                <button role="tab" aria-selected={emailMode === "html"} onClick={() => switchEmailMode("html")}>HTML</button>
+                {/* The plain-text part keeps the builder's layout: only rich text and HTML replace it. */}
+                <button role="tab" aria-selected={emailMode === "text"} onClick={() => switchEmailMode("text")}>Plain text{c.text ? "" : " (auto)"}</button>
               </div>
               {emailMode === "text" ? (
                 <PlainTextEditor t={t} setText={(text) => setC({ text })} />
               ) : emailMode === "visual" ? (
                 <Suspense fallback={<div className="gjs-host" />}><EmailBuilder ref={builder} html={t.html} project={t.builder} /></Suspense>
+              ) : emailMode === "richtext" ? (
+                <div className="grid-2" style={{ gap: 18, gridTemplateColumns: "minmax(0, 1.25fr) minmax(0, 1fr)" }}>
+                  <RichText value={unwrapRichText(t.html) ?? t.html} label="Email body" minHeight={420} personalize="email" allowImages allowTables
+                    placeholder="Write your email…" lossHint={<>or use the Visual builder</>}
+                    onChange={(inner) => setT((cur) => cur && { ...cur, html: wrapRichText(inner, EMAIL_STYLE), builder: undefined })} />
+                  <iframe className="preview-frame" title="Email preview, with sample values" sandbox="" srcDoc={fillPreview(t.html)} />
+                </div>
               ) : (
                 <div className="grid-2" style={{ gap: 18 }}>
                   <textarea className="textarea code-editor" value={t.html} onChange={(e) => setT({ ...t, html: e.target.value, builder: undefined })} aria-label="Email HTML" spellCheck={false} />
                   <iframe className="preview-frame" title="Email preview, with sample values" sandbox="" srcDoc={fillPreview(t.html)} />
                 </div>
               )}
-              {emailMode === "html" && t.builder === undefined && !isNew && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the HTML tab replaces the visual layout with this HTML.</p>}
+              {replacesLayout(emailMode) && existing.data?.builder != null && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the {emailMode === "html" ? "HTML" : "Rich text"} tab replaces the visual layout with this HTML.</p>}
               <AttachmentPicker ids={c.attachments ?? []} onChange={(attachments) => setC({ attachments: attachments.length ? attachments : undefined })} />
             </>
           )}

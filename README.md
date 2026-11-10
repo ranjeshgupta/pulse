@@ -49,6 +49,8 @@ and journeys within seconds, not on a 15-minute cron.
   (25 MB each, kept in Postgres) downloadable at `/a/{key}`, openly or behind a form (`asset_downloaded` for the
   submitter); Engage → Landing pages publishes pages at `/p/{workspace}/{page}` with embedded forms, a schedule, a
   script-free preview and views/visitors/submissions from the web SDK's `landing_page_viewed`.
+- **Rich text editor (done):** a CKEditor-style editor (TipTap) on every HTML field: email templates and landing pages
+  (a Rich text tab beside drag and drop and HTML), focus items and web content, with merge tags and a Source view.
 - **Still to build:** the rest of P2 in the feature-parity doc.
 
 ## Run it

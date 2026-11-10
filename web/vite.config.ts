@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: { "/v1": "http://localhost:7080" },
   },
   build: { outDir: "dist", sourcemap: false, chunkSizeWarningLimit: 1500 },
-  // The tested modules (rule tree, journey graph) are pure logic: no DOM needed.
+  // Most tested modules (rule tree, journey graph) are pure logic: no DOM. The rich text tests opt in
+  // to happy-dom per file (host Node 22.14 is too old for current jsdom).
   test: { environment: "node" },
 });

@@ -137,6 +137,16 @@ code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
 .check { display: flex; gap: 8px; align-items: center; font-size: var(--fs-sm); margin-bottom: 12px; }
+/* Segmented toggle: a few buttons with aria-pressed (status, preview width). */
+.seg-toggle { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
+.seg-toggle button { font: inherit; font-size: var(--fs-sm); font-weight: 560; background: var(--surface); color: var(--muted); border: 0; padding: 0 14px; height: 34px; cursor: pointer; }
+.seg-toggle.sm button { height: 28px; padding: 0 10px; font-size: var(--fs-xs); }
+.seg-toggle button + button { border-left: 1px solid var(--rule-strong); }
+.seg-toggle button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.seg-toggle button[aria-pressed="true"].live { background: var(--ok); }
+fieldset:disabled .seg-toggle button { cursor: not-allowed; opacity: 0.7; }
+/* The rich text editor (richtext.css) loads lazily; this holds its place meanwhile. */
+.rt-loading { border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: linear-gradient(var(--porcelain) 0 40px, var(--rule) 40px 41px, var(--surface) 41px); }
 
 /* ---------- surfaces ---------- */
 .panel { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); }

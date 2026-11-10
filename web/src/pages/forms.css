@@ -2,11 +2,6 @@
 
 .pre-line .alert { white-space: pre-line; }
 
-.seg-toggle { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
-.seg-toggle button { font: inherit; font-size: var(--fs-sm); font-weight: 560; background: var(--surface); color: var(--muted); border: 0; padding: 0 14px; height: 34px; cursor: pointer; }
-.seg-toggle button + button { border-left: 1px solid var(--rule-strong); }
-.seg-toggle button[aria-pressed="true"] { background: var(--ink); color: #fff; }
-.seg-toggle button[aria-pressed="true"].live { background: var(--ok); }
 
 .ff { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 12px 14px 4px; margin-bottom: 10px; }
 .ff-main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 150px; gap: 0 10px; }

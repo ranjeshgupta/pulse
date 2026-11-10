@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Form, type FormField, type FormFieldType, type FormSettings, type FormStats, type Segment } from "../api";
-import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
+import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast, useCopy } from "../ui";
 import "./forms.css";
 
 const TYPE_LABEL: Record<FormFieldType, string> = {
@@ -27,11 +27,6 @@ function toKey(label: string): string {
 
 const splitList = (s: string, lines: boolean) => s.split(lines ? /\n|,/ : /,/).map((x) => x.trim()).filter(Boolean);
 
-function useCopy() {
-  const toast = useToast();
-  return (text: string, what = "Copied") =>
-    navigator.clipboard.writeText(text).then(() => toast({ text: what }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
-}
 
 // ---------- list ----------
 

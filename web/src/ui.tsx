@@ -131,6 +131,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export const useToast = () => useContext(ToastCtx);
 
+/** useCopy copies text to the clipboard and confirms with a toast (or says how to copy it by hand). */
+export function useCopy() {
+  const toast = useToast();
+  return (text: string, what = "Copied") =>
+    navigator.clipboard.writeText(text).then(
+      () => toast({ text: what }),
+      () => toast({ text: `Couldn't copy. Select the text and copy it yourself${text.length <= 80 ? `: ${text}` : "."}`, error: true }),
+    );
+}
+
 export function timeAgo(iso?: string): string {
   if (!iso) return "never";
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);

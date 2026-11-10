@@ -15,13 +15,6 @@
 .lp-field-err { color: var(--danger); font-size: var(--fs-xs); margin: -8px 0 12px; }
 .lp-over { color: var(--danger); font-weight: 560; }
 
-.lp-toggle { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
-.lp-toggle button { font: inherit; font-size: var(--fs-sm); font-weight: 560; background: var(--surface); color: var(--muted); border: 0; padding: 0 14px; height: 34px; cursor: pointer; }
-.lp-toggle.sm button { height: 28px; padding: 0 10px; font-size: var(--fs-xs); }
-.lp-toggle button + button { border-left: 1px solid var(--rule-strong); }
-.lp-toggle button[aria-pressed="true"] { background: var(--ink); color: #fff; }
-.lp-toggle button[aria-pressed="true"].live { background: var(--ok); }
-fieldset:disabled .lp-toggle button { cursor: not-allowed; opacity: 0.7; }
 
 .lp-content-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
 .lp-tabs { border-bottom: 0; margin-bottom: 0; }

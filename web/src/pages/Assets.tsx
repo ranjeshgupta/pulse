@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { api, can, type Asset, type AssetDetail, type AssetList as AssetListData, type Form } from "../api";
 import { useMe } from "../auth";
-import { Drawer, Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast } from "../ui";
+import { Drawer, Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast, useCopy } from "../ui";
 import "./assets.css";
 
 // ---------- pure helpers (tested in assets.test.ts) ----------
@@ -62,11 +62,6 @@ export function downloadSnippet(url: string, title: string): string {
 
 // ---------- shared bits ----------
 
-function useCopy() {
-  const toast = useToast();
-  return (text: string, what = "Copied") =>
-    navigator.clipboard.writeText(text).then(() => toast({ text: what }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
-}
 
 function useForms() {
   return useQuery({ queryKey: ["forms"], queryFn: () => api.get<{ forms: Form[]; base_url: string }>("/v1/forms") });

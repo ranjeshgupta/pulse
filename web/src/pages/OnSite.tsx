@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type DWCSlot, type FocusItem, type Segment } from "../api";
 import { useMe } from "../auth";
+import { RichText } from "../RichText";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { Empty, ErrorNote, Field, PageHead, Status, useToast } from "../ui";
 
@@ -150,7 +151,12 @@ export function FocusEdit() {
             </Field>
           </div>
           <Field label="Headline"><input className="input" value={c.title} onChange={(e) => setC({ title: e.target.value })} /></Field>
-          <Field label="Body" hint="HTML is allowed; it runs on your website as-is."><textarea className="textarea" value={c.body_html} onChange={(e) => setC({ body_html: e.target.value })} /></Field>
+          <div className="field">
+            <span>Body</span>
+            <RichText compact allowImages label="Body" minHeight={110} value={c.body_html} placeholder="Get 20% off your first order."
+              onChange={(body_html) => setF((x) => x && { ...x, content: { ...x.content, body_html } })} />
+            <small>Shown on your website as-is. Use Source for your own HTML.</small>
+          </div>
           <div className="grid-2">
             <Field label="Button text"><input className="input" value={c.cta_text ?? ""} onChange={(e) => setC({ cta_text: e.target.value })} /></Field>
             <Field label="Button link"><input className="input" value={c.cta_url ?? ""} onChange={(e) => setC({ cta_url: e.target.value })} placeholder="https://" /></Field>
@@ -204,7 +210,7 @@ export function FocusEdit() {
               <div>
                 <strong>{c.title || "Your headline"}</strong>
                 {/* Authored HTML is previewed in a sandboxed frame so its scripts never run inside Pulse. */}
-                {c.body_html && <iframe title="Body preview" sandbox="" srcDoc={`<body style="margin:0;font:14px system-ui;color:${c.text_color}">${c.body_html}</body>`} style={{ border: 0, width: "100%", height: f.kind === "bar" ? 22 : 60, display: "block", marginTop: 4 }} />}
+                {c.body_html && <iframe title="Body preview" sandbox="" srcDoc={`<style>p,ul,ol,h1,h2,h3{margin:0 0 4px}</style><body style="margin:0;font:14px system-ui;color:${c.text_color}">${c.body_html}</body>`} style={{ border: 0, width: "100%", height: f.kind === "bar" ? 22 : 60, display: "block", marginTop: 4 }} />}
               </div>
               {c.cta_text && <span className="cta">{c.cta_text}</span>}
             </div>
@@ -333,14 +339,20 @@ export function DWCEdit() {
               <button className="btn ghost sm" onClick={() => setD({ ...d, variants: d.variants.filter((_, j) => j !== i) })}>Remove</button>
             </div>
           </div>
-          <div className="panel-body"><textarea className="textarea code" value={v.html} onChange={(e) => setVar(i, { html: e.target.value })} aria-label="Variant HTML" /></div>
+          <div className="panel-body">
+            <RichText allowImages allowTables label={`Variant ${i + 1} content`} minHeight={140} value={v.html}
+              onChange={(html) => setD((x) => x && { ...x, variants: x.variants.map((w, j) => (j === i ? { ...w, html } : w)) })} />
+          </div>
         </div>
       ))}
       <button className="btn sm" onClick={() => setD({ ...d, variants: [...d.variants, { segment_id: 0, html: "" }] })}>Add a variant</button>
       <div className="section">
-        <Field label="Everyone else sees" hint="Also shown to anonymous visitors. Leave empty to show nothing.">
-          <textarea className="textarea code" value={d.default_html} onChange={(e) => setD({ ...d, default_html: e.target.value })} />
-        </Field>
+        <div className="field">
+          <span>Everyone else sees</span>
+          <RichText allowImages allowTables label="Everyone else sees" minHeight={140} value={d.default_html} placeholder="Leave empty to show nothing."
+            onChange={(default_html) => setD((x) => x && { ...x, default_html })} />
+          <small>Also shown to anonymous visitors. Leave empty to show nothing.</small>
+        </div>
       </div>
       <h3 style={{ margin: "6px 0 12px" }}>Schedule</h3>
       <ScheduleFields start={d.start_at} end={d.end_at} onChange={(w) => setD({ ...d, start_at: w.start_at, end_at: w.end_at ?? null })} startLabel="Show from" />

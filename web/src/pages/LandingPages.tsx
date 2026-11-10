@@ -6,7 +6,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, can, type AssetList, type Form, type LandingPage, type LandingPageDetail, type LandingPageList as PageListResponse, type PageStats } from "../api";
 import { useMe } from "../auth";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
-import { Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast } from "../ui";
+import { Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast, useCopy } from "../ui";
+import { initialPageMode, switchWarning, type PageMode } from "../editorModes";
+import { RichText, type RichTextHandle } from "../RichText";
+import { PAGE_STYLE, unwrapRichText, wrapRichText } from "../richTextHtml";
 import type { EmailBuilderHandle } from "./EmailBuilder";
 import {
   assetLink, assetURL, conversion, formToken, insertAt, lastDays, META_MAX, pageState, pageURL, slugify, slugProblem,
@@ -29,13 +32,14 @@ const STARTER = `<section style="padding:72px 24px;background:#152238;color:#fff
   </div>
 </section>`;
 
+/** A new rich-text page starts from a headline and a paragraph. */
+const RICH_STARTER = wrapRichText(
+  "<h1>Your headline goes here</h1><p>One or two sentences on what visitors get and why it matters.</p><p>To collect sign-ups, add a form with “Insert form” above.</p>",
+  PAGE_STYLE,
+);
+
 const fmtDay = (d: string) => new Date(d.slice(0, 10) + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
 
-function useCopy() {
-  const toast = useToast();
-  return (text: string, what = "Copied") =>
-    navigator.clipboard.writeText(text).then(() => toast({ text: what }), () => toast({ text: `Couldn't copy. Select it and copy it yourself: ${text}`, error: true }));
-}
 
 function StateBadge({ state, title }: { state: PageState; title?: string }) {
   return <span className={`badge ${STATE_TONE[state]}`} title={title}>{STATE_LABEL[state]}</span>;
@@ -88,7 +92,7 @@ type Draft = {
   title: string; slug: string; slugAuto: boolean; meta_description: string; status: LandingPage["status"];
   start_at?: string; end_at?: string | null; html: string; builder: unknown | null;
 };
-type Mode = "builder" | "html";
+type Mode = PageMode;
 type Width = "desktop" | "mobile";
 
 function draftFrom(p: LandingPage): Draft {
@@ -128,6 +132,7 @@ export function LandingPageEdit() {
   const [mode, setMode] = useState<Mode>("builder");
   const [showPreview, setShowPreview] = useState(false);
   const builder = useRef<EmailBuilderHandle>(null);
+  const rt = useRef<RichTextHandle>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const sel = useRef<{ start: number; end: number } | null>(null);
 
@@ -135,7 +140,7 @@ export function LandingPageEdit() {
     if (existing.data && !d) {
       const p = existing.data.page;
       setD(draftFrom(p));
-      setMode(p.builder ? "builder" : "html");
+      setMode(initialPageMode(p));
     }
   }, [existing.data, d]);
   // Viewers can't change the page: open on the preview.
@@ -146,7 +151,7 @@ export function LandingPageEdit() {
   const [preview, setPreview] = useState<{ html: string; error: unknown; loading: boolean }>({ html: "", error: null, loading: false });
   const [width, setWidth] = useState<Width>("desktop");
   const seq = useRef(0);
-  const previewOn = !!d && (mode === "html" || showPreview);
+  const previewOn = !!d && (mode !== "builder" || showPreview);
   const refreshPreview = (p: { title: string; meta_description: string; html: string }) => {
     const n = ++seq.current;
     setPreview((s) => ({ ...s, loading: true }));
@@ -194,8 +199,18 @@ export function LandingPageEdit() {
   };
 
   const switchTo = (next: Mode | "preview") => {
-    readBuilder();
+    const cur = readBuilder();
     if (next === "preview") { setShowPreview(true); return; }
+    if (next !== mode) {
+      if (isNew && mode === "builder" && next === "richtext") {
+        // Nothing saved yet: start the rich text page fresh rather than from the builder's layout.
+        if (!confirm("Write this page in the rich text editor? What's in the drag-and-drop builder is discarded.")) return;
+        setD({ ...cur, html: RICH_STARTER, builder: null });
+      } else {
+        const warning = switchWarning(mode, next, cur.builder != null);
+        if (warning && !confirm(warning)) return;
+      }
+    }
     setShowPreview(false);
     setMode(next);
   };
@@ -208,9 +223,14 @@ export function LandingPageEdit() {
     });
   };
 
-  /** Inserts a snippet at the HTML cursor, or copies it for the builder. */
+  /** Inserts a snippet at the cursor (HTML or rich text), or copies it for the builder. */
   const insert = (snippet: string, forBuilder: { copy: string; toast: string }) => {
-    if (mode === "html") {
+    if (mode === "richtext") {
+      if (rt.current && !showPreview) { rt.current.insertHtml(snippet); return; }
+      const inner = unwrapRichText(d.html) ?? d.html;
+      setD({ ...d, html: wrapRichText(`${inner}<p>${snippet}</p>`, PAGE_STYLE), builder: null });
+      toast({ text: "Added at the end of the page" });
+    } else if (mode === "html") {
       const el = ta.current;
       const r = el && !showPreview ? { start: el.selectionStart, end: el.selectionEnd } : sel.current ?? { start: d.html.length, end: d.html.length };
       const { text, caret } = insertAt(d.html, r.start, r.end, snippet);
@@ -228,7 +248,7 @@ export function LandingPageEdit() {
   const blocker = !d.title.trim() ? "Give the page a title."
     : d.title.trim().length > TITLE_MAX ? `The title can be up to ${TITLE_MAX} characters.`
     : slugErr ?? (d.meta_description.length > META_MAX ? `The meta description can be up to ${META_MAX} characters.` : null)
-    ?? (mode === "html" && !d.html.trim() ? "Add the page's HTML." : null)
+    ?? (mode !== "builder" && !d.html.trim() ? (mode === "html" ? "Add the page's HTML." : "Write the page's content.") : null)
     ?? scheduleProblem(d.start_at, d.end_at);
   const url = pageURL(base, d.slug.trim() || "your-page");
   const saved = existing.data;
@@ -273,7 +293,7 @@ export function LandingPageEdit() {
           <div className="field">
             <span id="lp-status-label">Status</span>
             <div>
-              <div className="lp-toggle" role="group" aria-labelledby="lp-status-label">
+              <div className="seg-toggle" role="group" aria-labelledby="lp-status-label">
                 <button type="button" aria-pressed={d.status === "draft"} onClick={() => set({ status: "draft" })}>Draft</button>
                 <button type="button" className="live" aria-pressed={d.status === "published"} onClick={() => set({ status: "published" })}>Published</button>
               </div>
@@ -289,6 +309,7 @@ export function LandingPageEdit() {
         <div className="lp-content-head">
           <div className="tabs lp-tabs" role="tablist" aria-label="Page content">
             {canEdit && <button role="tab" aria-selected={mode === "builder" && !showPreview} onClick={() => switchTo("builder")}>Drag and drop</button>}
+            {canEdit && <button role="tab" aria-selected={mode === "richtext" && !showPreview} onClick={() => switchTo("richtext")}>Rich text</button>}
             <button role="tab" aria-selected={mode === "html" && !showPreview} onClick={() => switchTo("html")}>HTML</button>
             <button role="tab" aria-selected={showPreview} onClick={() => switchTo("preview")}>Preview</button>
           </div>
@@ -329,6 +350,20 @@ export function LandingPageEdit() {
             </Suspense>
             <p className="xs muted lp-note">Add a form by pasting its <code>{"{form:KEY}"}</code> token (from “Insert form”) into a text block. Check the result in the Preview tab.</p>
           </>
+        ) : mode === "richtext" && canEdit ? (
+          <div className="lp-html-split">
+            <div>
+              <RichText ref={rt} value={unwrapRichText(d.html) ?? d.html} label="Page content" minHeight={520} allowImages allowTables
+                placeholder="Write the page…" lossHint={<>or use Drag and drop</>}
+                onChange={(inner) => setD((x) => x && { ...x, html: wrapRichText(inner, PAGE_STYLE), builder: null })} />
+              <p className="xs muted lp-note">
+                Add a sign-up form with “Insert form”: it puts the form's <code>{"{form:KEY}"}</code> token at the cursor, and visitors see the form there.
+              </p>
+              {saved?.page.builder != null && <p className="xs muted">Saving from the Rich text tab replaces the drag-and-drop layout with this content.</p>}
+            </div>
+            <PreviewPane preview={preview} width={width} setWidth={setWidth}
+              onRefresh={() => refreshPreview({ title: d.title, meta_description: d.meta_description, html: d.html })} />
+          </div>
         ) : (
           <div className="lp-html-split">
             <div>
@@ -368,7 +403,7 @@ function PreviewPane({ preview, width, setWidth, onRefresh, big }: {
       <div className="lp-preview-bar">
         <span className="xs muted" aria-live="polite">{preview.loading ? "Updating preview…" : "Preview: as visitors see it, without scripts"}</span>
         <div className="row" style={{ gap: 6 }}>
-          <div className="lp-toggle sm" role="group" aria-label="Preview width">
+          <div className="seg-toggle sm" role="group" aria-label="Preview width">
             <button type="button" aria-pressed={width === "desktop"} onClick={() => setWidth("desktop")}>Desktop</button>
             <button type="button" aria-pressed={width === "mobile"} onClick={() => setWidth("mobile")}>Mobile</button>
           </div>

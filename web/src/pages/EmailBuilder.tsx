@@ -2,6 +2,9 @@
 // Loaded lazily: it is the heaviest part of the app.
 import grapesjs, { type Editor } from "grapesjs";
 import "grapesjs/dist/css/grapes.min.css";
+// The builder's panel and block icons are Font Awesome 4. GrapesJS fetches it from cdnjs by default,
+// which the app's CSP (style-src 'self') blocks; bundling it serves it from Pulse itself.
+import "font-awesome/css/font-awesome.min.css";
 import newsletter from "grapesjs-preset-newsletter";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
@@ -31,6 +34,7 @@ export default forwardRef<EmailBuilderHandle, { html: string; project?: unknown 
       // auto-height parent collapses the editor to 0px.
       height: "max(520px, calc(100vh - 230px))",
       storageManager: false,
+      cssIcons: "", // bundled above: no request to cdnjs
       plugins: [newsletter],
       fromElement: false,
       components: project ? undefined : html || STARTER,

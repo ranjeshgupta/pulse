@@ -73,7 +73,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
-| Email: drag-and-drop builder, HTML, personalization | ✅ | ✅ | ✅ GrapesJS | |
+| Email: drag-and-drop builder, HTML, personalization | ✅ | ✅ | ✅ GrapesJS builder, TipTap rich text editor (also on landing pages, focus items, web content), HTML; merge-tag menu | |
 | Preview (with a real contact's data) and send a test, every channel | ✅ | ✅ | ✅ this change | |
 | Provider connection test, per provider | 🟡 | ✅ | ✅ this change | |
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
@@ -100,7 +100,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | "See what a contact would see" check | 🟡 | 🟡 | ✅ this change | |
 | Rendering on websites (JS SDK) | ✅ | ✅ | ✅ `/sdk/pulse.js` (3 KB gzipped): focus items with all triggers and frequency caps, content slots | |
 | Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; lists, tags, consent opt-in; honeypot, fill time, rate limit; submissions log | File uploads, multi-page forms: P2 |
-| Landing pages | ✅ | ⬜ | ✅ `/p/{workspace}/{page}`, drag-and-drop or HTML, title and meta description, embedded forms (`{form:KEY}`), draft/published with a schedule; nonce CSP (only the Pulse SDK runs, scripts and handlers stripped), frameable; `landing_page_viewed` via the web SDK; views, unique visitors, form submissions; script-free preview | P2 |
+| Landing pages | ✅ | ⬜ | ✅ `/p/{workspace}/{page}`, drag-and-drop, rich text or HTML, title and meta description, embedded forms (`{form:KEY}`), draft/published with a schedule; nonce CSP (only the Pulse SDK runs, scripts and handlers stripped), frameable; `landing_page_viewed` via the web SDK; views, unique visitors, form submissions; script-free preview | P2 |
 | Assets (gated downloads) | ✅ | ⬜ | ✅ uploads up to 25 MB (type allowlist checked against file signatures) kept in Postgres; `/a/{key}` open or gated by a form (15-minute sealed link, `asset_downloaded` for the submitter); always `Content-Disposition: attachment`, nosniff, sandbox CSP; download counts; email attachments | P2 |
 
 ## Analytics
@@ -156,9 +156,14 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 7. **P2, in this order:**
    - **Batch 6, contacts and content (done):** stages, companies and duplicate merge; plain-text email part and
      attachments, landing pages, assets (gated downloads).
-   - **Requested 2026-11-11, next after batch 6:** a CKEditor-style rich text editor (toolbar, links, images, tables, colours,
-     alignment, source view) for every HTML field: email templates (beside the drag-and-drop builder), landing pages, focus
-     items, web content, forms. Built on TipTap (MIT) to avoid CKEditor 5's GPL/commercial licence.
+   - **Requested 2026-11-11 (done):** a CKEditor-style rich text editor (`web/src/RichText.tsx`: headings, bold/italic/
+     underline/strike, colour and highlight, links with a new-tab option, lists, quotes, alignment, rules, images by URL or
+     from Assets, tables with row/column/merge tools, remove formatting, undo/redo, merge tags, a Source view) on every
+     HTML field: email templates (a Rich text tab beside the drag-and-drop builder and HTML), landing pages (Rich text tab,
+     "Insert form" puts `{form:KEY}` at the cursor), focus item bodies and web content slots. Built on TipTap (MIT) to avoid
+     CKEditor 5's GPL/commercial licence. HTML the editor can't keep (inline-styled layout tables, `<style>`, comments)
+     opens in Source with a note instead of being rewritten. Left as plain text, because they're rendered as text: form
+     descriptions (hosted form and web SDK) and in-app / inbox message bodies (the Flutter SDK draws `Text`).
    - **Batch 7, analytics:** cohorts and retention, revenue attribution and UTM, funnel breakdown by attribute, custom report
      builder, automatic A/B winners in journeys.
    - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native

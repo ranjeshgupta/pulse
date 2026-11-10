@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Webhook, type WebhookDelivery } from "../api";
 import { useIsAdmin } from "../auth";
-import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast, useCopy } from "../ui";
 import "./webhooks.css";
 
 type Detail = { webhook: Webhook; deliveries: WebhookDelivery[] };
@@ -30,11 +30,6 @@ function DeliveryBadge({ d, all }: { d: WebhookDelivery; all: WebhookDelivery[] 
   return retried ? <span className="badge">Failed, retried</span> : <span className="badge warn">Retrying</span>;
 }
 
-function useCopy() {
-  const toast = useToast();
-  return (text: string, what = "Copied") =>
-    navigator.clipboard.writeText(text).then(() => toast({ text: what }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
-}
 
 // ---------- list ----------
 
