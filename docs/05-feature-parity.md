@@ -153,4 +153,11 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      with a campaign or journey, unsubscribes, bounces, journey entered/completed, tags and segment/list membership.
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
      mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
-7. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.
+7. **P2, in this order:**
+   - **Batch 6, contacts and content:** stages, companies, duplicate merge, plain-text email part and attachments,
+     landing pages, assets (gated downloads).
+   - **Batch 7, analytics:** cohorts and retention, revenue attribution and UTM, funnel breakdown by attribute, custom report
+     builder, automatic A/B winners in journeys.
+   - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native
+     Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file uploads and multi-page
+     forms, audit log export.
