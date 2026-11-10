@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light">
+  <title>Pulse SDK test page</title>
+  <style>
+    html { background: #f4f6f8; }
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #152238; background: #f4f6f8; }
+    .slot { border: 2px dashed #c3cbd6; border-radius: 8px; padding: 16px; margin: 16px 0; min-height: 40px; }
+    button, input { font: inherit; padding: 6px 10px; }
+    code { background: #eef1f5; padding: 1px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Pulse SDK test page</h1>
+  <p>Loads the SDK with the site key from the address (<code>?key=sk_…</code>). The box below is a content slot: <code>data-pulse-slot="home-hero"</code>.</p>
+  <div class="slot" data-pulse-slot="home-hero"><em>Default page content</em></div>
+  <p>
+    <input id="uid" placeholder="external ID, e.g. cust-0007">
+    <button id="identify">Identify</button>
+    <button id="buy">Track purchase</button>
+  </p>
+  <p id="who"></p>
+  <script src="/sdk/pulse.js"></script>
+  <script src="/sdk/demo.js"></script>
+</body>
+</html>

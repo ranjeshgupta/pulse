@@ -1,0 +1,34 @@
+{
+  "realm": "pulse",
+  "enabled": true,
+  "displayName": "Pulse dev SSO",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "pulse-app",
+      "name": "Pulse (local dev)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "pulse-dev-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:7080/v1/auth/sso/callback"],
+      "webOrigins": ["http://localhost:7080"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "users": [
+    {
+      "username": "sso.tester",
+      "email": "sso.tester@example.com",
+      "emailVerified": true,
+      "firstName": "Sso",
+      "lastName": "Tester",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "Pulse-SSO-test-1", "temporary": false }]
+    }
+  ]
+}

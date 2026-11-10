@@ -1,0 +1,144 @@
+name: pulse
+
+# Host ports are offset so this stack can run next to the Mautic and Listmonk stacks.
+services:
+  kafka:
+    image: apache/kafka:4.1.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "19092:19092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: pulse
+      CLICKHOUSE_USER: pulse
+      CLICKHOUSE_PASSWORD: pulse
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "18123:8123"   # HTTP
+      - "19000:9000"   # native
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: pulse
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "16379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "18025:8025"   # web UI + API
+      - "11025:1025"   # SMTP
+
+  # Local SSO identity provider (realm "pulse", seeded from keycloak/pulse-realm.json).
+  # Browsers use http://localhost:8180; Pulse reaches it as keycloak:8180 (backchannel), and the
+  # issuer stays the public URL, which Pulse supports through the SSO "discovery URL" setting.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm", "--http-port=8180"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://localhost:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8180:8180"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+
+  pulse:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["all"]
+    depends_on:
+      kafka: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mailpit: { condition: service_started }
+    environment:
+      PULSE_HTTP_ADDR: ":7070"
+      PULSE_PG_DSN: postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable
+      PULSE_CH_ADDR: clickhouse:9000
+      PULSE_CH_DB: pulse
+      PULSE_CH_USER: pulse
+      PULSE_CH_PASSWORD: pulse
+      PULSE_REDIS_ADDR: redis:6379
+      PULSE_KAFKA_BROKERS: kafka:9092
+      PULSE_SMTP_ADDR: mailpit:1025
+      PULSE_SMTP_FROM: "Pulse <noreply@pulse.local>"
+      PULSE_ADMIN_TOKEN: dev-admin-token
+      PULSE_SWEEP_INTERVAL: 5m
+      PULSE_PUBLIC_URL: http://localhost:7080
+      # Dev-only key. In production, generate one with `openssl rand -hex 32` and keep it in a secret store.
+      PULSE_SECRET_KEY: 9f1c2b7e4a6d8053c1e2f4a7b9d0c3e5f6a8b1c2d4e7f9a0b3c5d6e8f1a2b4c6
+    ports:
+      - "7080:7070"   # host 7070 is taken on the dev machine
+
+volumes:
+  kafka-data:
+  clickhouse-data:
+  postgres-data:
+  redis-data:

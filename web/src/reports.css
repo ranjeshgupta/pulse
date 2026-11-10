@@ -1,0 +1,18 @@
+/* Message reports shared by broadcasts and journeys. */
+.report-figures { margin: 4px 2px 22px; }
+.report-figures small { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.report-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; margin-top: 24px; }
+.report-rate { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.report-rate small { color: var(--faint); font-size: var(--fs-xs); }
+.table tr.report-winner td { background: var(--ok-wash); }
+.report-url { display: inline-block; max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.report-kinds { display: inline-flex; gap: 2px; }
+.report-kinds button { background: none; border: 1px solid transparent; border-radius: var(--r-sm); font: inherit; font-size: var(--fs-xs); padding: 2px 8px; color: var(--muted); cursor: pointer; }
+.report-kinds button[aria-pressed="true"] { border-color: var(--rule-strong); color: var(--text); font-weight: 600; }
+.bar-fill.kind-opened { background: var(--cobalt); }
+.bar-fill.kind-clicked { background: var(--ch-rcs); }
+.ab-variant { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; margin-bottom: 8px; }
+.ab-variant .row { margin-bottom: 0 !important; flex-wrap: nowrap; }
+.ab-label { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--cobalt-wash); color: var(--cobalt); font-weight: 650; font-size: var(--fs-sm); }
+.ab-box { border: 1px solid var(--rule); border-radius: var(--r-md); padding: 14px 16px 4px; margin-bottom: 14px; background: var(--surface); }
+.ab-range { width: 100%; accent-color: var(--cobalt); }

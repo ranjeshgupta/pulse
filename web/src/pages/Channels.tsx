@@ -1,0 +1,319 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { api, CHANNEL_NAMES, CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderKind, type SandboxMessage } from "../api";
+import { useIsAdmin } from "../auth";
+import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+
+export function Channels() {
+  const admin = useIsAdmin();
+  const cat = useQuery({ queryKey: ["catalog"], queryFn: () => api.get<{ providers: ProviderKind[] }>("/v1/channels/catalog") });
+  const list = useQuery({ queryKey: ["providers"], queryFn: () => api.get<{ providers: Provider[] }>("/v1/channels/providers") });
+  const [editing, setEditing] = useState<{ channel: Channel; provider?: Provider } | null>(null);
+  const [testing, setTesting] = useState<Provider | null>(null);
+  const kinds = cat.data?.providers ?? [];
+  const providers = list.data?.providers ?? [];
+
+  return (
+    <div className="page">
+      <PageHead title="Channels" intro="Where each channel's messages go out. Every channel uses its default provider; use the sandbox to try journeys without sending anything real." />
+      <ErrorNote error={cat.error ?? list.error} />
+      {CHANNELS.map((ch) => {
+        const mine = providers.filter((p) => p.channel === ch);
+        return (
+          <section className="panel" key={ch} style={{ marginBottom: 16 }}>
+            <div className="panel-head">
+              <ChannelLabel channel={ch} />
+              {admin && <button className="btn sm" onClick={() => setEditing({ channel: ch })}>Add provider</button>}
+            </div>
+            {mine.length === 0 ? (
+              <div className="panel-body small muted">
+                {ch === "email" ? "Using the server's SMTP relay. Add a provider to send through your own." : `No provider yet, so ${CHANNEL_NAMES[ch]} steps in journeys fail with "no provider configured".`}
+              </div>
+            ) : (
+              <table className="table">
+                <tbody>{mine.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ width: "35%" }}><strong>{p.name}</strong><div className="xs muted">{kinds.find((k) => k.id === p.provider)?.name ?? p.provider}</div></td>
+                    <td>{p.is_default ? <span className="badge ok">Default</span> : <span className="badge">Standby</span>}</td>
+                    <td className="xs muted">{p.webhook_url && <>Delivery reports: <code>{p.webhook_url}</code></>}</td>
+                    <td className="num">{admin && <div className="row" style={{ justifyContent: "flex-end" }}>
+                      <button className="btn sm" onClick={() => setTesting(p)}>Send test</button>
+                      <button className="btn sm" onClick={() => setEditing({ channel: ch, provider: p })}>Edit</button>
+                    </div>}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </section>
+        );
+      })}
+      <DeliveryRulesPanel admin={admin} />
+      {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
+      {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel; provider?: Provider; kinds: ProviderKind[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [kindId, setKindId] = useState(provider?.provider ?? kinds.find((k) => !k.id.startsWith("sandbox"))?.id ?? kinds[0]?.id);
+  const kind = kinds.find((k) => k.id === kindId);
+  const [name, setName] = useState(provider?.name ?? "");
+  const [config, setConfig] = useState<Record<string, string>>(provider?.config ?? {});
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const [isDefault, setDefault] = useState(provider?.is_default ?? true);
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { channel, provider: kindId, name: name || kind?.name, config, secrets, is_default: isDefault };
+      return provider ? api.put(`/v1/channels/providers/${provider.id}`, body) : api.post("/v1/channels/providers", body);
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: "Provider saved. New sends use it within 30 seconds." }); onClose(); },
+  });
+  const remove = useMutation({
+    mutationFn: () => api.del(`/v1/channels/providers/${provider!.id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); onClose(); },
+  });
+
+  return (
+    <Modal title={provider ? `Edit ${provider.name}` : `Add a ${CHANNEL_NAMES[channel]} provider`} onClose={onClose}
+      footer={<>
+        {provider && <button className="btn danger" style={{ marginRight: "auto" }} onClick={() => confirm("Remove this provider?") && remove.mutate()}>Remove</button>}
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save provider</button>
+      </>}>
+      <ErrorNote error={save.error ?? remove.error} />
+      {!provider && (
+        <Field label="Provider">
+          <select className="select" value={kindId} onChange={(e) => { setKindId(e.target.value); setConfig({}); setSecrets({}); }}>
+            {kinds.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+          </select>
+        </Field>
+      )}
+      {kind && <p className="small muted" style={{ marginBottom: 14 }}>{kind.description}</p>}
+      <Field label="Name in Pulse"><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
+      {kind?.config.map((f) => (
+        <Field key={f.key} label={f.label + (f.required ? "" : " (optional)")}>
+          <input className="input" value={config[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setConfig({ ...config, [f.key]: e.target.value })} />
+        </Field>
+      ))}
+      {kind?.secrets.map((f) => (
+        <Field key={f.key} label={f.label + (f.required ? "" : " (optional)")} hint={provider?.has_secrets ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}>
+          {f.key.includes("json")
+            ? <textarea className="textarea code" value={secrets[f.key] ?? ""} placeholder={f.placeholder ?? "Paste the service account JSON"} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />
+            : <input className="input" type="password" autoComplete="off" value={secrets[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />}
+        </Field>
+      ))}
+      <label className="check"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />Use for all {CHANNEL_NAMES[channel]} messages</label>
+    </Modal>
+  );
+}
+
+const ZONES = ["Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/London", "America/New_York", "America/Los_Angeles", "UTC"];
+
+// DeliveryRulesPanel edits workspace frequency caps and quiet hours. Templates marked transactional
+// (OTPs, receipts) skip both.
+function DeliveryRulesPanel({ admin }: { admin: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["delivery"], queryFn: () => api.get<DeliveryRules>("/v1/settings/delivery") });
+  const [r, setR] = useState<DeliveryRules | null>(null);
+  const rules = r ?? q.data;
+  const save = useMutation({
+    mutationFn: () => api.put<DeliveryRules>("/v1/settings/delivery", rules),
+    onSuccess: (d) => { qc.setQueryData(["delivery"], d); setR(null); toast({ text: "Delivery rules saved. They apply within 30 seconds." }); },
+  });
+  if (!rules) return null;
+  const edit = (p: Partial<DeliveryRules>) => setR({ ...rules, ...p });
+  const setCap = (ch: Channel, cap?: { max: number; hours: number }) => {
+    const caps = { ...rules.caps };
+    if (cap) caps[ch] = cap;
+    else delete caps[ch];
+    edit({ caps });
+  };
+  const qh = rules.quiet;
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Delivery rules</h3><span className="xs muted">Transactional templates skip these</span></div>
+      <div className="panel-body">
+        <ErrorNote error={save.error ?? q.error} />
+        <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: 0 }}>
+          <h4 className="small" style={{ marginBottom: 8 }}>Frequency caps</h4>
+          <p className="xs muted" style={{ marginBottom: 10 }}>The most marketing messages one contact gets per channel. Messages over the cap are dropped and show as "capped".</p>
+          <table className="table" style={{ marginBottom: 18 }}>
+            <tbody>{CHANNELS.map((ch) => {
+              const cap = rules.caps[ch];
+              return (
+                <tr key={ch}>
+                  <td style={{ width: 130 }}><span className={`chan chan-${ch}`}>{CHANNEL_NAMES[ch]}</span></td>
+                  <td>
+                    <label className="check" style={{ margin: 0 }}>
+                      <input type="checkbox" checked={!!cap} onChange={(e) => setCap(ch, e.target.checked ? { max: 3, hours: 24 } : undefined)} />
+                      {cap ? <>At most <input className="input inline" style={{ width: 64 }} type="number" min={1} value={cap.max} onChange={(e) => setCap(ch, { ...cap, max: Number(e.target.value) })} aria-label="Messages" /> per <input className="input inline" style={{ width: 64 }} type="number" min={1} value={cap.hours} onChange={(e) => setCap(ch, { ...cap, hours: Number(e.target.value) })} aria-label="Hours" /> hours</> : "No limit"}
+                    </label>
+                  </td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+          <h4 className="small" style={{ marginBottom: 8 }}>Quiet hours</h4>
+          <label className="check"><input type="checkbox" checked={qh.enabled} onChange={(e) => edit({ quiet: { ...qh, enabled: e.target.checked } })} />Hold marketing messages overnight and send them when quiet hours end</label>
+          {qh.enabled && (
+            <>
+              <div className="row" style={{ marginBottom: 12 }}>
+                From <input className="input inline" type="time" value={qh.start} onChange={(e) => edit({ quiet: { ...qh, start: e.target.value } })} aria-label="Start" />
+                to <input className="input inline" type="time" value={qh.end} onChange={(e) => edit({ quiet: { ...qh, end: e.target.value } })} aria-label="End" />
+                in <select className="select inline" value={qh.timezone} onChange={(e) => edit({ quiet: { ...qh, timezone: e.target.value } })} aria-label="Time zone">{ZONES.map((z) => <option key={z}>{z}</option>)}</select>
+              </div>
+              <p className="xs muted" style={{ marginBottom: 8 }}>A contact with a "timezone" attribute gets quiet hours in their own time. On these channels:</p>
+              <div className="row" style={{ marginBottom: 12 }}>
+                {CHANNELS.map((ch) => (
+                  <label key={ch} className="check" style={{ margin: 0 }}>
+                    <input type="checkbox" checked={qh.channels.includes(ch)} onChange={(e) => edit({ quiet: { ...qh, channels: e.target.checked ? [...qh.channels, ch] : qh.channels.filter((c) => c !== ch) } })} />
+                    {CHANNEL_NAMES[ch]}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+          <h4 className="small" style={{ margin: "6px 0 8px" }}>Reply keywords</h4>
+          <p className="xs muted" style={{ marginBottom: 10 }}>
+            When someone replies to an SMS or WhatsApp message with just one of these words, they're unsubscribed from (or subscribed back to) that channel.
+            Case and punctuation don't matter, so "Stop." counts. Point your provider's incoming-message webhook at its Pulse webhook URL.
+          </p>
+          <div className="grid-2">
+            <KeywordField label="Unsubscribe" value={rules.keywords?.opt_out ?? []} onChange={(opt_out) => edit({ keywords: { opt_in: rules.keywords?.opt_in ?? [], opt_out } })} />
+            <KeywordField label="Subscribe again" value={rules.keywords?.opt_in ?? []} onChange={(opt_in) => edit({ keywords: { opt_out: rules.keywords?.opt_out ?? [], opt_in } })} />
+          </div>
+          {admin && <button className="btn primary" disabled={!r || save.isPending} onClick={() => save.mutate()}>Save delivery rules</button>}
+        </fieldset>
+      </div>
+    </section>
+  );
+}
+
+const TO_LABEL: Record<Channel, [string, string]> = {
+  email: ["Send to email address", "you@company.com"],
+  sms: ["Send to phone number", "+919812345678"],
+  whatsapp: ["Send to WhatsApp number", "+919812345678"],
+  rcs: ["Send to phone number", "+919812345678"],
+  push: ["Send to device token", "FCM registration token"],
+};
+
+// ProviderTest sends a fixed test message straight through one provider and shows its answer.
+function ProviderTest({ provider, onClose }: { provider: Provider; onClose: () => void }) {
+  const [to, setTo] = useState("");
+  const [tpl, setTpl] = useState("");
+  const send = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/v1/channels/providers/${provider.id}/test`, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-Pulse-CSRF": "1" },
+        body: JSON.stringify({ to, template_name: tpl }),
+      });
+      return (await res.json()) as { ok: boolean; provider_message_id?: string; error?: string; meaning?: string };
+    },
+  });
+  const [label, ph] = TO_LABEL[provider.channel];
+  return (
+    <Modal title={`Send a test through ${provider.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" disabled={!to || send.isPending} onClick={() => send.mutate()}>Send test</button></>}>
+      <p className="small muted" style={{ marginBottom: 14 }}>Sends a short fixed message directly through this provider, to check its settings. Nothing is recorded on any contact.</p>
+      <Field label={label}><input className="input" value={to} placeholder={ph} onChange={(e) => setTo(e.target.value.trim())} autoFocus /></Field>
+      {provider.channel === "whatsapp" && (
+        <Field label="Approved template to send" hint="WhatsApp only allows approved templates. Meta's sample hello_world is used if empty."><input className="input" value={tpl} placeholder="hello_world" onChange={(e) => setTpl(e.target.value.trim())} /></Field>
+      )}
+      {send.data?.ok && <div className="alert ok">Accepted by the provider{send.data.provider_message_id ? ` (message ${send.data.provider_message_id})` : ""}.{provider.provider.startsWith("sandbox") ? " It's in the test inbox." : ""}</div>}
+      {send.data && !send.data.ok && <div className="alert error"><strong>Not sent: {send.data.meaning}.</strong><br />{send.data.error}</div>}
+      <ErrorNote error={send.error} />
+    </Modal>
+  );
+}
+
+// KeywordField edits a list of single-word keywords as comma-separated text.
+function KeywordField({ label, value, onChange }: { label: string; value: string[]; onChange: (v: string[]) => void }) {
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <Field label={label} hint="Single words, separated by commas.">
+      <input className="input" value={text ?? value.join(", ")}
+        onChange={(e) => { setText(e.target.value); onChange(e.target.value.split(",").map((w) => w.trim().toUpperCase()).filter(Boolean)); }}
+        onBlur={() => setText(null)} />
+    </Field>
+  );
+}
+
+// SimulateReply sends a fake inbound SMS or WhatsApp message, as if a contact had replied.
+function SimulateReply() {
+  const toast = useToast();
+  const [ch, setCh] = useState<"sms" | "whatsapp">("sms");
+  const [from, setFrom] = useState("");
+  const [text, setText] = useState("STOP");
+  const send = useMutation({
+    mutationFn: () => api.post<{ keyword: string; action: string }>("/v1/sandbox/inbound", { channel: ch, from, text }),
+    onSuccess: (r) => toast({ text: r.action === "opt_out" ? `"${r.keyword}" unsubscribes this number from ${CHANNEL_NAMES[ch]}.` : r.action === "opt_in" ? `"${r.keyword}" subscribes this number again.` : "Recorded as a reply. It isn't a keyword, so subscriptions don't change." }),
+  });
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Simulate a reply</h3><span className="xs muted">As if a contact texted back</span></div>
+      <div className="panel-body">
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <Field label="Channel">
+            <select className="select" value={ch} onChange={(e) => setCh(e.target.value as "sms" | "whatsapp")}><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select>
+          </Field>
+          <Field label="From"><input className="input" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="+919812345678" /></Field>
+          <Field label="Message"><input className="input" value={text} onChange={(e) => setText(e.target.value)} /></Field>
+          <button className="btn" style={{ marginBottom: 14 }} disabled={!from.trim() || !text.trim() || send.isPending} onClick={() => send.mutate()}>Send reply</button>
+        </div>
+        <p className="xs muted">Every contact with this phone number gets a <code>{ch}_received</code> event; journeys and segments can use it.</p>
+        <ErrorNote error={send.error} />
+      </div>
+    </section>
+  );
+}
+
+export function TestInbox() {
+  const [channel, setChannel] = useState<Channel | "">("");
+  const toast = useToast();
+  const q = useQuery({
+    queryKey: ["sandbox", channel],
+    queryFn: () => api.get<{ messages: SandboxMessage[] }>(`/v1/sandbox/messages${channel ? `?channel=${channel}` : ""}`),
+    refetchInterval: 2000,
+  });
+  const fail = useMutation({
+    mutationFn: (m: SandboxMessage) => api.post("/v1/sandbox/receipts", { provider_message_id: `sandbox-${m.message_id}`, status: "failed", unreachable: true, reason: "simulated: number not reachable" }),
+    onSuccess: () => toast({ text: "Reported as undeliverable. If it has an SMS fallback, the SMS appears here shortly." }),
+  });
+  const msgs = q.data?.messages ?? [];
+  return (
+    <div className="page">
+      <PageHead title="Test inbox" intro="Messages sent through sandbox providers land here instead of reaching anyone. Mark a WhatsApp or RCS message undeliverable to test its SMS fallback." />
+      <div className="tabs" role="tablist">
+        {(["", ...CHANNELS] as const).map((c) => <button key={c} role="tab" aria-selected={channel === c} onClick={() => setChannel(c)}>{c ? CHANNEL_NAMES[c] : "All"}</button>)}
+      </div>
+      <ErrorNote error={q.error ?? fail.error} />
+      <div className="panel">
+        {msgs.length === 0 ? (
+          <Empty title="Nothing here yet">Add a sandbox provider on Channels, then send a test from a template or run a journey.</Empty>
+        ) : (
+          <table className="table">
+            <thead><tr><th>Channel</th><th>To</th><th>Message</th><th>Received</th><th /></tr></thead>
+            <tbody>{msgs.map((m) => {
+              const c = m.payload.content ?? {};
+              const text = m.payload.subject || c.text || (c.template_name && `${c.template_name}(${(c.body_params ?? []).join(", ")})`) || (c.title && `${c.title}: ${c.body}`) || c.card?.title;
+              return (
+                <tr key={m.id}>
+                  <td><ChannelLabel channel={m.channel} /></td>
+                  <td>{m.recipient.length > 28 ? m.recipient.slice(0, 28) + "…" : m.recipient}</td>
+                  <td style={{ maxWidth: 460 }}>{text}{m.message_id.endsWith(":sms") && <span className="badge warn" style={{ marginLeft: 8 }}>Fallback</span>}</td>
+                  <td className="muted">{timeAgo(m.created_at)}</td>
+                  <td className="num">{(m.channel === "whatsapp" || m.channel === "rcs") && <button className="btn sm" onClick={() => fail.mutate(m)}>Mark undeliverable</button>}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        )}
+      </div>
+      <SimulateReply />
+    </div>
+  );
+}

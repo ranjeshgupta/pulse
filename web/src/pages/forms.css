@@ -1,0 +1,49 @@
+/* Forms page: field builder rows, the live preview (styled like the hosted page /f/{key}), snippets. */
+
+.pre-line .alert { white-space: pre-line; }
+
+.seg-toggle { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
+.seg-toggle button { font: inherit; font-size: var(--fs-sm); font-weight: 560; background: var(--surface); color: var(--muted); border: 0; padding: 0 14px; height: 34px; cursor: pointer; }
+.seg-toggle button + button { border-left: 1px solid var(--rule-strong); }
+.seg-toggle button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.seg-toggle button[aria-pressed="true"].live { background: var(--ok); }
+
+.ff { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 12px 14px 4px; margin-bottom: 10px; }
+.ff-main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 150px; gap: 0 10px; }
+.ff-main .field { margin-bottom: 10px; }
+.ff-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.ff-foot .check { margin-bottom: 0; }
+.ff-err { color: var(--danger); font-size: var(--fs-xs); margin: -2px 0 8px; }
+.ff-num { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+
+.tag-input-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tag-suggest { border: 1px dashed var(--rule-strong); background: none; border-radius: 999px; padding: 1px 9px; font: inherit; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; }
+.tag-suggest:hover { border-color: var(--ink-3); color: var(--text); }
+
+.checks-box { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 10px 12px 0; background: var(--surface); max-height: 200px; overflow-y: auto; }
+
+/* Mirrors the hosted page's own styles so the preview looks like what visitors get. */
+.form-preview { background: #fff; border: 1px solid var(--rule); border-radius: var(--r-md); padding: 20px 18px; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #152238; }
+.form-preview h1 { font-size: 21px; margin: 0 0 6px; font-weight: 650; }
+.form-preview .desc { color: #5b6474; margin: 0 0 18px; white-space: pre-line; }
+.form-preview label { display: block; margin: 0 0 14px; font-weight: 600; font-size: 14px; }
+.form-preview .req { color: #b42318; }
+.form-preview input:not([type=checkbox]), .form-preview textarea, .form-preview select { display: block; width: 100%; margin-top: 6px; font: inherit; font-weight: 400; padding: 9px 11px; border: 1px solid #c3cbd6; border-radius: 6px; background: #fff; color: inherit; }
+.form-preview textarea { min-height: 80px; resize: vertical; }
+.form-preview input:focus, .form-preview textarea:focus, .form-preview select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); box-shadow: none; }
+.form-preview .pcheck { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; }
+.form-preview .pcheck input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.form-preview button { font: inherit; font-weight: 600; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 11px 18px; cursor: pointer; width: 100%; }
+.form-preview .done { padding: 28px 0; text-align: center; }
+.form-preview .done h1 { margin-bottom: 8px; }
+
+.snippet { position: relative; margin: 6px 0 14px; }
+.snippet pre { margin: 0; background: #f6f7f9; border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 10px 84px 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-all; }
+.snippet .btn { position: absolute; top: 6px; right: 6px; }
+
+.sub-fields { font-size: var(--fs-xs); color: var(--ink-3); max-width: 420px; word-break: break-word; }
+.sub-fields b { font-weight: 560; color: var(--muted); }
+
+@media (max-width: 1200px) {
+  .ff-main { grid-template-columns: 1fr; }
+}
