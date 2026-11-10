@@ -99,9 +99,15 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 ```
 
 - Triggers: `segment_entered` (optionally ignoring backfill) and `event` (by name).
-- Nodes: `wait`, `condition` (segment membership), `send_email`, `exit`. Phase 3+ adds `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`,
-  `split_ab`, `update_attr`, `webhook` and `wait_for_event`.
-- `journey_enrollments(tenant_id, journey_id, contact_id, node, status)` is unique on (journey, contact), so each contact enters a journey once in Phase 1.
+- Nodes (see `internal/journey/graph.go`):
+  - Actions: `send_email`, `send_sms`, `send_whatsapp` and `send_rcs` (optional SMS fallback), `send_push`, `send_inbox`,
+    `update_attr`, `update_tags`, `adjust_points`, `update_list`, `webhook`.
+  - Conditions: `condition` (segment or list membership), `check` (any segment rule, evaluated now), `split` (A/B/n by weight).
+  - Waits and decisions: `wait` (a duration), `wait_until` (a date, or a time of day in the contact's zone),
+    `wait_for_event` (yes when the event happens, no at the timeout); `exit`.
+  - Journey settings: trigger (`segment_entered`, `event`), re-entry (`once`, `always`, `after_days`), goal event, schedule window.
+- `journey_enrollments(tenant_id, journey_id, contact_id, node, status)` keeps one live enrollment per (journey, contact); re-entry
+  rules decide when a contact may enter again.
 - Waits insert a row into `journey_timers(due_at, …)`. A poller claims due rows with `FOR UPDATE SKIP LOCKED` and advances them. Any number of
   journey workers can run without double-firing a step.
 - Each send carries the idempotency key `{enrollment}:{node}`. The dispatcher drops duplicates with Redis `SET NX`.
