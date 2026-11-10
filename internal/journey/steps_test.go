@@ -138,7 +138,8 @@ func TestUpdateAndWebhookSteps(t *testing.T) {
 	if err := x.Run(context.Background(), g, en, "u"); err != nil {
 		t.Fatal(err)
 	}
-	if len(evs.evs) != 1 || evs.evs[0].Name != "identify" || evs.evs[0].Attrs["stage"] != "lead" || evs.evs[0].ExternalID != "u42" {
+	if len(evs.evs) != 2 || evs.evs[0].Name != "identify" || evs.evs[0].Attrs["stage"] != "lead" || evs.evs[0].ExternalID != "u42" ||
+		evs.evs[1].Name != "journey_completed" {
 		t.Fatalf("update published %+v", evs.evs)
 	}
 	c, _ := body["contact"].(map[string]any)
@@ -159,7 +160,7 @@ func TestUpdateAndWebhookSteps(t *testing.T) {
 	if err := x.Run(context.Background(), g, en, "h"); err != nil {
 		t.Fatal(err)
 	}
-	if len(evs.evs) != 1 || evs.evs[0].Name != "webhook_failed" || store.nodes[7][1] != StatusCompleted {
+	if len(evs.evs) != 2 || evs.evs[0].Name != "webhook_failed" || store.nodes[7][1] != StatusCompleted {
 		t.Errorf("events %+v, enrollment %v", evs.evs, store.nodes[7])
 	}
 }
@@ -214,7 +215,7 @@ func TestAudienceSteps(t *testing.T) {
 			t.Errorf("event %+v: want it for u42 from journey 3", e)
 		}
 	}
-	if strings.Join(names, ",") != "tag_added,tag_removed,points_changed,list_joined" {
+	if strings.Join(names, ",") != "tag_added,tag_removed,points_changed,list_joined,journey_completed" {
 		t.Errorf("events %v", names)
 	}
 	if store.nodes[7][0] != "x" {

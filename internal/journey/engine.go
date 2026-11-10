@@ -193,6 +193,9 @@ func (e *Engine) enroll(ctx context.Context, j *active, contact uint32) error {
 	if err != nil || !run {
 		return err
 	}
+	if err := e.exec.Milestone(ctx, en, "journey_entered"); err != nil {
+		return err
+	}
 	return e.exec.Run(ctx, j.graph, en, j.graph.Entry)
 }
 

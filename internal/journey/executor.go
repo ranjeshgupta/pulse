@@ -199,7 +199,10 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			id = n.Next
 
 		case NodeExit:
-			return x.Store.SetNode(ctx, en.ID, id, StatusCompleted)
+			if err := x.Store.SetNode(ctx, en.ID, id, StatusCompleted); err != nil {
+				return err
+			}
+			return x.Milestone(ctx, en, "journey_completed")
 		}
 	}
 	return fmt.Errorf("journey %d: step limit exceeded", en.JourneyID)
@@ -314,6 +317,23 @@ func (x *Executor) webhook(ctx context.Context, n Node, en model.Enrollment, ste
 		ID: fmt.Sprintf("jhook:%d:%s", en.ID, step), TenantID: en.TenantID, ExternalID: c.ExternalID,
 		Name: "webhook_failed", Ts: x.Now().UTC(),
 		Props: map[string]any{"journey_id": en.JourneyID, "step": step, "url": n.URL, "error": last},
+	})
+}
+
+// Milestone records journey_entered or journey_completed on the contact (props journey_id), so
+// segments can select contacts by journey ("entered Welcome in the last 30 days", "never completed
+// Onboarding"). The id makes a retried step record it once.
+func (x *Executor) Milestone(ctx context.Context, en model.Enrollment, name string) error {
+	if x.Events == nil || x.Contacts == nil {
+		return nil
+	}
+	c, err := x.Contacts.ContactByID(ctx, en.TenantID, en.ContactID)
+	if err != nil {
+		return err
+	}
+	return x.Events.PublishEvent(ctx, event.Event{
+		ID: fmt.Sprintf("jm:%d:%s", en.ID, name), TenantID: en.TenantID, ExternalID: c.ExternalID,
+		Name: name, Ts: x.Now().UTC(), Props: map[string]any{"journey_id": en.JourneyID},
 	})
 }
 

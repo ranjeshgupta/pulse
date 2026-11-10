@@ -107,6 +107,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
     `wait_for_event` (yes when the event happens, no at the timeout), `message_decision` (yes when an earlier send step's own
     message is opened, clicked, delivered or read, no at the timeout; matched on the message id `{enrollment}:{step}`); `exit`.
   - Journey settings: trigger (`segment_entered`, `event`), re-entry (`once`, `always`, `after_days`), goal event, schedule window.
+- Entering and finishing a journey record `journey_entered` and `journey_completed` events (props `journey_id`), so segments can
+  select contacts by journey with ordinary event rules.
 - `journey_enrollments(tenant_id, journey_id, contact_id, node, status)` keeps one live enrollment per (journey, contact); re-entry
   rules decide when a contact may enter again.
 - Waits insert a row into `journey_timers(due_at, …)`. A poller claims due rows with `FOR UPDATE SKIP LOCKED` and advances them. Any number of

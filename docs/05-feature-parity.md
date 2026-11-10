@@ -150,7 +150,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      message's engagement (`message_decision`); the builder's grouped palette is next.
    - Segment builder with every Mautic and WebEngage filter: ✅ date rules and first/last seen; geo (geo_* attributes),
      page visits (page_view with URL filters), message engagement (email_opened etc. with broadcast_id/journey_id filters)
-     and "did not do" (count = 0) already work as rules; journey membership and builder presets for all of them are next.
+     and "did not do" (count = 0) already work as rules; ✅ journey membership (journey_entered / journey_completed events);
+     builder presets for all of them are next.
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
      mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
 7. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.
