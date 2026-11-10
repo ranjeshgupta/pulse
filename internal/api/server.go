@@ -140,9 +140,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/users", s.authed(s.listUsers))
 	mux.HandleFunc("POST /v1/users", s.admin(s.createUser))
 	mux.HandleFunc("DELETE /v1/users/{id}", s.admin(s.deleteUser))
-	mux.HandleFunc("GET /v1/settings/sso", s.admin(s.getSSO))
-	mux.HandleFunc("PUT /v1/settings/sso", s.admin(s.putSSO))
-	mux.HandleFunc("POST /v1/settings/api-key", s.admin(s.rotateAPIKey))
+	mux.HandleFunc("GET /v1/settings/sso", s.fullAdmin(s.getSSO))
+	mux.HandleFunc("PUT /v1/settings/sso", s.fullAdmin(s.putSSO))
+	mux.HandleFunc("POST /v1/settings/api-key", s.fullAdmin(s.rotateAPIKey))
 	mux.HandleFunc("GET /v1/settings/delivery", s.authed(s.getDelivery))
 	mux.HandleFunc("PUT /v1/settings/delivery", s.admin(s.putDelivery))
 
@@ -288,6 +288,20 @@ func (s *Server) authed(h principalHandler) http.HandlerFunc {
 			s.audited(w, r, p, func(w http.ResponseWriter, r *http.Request) { h(w, r, p) })
 		}
 	}
+}
+
+// fullAdmin is for settings that amount to all access: SSO (whoever controls the identity provider
+// can sign in as anyone), the API key (it acts as an admin), identity-verification secrets and
+// webhooks (they can copy every contact out). Only people with every admin permission may use them.
+func (s *Server) fullAdmin(h principalHandler) http.HandlerFunc {
+	all, _ := auth.BuiltinPerms(auth.RoleAdmin)
+	return s.authed(func(w http.ResponseWriter, r *http.Request, p model.Principal) {
+		if !p.Perms.Covers(all) {
+			writeErr(w, http.StatusForbidden, "only admins can change this")
+			return
+		}
+		h(w, r, p)
+	})
 }
 
 // admin is for workspace settings: it needs settings edit access (admins, and custom roles given it).

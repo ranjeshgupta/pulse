@@ -27,12 +27,12 @@ type WebhookStore interface {
 }
 
 func (s *Server) webhookRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/settings/webhooks", s.admin(s.listWebhooks))
-	mux.HandleFunc("POST /v1/settings/webhooks", s.admin(s.saveWebhook))
-	mux.HandleFunc("GET /v1/settings/webhooks/{id}", s.admin(s.getWebhook))
-	mux.HandleFunc("PUT /v1/settings/webhooks/{id}", s.admin(s.saveWebhook))
-	mux.HandleFunc("DELETE /v1/settings/webhooks/{id}", s.admin(s.deleteWebhook))
-	mux.HandleFunc("POST /v1/settings/webhooks/{id}/test", s.admin(s.testWebhook))
+	mux.HandleFunc("GET /v1/settings/webhooks", s.fullAdmin(s.listWebhooks))
+	mux.HandleFunc("POST /v1/settings/webhooks", s.fullAdmin(s.saveWebhook))
+	mux.HandleFunc("GET /v1/settings/webhooks/{id}", s.fullAdmin(s.getWebhook))
+	mux.HandleFunc("PUT /v1/settings/webhooks/{id}", s.fullAdmin(s.saveWebhook))
+	mux.HandleFunc("DELETE /v1/settings/webhooks/{id}", s.fullAdmin(s.deleteWebhook))
+	mux.HandleFunc("POST /v1/settings/webhooks/{id}/test", s.fullAdmin(s.testWebhook))
 }
 
 func (s *Server) hooks() WebhookStore { return s.Store.(WebhookStore) }

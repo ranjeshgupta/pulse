@@ -159,6 +159,11 @@ func TestRolesAndAudit(t *testing.T) {
 	jsonCall(t, op, "PUT", fmt.Sprint("/v1/roles/", idOf(ops["id"])), map[string]any{"name": "Ops", "permissions": map[string]any{"settings": "edit"}}, 403)
 	jsonCall(t, op, "PUT", fmt.Sprintf("/v1/users/%d/role", ownerID), map[string]any{"role": "viewer"}, 403) // an admin outranks them
 	jsonCall(t, op, "POST", "/v1/users", map[string]any{"email": "v-" + run + "@example.com", "role": ops["key"], "password": "fine password 12"}, 201)
+	// Settings that amount to all access stay with full admins.
+	jsonCall(t, op, "PUT", "/v1/settings/sso", map[string]any{"enabled": true, "issuer": "https://evil.test", "client_id": "x"}, 403)
+	jsonCall(t, op, "POST", "/v1/settings/api-key", nil, 403)
+	jsonCall(t, op, "GET", "/v1/settings/identity", nil, 403)
+	jsonCall(t, op, "POST", "/v1/settings/webhooks", map[string]any{"name": "x", "url": "https://evil.test", "events": []any{"*"}, "active": true}, 403)
 }
 
 // TestOutboundWebhooks: events and segment entries are posted, signed, to the customer's URL;

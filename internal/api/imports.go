@@ -95,6 +95,11 @@ func (s *Server) startImport(w http.ResponseWriter, r *http.Request, p model.Pri
 			return
 		}
 	}
+	if r.ContentLength > 0 && total != r.ContentLength { // the connection dropped part-way
+		_ = s.imports().QueueImport(context.WithoutCancel(r.Context()), id, "the upload was interrupted")
+		writeErr(w, http.StatusBadRequest, "the upload was interrupted; try again")
+		return
+	}
 	if total == 0 {
 		_ = s.imports().QueueImport(r.Context(), id, "the file is empty")
 		writeErr(w, http.StatusBadRequest, "the file is empty")

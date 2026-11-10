@@ -1,0 +1,24 @@
+/* Roles page: the built-in comparison table and the per-area access picker. */
+
+.lvl { min-width: 64px; justify-content: center; }
+.lvl.none { background: transparent; color: var(--faint); font-weight: 450; }
+
+.role-compare th:not(:first-child), .role-compare td:not(:first-child) { text-align: center; }
+.role-compare th .xs { display: block; font-weight: 450; color: var(--faint); white-space: normal; max-width: 24ch; margin: 2px auto 0; }
+
+.area-grid { border: 1px solid var(--rule); border-radius: var(--r-md); }
+.area-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; padding: 10px 14px; }
+.area-row + .area-row { border-top: 1px solid var(--rule); }
+.area-row strong { font-size: var(--fs-sm); font-weight: 600; }
+.area-row p { font-size: var(--fs-xs); color: var(--muted); }
+
+.lvl-toggle { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
+.lvl-toggle button { font: inherit; font-size: var(--fs-xs); font-weight: 560; background: var(--surface); color: var(--muted); border: 0; padding: 0 10px; height: 30px; cursor: pointer; min-width: 58px; }
+.lvl-toggle button + button { border-left: 1px solid var(--rule-strong); }
+.lvl-toggle button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.lvl-toggle button:disabled { cursor: default; }
+.lvl-toggle button:disabled:not([aria-pressed="true"]) { opacity: 0.55; }
+
+@media (max-width: 600px) {
+  .area-row { grid-template-columns: 1fr; }
+}

@@ -68,7 +68,11 @@ func (s *Server) audited(w http.ResponseWriter, r *http.Request, p model.Princip
 			objID = r.PathValue(k)
 		}
 	}
-	e := model.AuditEntry{UserID: p.UserID, Actor: p.Actor, Action: r.Method + " " + path, ObjectType: objType, ObjectID: objID,
+	action := r.Method + " " + path
+	if a := r.PathValue("action"); a != "" { // e.g. POST /v1/journeys/{id}/activate
+		action = r.Method + " " + strings.Replace(path, "{action}", a, 1)
+	}
+	e := model.AuditEntry{UserID: p.UserID, Actor: p.Actor, Action: action, ObjectType: objType, ObjectID: objID,
 		Status: rec.status, IP: clientIP(r, s.TrustProxy), Detail: redactJSON(body)}
 	s.writeAudit(as, p.TenantID, e)
 }

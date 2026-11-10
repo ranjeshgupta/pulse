@@ -1,0 +1,13 @@
+/* Background imports: the drop area and progress bars. */
+
+.imp-drop { border: 1.5px dashed var(--rule-strong); border-radius: var(--r-md); padding: 22px 20px; text-align: center; background: var(--porcelain); margin-bottom: 14px; }
+.imp-drop.over { border-color: var(--cobalt); background: var(--cobalt-wash); }
+.imp-drop p { margin-bottom: 10px; }
+
+.imp-bar { height: 6px; background: #eef1f5; border-radius: 3px; overflow: hidden; margin-top: 6px; min-width: 120px; }
+.imp-bar > div { height: 100%; background: var(--signal); border-radius: 3px; transition: width 0.3s ease-out; }
+.imp-bar.busy > div { width: 35%; animation: imp-slide 1.4s ease-in-out infinite; }
+@keyframes imp-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+
+.imp-detail td { background: #fafbfc; }
+.imp-errors { margin: 6px 0 0; padding-left: 18px; max-height: 240px; overflow-y: auto; }

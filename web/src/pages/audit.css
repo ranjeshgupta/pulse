@@ -1,0 +1,11 @@
+/* Audit log: filters, expandable rows and the request JSON. */
+
+.audit-filters { margin-bottom: 14px; }
+.audit-table tr.open td { background: #f8f9fb; border-bottom-color: transparent; }
+.audit-detail td { background: #f8f9fb; padding-top: 4px; }
+.audit-json {
+  margin: 12px 0 0; padding: 12px 14px; max-height: 360px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-xs); line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}

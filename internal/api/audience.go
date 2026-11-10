@@ -69,9 +69,9 @@ func (s *Server) audienceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/attributes/{key}", s.tenant(s.putAttribute))
 	mux.HandleFunc("DELETE /v1/attributes/{key}", s.tenant(s.deleteAttribute))
 
-	mux.HandleFunc("GET /v1/settings/identity", s.admin(s.getIdentity))
-	mux.HandleFunc("PUT /v1/settings/identity", s.admin(s.putIdentity))
-	mux.HandleFunc("POST /v1/settings/identity/rotate", s.admin(s.rotateIdentity))
+	mux.HandleFunc("GET /v1/settings/identity", s.fullAdmin(s.getIdentity))
+	mux.HandleFunc("PUT /v1/settings/identity", s.fullAdmin(s.putIdentity))
+	mux.HandleFunc("POST /v1/settings/identity/rotate", s.fullAdmin(s.rotateIdentity))
 }
 
 // publishEvents normalizes and publishes platform events for the tenant.

@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { can, type Area, type Level } from "./api";
 import { useMe, useSignOut } from "./auth";
+import { roleName, useRoles } from "./pages/Roles";
 
 const I = {
   pulse: <path d="M2 9h3l2-5 3 10 2-5h4" />,
@@ -19,6 +21,8 @@ const I = {
   star: <path d="m8.5 1.8 2 4.4 4.7.5-3.5 3.2 1 4.7-4.2-2.4-4.2 2.4 1-4.7L1.8 6.7l4.7-.5z" />,
   form: <><rect x="2" y="1.5" width="13" height="14" rx="1.5" /><path d="M5 5h7M5 8.5h7" /><rect x="5" y="11" width="4" height="2" rx=".5" /></>,
   steps: <><path d="M2 3h13M4 7.5h9M6 12h5" /><path d="M8.5 13.5v2" /></>,
+  shield: <><path d="M8.5 1.5 14.5 4v4.5c0 3.4-2.6 6-6 7-3.4-1-6-3.6-6-7V4z" /><path d="m6 8.5 1.8 1.8L11.2 7" /></>,
+  log: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M8.5 4.5v4l2.8 1.8" /></>,
 };
 
 function Icon({ d }: { d: React.ReactNode }) {
@@ -29,22 +33,51 @@ function Icon({ d }: { d: React.ReactNode }) {
   );
 }
 
-const NAV: { title?: string; items: { to: string; label: string; icon: React.ReactNode; admin?: boolean }[] }[] = [
+type NavItem = { to: string; label: string; icon: React.ReactNode; need?: [Area, Exclude<Level, "none">] };
+
+// Each item shows only when the user's role reaches `need`.
+const NAV: { title?: string; items: NavItem[] }[] = [
   { items: [{ to: "/", label: "Overview", icon: I.pulse }] },
-  { title: "Audience", items: [{ to: "/contacts", label: "Contacts", icon: I.people }, { to: "/segments", label: "Segments", icon: I.funnel }, { to: "/lists", label: "Lists", icon: I.list }, { to: "/forms", label: "Forms", icon: I.form }] },
+  {
+    title: "Audience",
+    items: [
+      { to: "/contacts", label: "Contacts", icon: I.people, need: ["contacts", "view"] },
+      { to: "/segments", label: "Segments", icon: I.funnel, need: ["segments", "view"] },
+      { to: "/lists", label: "Lists", icon: I.list, need: ["segments", "view"] },
+      { to: "/forms", label: "Forms", icon: I.form, need: ["content", "view"] },
+      { to: "/imports", label: "Imports", icon: I.list, need: ["contacts", "edit"] },
+    ],
+  },
   {
     title: "Engage",
     items: [
-      { to: "/journeys", label: "Journeys", icon: I.flow },
-      { to: "/broadcasts", label: "Broadcasts", icon: I.megaphone },
-      { to: "/templates", label: "Templates", icon: I.doc },
-      { to: "/focus-items", label: "Focus items", icon: I.window },
-      { to: "/web-content", label: "Web content", icon: I.slot },
+      { to: "/journeys", label: "Journeys", icon: I.flow, need: ["journeys", "view"] },
+      { to: "/broadcasts", label: "Broadcasts", icon: I.megaphone, need: ["broadcasts", "view"] },
+      { to: "/templates", label: "Templates", icon: I.doc, need: ["content", "view"] },
+      { to: "/focus-items", label: "Focus items", icon: I.window, need: ["content", "view"] },
+      { to: "/web-content", label: "Web content", icon: I.slot, need: ["content", "view"] },
     ],
   },
-  { title: "Analyze", items: [{ to: "/funnels", label: "Funnels", icon: I.steps }] },
-  { title: "Delivery", items: [{ to: "/channels", label: "Channels", icon: I.send }, { to: "/test-inbox", label: "Test inbox", icon: I.inbox }] },
-  { title: "Workspace", items: [{ to: "/settings/team", label: "Team", icon: I.team }, { to: "/settings/attributes", label: "Attributes", icon: I.tag }, { to: "/settings/scoring", label: "Scoring", icon: I.star }, { to: "/settings/access", label: "Sign-in & keys", icon: I.key, admin: true }] },
+  { title: "Analyze", items: [{ to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] }] },
+  {
+    title: "Delivery",
+    items: [
+      { to: "/channels", label: "Channels", icon: I.send, need: ["channels", "view"] },
+      { to: "/test-inbox", label: "Test inbox", icon: I.inbox, need: ["channels", "view"] },
+    ],
+  },
+  {
+    title: "Workspace",
+    items: [
+      { to: "/settings/team", label: "Team", icon: I.team, need: ["settings", "view"] },
+      { to: "/settings/roles", label: "Roles", icon: I.shield, need: ["settings", "view"] },
+      { to: "/settings/attributes", label: "Attributes", icon: I.tag, need: ["segments", "view"] },
+      { to: "/settings/scoring", label: "Scoring", icon: I.star, need: ["segments", "view"] },
+      { to: "/settings/access", label: "Sign-in & keys", icon: I.key, need: ["settings", "edit"] },
+      { to: "/settings/webhooks", label: "Webhooks", icon: I.send, need: ["settings", "edit"] },
+      { to: "/settings/audit", label: "Audit log", icon: I.log, need: ["settings", "edit"] },
+    ],
+  },
 ];
 
 export function Logo() {
@@ -59,6 +92,8 @@ export function Logo() {
 export default function Shell() {
   const me = useMe().data;
   const signOut = useSignOut();
+  const roles = useRoles();
+  const allowed = (it: NavItem) => !it.need || can(me?.permissions, it.need[0], it.need[1]);
   return (
     <div className="shell">
       <nav className="sidebar" aria-label="Main">
@@ -69,10 +104,10 @@ export default function Shell() {
             <div className="workspace-name">{me?.workspace.name}</div>
           </div>
         </div>
-        {NAV.map((g, i) => (
-          <div className="nav-group nav" key={i}>
+        {NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length > 0).map((g, i) => (
+          <div className="nav-group nav" key={g.title ?? i}>
             {g.title && <div className="nav-group-title">{g.title}</div>}
-            {g.items.filter((it) => !it.admin || me?.role === "admin").map((it) => (
+            {g.items.map((it) => (
               <NavLink key={it.to} to={it.to} end={it.to === "/"}>
                 <Icon d={it.icon} />
                 {it.label}
@@ -82,7 +117,7 @@ export default function Shell() {
         ))}
         <div className="sidebar-foot">
           <div>{me?.user?.name || me?.user?.email}</div>
-          <div className="xs" style={{ color: "#8e9bb3", margin: "2px 0 8px" }}>{me?.role === "admin" ? "Admin" : "Editor"}</div>
+          <div className="xs" style={{ color: "#8e9bb3", margin: "2px 0 8px" }}>{roleName(me?.role, roles.data)}</div>
           <button onClick={signOut}>Sign out</button>
         </div>
       </nav>

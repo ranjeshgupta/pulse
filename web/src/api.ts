@@ -40,8 +40,31 @@ export const CHANNEL_NAMES: Record<Channel, string> = {
 };
 
 export interface Workspace { id: number; name: string; slug: string; site_key: string }
-export interface User { id: number; email: string; name: string; role: "admin" | "editor"; sso: boolean; created_at: string; last_login_at?: string }
-export interface Me { workspace: Workspace; role: "admin" | "editor"; user?: User }
+/** A user's role: a built-in one or "role:<id>" for a custom role. */
+export type RoleKey = "admin" | "editor" | "viewer" | `role:${number}`;
+export interface User { id: number; email: string; name: string; role: RoleKey; sso: boolean; created_at: string; last_login_at?: string }
+export type Area = "contacts" | "segments" | "journeys" | "broadcasts" | "content" | "reports" | "channels" | "settings";
+export type Level = "none" | "view" | "edit" | "publish";
+export const LEVELS: Level[] = ["none", "view", "edit", "publish"];
+export type Perms = Partial<Record<Area, Level>>;
+export interface Me { workspace: Workspace; role: RoleKey; user?: User; permissions: Perms }
+/** can reports whether perms reach level in area (levels include the ones below them). */
+export function can(perms: Perms | undefined, area: Area, level: Exclude<Level, "none">): boolean {
+  return LEVELS.indexOf(perms?.[area] ?? "none") >= LEVELS.indexOf(level);
+}
+export interface BuiltinRole { key: "admin" | "editor" | "viewer"; name: string; description: string; permissions: Perms }
+export interface CustomRole { id: number; name: string; description: string; permissions: Perms; users: number; updated_at: string }
+export interface AuditEntry {
+  id: number; at: string; user_id?: number; actor: string; action: string; object_type: string; object_id: string;
+  status: number; ip: string; detail?: unknown;
+}
+export interface Webhook { id: number; name: string; url: string; events: string[]; active: boolean; secret?: string; created_at: string; updated_at: string }
+export interface WebhookDelivery { id: number; event_id: string; event_name: string; at: string; attempt: number; status: number; error?: string; duration_ms: number; final: boolean }
+export interface Import {
+  id: number; filename: string; list_id?: number; status: "uploading" | "queued" | "running" | "done" | "failed" | "cancelled";
+  bytes: number; rows_done: number; rows_failed: number; errors: { row: number; error: string }[]; message?: string;
+  created_at: string; started_at?: string; finished_at?: string;
+}
 
 export interface PropFilter { prop: string; op: string; value?: unknown }
 
@@ -161,7 +184,7 @@ export interface FunnelResult {
   steps: { event: string; label?: string; contacts: number; of_first: number; of_previous: number; dropped: number }[];
 }
 
-export interface SSOConfig { enabled: boolean; issuer: string; discovery_url: string; client_id: string; client_secret?: string; has_client_secret: boolean; auto_create_users: boolean; default_role: "admin" | "editor" }
+export interface SSOConfig { enabled: boolean; issuer: string; discovery_url: string; client_id: string; client_secret?: string; has_client_secret: boolean; auto_create_users: boolean; default_role: RoleKey }
 
 export interface Overview {
   counts: { contacts: number; segments: number; active_journeys: number; templates: number };

@@ -1,7 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Segment } from "../api";
 import { Drawer, Empty, ErrorNote, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { formatBytes, MAX_IMPORT_BYTES, uploadImport, type UploadProgress } from "./Imports";
 
 export default function Contacts() {
   const [q, setQ] = useState("");
@@ -206,6 +208,9 @@ function ConsentPanel({ contact }: { contact: Contact }) {
   );
 }
 
+/** The quick import's limit; bigger files go to a background import. */
+const QUICK_MAX_BYTES = 200 * 1024 * 1024;
+
 type ImportResult = { rows: number; imported: number; skipped: number; errors: { row: number; error: string }[]; columns: string[] };
 
 /** ImportModal uploads a CSV of contacts; with a list, every imported contact is also added to it. */
@@ -214,6 +219,20 @@ export function ImportModal({ onClose, list }: { onClose: () => void; list?: { i
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][]>([]);
   const [agreed, setAgreed] = useState(false);
+  const nav = useNavigate();
+  const toast = useToast();
+  const [bgProgress, setBgProgress] = useState<UploadProgress | null>(null);
+  const bgAbort = useRef<(() => void) | null>(null);
+  useEffect(() => () => bgAbort.current?.(), []);
+  const background = useMutation({
+    mutationFn: async () => {
+      setBgProgress({ loaded: 0, total: file!.size });
+      const up = uploadImport(file!, list?.id, setBgProgress);
+      bgAbort.current = up.abort;
+      try { return await up.promise; } finally { bgAbort.current = null; setBgProgress(null); }
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["imports"] }); toast({ text: "Uploaded. The import runs in the background." }); nav("/imports"); },
+  });
   const upload = useMutation({
     mutationFn: async () => {
       const fd = new FormData();
@@ -228,15 +247,20 @@ export function ImportModal({ onClose, list }: { onClose: () => void; list?: { i
   const pick = async (f: File | null) => {
     setFile(f);
     upload.reset();
+    background.reset();
     if (!f) return setPreview([]);
     const head = (await f.slice(0, 4096).text()).split(/\r?\n/).slice(0, 4);
     setPreview(head.filter(Boolean).map((l) => l.split(",").slice(0, 6)));
   };
   const r = upload.data;
+  const big = !!file && file.size > QUICK_MAX_BYTES;
+  const busy = upload.isPending || background.isPending;
+  const pct = bgProgress && bgProgress.total ? Math.min(100, Math.round((bgProgress.loaded / bgProgress.total) * 100)) : 0;
   return (
     <Modal title={list ? `Import contacts into ${list.name}` : "Import contacts"} onClose={onClose} footer={r ? <button className="btn primary" onClick={onClose}>Done</button> : <>
-      <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!file || !agreed || upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? "Importing…" : "Import contacts"}</button>
+      <button className="btn" onClick={() => { bgAbort.current?.(); onClose(); }}>Cancel</button>
+      <button className={`btn${big ? " primary" : ""}`} disabled={!file || !agreed || busy || file.size > MAX_IMPORT_BYTES} onClick={() => background.mutate()}>{background.isPending ? `Uploading… ${pct}%` : "Run in the background"}</button>
+      {!big && <button className="btn primary" disabled={!file || !agreed || busy} onClick={() => upload.mutate()}>{upload.isPending ? "Importing…" : "Import contacts"}</button>}
     </>}>
       {r ? (
         <>
@@ -249,14 +273,19 @@ export function ImportModal({ onClose, list }: { onClose: () => void; list?: { i
           <p className="small muted" style={{ marginBottom: 12 }}>
             The first row names the columns. Use <code>external_id</code> (or <code>email</code>, which then becomes the ID), and optionally <code>email</code>, <code>phone</code> in international format (+91…) and any attributes, such as <code>city</code> or <code>plan</code>. A <code>tags</code> column takes tags separated by semicolons. Attributes defined as numbers or yes/no are checked and converted. Existing contacts are updated; empty cells leave values as they are.
           </p>
+          <p className="small muted" style={{ marginBottom: 12 }}>
+            Very large file (over 200 MB or 2 million rows)? Choose <strong>Run in the background</strong>: it takes up to 10 GB and you can follow it on <Link to="/imports">Imports</Link>.
+          </p>
           <input type="file" accept=".csv,text/csv" onChange={(e) => pick(e.target.files?.[0] ?? null)} aria-label="CSV file" />
+          {big && <div className="alert info" style={{ marginTop: 12 }}>This file is {formatBytes(file!.size)}, too big for a quick import. Run it in the background instead.</div>}
+          {bgProgress && <p className="xs muted" style={{ marginTop: 10 }}>Uploading {formatBytes(bgProgress.loaded)} of {formatBytes(bgProgress.total)}. Keep this window open until it finishes.</p>}
           {preview.length > 0 && (
             <div className="table-scroll" style={{ marginTop: 12 }}>
               <table className="table"><tbody>{preview.map((row, i) => <tr key={i}>{row.map((c, j) => <td key={j} className={i === 0 ? "" : "muted"} style={i === 0 ? { fontWeight: 600 } : undefined}>{c}</td>)}</tr>)}</tbody></table>
             </div>
           )}
           <label className="check" style={{ marginTop: 14 }}><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />These people agreed to hear from us. Unsubscribe columns like <code>optout_email</code> are respected.</label>
-          <ErrorNote error={upload.error} />
+          <ErrorNote error={upload.error ?? background.error} />
         </>
       )}
     </Modal>

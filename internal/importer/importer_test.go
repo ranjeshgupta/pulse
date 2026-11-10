@@ -21,6 +21,17 @@ func TestRunStopsOnHugeLines(t *testing.T) {
 	}
 }
 
+func TestRunStopsOnHugeQuotedFields(t *testing.T) {
+	src := "external_id,note\nu1,\"" + strings.Repeat("line\n", MaxLine/5+10) + "\"\n"
+	if _, err := Run(context.Background(), &nopPub{}, strings.NewReader(src), Options{Tenant: 1, ImportID: "t"}); !errors.Is(err, ErrLineTooLong) {
+		t.Fatalf("err = %v, want ErrLineTooLong for a quoted field full of line breaks", err)
+	}
+	ok := "external_id,note\nu1,\"two\nlines\"\nu2,\"say \"\"hi\"\"\"\n"
+	if res, err := Run(context.Background(), &nopPub{}, strings.NewReader(ok), Options{Tenant: 1, ImportID: "t"}); err != nil || res.Imported != 2 {
+		t.Fatalf("normal quoted fields: %+v %v", res, err)
+	}
+}
+
 func TestRunImportsAndReportsBadRows(t *testing.T) {
 	pub := &nopPub{}
 	src := "email,age\na@x.co,30\nb@x.co,old\n,40\n"

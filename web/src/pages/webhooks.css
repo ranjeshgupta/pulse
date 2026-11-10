@@ -1,0 +1,14 @@
+/* Webhooks page: event chips, the signing secret, the signature snippet. */
+
+.wh-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.wh-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.wh-suggest button { border: 1px dashed var(--rule-strong); background: none; border-radius: 999px; padding: 1px 9px; font: inherit; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; }
+.wh-suggest button:hover { border-color: var(--ink-3); color: var(--text); }
+
+.wh-secret { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.wh-secret code { background: var(--porcelain); border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 6px 10px; word-break: break-all; }
+
+.wh-snippet { margin: 0; background: var(--ink); color: #dfe6f1; border-radius: var(--r-sm); padding: 14px 16px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; }
+.wh-snippet-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+
+.wh-err { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

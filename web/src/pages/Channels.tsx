@@ -48,6 +48,7 @@ export function Channels() {
         );
       })}
       <DeliveryRulesPanel admin={admin} />
+      {admin && <BouncesPanel />}
       {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
       {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} onClose={() => setEditing(null)} />}
     </div>
@@ -242,6 +243,85 @@ function KeywordField({ label, value, onChange }: { label: string; value: string
   );
 }
 
+const BOUNCE_SERVICES: Record<string, string> = {
+  sendgrid: "SendGrid (Event Webhook)",
+  postmark: "Postmark (Bounce and Spam Complaint webhooks)",
+  mailgun: "Mailgun (Permanent Failure, Temporary Failure and Spam Complaint webhooks)",
+  ses: "Amazon SES (an SNS topic with an HTTPS subscription; Pulse confirms it for you)",
+  generic: 'Anything else: post JSON like {"email": "…", "type": "hard"} (or a list of them). type is hard, soft or complaint.',
+};
+
+// BouncesPanel shows where the email service should report bounces and complaints, and what each does.
+function BouncesPanel() {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<{ url: string; formats: string[] }>("/v1/settings/bounces") });
+  const copy = (text: string) =>
+    navigator.clipboard.writeText(text).then(() => toast({ text: "Bounce URL copied" }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
+  const formats = q.data?.formats ?? Object.keys(BOUNCE_SERVICES);
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Bounces and complaints</h3><span className="xs muted">Keeps your sender reputation clean</span></div>
+      <div className="panel-body">
+        <ErrorNote error={q.error} />
+        <p className="small muted" style={{ marginBottom: 12 }}>
+          In your email service, point the bounce and spam complaint webhook at this URL. Pulse then stops emailing addresses that don't work or that marked you as spam.
+        </p>
+        {q.data && (
+          <div className="row" style={{ marginBottom: 16, flexWrap: "nowrap" }}>
+            <code style={{ background: "var(--porcelain)", border: "1px solid var(--rule)", borderRadius: "var(--r-sm)", padding: "6px 10px", wordBreak: "break-all", flex: 1 }}>{q.data.url}</code>
+            <button className="btn sm" onClick={() => copy(q.data.url)}>Copy</button>
+          </div>
+        )}
+        <div className="grid-2">
+          <div>
+            <h4 className="small" style={{ marginBottom: 8 }}>Works with</h4>
+            <ul className="small" style={{ margin: "0 0 14px", paddingLeft: 18 }}>
+              {formats.map((f) => <li key={f} style={{ marginBottom: 4 }}>{BOUNCE_SERVICES[f] ?? f}</li>)}
+            </ul>
+          </div>
+          <div>
+            <h4 className="small" style={{ marginBottom: 8 }}>What happens</h4>
+            <dl className="kv" style={{ gridTemplateColumns: "110px 1fr" }}>
+              <dt>Hard bounce</dt><dd>The address doesn't exist. The contact gets <code>email_bounced</code> = true and no more email is sent to them.</dd>
+              <dt>Soft bounce</dt><dd>A passing problem, like a full inbox. Recorded as an <code>email_bounced</code> event; email keeps going.</dd>
+              <dt>Complaint</dt><dd>They marked you as spam. The contact is unsubscribed from email.</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// SimulateBounce reports a fake bounce or complaint for an address, as the email service would.
+function SimulateBounce() {
+  const toast = useToast();
+  const [email, setEmail] = useState("");
+  const [type, setType] = useState<"hard" | "soft" | "complaint">("hard");
+  const send = useMutation({
+    mutationFn: () => api.post("/v1/sandbox/bounce", { email: email.trim(), type }),
+    onSuccess: () => toast({ text: type === "hard" ? "Hard bounce recorded. Email to this address is now suppressed." : type === "soft" ? "Soft bounce recorded. Email keeps going." : "Complaint recorded. The contact is unsubscribed from email." }),
+  });
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Simulate a bounce</h3><span className="xs muted">As if the email service reported it</span></div>
+      <div className="panel-body">
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <Field label="Email"><input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="someone@example.com" /></Field>
+          <Field label="Kind">
+            <select className="select" value={type} onChange={(e) => setType(e.target.value as "hard" | "soft" | "complaint")}>
+              <option value="hard">Hard bounce</option><option value="soft">Soft bounce</option><option value="complaint">Spam complaint</option>
+            </select>
+          </Field>
+          <button className="btn" style={{ marginBottom: 14 }} disabled={!email.trim() || send.isPending} onClick={() => send.mutate()}>Report</button>
+        </div>
+        <p className="xs muted">The contact with this email gets an <code>{type === "complaint" ? "email_complained" : "email_bounced"}</code> event; journeys and segments can use it.</p>
+        <ErrorNote error={send.error} />
+      </div>
+    </section>
+  );
+}
+
 // SimulateReply sends a fake inbound SMS or WhatsApp message, as if a contact had replied.
 function SimulateReply() {
   const toast = useToast();
@@ -313,7 +393,10 @@ export function TestInbox() {
           </table>
         )}
       </div>
-      <SimulateReply />
+      <div className="grid-2" style={{ alignItems: "start" }}>
+        <SimulateReply />
+        <SimulateBounce />
+      </div>
     </div>
   );
 }

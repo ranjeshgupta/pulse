@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { api, ApiError, type Me } from "./api";
+import { api, ApiError, can, type Area, type Level, type Me } from "./api";
 
 export function useMe() {
   return useQuery({
@@ -12,8 +12,14 @@ export function useMe() {
   });
 }
 
+/** useIsAdmin: may change workspace settings (admins, or a custom role with settings edit). */
 export function useIsAdmin() {
-  return useMe().data?.role === "admin";
+  return can(useMe().data?.permissions, "settings", "edit");
+}
+
+/** useCan reports whether the signed-in user's role reaches level in area. */
+export function useCan(area: Area, level: Exclude<Level, "none">) {
+  return can(useMe().data?.permissions, area, level);
 }
 
 // RequireAuth sends signed-out visitors to the login page, remembering where they were going.

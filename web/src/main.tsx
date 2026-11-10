@@ -16,6 +16,10 @@ import { Login, Signup } from "./pages/Login";
 import { DWCEdit, DWCList, FocusEdit, FocusList } from "./pages/OnSite";
 import { SegmentEdit, SegmentList } from "./pages/Segments";
 import { Access, Attributes, Scoring, Team } from "./pages/Settings";
+import { Roles } from "./pages/Roles";
+import { AuditLog } from "./pages/Audit";
+import { WebhookEdit, WebhookList } from "./pages/Webhooks";
+import { Imports } from "./pages/Imports";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
 import Shell from "./Shell";
 import "./styles.css";
@@ -64,6 +68,11 @@ const router = createBrowserRouter([
       { path: "settings/access", element: <Access /> },
       { path: "settings/attributes", element: <Attributes /> },
       { path: "settings/scoring", element: <Scoring /> },
+      { path: "settings/roles", element: <Roles /> },
+      { path: "settings/audit", element: <AuditLog /> },
+      { path: "settings/webhooks", element: <WebhookList /> },
+      { path: "settings/webhooks/:id", element: <WebhookEdit /> },
+      { path: "imports", element: <Imports /> },
     ],
   },
 ]);

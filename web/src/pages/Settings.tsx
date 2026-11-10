@@ -1,20 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type AttributeDef, type AttrType, type IdentitySettings, type PointRule, type SSOConfig, type User } from "../api";
+import { api, type AttributeDef, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type User } from "../api";
 import { useIsAdmin, useMe } from "../auth";
 import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { RoleOptions, roleName, useRoles } from "./Roles";
 
 export function Team() {
   const admin = useIsAdmin();
   const me = useMe().data;
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: User[] }>("/v1/users") });
+  const roles = useRoles().data;
+  const toast = useToast();
   const [adding, setAdding] = useState(false);
   const remove = useMutation({ mutationFn: (id: number) => api.del(`/v1/users/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }) });
+  const setRole = useMutation({
+    mutationFn: (v: { user: User; role: RoleKey }) => api.put(`/v1/users/${v.user.id}/role`, { role: v.role }),
+    onSuccess: (_, v) => {
+      qc.invalidateQueries({ queryKey: ["users"] });
+      qc.invalidateQueries({ queryKey: ["roles"] });
+      toast({ text: `${v.user.name || v.user.email} is now ${roleName(v.role, roles)}` });
+    },
+    onError: (e) => toast({ text: e.message, error: true }),
+  });
   return (
     <div className="page">
-      <PageHead title="Team" intro="Admins manage settings, sign-in and providers. Editors build segments, journeys and content." actions={admin && <button className="btn primary" onClick={() => setAdding(true)}>Add teammate</button>} />
-      <ErrorNote error={q.error ?? remove.error} />
+      <PageHead title="Team" intro="Admins manage settings, sign-in and providers. Editors build segments, journeys and content. Viewers look but don't change anything. Make your own roles under Roles." actions={admin && <button className="btn primary" onClick={() => setAdding(true)}>Add teammate</button>} />
+      <ErrorNote error={q.error ?? remove.error ?? setRole.error} />
       <div className="panel">
         <table className="table">
           <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Signs in with</th><th>Last sign-in</th><th /></tr></thead>
@@ -22,7 +34,20 @@ export function Team() {
             <tr key={u.id}>
               <td>{u.name || <span className="faint">not set</span>}</td>
               <td>{u.email}</td>
-              <td>{u.role === "admin" ? "Admin" : "Editor"}</td>
+              <td>
+                {admin ? (
+                  <select
+                    className="select inline"
+                    aria-label={`Role for ${u.email}`}
+                    value={u.role}
+                    disabled={u.id === me?.user?.id || setRole.isPending}
+                    title={u.id === me?.user?.id ? "You can't change your own role" : undefined}
+                    onChange={(e) => setRole.mutate({ user: u, role: e.target.value as RoleKey })}
+                  >
+                    <RoleOptions roles={roles} />
+                  </select>
+                ) : roleName(u.role, roles)}
+              </td>
               <td>{u.sso ? "SSO" : "Password"}</td>
               <td className="muted">{timeAgo(u.last_login_at)}</td>
               <td className="num">{admin && u.id !== me?.user?.id && <button className="btn ghost sm" onClick={() => confirm(`Remove ${u.email}? They're signed out everywhere.`) && remove.mutate(u.id)}>Remove</button>}</td>
@@ -38,7 +63,8 @@ export function Team() {
 function AddUser({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [u, setU] = useState({ email: "", name: "", role: "editor", password: "" });
+  const roles = useRoles().data;
+  const [u, setU] = useState<{ email: string; name: string; role: RoleKey; password: string }>({ email: "", name: "", role: "editor", password: "" });
   const add = useMutation({
     mutationFn: () => api.post("/v1/users", u),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["users"] }); toast({ text: `${u.email} added` }); onClose(); },
@@ -49,7 +75,7 @@ function AddUser({ onClose }: { onClose: () => void }) {
       <Field label="Email"><input className="input" type="email" value={u.email} onChange={(e) => setU({ ...u, email: e.target.value })} autoFocus /></Field>
       <Field label="Name"><input className="input" value={u.name} onChange={(e) => setU({ ...u, name: e.target.value })} /></Field>
       <Field label="Role">
-        <select className="select" value={u.role} onChange={(e) => setU({ ...u, role: e.target.value })}><option value="editor">Editor</option><option value="admin">Admin</option></select>
+        <select className="select" value={u.role} onChange={(e) => setU({ ...u, role: e.target.value as RoleKey })}><RoleOptions roles={roles} /></select>
       </Field>
       <Field label="Temporary password (optional)" hint="Leave empty if they'll sign in with SSO. Otherwise share it with them privately; at least 10 characters.">
         <input className="input" type="password" autoComplete="new-password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} />
@@ -63,6 +89,7 @@ export function Access() {
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ["sso"], queryFn: () => api.get<SSOConfig>("/v1/settings/sso") });
+  const roles = useRoles().data;
   const [sso, setSSO] = useState<SSOConfig | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   useEffect(() => { if (q.data && !sso) setSSO({ ...q.data, client_secret: "" }); }, [q.data, sso]);
@@ -92,7 +119,7 @@ export function Access() {
                 <Field label="Client secret" hint={sso.has_client_secret ? "Stored encrypted. Leave empty to keep it." : "Stored encrypted."}><input className="input" type="password" autoComplete="off" value={sso.client_secret ?? ""} onChange={(e) => setSSO({ ...sso, client_secret: e.target.value })} /></Field>
               </div>
               <label className="check"><input type="checkbox" checked={sso.auto_create_users} onChange={(e) => setSSO({ ...sso, auto_create_users: e.target.checked })} />Give anyone your provider signs in access to this workspace</label>
-              <Field label="Their role"><select className="select inline" value={sso.default_role} onChange={(e) => setSSO({ ...sso, default_role: e.target.value as "admin" | "editor" })}><option value="editor">Editor</option><option value="admin">Admin</option></select></Field>
+              <Field label="Their role"><select className="select inline" value={sso.default_role} onChange={(e) => setSSO({ ...sso, default_role: e.target.value as RoleKey })}><RoleOptions roles={roles} /></select></Field>
               <label className="check"><input type="checkbox" checked={sso.enabled} onChange={(e) => setSSO({ ...sso, enabled: e.target.checked })} />Allow signing in with SSO</label>
               <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save sign-on settings</button>
             </>
