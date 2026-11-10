@@ -111,7 +111,7 @@ func TestRenderLive(t *testing.T) {
 	p.HTML = `<h1>Sale</h1>{form:fAbc}<script>x()</script>`
 	doc := Render(p, Page{SiteKey: "sk_1", Nonce: "N0nce"})
 	for _, want := range []string{
-		"<!doctype html>", "<title>Spring sale</title>", `<meta name="description" content="Save &#34;big&#34; &lt;now&gt;">`,
+		"<!doctype html>", "<title>Spring sale</title>", `<meta name="description" content="Save &#34;big&#34; &lt;now&gt;"/>`,
 		`<div data-pulse-form="fAbc"></div>`,
 		`<script nonce="N0nce" src="/sdk/pulse.js"></script>`,
 		`<script nonce="N0nce" src="/sdk/lp.js" data-site-key="sk_1" data-page-id="12"></script></body>`,
@@ -122,6 +122,13 @@ func TestRenderLive(t *testing.T) {
 	}
 	if strings.Count(doc, "<script") != 2 {
 		t.Errorf("only the two SDK scripts may remain:\n%s", doc)
+	}
+	// Form tokens only become elements in text, never inside attributes or raw-text elements.
+	p.HTML = `<p title="{form:fAbc}">x</p><textarea>{form:fAbc}</textarea><xmp><title></title><script>alert(1)</script></xmp>`
+	doc = Render(p, Page{SiteKey: "sk_1", Nonce: "N0nce"})
+	if strings.Contains(doc, `title="<div`) || strings.Contains(doc, "<textarea><div") || strings.Contains(doc, "alert(1)") ||
+		strings.Count(doc, "<script") != 2 {
+		t.Errorf("tokens in attributes or raw text, or raw-text tricks:\n%s", doc)
 	}
 	csp := CSP("N0nce")
 	if !strings.Contains(csp, "script-src 'nonce-N0nce';") || !strings.Contains(csp, "frame-ancestors *") || strings.Contains(csp, "unsafe-eval") {
