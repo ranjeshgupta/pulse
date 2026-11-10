@@ -35,9 +35,11 @@ import (
 	"pulse/internal/config"
 	"pulse/internal/dispatch"
 	"pulse/internal/event"
+	"pulse/internal/geoip"
 	"pulse/internal/importer"
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
+	"pulse/internal/maintenance"
 	"pulse/internal/profile"
 	"pulse/internal/providers"
 	"pulse/internal/safehttp"
@@ -216,6 +218,13 @@ func runAPI(ctx context.Context, d *deps) error {
 	if err != nil {
 		return err
 	}
+	var geo *geoip.Locator
+	if d.cfg.GeoIPDB != "" {
+		if geo, err = geoip.Open(d.cfg.GeoIPDB); err != nil {
+			return fmt.Errorf("geoip database %s: %w", d.cfg.GeoIPDB, err)
+		}
+		defer geo.Close()
+	}
 	chs, err := d.ch(ctx)
 	if err != nil {
 		return err
@@ -223,7 +232,7 @@ func runAPI(ctx context.Context, d *deps) error {
 	server := api.New(api.Deps{
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
-		AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
+		Geo: geo, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box),
 	})
 	srv := &http.Server{
@@ -408,22 +417,14 @@ func pushSubject(publicURL string) string {
 	return "mailto:push@pulse.invalid"
 }
 
-// runMaintenance deletes data past its retention: expired and deleted inbox messages.
+// runMaintenance deletes data past each workspace's retention settings (see internal/maintenance).
 func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
-	tick := time.NewTicker(time.Hour)
-	defer tick.Stop()
-	for {
-		if n, err := pgs.PurgeInbox(ctx); err != nil && ctx.Err() == nil {
-			d.log.Error("purge inbox", "err", err)
-		} else if n > 0 {
-			d.log.Info("purged inbox messages", "count", n)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-tick.C:
-		}
+	chs, err := d.ch(ctx)
+	if err != nil {
+		return err
 	}
+	c := &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log}
+	return c.Loop(ctx, d.cfg.MaintenanceInterval)
 }
 
 // runImports streams queued background imports through the pipeline.

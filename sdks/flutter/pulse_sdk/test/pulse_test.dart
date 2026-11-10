@@ -1,42 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:pulse_sdk/pulse_sdk.dart';
 
-/// Records requests and answers with [status] (or throws when [fail] is set).
-class FakeServer {
-  int status = 202;
-  bool fail = false;
-  final requests = <http.Request>[];
-
-  late final client = MockClient((req) async {
-    requests.add(req);
-    if (fail) throw http.ClientException('offline', req.url);
-    return http.Response(status == 202 ? '' : '{"error":"x"}', status);
-  });
-
-  List<Map<String, dynamic>> get eventRequests => requests
-      .where((r) => r.url.path == '/v1/web/events')
-      .map((r) => (jsonDecode(r.body) as Map).cast<String, dynamic>())
-      .toList();
-
-  List<Map<String, dynamic>> get events => [
-        for (final body in eventRequests)
-          for (final e in body['events'] as List) (e as Map).cast<String, dynamic>()
-      ];
-}
-
-PulseConfig config({int maxBatch = 50}) => PulseConfig(
-      host: 'http://pulse.test/',
-      siteKey: 'sk_test',
-      flushInterval: const Duration(hours: 1),
-      maxBatch: maxBatch,
-      flushOnBackground: false,
-    );
+import 'support.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late FakeServer server;
   late InMemoryPulseStorage storage;
 

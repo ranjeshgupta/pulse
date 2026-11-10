@@ -9,6 +9,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Feature | Mautic | WebEngage | Pulse | Priority / note |
 |---|---|---|---|---|
 | Contact profiles, custom attributes | ✅ | ✅ | ✅ JSON attributes, no schema needed | |
+| Anonymous visitor tracking, GeoIP location | ✅ | ✅ | ✅ anonymous visitors (on/off per workspace), MaxMind GeoIP city/state/country/time zone | |
+| Data retention and cleanup | ✅ | 🟡 | ✅ Data & privacy: anonymous visitors, events, audit log; hourly cleanup | |
 | Real-time event tracking API | 🟡 | ✅ | ✅ 20k events/s on one machine | |
 | Activity timeline | ✅ | ✅ | ✅ | |
 | Unsubscribe, do-not-contact, per-channel consent | ✅ | ✅ | ✅ per channel and "everything", honored by every send (`*_suppressed`), editable per contact | |
@@ -82,7 +84,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Mobile push (FCM) | ✅ | ✅ | ✅ adapter, tokens via API | SDK next |
 | Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work | Click tracking: P2 |
 | App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
-| In-app messages (modal, banner, full screen) | ⬜ | ✅ | 🟡 campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; `/v1/inapp` and the SDK endpoint `POST /v1/web/inapp`; shown/clicked/dismissed stats | Rendering in the Flutter SDK and the editor page: in progress |
+| In-app messages (modal, banner, full screen) | ⬜ | ✅ | ✅ campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; editor with phone preview, "see what a contact gets" and test send; rendered by the Flutter SDK; shown/clicked/dismissed stats | |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
 | Facebook / Google audience sync | 🟡 | ✅ | ⬜ | P2 |
 
@@ -135,12 +137,13 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    goals, journey and broadcast reports, funnels.
 5. **P1 batch 4, done:** custom roles, audit log, outbound webhooks, background imports, the Flutter SDK, bounce and
    complaint handling, standard web push, and the custom HTTP gateway (webhook channel).
-   **Left from P1:** in-app messages (the app inbox is done).
+   **P1 is complete:** in-app messages and the app inbox are done too.
 6. **Batch 5, requested 2026-11-10:**
-   - Anonymous visitors: GeoIP (MaxMind GeoLite2/GeoIP2 database: country, state, city, time zone) on web and app
-     events; workspace switch to track anonymous visitors or not.
-   - Cleanup like Mautic's maintenance: delete anonymous contacts idle for N days, and old events, audit entries,
-     webhook deliveries and inbox messages, per workspace settings.
+   - ✅ Anonymous visitors: GeoIP with a MaxMind GeoLite2/GeoIP2 City database (`PULSE_GEOIP_DB`) sets geo_country,
+     geo_country_code, geo_region, geo_city, geo_postal, geo_timezone on web and app events; quiet hours fall back to
+     geo_timezone; Data & privacy switch to track anonymous visitors or not.
+   - ✅ Cleanup like Mautic's maintenance (hourly): anonymous visitors idle for N days with their events, events older
+     than N days, audit entries older than N days; expired inbox messages and old webhook deliveries are always pruned.
    - Journeys built from Actions, Conditions and Decisions (Mautic's model, WebEngage's blocks), including decisions
      on a specific message's engagement: email opened or clicked, WhatsApp/RCS read, SMS delivered.
    - Segment builder with every Mautic and WebEngage filter (geo, device and platform, first/last seen, page visits,

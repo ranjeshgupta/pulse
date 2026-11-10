@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Segment } from "../api";
 import { Drawer, Empty, ErrorNote, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { ContactInbox } from "./InApp";
 import { formatBytes, MAX_IMPORT_BYTES, uploadImport, type UploadProgress } from "./Imports";
 
 export default function Contacts() {
@@ -85,6 +86,7 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
 
       {contact && <TagsAndPoints contact={contact} />}
       {contact && <ConsentPanel contact={contact} />}
+      {contact && <ContactInbox externalId={contact.external_id} />}
 
       <h3 style={{ marginBottom: 10 }}>Attributes</h3>
       <dl className="kv" style={{ marginBottom: 22 }}>

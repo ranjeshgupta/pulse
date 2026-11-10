@@ -22,6 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"pulse/internal/auth"
+	"pulse/internal/geoip"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/schedule"
@@ -93,6 +94,8 @@ type Deps struct {
 	AllowPrivateSSO bool
 	// AllowPrivateWebhooks lets webhook tests reach private addresses (local development).
 	AllowPrivateWebhooks bool
+	// Geo locates web and app visitors by IP (nil: off).
+	Geo *geoip.Locator
 	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
 	TrustProxy bool
 }
@@ -105,6 +108,7 @@ type Server struct {
 
 	mu        sync.Mutex
 	authCache map[string]cachedTenant
+	dataCache map[int64]cachedTracking
 }
 
 type cachedTenant struct {
@@ -113,7 +117,8 @@ type cachedTenant struct {
 }
 
 func New(d Deps) *Server {
-	return &Server{Deps: d, now: time.Now, sso: newSSOProviders(), authCache: map[string]cachedTenant{}}
+	return &Server{Deps: d, now: time.Now, sso: newSSOProviders(), authCache: map[string]cachedTenant{},
+		dataCache: map[int64]cachedTracking{}}
 }
 
 // WithUI serves the web app for every path that is not an API route.
@@ -173,6 +178,7 @@ func (s *Server) Handler() http.Handler {
 	s.webPushRoutes(mux)
 	s.inboxRoutes(mux)
 	s.inappRoutes(mux)
+	s.dataSettingsRoutes(mux)
 	s.auditRoutes(mux)
 	s.preferenceRoutes(mux)
 

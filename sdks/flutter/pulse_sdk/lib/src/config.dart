@@ -28,6 +28,8 @@ class PulseConfig {
     this.flushOnBackground = true,
     this.requestTimeout = const Duration(seconds: 30),
     this.debug = false,
+    this.inAppMessages = true,
+    this.onInAppAction,
   }) : host = host.replaceAll(RegExp(r'/+$'), '') {
     if (this.host.isEmpty) throw ArgumentError.value(host, 'host', 'is empty');
     if (siteKey.isEmpty) throw ArgumentError.value(siteKey, 'siteKey', 'is empty');
@@ -62,4 +64,12 @@ class PulseConfig {
 
   /// Log what the SDK does with `debugPrint`.
   final bool debug;
+
+  /// Fetch in-app campaigns (at init, after identify/reset, and on resume at most every 15 minutes)
+  /// and show them when their trigger event happens. Showing needs `Pulse.attachNavigator`.
+  final bool inAppMessages;
+
+  /// Called with the button's `value` when someone taps an in-app button whose action is `url`
+  /// (a web link or a deep link). The app opens it; the SDK only closes the message.
+  final void Function(String url)? onInAppAction;
 }

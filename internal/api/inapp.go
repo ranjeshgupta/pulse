@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,11 +30,95 @@ func (s *Server) inappRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/inapp/{id}", s.tenant(s.getInApp))
 	mux.HandleFunc("PUT /v1/inapp/{id}", s.tenant(s.saveInApp))
 	mux.HandleFunc("DELETE /v1/inapp/{id}", s.tenant(s.deleteInApp))
+	mux.HandleFunc("GET /v1/inapp/check", s.tenant(s.checkInApp))
+	mux.HandleFunc("POST /v1/inapp/{id}/test", s.tenant(s.testInApp))
 	mux.HandleFunc("OPTIONS /v1/web/inapp", s.corsPreflight)
 	mux.HandleFunc("POST /v1/web/inapp", s.webInApp)
 }
 
 func (s *Server) inappStore() InAppStore { return s.Store.(InAppStore) }
+
+const inappTestTTL = 15 * time.Minute
+
+func inappTestKey(tenant int64, externalID string) string {
+	return "inapp:test:" + strconv.FormatInt(tenant, 10) + ":" + externalID
+}
+
+// testInApp queues a campaign (draft or live) for one contact: their app shows it on its next
+// fetch within 15 minutes, once, whatever its targeting.
+func (s *Server) testInApp(w http.ResponseWriter, r *http.Request, tenant int64) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		ExternalID string `json:"external_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if _, err := s.inappStore().GetInApp(r.Context(), tenant, id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if _, err := s.Store.ContactByExternalID(r.Context(), tenant, req.ExternalID); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if s.RDB == nil {
+		writeErr(w, http.StatusServiceUnavailable, "test sends need Redis")
+		return
+	}
+	if err := s.RDB.Set(r.Context(), inappTestKey(tenant, req.ExternalID), id, inappTestTTL).Err(); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"queued": true, "expires_in_seconds": int(inappTestTTL.Seconds())})
+}
+
+// testCampaigns returns (and uses up) a campaign queued for this visitor by testInApp.
+func (s *Server) testCampaigns(ctx context.Context, tenant int64, externalID string) []model.InAppMessage {
+	if s.RDB == nil {
+		return nil
+	}
+	id, err := s.RDB.GetDel(ctx, inappTestKey(tenant, externalID)).Int64()
+	if err != nil {
+		return nil
+	}
+	m, err := s.inappStore().GetInApp(ctx, tenant, id)
+	if err != nil {
+		return nil
+	}
+	m.Targeting.Frequency, m.Targeting.DelaySeconds = "always", 0
+	return []model.InAppMessage{m}
+}
+
+// checkInApp lists the live campaigns a contact would get on a platform now (?external_id=&platform=).
+func (s *Server) checkInApp(w http.ResponseWriter, r *http.Request, tenant int64) {
+	q := r.URL.Query()
+	platform := q.Get("platform")
+	if platform != "android" && platform != "ios" {
+		platform = "android"
+	}
+	c, err := s.Store.ContactByExternalID(r.Context(), tenant, q.Get("external_id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	ms, err := s.inappStore().ListInApp(r.Context(), tenant, true)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	member := map[int64]bool{}
+	for _, seg := range inapp.Segments(ms) {
+		if in, err := s.Members.IsMember(r.Context(), tenant, seg, c.ID); err == nil && in {
+			member[seg] = true
+		}
+	}
+	out := inapp.For(ms, platform, s.now(), func(id int64) bool { return member[id] })
+	writeJSON(w, http.StatusOK, map[string]any{"messages": out, "platform": platform})
+}
 
 func (s *Server) listInApp(w http.ResponseWriter, r *http.Request, tenant int64) {
 	ms, err := s.inappStore().ListInApp(r.Context(), tenant, false)
@@ -162,6 +247,9 @@ func (s *Server) webInApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := inapp.For(ms, req.Platform, s.now(), func(id int64) bool { return member[id] })
+	if req.ID != "" {
+		out = append(s.testCampaigns(r.Context(), t.ID, req.ID), out...)
+	}
 	type item struct {
 		ID        int64                `json:"id"`
 		Layout    string               `json:"layout"`

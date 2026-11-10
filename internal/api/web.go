@@ -109,9 +109,19 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
+	tracking := s.trackingFor(r.Context(), t.ID)
+	var geo map[string]any
+	if tracking.GeoIP && s.Geo != nil {
+		if loc, ok := s.Geo.Lookup(clientIP(r, s.TrustProxy)); ok {
+			geo = loc.Attrs()
+		}
+	}
 	recs := make([]*kgo.Record, 0, len(req.Events))
 	for i := range req.Events {
 		e := &req.Events[i]
+		if !tracking.Anonymous && strings.HasPrefix(e.ExternalID, "anon-") {
+			continue // the workspace doesn't track anonymous visitors; identify() still links them
+		}
 		e.TenantID = t.ID
 		e.ContactID, e.NewContact, e.ChangedAttrs, e.Profile = 0, false, nil, nil
 		if e.Name == consent.Unsubscribed || e.Name == consent.Resubscribed {
@@ -135,6 +145,16 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 				delete(e.Attrs, k)
 			}
 		}
+		if len(geo) > 0 {
+			if e.Attrs == nil {
+				e.Attrs = map[string]any{}
+			}
+			for k, v := range geo {
+				if _, set := e.Attrs[k]; !set { // the page's own values win
+					e.Attrs[k] = v
+				}
+			}
+		}
 		if err := e.Normalize(now); err != nil {
 			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+err.Error())
 			return
@@ -146,9 +166,11 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		recs = append(recs, rec)
 	}
-	if err := s.Pub.Publish(r.Context(), recs...); err != nil {
-		writeErr(w, http.StatusServiceUnavailable, "retry")
-		return
+	if len(recs) > 0 {
+		if err := s.Pub.Publish(r.Context(), recs...); err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "retry")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusAccepted)
 }

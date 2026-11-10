@@ -145,6 +145,28 @@ func TestInAppCampaigns(t *testing.T) {
 	if n := count(other, "android"); n != 0 {
 		t.Errorf("non-VIP sees %d, want 0", n)
 	}
+	// The admin check needs no user hash; a test send reaches one contact once, even as a draft.
+	if n := len(asList(jsonCall(t, c, "GET", "/v1/inapp/check?platform=android&external_id="+other, nil, 200)["messages"])); n != 0 {
+		t.Errorf("check for non-VIP = %d", n)
+	}
+	if n := len(asList(jsonCall(t, c, "GET", "/v1/inapp/check?platform=android&external_id="+vip, nil, 200)["messages"])); n != 1 {
+		t.Errorf("check for VIP = %d", n)
+	}
+	drafts := asList(jsonCall(t, c, "GET", "/v1/inapp", nil, 200)["messages"])
+	var draftID any
+	for _, d := range drafts {
+		if d.(map[string]any)["status"] == "draft" {
+			draftID = d.(map[string]any)["id"]
+		}
+	}
+	jsonCall(t, c, "POST", fmt.Sprint("/v1/inapp/", draftID, "/test"), map[string]any{"external_id": other}, 200)
+	if n := count(other, "android"); n != 1 {
+		t.Errorf("after a test send the contact gets %d campaigns, want the draft", n)
+	}
+	if n := count(other, "android"); n != 0 {
+		t.Errorf("a test send shows once; got %d on the second fetch", n)
+	}
+
 	// The SDK reports what happened; the list shows it.
 	webEvents(t, siteKey, map[string]any{"external_id": vip, "name": "inapp_shown", "props": map[string]any{"inapp_id": id}},
 		map[string]any{"external_id": vip, "name": "inapp_clicked", "props": map[string]any{"inapp_id": id, "button": "Open"}})

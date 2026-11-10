@@ -1,6 +1,6 @@
 name: pulse_sdk
 description: Pulse mobile SDK for Flutter. Track events and screens, identify users and register push tokens with a Pulse server.
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 
 environment:

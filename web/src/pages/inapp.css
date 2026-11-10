@@ -1,0 +1,65 @@
+/* In-app messages: list stats, buttons editor and the phone-frame preview. */
+
+.ia-errors .alert { white-space: pre-line; }
+
+.ia-buttons { display: grid; gap: 10px; margin-bottom: 12px; }
+.ia-button-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1.4fr) auto; gap: 8px; align-items: start; }
+.ia-button-row .input, .ia-button-row .select { width: 100%; }
+@media (max-width: 760px) { .ia-button-row { grid-template-columns: 1fr 1fr; } }
+
+.ia-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ia-suggest button { border: 1px dashed var(--rule-strong); background: none; border-radius: 999px; padding: 1px 9px; font: inherit; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; }
+.ia-suggest button:hover { border-color: var(--ink-3); color: var(--text); }
+
+.ia-problem { color: var(--danger); }
+
+/* ---------- phone preview ---------- */
+.ia-phone { position: relative; width: 300px; height: 600px; border: 10px solid var(--ink); border-radius: 34px; background: #f4f6f8; overflow: hidden; margin: 0 auto; }
+.ia-status { height: 26px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 11px; color: var(--muted); }
+.ia-app { padding: 8px 14px; display: grid; gap: 10px; }
+.ia-app i { display: block; border-radius: 6px; background: #dfe4ea; }
+.ia-app .bar { height: 30px; background: #e6eaf0; }
+.ia-app .hero { height: 120px; }
+.ia-app .line { height: 12px; width: 80%; }
+.ia-app .line.short { width: 50%; }
+.ia-app .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ia-app .tiles i { height: 80px; }
+
+.ia-backdrop { position: absolute; inset: 0; background: rgba(21, 34, 56, 0.45); }
+
+.ia-msg { position: absolute; background: var(--ia-bg, #fff); color: var(--ia-fg, var(--text)); font-size: 13.5px; line-height: 1.4; }
+.ia-msg h4 { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: inherit; }
+.ia-msg p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.ia-msg img { display: block; width: 100%; object-fit: cover; background: #cfd6df; }
+.ia-close { position: absolute; top: 8px; right: 10px; width: 22px; height: 22px; border-radius: 11px; background: rgba(0, 0, 0, 0.18); color: #fff; font-size: 14px; line-height: 22px; text-align: center; }
+
+.ia-btns { display: flex; gap: 8px; margin-top: 12px; }
+.ia-btn { flex: 1; text-align: center; padding: 8px 10px; border-radius: 8px; background: var(--ia-btn, var(--cobalt)); color: #fff; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ia-btn.secondary { background: transparent; color: inherit; border: 1px solid currentColor; opacity: 0.8; }
+
+.ia-msg.modal { left: 18px; right: 18px; top: 50%; transform: translateY(-50%); border-radius: 14px; overflow: hidden; box-shadow: 0 12px 34px rgba(21, 34, 56, 0.3); }
+.ia-msg.modal img { height: 130px; }
+.ia-msg.modal .ia-body { padding: 16px; }
+
+.ia-msg.banner { left: 8px; right: 8px; border-radius: 12px; padding: 10px 12px; display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; box-shadow: 0 6px 20px rgba(21, 34, 56, 0.25); }
+.ia-msg.banner.top { top: 30px; }
+.ia-msg.banner.bottom { bottom: 12px; }
+.ia-msg.banner img { width: 44px; height: 44px; border-radius: 8px; }
+.ia-msg.banner h4 { font-size: 14px; margin-bottom: 2px; }
+.ia-msg.banner p { font-size: 12.5px; }
+.ia-msg.banner .ia-btns { margin-top: 8px; }
+.ia-msg.banner .ia-btn { padding: 5px 8px; font-size: 12px; flex: none; }
+.ia-msg.banner.no-img { grid-template-columns: 1fr; }
+
+.ia-msg.fullscreen { inset: 0; display: flex; flex-direction: column; }
+.ia-msg.fullscreen img { height: 260px; }
+.ia-msg.fullscreen .ia-body { padding: 22px 18px 18px; display: flex; flex-direction: column; flex: 1; }
+.ia-msg.fullscreen h4 { font-size: 20px; margin-bottom: 8px; }
+.ia-msg.fullscreen .ia-btns { margin-top: auto; flex-direction: column; }
+
+/* ---------- contact drawer: app inbox ---------- */
+.ia-inbox-item { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: var(--fs-sm); }
+.ia-inbox-item:last-child { border-bottom: 0; }
+.ia-dot { width: 8px; height: 8px; border-radius: 4px; margin-top: 6px; background: var(--ch-inbox); }
+.ia-dot.read { background: transparent; border: 1px solid var(--rule-strong); }
+.ia-inbox-item p { margin: 2px 0 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

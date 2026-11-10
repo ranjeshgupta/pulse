@@ -483,3 +483,26 @@ type InAppTargeting struct {
 	DelaySeconds      int      `json:"delay_seconds,omitempty"`       // wait after the trigger
 	Frequency         string   `json:"frequency"`                     // once | session | daily | always
 }
+
+// DataSettings are a workspace's tracking and retention choices.
+type DataSettings struct {
+	Tracking  TrackingSettings  `json:"tracking"`
+	Retention RetentionSettings `json:"retention"`
+}
+
+type TrackingSettings struct {
+	Anonymous bool `json:"anonymous"` // accept events from anonymous visitors (anon- ids)
+	GeoIP     bool `json:"geoip"`     // locate web and app visitors by IP (needs the server's MaxMind database)
+}
+
+// RetentionSettings: 0 keeps forever.
+type RetentionSettings struct {
+	AnonymousDays int `json:"anonymous_days"` // delete anonymous visitors idle this long, with their events
+	EventDays     int `json:"event_days"`     // delete events older than this
+	AuditDays     int `json:"audit_days"`     // delete audit log entries older than this
+}
+
+// DefaultDataSettings: track anonymous visitors and locations, keep data forever, audit log a year.
+func DefaultDataSettings() DataSettings {
+	return DataSettings{Tracking: TrackingSettings{Anonymous: true, GeoIP: true}, Retention: RetentionSettings{AuditDays: 365}}
+}

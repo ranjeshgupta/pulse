@@ -14,12 +14,14 @@ import { JourneyEdit, JourneyList } from "./pages/Journeys";
 import { ListDetail, ListIndex } from "./pages/Lists";
 import { Login, Signup } from "./pages/Login";
 import { DWCEdit, DWCList, FocusEdit, FocusList } from "./pages/OnSite";
+import { InAppEdit, InAppList } from "./pages/InApp";
 import { SegmentEdit, SegmentList } from "./pages/Segments";
 import { Access, Attributes, Scoring, Team } from "./pages/Settings";
 import { Roles } from "./pages/Roles";
 import { AuditLog } from "./pages/Audit";
 import { WebhookEdit, WebhookList } from "./pages/Webhooks";
 import { Imports } from "./pages/Imports";
+import { DataPrivacy } from "./pages/DataSettings";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
 import Shell from "./Shell";
 import "./styles.css";
@@ -58,6 +60,8 @@ const router = createBrowserRouter([
       { path: "focus-items/:id", element: <FocusEdit /> },
       { path: "web-content", element: <DWCList /> },
       { path: "web-content/:id", element: <DWCEdit /> },
+      { path: "in-app", element: <InAppList /> },
+      { path: "in-app/:id", element: <InAppEdit /> },
       { path: "forms", element: <FormList /> },
       { path: "forms/:id", element: <FormEdit /> },
       { path: "funnels", element: <FunnelList /> },
@@ -70,6 +74,7 @@ const router = createBrowserRouter([
       { path: "settings/scoring", element: <Scoring /> },
       { path: "settings/roles", element: <Roles /> },
       { path: "settings/audit", element: <AuditLog /> },
+      { path: "settings/data", element: <DataPrivacy /> },
       { path: "settings/webhooks", element: <WebhookList /> },
       { path: "settings/webhooks/:id", element: <WebhookEdit /> },
       { path: "imports", element: <Imports /> },

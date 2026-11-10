@@ -34,10 +34,12 @@ and journeys within seconds, not on a 15-minute cron.
 - **App inbox (done):** an `inbox` channel kept by Pulse itself; journeys (`send_inbox`) and broadcasts send to it, the
   SDKs list and update it (`GET/POST /v1/web/inbox`, `Pulse.inbox`), reads and clicks count in reports.
   A signed-in user's inbox always needs their user hash (identity verification); anonymous visitors' doesn't.
-- **In-app campaigns (backend done):** `/v1/inapp` to manage them, `POST /v1/web/inapp` for the app SDK (android, ios).
+- **In-app campaigns (done):** `/v1/inapp` to manage them (with `GET /v1/inapp/check` and `POST /v1/inapp/{id}/test`),
+  `POST /v1/web/inapp` for the app SDK (android, ios); the Flutter SDK renders modal, banner and full-screen messages.
   Segment targeting counts for signed-in users only with their user hash. (On-site focus items follow the workspace's
   identity-verification setting instead.)
-- **Still to build:** in-app rendering in the Flutter SDK and the editor page, then batch 5 and P2 in the feature-parity doc.
+- **Batch 5 (in progress):** GeoIP and the anonymous-tracking switch, and retention cleanup are done (Settings → Data &
+  privacy); journey Actions/Conditions/Decisions with message-engagement decisions and the full segment filter set are next.
 
 ## Run it
 
@@ -68,6 +70,8 @@ cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies t
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
 | `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks and the custom gateway call private addresses (development only) |
+| `PULSE_GEOIP_DB` | none | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file (download with a free MaxMind licence key, e.g. via `geoipupdate`); unset turns geolocation off |
+| `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often retention cleanup runs |
 
 The dev compose file turns the two `ALLOW_PRIVATE` switches on for the local Keycloak and the e2e webhook receivers.
 

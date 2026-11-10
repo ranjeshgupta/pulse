@@ -1,7 +1,8 @@
 # Pulse Flutter SDK
 
 Send events from a Flutter app to [Pulse](../../../README.md): track events and screens, identify
-signed-in users (with identity verification), and register push tokens.
+signed-in users (with identity verification), register push tokens, show the app inbox and in-app
+messages.
 
 It mirrors the web SDK (`web/src/sdk/pulse.ts`): people are anonymous (`anon-` + 24 hex characters)
 until `identify`, and `identify` merges the anonymous visitor into the user. Events are queued on the
@@ -40,7 +41,8 @@ Future<void> main() async {
 ```
 
 Other options: `maxQueue` (default 1,000 events kept while offline; the oldest are dropped beyond
-that), `flushOnBackground` (default true, see below) and `requestTimeout` (default 30 s).
+that), `flushOnBackground` (default true, see below), `requestTimeout` (default 30 s),
+`inAppMessages` (default true) and `onInAppAction` (see [In-app messages](#in-app-messages)).
 
 After `init`, use `Pulse.instance` anywhere.
 
@@ -196,11 +198,137 @@ Future<void> registerForPush() async {
 `registerPushToken` returns `true` when the server stored the token (204). It is sent right away,
 not queued; call it again on the next app start if it returned `false`.
 
+## App inbox
+
+Messages sent to the inbox channel (by journeys and broadcasts) are kept on the server for each
+person. `Pulse.instance.inbox` reads and updates the current person's inbox:
+
+```dart
+final inbox = Pulse.instance.inbox;
+
+final page = await inbox.list();                 // newest 50 messages, and inbox.unreadCount
+if (page.hasMore) {
+  final older = await inbox.list(before: page.messages.last.id);
+}
+
+await inbox.markRead([message.id]);              // markRead() marks everything read
+await inbox.click(message.id);                   // a click in the sender's report; open message.url yourself
+await inbox.delete([message.id]);                // delete() deletes EVERYTHING; delete([]) does nothing
+```
+
+`PulseInboxMessage` has `id`, `messageId`, `title`, `body`, `imageUrl`, `url`, `category`, `data`
+(custom key-values), `createdAt`, `readAt` / `isRead` and `expiresAt`. Reads count as opens and
+`click` as a click in the sending journey's or broadcast's report.
+
+**User hash required for signed-in users.** Inboxes are private, so the server only answers for a
+signed-in user when the request carries their user hash (see
+[Identity verification](#identity-verification)), *even if the workspace does not require identity
+verification for events*. Pass `userHash` to `identify`. Without it (or with a wrong one) the inbox
+calls throw a `PulseException` (status 403, or before sending when no hash is set). Anonymous people
+(`anon-` ids) need no hash.
+
+Other failures don't throw: on a network error, rate limiting (429) or a server error `list` returns
+an empty page and the actions return 0 / `false`, with a log line.
+
+### Unread badge
+
+`inbox.unread` is a `ValueListenable<int>`, updated by `list()` and lowered by `markRead` and
+`delete` (and reset to 0 by `identify`/`reset`):
+
+```dart
+ValueListenableBuilder<int>(
+  valueListenable: Pulse.instance.inbox.unread,
+  builder: (context, unread, _) => Badge(
+    isLabelVisible: unread > 0,
+    label: Text('$unread'),
+    child: const Icon(Icons.inbox_outlined),
+  ),
+)
+```
+
+Call `inbox.list()` at app start (and on resume, if you like) to refresh the count.
+
+### Ready-made inbox screen
+
+`PulseInboxView` is a `ListView` with an unread dot, image, title, body and time; pull to refresh,
+swipe to delete, and older pages loaded at the end of the list. Tapping a message marks it read,
+records a click and calls `onOpen`:
+
+```dart
+Scaffold(
+  appBar: AppBar(title: const Text('Inbox')),
+  body: PulseInboxView(
+    onOpen: (m) { if (m.url != null) openLink(m.url!); },
+    unreadColor: Colors.teal,            // optional; colours and text come from your Theme
+    // itemBuilder: (context, m) => MyRow(m),   // draw rows yourself
+    // empty: const Text('Nothing here yet'),
+  ),
+)
+```
+
+## In-app messages
+
+In-app campaigns (modal, banner or full screen) are created in Pulse and shown by the SDK when a
+trigger event happens in the app. The SDK fetches the current person's campaigns at `init`, after
+`identify` and `reset`, and when the app resumes (at most every 15 minutes), and keeps them in memory.
+A signed-in user without a valid user hash gets the campaigns of an anonymous visitor (no segment
+targeting).
+
+Give the SDK your navigator and handle button links:
+
+```dart
+final navigatorKey = GlobalKey<NavigatorState>();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Pulse.init(PulseConfig(
+    host: 'https://pulse.example.com',
+    siteKey: 'sk_...',
+    // A button with action "url" was tapped: open the link or deep link.
+    onInAppAction: (url) => launchUrl(Uri.parse(url)),   // or your router
+  ));
+  Pulse.instance.attachNavigator(navigatorKey);
+  runApp(MaterialApp(navigatorKey: navigatorKey, home: const HomeScreen()));
+  Pulse.instance.track('app_open');   // if you have campaigns triggered by app_open
+}
+```
+
+When the app calls `track(name)` or `screen(name)`, the first campaign (in the server's priority
+order) whose `trigger_event` is `name` — and, for `screen_view`, whose `screen` is that screen when
+set — and whose frequency allows is shown after its `delay_seconds`:
+
+| Frequency | Shown |
+|---|---|
+| `once` | once on this device, ever (remembered in storage) |
+| `session` | once per app run |
+| `daily` | once per calendar day (device time) |
+| `always` | every time the trigger happens |
+
+The SDK never sends `app_open` by itself: track it (or any other trigger event) yourself. One message
+is shown at a time; a trigger while one is on screen is ignored. Without `attachNavigator` nothing is
+shown (and the frequency is not used up).
+
+Layouts: **modal** (a card over a dimmed background with optional image, title, body, buttons and a
+close button), **banner** (at the top or bottom over the app; hides itself after 8 s, tapping it
+follows its first `url` button) and **fullscreen** (a full-screen route). The campaign's
+`background`, `text_color` and `button_color` are used when set, otherwise your `Theme`'s colours.
+A `url` button calls `onInAppAction(value)` and closes the message; a `dismiss` button, the close
+button, the back button or a tap outside closes it.
+
+The SDK records, through the normal event queue: `inapp_shown` `{inapp_id}`, `inapp_clicked`
+`{inapp_id, button, url}` and `inapp_dismissed` `{inapp_id}` (a banner that times out records no
+dismissal). These are the numbers in the campaign list in Pulse.
+
+`Pulse.instance.inApp.campaigns` lists the cached campaigns and `inApp.refresh()` fetches them now.
+Turn the feature off with `PulseConfig(inAppMessages: false)`.
+
 ## Testing
 
 `Pulse.init` accepts an `http.Client` (use `MockClient` from `package:http/testing.dart`) and a
-`PulseStorage` (use `InMemoryPulseStorage`). Set `flushOnBackground: false` in unit tests, and call
-`Pulse.instance.dispose()` in `tearDown`.
+`PulseStorage` (use `InMemoryPulseStorage`). Call `TestWidgetsFlutterBinding.ensureInitialized()` at
+the top of `main()`, set `flushOnBackground: false` (and `inAppMessages: false` unless you test
+in-app messages) in unit tests, and call `Pulse.instance.dispose()` in `tearDown` (or at the end of a
+`testWidgets` body).
 
 ```
 flutter test                                   # unit tests
@@ -214,3 +342,6 @@ PULSE_SITE_KEY=sk_... PULSE_HOST=http://localhost:7080 \
 |---|---|
 | events | `POST {host}/v1/web/events`, header `X-Pulse-Site-Key`, body `{"events":[{"id","external_id","name","ts","props","attrs","email"}]}` → 202 |
 | push token | `POST {host}/v1/web/devices`, header `X-Pulse-Site-Key`, body `{"external_id","token","platform":"android"\|"ios","user_hash"}` → 204 |
+| inbox | `GET {host}/v1/web/inbox?id=&user_hash=&before=`, header `X-Pulse-Site-Key` → `{"messages":[...],"unread"}` |
+| inbox actions | `POST {host}/v1/web/inbox`, body `{"id","user_hash","action":"read"\|"delete"\|"click","message_ids":[...]}` → `{"changed"}` |
+| in-app | `POST {host}/v1/web/inapp`, body `{"id","user_hash","platform":"android"\|"ios"}` → `{"messages":[{"id","layout","content","trigger","end_at"}]}` |

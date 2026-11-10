@@ -175,6 +175,9 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 			return err
 		}
 		tz, _ := c.Attrs["timezone"].(string)
+		if tz == "" {
+			tz, _ = c.Attrs["geo_timezone"].(string) // located by IP (GeoIP)
+		}
 		if until, quiet := rules.QuietUntil(m.Channel, tz, d.now()); quiet {
 			return d.deferUntil(ctx, m, c, until)
 		}

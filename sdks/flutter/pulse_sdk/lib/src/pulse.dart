@@ -2,12 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
+import 'exception.dart';
+import 'inapp_message.dart';
+import 'inapp_view.dart';
 import 'storage.dart';
 import 'validation.dart';
+
+part 'inapp.dart';
+part 'inbox.dart';
 
 // Storage keys, named like the web SDK's localStorage keys.
 const _kAnonId = 'pulse.aid';
@@ -26,7 +33,10 @@ enum _Outcome { sent, dropped, retry }
 /// persisted, and sent in batches every [PulseConfig.flushInterval], as soon as
 /// [PulseConfig.maxBatch] events are waiting, and whenever [flush] is called.
 class Pulse with WidgetsBindingObserver {
-  Pulse._(this.config, this._http, this._storage, this._ownsHttp);
+  Pulse._(this.config, this._http, this._storage, this._ownsHttp) {
+    inbox = PulseInbox._(this);
+    inApp = PulseInApp._(this);
+  }
 
   static Pulse? _instance;
 
@@ -48,7 +58,7 @@ class Pulse with WidgetsBindingObserver {
   /// `http.Client` and `shared_preferences`. Calling init again replaces the previous instance.
   static Future<Pulse> init(PulseConfig config,
       {http.Client? httpClient, PulseStorage? storage}) async {
-    if (config.flushOnBackground || storage == null) {
+    if (config.flushOnBackground || config.inAppMessages || storage == null) {
       WidgetsFlutterBinding.ensureInitialized();
     }
     final p = Pulse._(
@@ -60,6 +70,7 @@ class Pulse with WidgetsBindingObserver {
     await p._load();
     _instance?.dispose();
     _instance = p;
+    if (config.inAppMessages) unawaited(p.inApp.refresh());
     return p;
   }
 
@@ -83,6 +94,17 @@ class Pulse with WidgetsBindingObserver {
   DateTime? _retryAt;
   bool _disposed = false;
   bool _warnedFull = false;
+
+  /// The current person's app inbox.
+  late final PulseInbox inbox;
+
+  /// In-app campaigns (see [PulseConfig.inAppMessages] and [attachNavigator]).
+  late final PulseInApp inApp;
+
+  bool get _observesLifecycle => config.flushOnBackground || config.inAppMessages;
+
+  // The user hash, when a user is identified with one.
+  String? get _identifiedHash => _userId == null ? null : _userHash;
 
   /// The id events are recorded under: the identified user, else this install's anonymous id.
   String get currentId => _userId ?? _anonId;
@@ -113,8 +135,9 @@ class Pulse with WidgetsBindingObserver {
         await _storage.delete(_kPush);
       }
     }
+    await inApp._load();
     _timer = Timer.periodic(config.flushInterval, (_) => _flushIfDue());
-    if (config.flushOnBackground) WidgetsBinding.instance.addObserver(this);
+    if (_observesLifecycle) WidgetsBinding.instance.addObserver(this);
     _log('ready as $currentId with ${_queue.length} queued events');
   }
 
@@ -141,16 +164,35 @@ class Pulse with WidgetsBindingObserver {
   /// Throws [ArgumentError] when the name is invalid (it must match `^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$`)
   /// or reserved. The returned future completes once the event is queued and persisted; it does not
   /// wait for the upload.
+  ///
+  /// The event may show an in-app campaign whose trigger is [name].
   Future<void> track(String name, [Map<String, dynamic>? props]) {
     checkEventName(name);
-    return _enqueue(name, props: props);
+    final saved = _enqueue(name, props: props);
+    if (config.inAppMessages) {
+      final screen = props?['screen'];
+      inApp._onEvent(name, name == 'screen_view' && screen is String ? screen : null);
+    }
+    return saved;
   }
 
   /// Records a `screen_view` event with `props.screen` = [name].
+  ///
+  /// It may show an in-app campaign triggered by `screen_view` (for any screen, or this one).
   Future<void> screen(String name, [Map<String, dynamic>? props]) {
     if (name.isEmpty) throw ArgumentError.value(name, 'name', 'is empty');
-    return _enqueue('screen_view', props: {...?props, 'screen': name});
+    final saved = _enqueue('screen_view', props: {...?props, 'screen': name});
+    if (config.inAppMessages) inApp._onEvent('screen_view', name);
+    return saved;
   }
+
+  /// Gives the SDK the app's navigator, which in-app messages are shown with:
+  /// `MaterialApp(navigatorKey: key)` and `Pulse.instance.attachNavigator(key)`.
+  void attachNavigator(GlobalKey<NavigatorState> navigatorKey) =>
+      inApp._navigator = navigatorKey;
+
+  /// Stops showing in-app messages (until [attachNavigator] is called again).
+  void detachNavigator() => inApp._navigator = null;
 
   /// Ties this install to your user id [userId] and updates their profile.
   ///
@@ -186,6 +228,8 @@ class Pulse with WidgetsBindingObserver {
         flushWhenFull: false);
     unawaited(flush());
     if (_push != null && previous != userId) unawaited(_registerStoredToken());
+    if (previous != userId) inbox._forget();
+    if (config.inAppMessages) unawaited(inApp.refresh());
   }
 
   /// Forgets the identified user (call it on sign-out): a new anonymous id is used from now on.
@@ -199,6 +243,8 @@ class Pulse with WidgetsBindingObserver {
     await _storage.write(_kAnonId, _anonId);
     // Move this device's push token off the signed-out user.
     if (_push != null) unawaited(_registerStoredToken());
+    inbox._forget();
+    if (config.inAppMessages) unawaited(inApp.refresh());
   }
 
   /// Registers a push [token] (the FCM registration token, obtained by the
@@ -349,11 +395,21 @@ class Pulse with WidgetsBindingObserver {
       )
       .timeout(config.requestTimeout);
 
+  Future<http.Response> _get(String path, Map<String, String> query) => _http
+      .get(
+        Uri.parse('${config.host}$path').replace(queryParameters: query),
+        headers: {'X-Pulse-Site-Key': config.siteKey},
+      )
+      .timeout(config.requestTimeout);
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
+    if (config.flushOnBackground &&
+        (state == AppLifecycleState.paused || state == AppLifecycleState.detached)) {
       unawaited(flush());
+    }
+    if (config.inAppMessages && state == AppLifecycleState.resumed) {
+      inApp._refreshIfStale();
     }
   }
 
@@ -362,7 +418,8 @@ class Pulse with WidgetsBindingObserver {
     if (_disposed) return;
     _disposed = true;
     _timer?.cancel();
-    if (config.flushOnBackground) WidgetsBinding.instance.removeObserver(this);
+    inApp._dispose();
+    if (_observesLifecycle) WidgetsBinding.instance.removeObserver(this);
     if (_ownsHttp) _http.close();
     if (identical(_instance, this)) _instance = null;
   }

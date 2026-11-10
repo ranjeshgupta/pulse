@@ -18,7 +18,8 @@ void main() {
     final statuses = <String, int>{};
     final client = _Recording(http.Client(), statuses);
     final pulse = await Pulse.init(
-      PulseConfig(host: host, siteKey: siteKey!, flushOnBackground: false, debug: true),
+      PulseConfig(
+          host: host, siteKey: siteKey!, flushOnBackground: false, inAppMessages: false, debug: true),
       httpClient: client,
       storage: InMemoryPulseStorage(),
     );
@@ -28,6 +29,14 @@ void main() {
     await pulse.flush();
     expect(pulse.pendingEvents, 0);
     expect(statuses['/v1/web/events'], 202, reason: 'anonymous events for $anon');
+
+    // Anonymous inbox and in-app campaigns need no user hash.
+    final page = await pulse.inbox.list();
+    expect(statuses['/v1/web/inbox'], 200);
+    await pulse.inApp.refresh();
+    expect(statuses['/v1/web/inapp'], 200);
+    // ignore: avoid_print
+    print('inbox: ${page.messages.length} messages; in-app: ${pulse.inApp.campaigns.length} campaigns');
 
     await pulse.identify('flutter-sdk-check-${DateTime.now().millisecondsSinceEpoch}',
         attributes: {'sdk': 'flutter'});

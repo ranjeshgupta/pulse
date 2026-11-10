@@ -372,3 +372,26 @@ func TestWebPushAndGateway(t *testing.T) {
 	}
 	waitFor(t, 10*time.Second, func() bool { return slices.Contains(contactEvents(t, c, ext), "sms_sent") })
 }
+
+// TestDataSettings: with anonymous tracking off, anonymous visitors' events are dropped while
+// signed-in visitors' are kept; retention settings are validated.
+func TestDataSettings(t *testing.T) {
+	c, siteKey := workspace(t, "Data")
+	run := fmt.Sprint(time.Now().UnixNano())
+	got := jsonCall(t, c, "GET", "/v1/settings/data", nil, 200)["settings"].(map[string]any)
+	if got["tracking"].(map[string]any)["anonymous"] != true || got["retention"].(map[string]any)["audit_days"] != 365.0 {
+		t.Errorf("defaults = %v", got)
+	}
+	jsonCall(t, c, "PUT", "/v1/settings/data", map[string]any{"tracking": map[string]any{"anonymous": false, "geoip": true},
+		"retention": map[string]any{"anonymous_days": 3}}, 400) // under the 7-day minimum
+	jsonCall(t, c, "PUT", "/v1/settings/data", map[string]any{"tracking": map[string]any{"anonymous": false, "geoip": true},
+		"retention": map[string]any{"anonymous_days": 30, "event_days": 0, "audit_days": 365}}, 200)
+	time.Sleep(31 * time.Second) // the web API caches tracking settings for 30 s
+	anon, known := "anon-"+run, "known-"+run
+	webEvents(t, siteKey, map[string]any{"external_id": anon, "name": "page_view"}, map[string]any{"external_id": known, "name": "page_view"})
+	waitFor(t, 10*time.Second, func() bool { return jsonCall(t, c, "GET", "/v1/contacts/"+known, nil, -1)["contact"] != nil })
+	time.Sleep(2 * time.Second)
+	if jsonCall(t, c, "GET", "/v1/contacts/"+anon, nil, -1)["contact"] != nil {
+		t.Error("an anonymous visitor was recorded with anonymous tracking off")
+	}
+}

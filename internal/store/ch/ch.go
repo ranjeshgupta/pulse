@@ -212,3 +212,24 @@ func (s *Store) SegmentIDs(ctx context.Context, q segment.Query) ([]uint32, erro
 func (s *Store) Exec(ctx context.Context, sql string, args ...any) error {
 	return s.conn.Exec(ctx, sql, args...)
 }
+
+// DeleteContacts removes contacts' events, profile snapshots and membership rows (lightweight deletes).
+func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) error {
+	for _, table := range []string{"events", "message_events", "segment_members"} {
+		if err := s.conn.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = ? AND contact_id IN ?", uint64(tenant), ids); err != nil {
+			return fmt.Errorf("%s: %w", table, err)
+		}
+	}
+	return s.conn.Exec(ctx, "DELETE FROM contacts WHERE tenant_id = ? AND id IN ?", uint64(tenant), ids)
+}
+
+// DeleteEventsBefore removes a workspace's events (and message outcomes) older than days.
+func (s *Store) DeleteEventsBefore(ctx context.Context, tenant int64, days int) error {
+	cutoff := time.Now().AddDate(0, 0, -days)
+	for _, table := range []string{"events", "message_events"} {
+		if err := s.conn.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = ? AND ts < ?", uint64(tenant), cutoff); err != nil {
+			return fmt.Errorf("%s: %w", table, err)
+		}
+	}
+	return nil
+}
