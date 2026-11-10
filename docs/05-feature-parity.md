@@ -135,4 +135,15 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 5. **P1 batch 4, done:** custom roles, audit log, outbound webhooks, background imports, the Flutter SDK, bounce and
    complaint handling, standard web push, and the custom HTTP gateway (webhook channel).
    **Left from P1:** in-app messages and app inbox (they build on the Flutter SDK).
-6. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.
+6. **Batch 5, requested 2026-11-10:**
+   - Anonymous visitors: GeoIP (MaxMind GeoLite2/GeoIP2 database: country, state, city, time zone) on web and app
+     events; workspace switch to track anonymous visitors or not.
+   - Cleanup like Mautic's maintenance: delete anonymous contacts idle for N days, and old events, audit entries,
+     webhook deliveries and inbox messages, per workspace settings.
+   - Journeys built from Actions, Conditions and Decisions (Mautic's model, WebEngage's blocks), including decisions
+     on a specific message's engagement: email opened or clicked, WhatsApp/RCS read, SMS delivered.
+   - Segment builder with every Mautic and WebEngage filter (geo, device and platform, first/last seen, page visits,
+     message engagement, campaign membership, "did not do").
+   - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
+     mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
+7. **P2:** stages, companies, landing pages, assets, ad audiences, cohorts, revenue attribution, report builder, integrations.
