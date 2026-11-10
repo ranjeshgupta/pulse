@@ -28,6 +28,9 @@ const I = {
   stairs: <path d="M1.5 15h4v-4h4V7h4V3h2" />,
   page: <><rect x="1.5" y="1.5" width="14" height="14" rx="1.5" /><path d="M1.5 5h14" /><rect x="4" y="7.5" width="9" height="3" rx=".6" /><path d="M4 13h5" /></>,
   file: <><path d="M4 1.5h6l3.5 3.5v10.5h-9.5z" /><path d="M8.5 7v5.5M6.3 10.3l2.2 2.2 2.2-2.2" /></>,
+  grid: <><rect x="1.5" y="1.5" width="4" height="4" rx=".6" /><rect x="6.5" y="1.5" width="4" height="4" rx=".6" /><rect x="11.5" y="1.5" width="4" height="4" rx=".6" /><rect x="1.5" y="6.5" width="4" height="4" rx=".6" /><rect x="6.5" y="6.5" width="4" height="4" rx=".6" /><rect x="1.5" y="11.5" width="4" height="4" rx=".6" /></>,
+  coin: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M10.6 6.2c-.4-.8-1.2-1.2-2.1-1.2-1.2 0-2.1.7-2.1 1.7 0 2.4 4.4 1.2 4.4 3.6 0 1-1 1.8-2.3 1.8-1 0-1.9-.5-2.3-1.3M8.5 3.8V5M8.5 12.1v1.2" /></>,
+  chart: <><path d="M2 15h13" /><rect x="3" y="8" width="2.6" height="5" rx=".5" /><rect x="7.2" y="4" width="2.6" height="9" rx=".5" /><rect x="11.4" y="6.5" width="2.6" height="6.5" rx=".5" /></>,
 };
 
 function Icon({ d }: { d: React.ReactNode }) {
@@ -67,7 +70,15 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/assets", label: "Assets", icon: I.file, need: ["content", "view"] },
     ],
   },
-  { title: "Analyze", items: [{ to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] }] },
+  {
+    title: "Analyze",
+    items: [
+      { to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] },
+      { to: "/cohorts", label: "Cohorts", icon: I.grid, need: ["reports", "view"] },
+      { to: "/revenue", label: "Revenue", icon: I.coin, need: ["reports", "view"] },
+      { to: "/reports", label: "Reports", icon: I.chart, need: ["reports", "view"] },
+    ],
+  },
   {
     title: "Delivery",
     items: [

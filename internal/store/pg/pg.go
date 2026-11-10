@@ -444,6 +444,15 @@ func (s *Store) ActiveJourneys(ctx context.Context) ([]model.Journey, error) {
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.Journey, error) { return scanJourney(r) })
 }
 
+// RecordSplitWinner records a split step's automatic A/B winner once: false when the step already
+// has one (another journey worker decided first) or the journey is gone.
+func (s *Store) RecordSplitWinner(ctx context.Context, tenant, journey int64, step string, decision []byte) (bool, error) {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE journeys SET split_winners = split_winners || jsonb_build_object($3::text, $4::jsonb)
+		WHERE tenant_id = $1 AND id = $2 AND NOT split_winners ? $3`, tenant, journey, step, decision)
+	return err == nil && tag.RowsAffected() == 1, err
+}
+
 // JourneyStats counts enrollments by status and by current node.
 func (s *Store) JourneyStats(ctx context.Context, tenant, id int64) (map[string]map[string]int, error) {
 	rows, err := s.db.Query(ctx,

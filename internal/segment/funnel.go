@@ -53,6 +53,47 @@ func ValidateFunnel(steps []FunnelStep, windowDays int) error {
 // reached in order with every step inside the window after the first (ClickHouse windowFunnel).
 // It returns (level, contacts) rows. segmentID > 0 limits it to current members of a segment or list.
 func FunnelSQL(tenantID int64, steps []FunnelStep, windowDays int, from, to time.Time, segmentID int64) (Query, error) {
+	inner, err := funnelLevels(tenantID, steps, windowDays, from, to, segmentID)
+	if err != nil {
+		return Query{}, err
+	}
+	return Query{
+		SQL:  "SELECT level, count() FROM (" + inner.SQL + ") WHERE level > 0 GROUP BY level ORDER BY level",
+		Args: inner.Args,
+	}, nil
+}
+
+// MaxBreakdownValues is how many attribute values a funnel breakdown returns (the rest are "other").
+const MaxBreakdownValues = 10
+
+// FunnelBreakdownSQL splits a funnel by a profile attribute from the contacts snapshot: one row per
+// value (the MaxBreakdownValues values with the most contacts at step 1) with how many contacts
+// reached each step: (value, reached_1, ..., reached_n). The contacts snapshot is streamed and the
+// funnel's contacts (usually far fewer) are the hash side of the join.
+func FunnelBreakdownSQL(tenantID int64, steps []FunnelStep, windowDays int, from, to time.Time, segmentID int64, attrKey string) (Query, error) {
+	if !attr.ValidKey(attrKey) {
+		return Query{}, fmt.Errorf("invalid attribute name %q", attrKey)
+	}
+	inner, err := funnelLevels(tenantID, steps, windowDays, from, to, segmentID)
+	if err != nil {
+		return Query{}, err
+	}
+	cols := make([]string, len(steps))
+	for i := range steps {
+		cols[i] = "countIf(f.level >= " + strconv.Itoa(i+1) + ")" // an integer we computed
+	}
+	args := append([]any{attrKey, uint64(tenantID)}, inner.Args...)
+	return Query{
+		SQL: "SELECT c.v, " + strings.Join(cols, ", ") +
+			" FROM (SELECT id, attrs[?] AS v FROM contacts FINAL WHERE tenant_id = ?) AS c" +
+			" INNER JOIN (SELECT contact_id, level FROM (" + inner.SQL + ") WHERE level > 0) AS f ON f.contact_id = c.id" +
+			" GROUP BY c.v ORDER BY countIf(f.level >= 1) DESC, c.v LIMIT " + strconv.Itoa(MaxBreakdownValues),
+		Args: args,
+	}, nil
+}
+
+// funnelLevels is the per-contact part of a funnel: (contact_id, level) rows.
+func funnelLevels(tenantID int64, steps []FunnelStep, windowDays int, from, to time.Time, segmentID int64) (Query, error) {
 	if err := ValidateFunnel(steps, windowDays); err != nil {
 		return Query{}, err
 	}
@@ -82,12 +123,11 @@ func FunnelSQL(tenantID int64, steps []FunnelStep, windowDays int, from, to time
 	}
 	window := strconv.Itoa(windowDays * 86400) // seconds; an integer we computed, safe to inline
 	return Query{
-		SQL: "SELECT level, count() FROM (" +
-			"SELECT contact_id, windowFunnel(" + window + ")(toDateTime(ts), " + strings.Join(conds, ", ") + ") AS level" +
+		SQL: "SELECT contact_id, windowFunnel(" + window + ")(toDateTime(ts), " + strings.Join(conds, ", ") + ") AS level" +
 			" FROM events WHERE name IN (" + strings.Join(marks, ", ") + ") AND tenant_id = ? AND ts >= ? AND ts < ?" +
 			// Merged visitors' events were copied to the known contact; count them once, there.
 			" AND contact_id NOT IN (SELECT id FROM contacts FINAL WHERE tenant_id = ? AND mapContains(attrs, 'merged_into'))" +
-			scope + " GROUP BY contact_id) WHERE level > 0 GROUP BY level ORDER BY level",
+			scope + " GROUP BY contact_id",
 		Args: b.args,
 	}, nil
 }

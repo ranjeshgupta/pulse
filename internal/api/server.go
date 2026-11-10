@@ -191,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 	s.preferenceRoutes(mux)
 	s.assetRoutes(mux)
 	s.landingRoutes(mux)
+	s.insightRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)

@@ -59,6 +59,12 @@ waited about 45 s for a session timeout. Restart now takes 3.9 s.
 - **Burst creation:** p95 rises to about 2 s while hundreds of thousands of contacts are created at once (bulk imports). A
   dedicated import path (CSV → COPY) would keep that out of the real-time pipeline.
 
+## Analytics queries
+
+Batch 7's reports (cohorts, attribution, custom reports, funnel breakdowns) were not load-tested yet. They are bounded
+(a year, named events, `LIMIT 100`), but cohorts by first seen, attribution and attribute breakdowns will want the
+rollups listed in the architecture doc ("At scale") once a tenant has billions of events.
+
 ## Reproduce
 
 ```bash

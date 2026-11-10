@@ -245,9 +245,13 @@ func (s *Server) broadcastReport(w http.ResponseWriter, r *http.Request, tenant 
 			return
 		}
 	}
-	rep, err := ra.MessageReport(r.Context(), ch.Scope{Tenant: tenant, Source: "broadcast", SourceID: id, Run: run},
-		b.ConversionEvent, b.ConversionDays)
+	sc := ch.Scope{Tenant: tenant, Source: "broadcast", SourceID: id, Run: run}
+	rep, err := ra.MessageReport(r.Context(), sc, b.ConversionEvent, b.ConversionDays)
 	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.messageRevenue(r.Context(), &rep, sc, b.ConversionDays, b.AB != nil); err != nil {
 		s.fail(w, err)
 		return
 	}

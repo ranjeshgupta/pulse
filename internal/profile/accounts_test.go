@@ -234,3 +234,16 @@ func TestMergeKeepsOptOuts(t *testing.T) {
 		t.Error("merge must not invent opt-outs")
 	}
 }
+
+// First-touch attribution keeps the first value; last touch follows the latest.
+func TestFirstTouchIsSetOnce(t *testing.T) {
+	cur := map[string]any{}
+	for _, c := range []string{"spring", "autumn"} {
+		cur, _ = Merge(cur, &event.Event{Name: event.Identify, Attrs: map[string]any{
+			"first_utm_campaign": c, "first_referrer": c + ".test", "last_utm_campaign": c,
+		}})
+	}
+	if cur["first_utm_campaign"] != "spring" || cur["first_referrer"] != "spring.test" || cur["last_utm_campaign"] != "autumn" {
+		t.Errorf("attrs = %v", cur)
+	}
+}

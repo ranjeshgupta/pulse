@@ -50,7 +50,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Condition: in segment | ✅ | ✅ | ✅ | |
 | Condition: attribute value, opened/clicked, visited page | ✅ | ✅ | ✅ "Check contact" with any segment rule, including email_opened/clicked and page_view counts | |
 | Decision on this journey's own message (email opened/clicked, WhatsApp/RCS read, SMS/push delivered, inbox opened) | ✅ | ✅ | ✅ `message_decision` step with a timeout, yes/no branches | |
-| A/B split | ✅ | ✅ | ✅ 2-5 weighted paths, stable per enrollment | Winner auto-selection: P2 |
+| A/B split | ✅ | ✅ | ✅ 2-5 weighted paths, stable per enrollment | |
+| Journey A/B winner (automatic) | ⬜ | ✅ | ✅ split step `winner`: by open, click or goal conversion rate after a test window and a minimum of contacts per path; recorded on the journey, then every later contact takes the winning path; shown in the inspector and the report | P2 |
 | Send email, SMS, WhatsApp (SMS fallback), RCS (SMS fallback), push | 🟡 | ✅ | ✅ | |
 | Update attribute, add/remove tag, change points, change stage | ✅ | ✅ | ✅ update profile, tag contact, adjust points, add to / remove from list, change stage | |
 | Webhook step | ✅ | ✅ | ✅ SSRF-guarded, idempotency key, failures recorded without stalling | |
@@ -109,10 +110,11 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 |---|---|---|---|---|
 | Live dashboard, message outcomes | 🟡 | ✅ | ✅ | |
 | Journey and broadcast reports (sent, delivered, opened, clicked, converted) | ✅ | ✅ | ✅ per run, A/B variant, journey step and channel; top links; daily; from a ClickHouse `message_events` view | |
-| Funnels | ⬜ | ✅ | ✅ 2-8 steps with property filters, conversion window, date range, segment filter; live while editing | Breakdown by attribute: P2 |
-| Cohorts / retention | ⬜ | ✅ | ⬜ | P2 |
-| Revenue attribution, UTM | 🟡 | ✅ | ⬜ | P2 |
-| Custom report builder | ✅ | 🟡 | ⬜ | P2 |
+| Funnels | ⬜ | ✅ | ✅ 2-8 steps with property filters, conversion window, date range, segment filter; live while editing | |
+| Funnel breakdown by attribute | ⬜ | ✅ | ✅ any profile attribute (geo_country, plan, stage...): step counts for the top 10 values plus everyone else | P2 |
+| Cohorts / retention | ⬜ | ✅ | ✅ cohorts by first seen or first time doing an event (with filters), by day, week or month; coming back = any activity or an event; segment filter; heat-map triangle with an all-cohorts row; saved reports | P2 |
+| Revenue attribution, UTM | 🟡 | ✅ | ✅ web SDK keeps first/last-touch UTM (`first_utm_*`, `last_utm_*`, referrer domain; first kept once set) on identify and forms, the session's campaign on page views; revenue event and amount property per workspace; last-touch, first-touch and linear attribution to broadcasts, journeys and UTM campaigns over an N-day window; recipients' revenue in broadcast and journey reports | P2 |
+| Custom report builder | ✅ | 🟡 | ✅ events, message outcomes or contacts; count, unique contacts, sum or average; group by event, property, attribute, outcome, channel, campaign or day/week/month; property/attribute, channel and segment filters; table, bars or line; saved reports; at most 100 groups, a year of data | P2 |
 
 ## Platform
 
@@ -164,8 +166,9 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      CKEditor 5's GPL/commercial licence. HTML the editor can't keep (inline-styled layout tables, `<style>`, comments)
      opens in Source with a note instead of being rewritten. Left as plain text, because they're rendered as text: form
      descriptions (hosted form and web SDK) and in-app / inbox message bodies (the Flutter SDK draws `Text`).
-   - **Batch 7, analytics:** cohorts and retention, revenue attribution and UTM, funnel breakdown by attribute, custom report
-     builder, automatic A/B winners in journeys.
+   - **Batch 7, analytics (done):** cohorts and retention (Analyze → Cohorts), revenue attribution and UTM capture
+     (Analyze → Revenue; revenue in broadcast and journey reports), funnel breakdown by attribute, the custom report
+     builder (Analyze → Reports), and automatic A/B winners on journey split steps.
    - **Batch 7b, builders like Mautic and WebEngage (requested 2026-11-11, right after batch 7):**
      - Segment builder: one searchable filter picker grouped as Contact (every built-in and custom field, with icons), Primary
        company, Behaviour and actions, Points; a clear nested "Match ALL / ANY" group UI. New data for Mautic's filters: device

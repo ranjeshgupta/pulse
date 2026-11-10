@@ -109,6 +109,9 @@ type Journey struct {
 	Status   string          `json:"status"`
 	StartAt  time.Time       `json:"start_at"`         // contacts enter from here...
 	EndAt    *time.Time      `json:"end_at,omitempty"` // ...until here; nil = until stopped
+	// SplitWinners are automatic A/B winners of split steps, by step id (journey.SplitDecision),
+	// recorded by the journey workers. Read-only through the API.
+	SplitWinners json.RawMessage `json:"split_winners,omitempty"`
 }
 
 type Enrollment struct {
@@ -376,6 +379,17 @@ type FunnelStep struct {
 	Event string          `json:"event"`
 	Where json.RawMessage `json:"where,omitempty"` // []segment.PropFilter
 	Label string          `json:"label,omitempty"`
+}
+
+// SavedReport is a saved analytics report: kind "cohort" (Spec is an analytics.CohortSpec) or
+// "custom" (an analytics.ReportSpec). Results are computed on demand.
+type SavedReport struct {
+	ID        int64           `json:"id"`
+	TenantID  int64           `json:"tenant_id"`
+	Kind      string          `json:"kind"`
+	Name      string          `json:"name"`
+	Spec      json.RawMessage `json:"spec"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 // AuditEntry is one change or sign-in in a workspace's audit log.

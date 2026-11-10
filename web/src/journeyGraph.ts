@@ -245,6 +245,7 @@ export function problems(g: JourneyGraph): string[] {
     if (n.type === "update_list" && !n.list_id) out.push(`${name}: choose a list.`);
     if (n.type === "change_stage" && !n.stage?.trim()) out.push(`${name}: choose the stage to move the contact to.`);
     if (n.type === "split" && (n.variants ?? []).some((v) => !(v.weight >= 1))) out.push(`${name}: every path needs a share of at least 1.`);
+    if (n.type === "split" && winnerProblem(g, id)) out.push(`${name}: ${winnerProblem(g, id)}`);
     if (n.type.startsWith("send_") && !n.template_id) out.push(`${name}: choose a template.`);
     if (n.type === "wait" && !(n.seconds && n.seconds > 0)) out.push(`${name}: set how long to wait.`);
     if (n.type === "message_decision") {
@@ -256,6 +257,33 @@ export function problems(g: JourneyGraph): string[] {
     }
   }
   return out;
+}
+
+/** trackedSendsAfter lists the email and app inbox steps reachable from a split: what an A/B winner
+ * by opens or clicks is measured on (same rule as the server). */
+export function trackedSendsAfter(g: JourneyGraph, split: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const walk = (id?: string) => {
+    if (!id || seen.has(id) || !g.nodes[id]) return;
+    seen.add(id);
+    const n = g.nodes[id];
+    if (n.type === "send_email" || n.type === "send_inbox") out.push(id);
+    for (const [h] of outputs(n)) walk(target(n, h));
+  };
+  for (const [h] of outputs(g.nodes[split] ?? { type: "exit" })) walk(target(g.nodes[split], h));
+  return out.sort();
+}
+
+/** winnerProblem explains why a split's automatic winner setting would be refused, or null. */
+export function winnerProblem(g: JourneyGraph, id: string): string | null {
+  const w = g.nodes[id]?.winner;
+  if (!w) return null;
+  if (w.metric === "converted" && !g.goal) return "A winner by conversions needs the journey's goal event (set it on Start).";
+  if (w.metric !== "converted" && trackedSendsAfter(g, id).length === 0) return `A winner by ${w.metric === "opened" ? "opens" : "clicks"} needs an email or app inbox step after the split.`;
+  if (!(w.after_seconds >= 1 && w.after_seconds <= 90 * 86400)) return "Test for between 1 second and 90 days.";
+  if (!(Number.isInteger(w.min_per_variant) && w.min_per_variant >= 1 && w.min_per_variant <= 1_000_000)) return "Each path needs 1 to 1,000,000 contacts before a winner is picked.";
+  return null;
 }
 
 export function formatWait(seconds = 0): string {

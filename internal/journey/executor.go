@@ -137,7 +137,25 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			}
 
 		case NodeSplit:
-			id = pickVariant(n.Variants, en.ID, id)
+			path, decided := pickPath(n.Variants, en.ID, id), false
+			if d := n.decided; d != nil { // an A/B winner: everyone takes it from now on
+				path, decided = d.Path, true
+			}
+			if x.Events != nil && x.Contacts != nil {
+				c, err := loadContact()
+				if err != nil {
+					return err
+				}
+				v := n.Variants[path]
+				if err := x.Events.PublishEvent(ctx, event.Event{
+					ID: fmt.Sprintf("jsplit:%d:%s", en.ID, id), TenantID: en.TenantID, ExternalID: c.ExternalID,
+					Name: event.JourneySplit, Ts: x.Now().UTC(),
+					Props: map[string]any{"journey_id": en.JourneyID, "step": id, "path": path, "label": v.Label, "decided": decided},
+				}); err != nil {
+					return err
+				}
+			}
+			id = n.Variants[path].Next
 
 		case NodeUpdate:
 			c, err := loadContact()
@@ -208,9 +226,14 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 	return fmt.Errorf("journey %d: step limit exceeded", en.JourneyID)
 }
 
-// pickVariant chooses a split path by weight. The choice is a hash of the enrollment and step, so a
-// retried run always takes the same path.
+// pickVariant chooses a split path by weight; see pickPath.
 func pickVariant(vs []Variant, enrollment int64, step string) string {
+	return vs[pickPath(vs, enrollment, step)].Next
+}
+
+// pickPath chooses a split path's index by weight. The choice is a hash of the enrollment and step,
+// so a retried run always takes the same path.
+func pickPath(vs []Variant, enrollment int64, step string) int {
 	total := 0
 	for _, v := range vs {
 		total += v.Weight
@@ -218,13 +241,13 @@ func pickVariant(vs []Variant, enrollment int64, step string) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(strconv.FormatInt(enrollment, 10) + ":" + step))
 	r := int(h.Sum32() % uint32(total))
-	for _, v := range vs {
+	for i, v := range vs {
 		if r < v.Weight {
-			return v.Next
+			return i
 		}
 		r -= v.Weight
 	}
-	return vs[len(vs)-1].Next
+	return len(vs) - 1
 }
 
 // WaitUntil resolves a wait_until step to a moment: the fixed date-time, or the next occurrence of

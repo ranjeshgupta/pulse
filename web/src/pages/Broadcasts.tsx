@@ -6,6 +6,7 @@ import {
   type Segment, type Template,
 } from "../api";
 import { TemplateActions } from "../messagePreview";
+import { money } from "../insights";
 import { CountsTable, DailyBars, metricsFor, ReportFigures, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ChannelLabel, Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
@@ -408,6 +409,16 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
       {r && (
         <>
           <ReportFigures totals={r.totals} keys={keys} />
+          {r.revenue && (
+            <div className="figures" style={{ marginTop: 0, marginBottom: 18 }}>
+              <div><strong>{money(r.revenue.revenue, r.revenue.currency)}</strong><span>revenue from recipients <small>({r.revenue.event} within {r.revenue.days} days of their send)</small></span></div>
+              <div><strong>{r.revenue.orders.toLocaleString("en-IN")}</strong><span>orders</span></div>
+              <div><strong>{r.revenue.buyers.toLocaleString("en-IN")}</strong><span>buyers</span></div>
+              {Object.entries(r.revenue.by_variant ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([v, rv]) => (
+                <div key={v}><strong>{money(rv.revenue, r.revenue!.currency)}</strong><span>{v === "winner" ? "winner send" : `variant ${v}`} · {rv.orders} orders</span></div>
+              ))}
+            </div>
+          )}
           <p className="xs muted" style={{ marginTop: -12, marginBottom: 18 }}>
             Each contact counts once. Rates are out of messages sent.{bc.conversion_event ? ` Converted means they did ${bc.conversion_event} within ${bc.conversion_days || 3} days of their send.` : ""}
           </p>

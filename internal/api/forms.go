@@ -238,7 +238,22 @@ type formInput struct {
 	Honeypot string
 	Elapsed  time.Duration  // since the form was shown
 	Meta     map[string]any // extra form_submitted properties (e.g. asset_id)
+	// Attribution: the web SDK's first- and last-touch UTM attributes, added to the submitter's
+	// profile (fields of the form win). Only the attribution keys are taken.
+	Attribution map[string]string
 }
+
+// attributionKeys are the profile attributes the web SDK keeps for first- and last-touch UTM
+// attribution (first_* are kept once set; see event.SetOnceAttr).
+var attributionKeys = func() map[string]bool {
+	m := map[string]bool{"first_referrer": true, "last_referrer": true}
+	for _, p := range []string{"first_utm_", "last_utm_"} {
+		for _, k := range []string{"source", "medium", "campaign", "term", "content"} {
+			m[p+k] = true
+		}
+	}
+	return m
+}()
 
 // submit validates and records a submission, and returns the submitter's external id. Bot-looking
 // submissions get a normal-looking success (so bots learn nothing) but record nothing (and no id).
@@ -254,6 +269,11 @@ func (s *Server) submit(ctx context.Context, f model.Form, t model.Tenant, in fo
 	sub, ferrs := forms.Parse(f, visible, in.Values)
 	if len(ferrs) > 0 {
 		return ferrs, http.StatusUnprocessableEntity, "", nil
+	}
+	for k, v := range in.Attribution {
+		if _, set := sub.Attrs[k]; attributionKeys[k] && !set && v != "" && len(v) <= 200 {
+			sub.Attrs[k] = v
+		}
 	}
 	ext, anon, err := s.submitterID(ctx, t, sub, in.Visitor, in.UserHash)
 	if err != nil {
@@ -436,12 +456,18 @@ func (s *Server) webFormSubmit(w http.ResponseWriter, r *http.Request) {
 		PageURL  string            `json:"page_url"`
 		Shown    int64             `json:"shown"` // from GET, unix ms
 		HP       string            `json:"hp"`
+		// first_utm_* / last_utm_* / first_referrer / last_referrer kept by the SDK
+		Attribution map[string]string `json:"attribution"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
+	if len(req.Attribution) > len(attributionKeys) {
+		writeErr(w, http.StatusBadRequest, "too many attribution values")
+		return
+	}
 	ferrs, code, _, err := s.submit(r.Context(), f, t, formInput{Values: req.Values, Visitor: req.ID, UserHash: req.UserHash,
-		PageURL: req.PageURL, Source: "sdk", Honeypot: req.HP, Elapsed: s.now().Sub(time.UnixMilli(req.Shown))}, r)
+		PageURL: req.PageURL, Source: "sdk", Honeypot: req.HP, Elapsed: s.now().Sub(time.UnixMilli(req.Shown)), Attribution: req.Attribution}, r)
 	switch {
 	case err != nil && code == 0:
 		s.fail(w, err)

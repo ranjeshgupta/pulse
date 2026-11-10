@@ -6,10 +6,12 @@ import {
 import "@xyflow/react/dist/style.css";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, CHANNEL_NAMES, type Channel, type Journey, type JourneyGraph, type JourneyNode, type JourneyReport, type Segment, type Template } from "../api";
+import { api, CHANNEL_NAMES, type Channel, type Journey, type JourneyGraph, type JourneyNode, type JourneyReport, type Segment, type SplitDecision, type SplitReport, type SplitWinner, type Template } from "../api";
+import { money } from "../insights";
 import {
   addNode, connect, decisionText, disconnect, emptyGraph, formatWait, moveNode, nodeChannel, nodeLabel, NODE_TYPES, OUTCOME_WORDS, OUTCOMES, outputs,
   problems, removeNode, sendSteps, share, STEP_GROUPS, toFlow, TRIGGER_ID, upstream, type FlowData, type Outcome,
+  winnerProblem,
 } from "../journeyGraph";
 import { describe, problems as ruleProblems, rootFromRule, toRule, type RefNames } from "../segmentRules";
 import { GroupEditor, useRefObjects } from "./Segments";
@@ -108,7 +110,7 @@ function PulseNode({ data, selected }: NodeProps) {
   else if (n.type === "adjust_points") body = n.points ? `${n.points > 0 ? "+" : ""}${n.points} points` : "set points";
   else if (n.type === "change_stage") body = n.stage ? `move to “${n.stage}”` : "choose a stage";
   else if (n.type === "update_list") body = n.list_id ? `${n.list_action === "remove" ? "remove from" : "add to"} "${segments.get(n.list_id) ?? n.list_id}"` : "choose a list";
-  else if (n.type === "split") body = `${n.variants?.length ?? 0} paths`;
+  else if (n.type === "split") body = `${n.variants?.length ?? 0} paths${n.winner ? " · picks a winner" : ""}`;
   else if (n.type === "update_attr") body = Object.entries(n.attrs ?? {}).map(([k, v]) => `${k} = ${String(v)}`).join(", ") || "set attributes";
   else if (n.type === "webhook") body = n.url ? new URL(n.url, "https://x").host : "enter a URL";
   else body = tpl ? tpl.name : "choose a template";
@@ -281,7 +283,7 @@ function JourneyEditor() {
             <Controls showInteractive={false} />
           </ReactFlow>
           <aside className="inspector">
-            <Inspector graph={graph} setGraph={setGraph} win={win} setWin={setWin} selected={selected} locked={locked} segments={segs.data?.segments ?? []} templates={tpls.data?.templates ?? []} onDelete={(nid) => { setGraph(removeNode(graph, nid)); setSelected(null); }} />
+            <Inspector graph={graph} setGraph={setGraph} win={win} setWin={setWin} selected={selected} locked={locked} decisions={existing.data?.split_winners ?? {}} segments={segs.data?.segments ?? []} templates={tpls.data?.templates ?? []} onDelete={(nid) => { setGraph(removeNode(graph, nid)); setSelected(null); }} />
             {issues.length > 0 && (
               <div style={{ marginTop: 20 }}>
                 <h4 className="small" style={{ marginBottom: 6 }}>Before it can go live</h4>
@@ -336,6 +338,20 @@ function JourneyReportView({ id, graph, templates, onStep }: { id: string; graph
         {(graph.goal || (st.converted ?? 0) > 0) && <div><strong><LiveNumber value={st.converted ?? 0} /></strong><span>reached the goal</span></div>}
         {(st.exited ?? 0) > 0 && <div><strong><LiveNumber value={st.exited ?? 0} /></strong><span>left early</span></div>}
       </div>
+      {m?.revenue && (
+        <div className="figures" style={{ margin: "-8px 2px 22px" }}>
+          <div><strong>{money(m.revenue.revenue, m.revenue.currency)}</strong><span>revenue from contacts in it <small>({m.revenue.event} within {m.revenue.days} days of a message)</small></span></div>
+          <div><strong><LiveNumber value={m.revenue.orders} /></strong><span>orders</span></div>
+          <div><strong><LiveNumber value={m.revenue.buyers} /></strong><span>buyers</span></div>
+        </div>
+      )}
+      {Object.entries(r?.splits ?? {}).map(([sid, sp]) => (
+        <div key={sid} style={{ marginBottom: 24 }}>
+          <ReportPanel title={<>A/B split <span className="faint xs">{sid}</span></>} aside={<button className="btn ghost sm" onClick={() => onStep(sid)}>Open step</button>}>
+            <SplitTable graph={graph} id={sid} split={sp} />
+          </ReportPanel>
+        </div>
+      ))}
       {m && (
         <>
           <div style={{ marginBottom: 24 }}>
@@ -362,8 +378,37 @@ function JourneyReportView({ id, graph, templates, onStep }: { id: string; graph
   );
 }
 
-function Inspector({ graph, setGraph, win, setWin, selected, locked, segments, templates, onDelete }: {
-  graph: JourneyGraph; setGraph: (g: JourneyGraph) => void; selected: string | null; locked: boolean;
+// SplitTable: contacts per path of a split and, for A/B tests, the metric's rate; the winner highlighted.
+function SplitTable({ graph, id, split }: { graph: JourneyGraph; id: string; split: SplitReport }) {
+  const vs = graph.nodes[id]?.variants ?? [];
+  const by = new Map(split.paths.map((p) => [p.path, p]));
+  const metric = split.metric ? METRIC_WORDS[split.metric] ?? split.metric : "";
+  return (
+    <>
+      {split.decision && <div className="panel-body" style={{ paddingBottom: 0 }}><SplitDecisionNote decision={split.decision} /></div>}
+      <div className="table-scroll">
+        <table className="table">
+          <thead><tr><th scope="col">Path</th><th scope="col" className="num">Share</th><th scope="col" className="num">Contacts in the test</th>{metric && <><th scope="col" className="num">Hits</th><th scope="col" className="num">{metric[0].toUpperCase() + metric.slice(1)}</th></>}</tr></thead>
+          <tbody>{vs.map((v, i) => {
+            const p = by.get(i);
+            return (
+              <tr key={i} className={split.decision?.path === i ? "report-winner" : undefined}>
+                <th scope="row" style={{ fontWeight: 500 }}>{v.label || String.fromCharCode(65 + i)}{split.decision?.path === i && <span className="xs" style={{ marginLeft: 6, color: "var(--ok)" }}>winner</span>}</th>
+                <td className="num">{share(graph.nodes[id], i)}%</td>
+                <td className="num">{p ? <LiveNumber value={p.entrants} /> : <span className="faint">0</span>}</td>
+                {metric && <><td className="num">{p?.hits ?? 0}</td><td className="num">{p && p.entrants ? `${(p.rate * 100).toFixed(1)}%` : "–"}</td></>}
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+      <p className="xs muted" style={{ padding: "8px 14px" }}>Counts contacts the split sent down each path before a winner was picked.</p>
+    </>
+  );
+}
+
+function Inspector({ graph, setGraph, win, setWin, selected, locked, segments, templates, onDelete, decisions }: {
+  graph: JourneyGraph; setGraph: (g: JourneyGraph) => void; selected: string | null; locked: boolean; decisions: Record<string, SplitDecision>;
   win: { start_at?: string; end_at?: string }; setWin: (w: { start_at?: string; end_at?: string }) => void;
   segments: Segment[]; templates: Template[]; onDelete: (id: string) => void;
 }) {
@@ -440,7 +485,7 @@ function Inspector({ graph, setGraph, win, setWin, selected, locked, segments, t
       )}
       {n.type === "message_decision" && <DecisionFields id={selected} n={n} graph={graph} templates={templates} setN={setN} />}
       {n.type === "check" && <CheckFields key={selected} n={n} setN={setN} />}
-      {n.type === "split" && <SplitFields n={n} setN={setN} />}
+      {n.type === "split" && <SplitFields id={selected} n={n} setN={setN} graph={graph} decision={decisions[selected]} />}
       {n.type === "update_attr" && <AttrFields attrs={n.attrs ?? {}} onChange={(attrs) => setN({ attrs })} />}
       {n.type === "update_tags" && (
         <>
@@ -615,12 +660,16 @@ function CheckFields({ n, setN }: { n: JourneyNode; setN: (p: Partial<JourneyNod
   );
 }
 
-function SplitFields({ n, setN }: { n: JourneyNode; setN: (p: Partial<JourneyNode>) => void }) {
+function SplitFields({ id, n, setN, graph, decision }: { id: string; n: JourneyNode; setN: (p: Partial<JourneyNode>) => void; graph: JourneyGraph; decision?: SplitDecision }) {
   const vs = n.variants ?? [];
   const set = (i: number, p: Partial<(typeof vs)[number]>) => setN({ variants: vs.map((v, j) => (j === i ? { ...v, ...p } : v)) });
+  const w = n.winner;
+  const setW = (p: Partial<SplitWinner>) => setN({ winner: { ...(w ?? { metric: "clicked", after_seconds: 86400, min_per_variant: 100 }), ...p } });
+  const problem = winnerProblem(graph, id);
   return (
     <>
-      <p className="xs muted" style={{ marginBottom: 8 }}>Each contact takes one path, at random by share, and always the same one. Compare paths in the journey's stats.</p>
+      {decision && <SplitDecisionNote decision={decision} />}
+      <p className="xs muted" style={{ marginBottom: 8 }}>Each contact takes one path, at random by share, and always the same one. Compare paths in the journey's report.</p>
       {vs.map((v, i) => (
         <div className="row" key={i} style={{ marginBottom: 6, flexWrap: "nowrap" }}>
           <input className="input" style={{ width: 70 }} value={v.label ?? ""} placeholder={String.fromCharCode(65 + i)} onChange={(e) => set(i, { label: e.target.value })} aria-label="Path name" />
@@ -630,7 +679,43 @@ function SplitFields({ n, setN }: { n: JourneyNode; setN: (p: Partial<JourneyNod
         </div>
       ))}
       {vs.length < 5 && <button className="btn sm" onClick={() => setN({ variants: [...vs, { weight: 1, label: String.fromCharCode(65 + vs.length) }] })}>Add a path</button>}
+      <h4 className="small" style={{ margin: "18px 0 8px" }}>Winner</h4>
+      <label className="check"><input type="checkbox" checked={!!w} onChange={(e) => setN({ winner: e.target.checked ? { metric: graph.goal ? "converted" : "clicked", after_seconds: 86400, min_per_variant: 100 } : null })} />Pick a winner automatically and send everyone after down it</label>
+      {w && (
+        <>
+          <Field label="Best path by">
+            <select className="select" value={w.metric} onChange={(e) => setW({ metric: e.target.value as SplitWinner["metric"] })}>
+              <option value="opened">open rate of the emails or inbox messages after the split</option>
+              <option value="clicked">click rate of the emails or inbox messages after the split</option>
+              <option value="converted">conversion rate (the journey's goal)</option>
+            </select>
+          </Field>
+          <WaitField label="Test for at least" seconds={w.after_seconds} onChange={(after_seconds) => setW({ after_seconds })} />
+          <Field label="And until every path has" hint="Contacts who went down the path. The test keeps going until each path has this many.">
+            <div className="row"><input className="input" style={{ width: 110 }} type="number" min={1} value={w.min_per_variant || ""} onChange={(e) => setW({ min_per_variant: Math.trunc(Number(e.target.value)) })} /><span className="small muted">contacts</span></div>
+          </Field>
+          <p className="xs muted">Until then contacts are split by share. The best rate wins (ties: more hits, then the first path); the decision is final and shows here and in the report.</p>
+          {problem && <p className="xs" style={{ color: "var(--danger)" }}>{problem}</p>}
+        </>
+      )}
     </>
+  );
+}
+
+const METRIC_WORDS: Record<string, string> = { opened: "open rate", clicked: "click rate", converted: "conversion rate" };
+
+function SplitDecisionNote({ decision }: { decision: SplitDecision }) {
+  return (
+    <div className="panel" style={{ padding: "10px 12px", marginBottom: 12, borderColor: "var(--ok)" }} role="status">
+      <strong className="small">Winner: path {decision.label || String.fromCharCode(65 + decision.path)}</strong>
+      <p className="xs muted" style={{ margin: "4px 0 0" }}>
+        Picked by {METRIC_WORDS[decision.metric] ?? decision.metric} on {new Date(decision.decided_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.
+        {" "}Everyone reaching this step now takes it.
+      </p>
+      <ul className="xs" style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+        {decision.stats.map((st) => <li key={st.path}>Path {String.fromCharCode(65 + st.path)}: {st.hits} of {st.entrants} ({(st.rate * 100).toFixed(1)}%)</li>)}
+      </ul>
+    </div>
   );
 }
 

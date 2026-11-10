@@ -8,6 +8,9 @@ import { BroadcastEdit, BroadcastList } from "./pages/Broadcasts";
 import { Channels, TestInbox } from "./pages/Channels";
 import { FormEdit, FormList } from "./pages/Forms";
 import { FunnelEdit, FunnelList } from "./pages/Funnels";
+import { CohortEdit, CohortList } from "./pages/Cohorts";
+import { Revenue } from "./pages/Revenue";
+import { ReportEdit, ReportList } from "./pages/Reports";
 import Contacts from "./pages/Contacts";
 import { CompanyDetail, CompanyList } from "./pages/Companies";
 import { Duplicates } from "./pages/Duplicates";
@@ -77,6 +80,11 @@ const router = createBrowserRouter([
       { path: "assets", element: <AssetList /> },
       { path: "funnels", element: <FunnelList /> },
       { path: "funnels/:id", element: <FunnelEdit /> },
+      { path: "cohorts", element: <CohortList /> },
+      { path: "cohorts/:id", element: <CohortEdit /> },
+      { path: "revenue", element: <Revenue /> },
+      { path: "reports", element: <ReportList /> },
+      { path: "reports/:id", element: <ReportEdit /> },
       { path: "channels", element: <Channels /> },
       { path: "test-inbox", element: <TestInbox /> },
       { path: "settings/team", element: <Team /> },

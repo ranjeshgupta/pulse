@@ -116,9 +116,10 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 	optouts := consent.Updates(e.Name, e.Props)
 	updates := make(map[string]any, len(e.Attrs)+len(optouts)+2)
 	for k, v := range e.Attrs {
-		if !event.EventOnlyAttr(k) {
-			updates[k] = v
+		if event.EventOnlyAttr(k) || event.SetOnceAttr(k) && attr.String(cur[k]) != "" {
+			continue
 		}
+		updates[k] = v
 	}
 	var removes []string
 	switch e.Name {

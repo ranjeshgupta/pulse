@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"pulse/internal/analytics"
 	"pulse/internal/attr"
 	"pulse/internal/channel"
 	"pulse/internal/consent"
@@ -89,6 +90,27 @@ type Variant struct {
 	Label  string `json:"label,omitempty"`
 }
 
+// SplitWinner turns a split into an A/B test with an automatic winner: once the test has run for
+// AfterSeconds (from the first contact through the split) and every path has MinPerVariant contacts,
+// the path with the best rate of Metric wins and every later contact takes it.
+type SplitWinner struct {
+	Metric        string `json:"metric"`          // opened | clicked (a send step after the split) | converted (the goal)
+	AfterSeconds  int    `json:"after_seconds"`   // test window
+	MinPerVariant int    `json:"min_per_variant"` // contacts each path needs before a decision
+}
+
+// SplitDecision is a split's automatic winner, recorded on the journey (journeys.split_winners).
+type SplitDecision struct {
+	Path      int                  `json:"path"`
+	Next      string               `json:"next"`
+	Label     string               `json:"label,omitempty"`
+	Metric    string               `json:"metric"`
+	DecidedAt time.Time            `json:"decided_at"`
+	Stats     []analytics.PathStat `json:"stats"`
+}
+
+const maxSplitTest = 90 * 24 * 3600
+
 type Node struct {
 	Type       string `json:"type"`
 	Next       string `json:"next,omitempty"`        // wait, send_email
@@ -108,6 +130,7 @@ type Node struct {
 	Outcome    string          `json:"outcome,omitempty"`     // message_decision: opened | clicked | delivered | read
 	Rule       json.RawMessage `json:"rule,omitempty"`        // check: a segment rule
 	Variants   []Variant       `json:"variants,omitempty"`    // split
+	Winner     *SplitWinner    `json:"winner,omitempty"`      // split: pick a winning path automatically
 	Attrs      map[string]any  `json:"attrs,omitempty"`       // update_attr
 	AddTags    []string        `json:"add_tags,omitempty"`    // update_tags
 	RemoveTags []string        `json:"remove_tags,omitempty"` // update_tags
@@ -120,6 +143,8 @@ type Node struct {
 	// UI layout, ignored by the engine.
 	X float64 `json:"x,omitempty"`
 	Y float64 `json:"y,omitempty"`
+
+	decided *SplitDecision // split: the recorded winner (ApplyDecisions), never from JSON
 }
 
 type Graph struct {
@@ -230,6 +255,9 @@ func (g Graph) Validate() error {
 			if total > 10000 {
 				return fmt.Errorf("split %q: weights are too large", id)
 			}
+			if err := g.validWinner(id, n); err != nil {
+				return err
+			}
 		case NodeUpdate:
 			if len(n.Attrs) == 0 {
 				return fmt.Errorf("update %q: set at least one attribute", id)
@@ -289,6 +317,79 @@ func (n Node) edges() []string {
 	}
 	return nil
 }
+
+func (g Graph) validWinner(id string, n Node) error {
+	w := n.Winner
+	if w == nil {
+		return nil
+	}
+	switch w.Metric {
+	case analytics.SplitOpened, analytics.SplitClicked:
+		if len(g.TrackedSendsAfter(id)) == 0 {
+			return fmt.Errorf("split %q: a winner by %s needs an email or app inbox step after the split", id, w.Metric)
+		}
+	case analytics.SplitConverted:
+		if g.Goal == nil {
+			return fmt.Errorf("split %q: a winner by conversions needs the journey's goal event", id)
+		}
+	default:
+		return fmt.Errorf("split %q: pick the winner by opened, clicked or converted", id)
+	}
+	if w.AfterSeconds < 1 || w.AfterSeconds > maxSplitTest {
+		return fmt.Errorf("split %q: test for 1 second to 90 days", id)
+	}
+	if w.MinPerVariant < 1 || w.MinPerVariant > 1_000_000 {
+		return fmt.Errorf("split %q: each path needs 1 to 1,000,000 contacts before a winner is picked", id)
+	}
+	return nil
+}
+
+// TrackedSendsAfter lists the send steps reachable from a split whose messages can be opened and
+// clicked (email, app inbox), sorted: the steps an A/B winner by opens or clicks is measured on.
+func (g Graph) TrackedSendsAfter(split string) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walk func(id string)
+	walk = func(id string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		n, ok := g.Nodes[id]
+		if !ok {
+			return
+		}
+		if ch := sendNodes[n.Type]; ch == channel.Email || ch == channel.Inbox {
+			out = append(out, id)
+		}
+		for _, next := range n.edges() {
+			walk(next)
+		}
+	}
+	for _, next := range g.Nodes[split].edges() {
+		walk(next)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// ApplyDecisions attaches recorded A/B winners to their split steps, so the executor routes every
+// later contact down the winning path. A decision whose step is no longer a split with a winner, or
+// whose path now leads elsewhere (the journey was edited), is ignored.
+func (g Graph) ApplyDecisions(ds map[string]SplitDecision) {
+	for step, d := range ds {
+		n, ok := g.Nodes[step]
+		if !ok || n.Type != NodeSplit || n.Winner == nil || d.Path < 0 || d.Path >= len(n.Variants) || n.Variants[d.Path].Next != d.Next {
+			continue
+		}
+		d := d
+		n.decided = &d
+		g.Nodes[step] = n
+	}
+}
+
+// Decision is a split step's applied winner, if any.
+func (n Node) Decision() *SplitDecision { return n.decided }
 
 // Outcomes lists what a message decision can wait for on each channel.
 var Outcomes = map[string][]string{

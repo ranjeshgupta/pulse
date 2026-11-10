@@ -12,11 +12,6 @@
 .funnel-step .rule-where { margin-left: 0; }
 .funnel-step .rule-where-add { margin: 2px 0 0; }
 
-.funnel-range { display: flex; flex-wrap: wrap; gap: 4px; }
-.funnel-range button { height: 30px; padding: 0 10px; font: inherit; font-size: var(--fs-xs); border: 1px solid var(--rule); background: var(--surface); color: var(--muted); border-radius: var(--r-sm); cursor: pointer; }
-.funnel-range button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: #fff; }
-.funnel-range button:focus-visible { outline: none; box-shadow: var(--focus); }
-.funnel-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 10px; }
 .funnel-controls { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); margin-bottom: 16px; }
 .funnel-controls .field { margin-bottom: 0; }
 

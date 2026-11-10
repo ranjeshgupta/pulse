@@ -2,24 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Funnel, type FunnelResult, type FunnelStep, type PropFilter } from "../api";
-import { ATTR_OPS, NUMERIC_OPS, newWhere, type AttrOp, type Where } from "../segmentRules";
+import { NUMERIC_OPS, newWhere, type AttrOp, type Where } from "../segmentRules";
+import { CompareFields, count, daysAgo, EVENT_RE, KEY_RE, MAX_FILTERS, pct, RangePicker, rangeBounds, rangeProblem, SegmentPicker, ymd, type Range } from "../insights";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast } from "../ui";
-import { useSegments } from "./Segments";
 import "./funnels.css";
 
 const MIN_STEPS = 2;
 const MAX_STEPS = 8;
-const MAX_FILTERS = 5;
-const EVENT_RE = /^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$/;
-const KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
 
 const stepName = (s: { event: string; label?: string }) => s.label?.trim() || s.event;
 const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
-const count = (n: number) => n.toLocaleString("en-IN");
-function pct(x: number) {
-  const p = x * 100;
-  return `${p > 0 && p < 10 ? p.toFixed(1) : Math.round(p)}%`;
-}
 
 // ---- list ----
 
@@ -103,31 +95,6 @@ function stepProblems(s: EditStep, i: number): string[] {
   return out;
 }
 
-// ---- date range ----
-
-type Preset = 7 | 30 | 90;
-type Range = { preset: Preset | "custom"; from: string; to: string }; // from/to are YYYY-MM-DD, used when custom
-
-const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
-
-function rangeProblem(r: Range): string | null {
-  if (r.preset !== "custom") return null;
-  if (!r.from || !r.to) return "Pick both dates.";
-  if (r.from > r.to) return "The start date is after the end date.";
-  if (new Date(r.to).getTime() - new Date(r.from).getTime() > 366 * 86_400_000) return "Pick a range of a year or less.";
-  return null;
-}
-
-// rangeBounds turns the range into ISO timestamps. "Now" is rounded to the minute so the request,
-// and its cache key, stay the same while you edit.
-function rangeBounds(r: Range): { from: string; to: string } {
-  const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
-  if (r.preset !== "custom") return { from: new Date(now.getTime() - r.preset * 86_400_000).toISOString(), to: now.toISOString() };
-  const end = new Date(`${r.to}T23:59:59`);
-  return { from: new Date(`${r.from}T00:00:00`).toISOString(), to: (end > now ? now : end).toISOString() };
-}
-
 // ---- editor ----
 
 const NEW_STEPS = () => [editStep("page_view"), editStep("signup"), editStep("purchase")];
@@ -147,6 +114,7 @@ export function FunnelEdit() {
   const [loaded, setLoaded] = useState(isNew);
   const [range, setRange] = useState<Range>({ preset: 30, from: ymd(daysAgo(30)), to: ymd(new Date()) });
   const [segmentId, setSegmentId] = useState(0);
+  const [breakdown, setBreakdown] = useState("");
 
   useEffect(() => {
     if (existing.data && !loaded) {
@@ -168,6 +136,7 @@ export function FunnelEdit() {
   // Run live: debounce the request body, and only run a funnel the server will accept.
   const runKey = issues.length || rangeIssue ? "" : JSON.stringify({
     steps: steps.map(toStep), window_days: windowDays, ...rangeBounds(range), ...(segmentId ? { segment_id: segmentId } : {}),
+    ...(KEY_RE.test(breakdown.trim()) ? { breakdown: { attr: breakdown.trim() } } : {}),
   });
   const [debounced, setDebounced] = useState(runKey);
   useEffect(() => {
@@ -254,9 +223,14 @@ export function FunnelEdit() {
         <aside className="panel funnel-results">
           <div className="panel-body">
             <div className="funnel-controls">
-              <RangePicker range={range} onChange={setRange} />
+              <RangePicker range={range} onChange={setRange} label="Step 1 done in" />
               {rangeIssue && <p className="xs" style={{ color: "var(--danger)", margin: 0 }}>{rangeIssue}</p>}
               <SegmentPicker value={segmentId} onChange={setSegmentId} />
+              <Field label="Break down by" hint="A profile attribute, e.g. geo_country, plan or stage: the 10 most common values, then everyone else.">
+                <input className="input" list="funnel-breakdown-attrs" value={breakdown} placeholder="none" onChange={(e) => setBreakdown(e.target.value)} />
+                <datalist id="funnel-breakdown-attrs">{["geo_country", "geo_city", "plan", "stage", "first_utm_source", "last_utm_campaign"].map((a) => <option key={a} value={a} />)}</datalist>
+                {breakdown.trim() !== "" && !KEY_RE.test(breakdown.trim()) && <small style={{ color: "var(--danger)" }}>Attribute names use letters, digits and _.</small>}
+              </Field>
             </div>
             <Results
               result={run.data}
@@ -268,6 +242,7 @@ export function FunnelEdit() {
           </div>
         </aside>
       </div>
+      {run.data?.breakdown && <BreakdownTable result={run.data} stale={debounced !== runKey || run.isFetching} />}
     </div>
   );
 }
@@ -306,56 +281,32 @@ function StepEditor({ step, index, last, canRemove, onChange, onMove, onRemove }
   );
 }
 
-// Same operator picker as segment event filters.
-function CompareFields({ op, value, onChange }: { op: AttrOp; value: string; onChange: (op: AttrOp, value: string) => void }) {
+// Breakdown: one row per attribute value, with contacts and conversion from step 1 at each step.
+function BreakdownTable({ result, stale }: { result: FunnelResult; stale: boolean }) {
+  const bd = result.breakdown;
+  if (!bd) return null;
+  const rows = [...bd.rows.map((r) => ({ label: r.value === "" ? "(not set)" : r.value, reached: r.reached })), ...(bd.other ? [{ label: "Everyone else", reached: bd.other }] : [])];
   return (
-    <>
-      <select className="select" value={op} onChange={(e) => onChange(e.target.value as AttrOp, value)} aria-label="Comparison">
-        {ATTR_OPS.map((o) => <option key={o.op} value={o.op}>{o.label}</option>)}
-      </select>
-      {op !== "exists" && (
-        <input className="input" placeholder={op === "in" ? "Pune, Mumbai" : "value"} value={value} onChange={(e) => onChange(op, e.target.value)} aria-label="Value" />
-      )}
-    </>
-  );
-}
-
-const PRESETS: Preset[] = [7, 30, 90];
-
-function RangePicker({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
-  const today = ymd(new Date());
-  const earliest = ymd(daysAgo(366));
-  return (
-    <div>
-      <p className="small muted" style={{ margin: "0 0 6px" }}>Step 1 done in</p>
-      <div className="funnel-range" role="group" aria-label="Date range">
-        {PRESETS.map((p) => (
-          <button key={p} type="button" aria-pressed={range.preset === p} onClick={() => onChange({ ...range, preset: p })}>Last {p} days</button>
-        ))}
-        <button type="button" aria-pressed={range.preset === "custom"} onClick={() => onChange({ ...range, preset: "custom" })}>Custom</button>
-      </div>
-      {range.preset === "custom" && (
-        <div className="funnel-dates">
-          <Field label="From"><input className="input" type="date" min={earliest} max={today} value={range.from} onChange={(e) => onChange({ ...range, from: e.target.value })} /></Field>
-          <Field label="To"><input className="input" type="date" min={earliest} max={today} value={range.to} onChange={(e) => onChange({ ...range, to: e.target.value })} /></Field>
+    <section className="panel" style={{ marginTop: 20, opacity: stale ? 0.45 : 1 }} aria-busy={stale}>
+      <div className="panel-head"><h3>By {bd.attr}</h3><span className="xs muted">Contacts at each step, and the share of the value's step 1</span></div>
+      {rows.length === 0 ? <div className="panel-body"><p className="muted small">No contacts did step 1 in this period.</p></div> : (
+        <div className="table-scroll">
+          <table className="table">
+            <caption className="xs muted" style={{ textAlign: "left", padding: "8px 14px" }}>Funnel broken down by the profile attribute {bd.attr}</caption>
+            <thead><tr><th scope="col">{bd.attr}</th>{result.steps.map((s, i) => <th key={i} scope="col" className="num">{i + 1}. {stepName(s)}</th>)}<th scope="col" className="num">Conversion</th></tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.label}>
+                <th scope="row" style={{ fontWeight: 500 }}>{r.label}</th>
+                {r.reached.map((n, i) => (
+                  <td key={i} className="num">{count(n)}{i > 0 && r.reached[0] > 0 && <small className="faint" style={{ display: "block" }}>{pct(n / r.reached[0])}</small>}</td>
+                ))}
+                <td className="num"><strong>{r.reached[0] ? pct(r.reached[r.reached.length - 1] / r.reached[0]) : "–"}</strong></td>
+              </tr>
+            ))}</tbody>
+          </table>
         </div>
       )}
-    </div>
-  );
-}
-
-function SegmentPicker({ value, onChange }: { value: number; onChange: (id: number) => void }) {
-  const segs = useSegments(0).data?.segments ?? [];
-  const lists = segs.filter((s) => s.kind === "static");
-  const rules = segs.filter((s) => s.kind !== "static");
-  return (
-    <Field label="Only contacts in" hint={value ? "Counts contacts who are in it right now." : undefined}>
-      <select className="select" value={value || ""} onChange={(e) => onChange(Number(e.target.value) || 0)}>
-        <option value="">Everyone</option>
-        {lists.length > 0 && <optgroup label="Lists">{lists.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
-        {rules.length > 0 && <optgroup label="Segments">{rules.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
-      </select>
-    </Field>
+    </section>
   );
 }
 

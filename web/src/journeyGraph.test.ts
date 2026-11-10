@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JourneyGraph } from "./api";
 import {
-  addNode, connect, decisionText, disconnect, emptyGraph, formatWait, NODE_TYPES, OUTCOMES, outputs, problems, removeNode, sendSteps, STEP_GROUPS, toFlow, TRIGGER_ID, upstream,
+  addNode, connect, decisionText, disconnect, emptyGraph, formatWait, NODE_TYPES, OUTCOMES, outputs, problems, removeNode, sendSteps, STEP_GROUPS, toFlow, trackedSendsAfter, TRIGGER_ID, upstream, winnerProblem,
 } from "./journeyGraph";
 
 const g: JourneyGraph = {
@@ -173,5 +173,33 @@ describe("change stage step", () => {
     expect(problems(graph)).toContain(`"${id}": choose the stage to move the contact to.`);
     graph.nodes[id].stage = "MQL";
     expect(problems(graph).some((p) => p.includes("choose the stage"))).toBe(false);
+  });
+});
+
+describe("A/B winners on splits", () => {
+  const ab: JourneyGraph = {
+    trigger: { type: "event", event: "signup" },
+    entry: "ab",
+    nodes: {
+      ab: { type: "split", variants: [{ weight: 1, next: "ma", label: "A" }, { weight: 1, next: "s", label: "B" }], winner: { metric: "clicked", after_seconds: 3600, min_per_variant: 100 } },
+      ma: { type: "send_email", template_id: 1, next: "x" },
+      s: { type: "send_sms", template_id: 2, next: "w" },
+      w: { type: "wait", seconds: 60, next: "mb" },
+      mb: { type: "send_inbox", template_id: 3, next: "x" },
+      x: { type: "exit" },
+    },
+  };
+  it("measures opens and clicks on email and inbox steps after the split", () => {
+    expect(trackedSendsAfter(ab, "ab")).toEqual(["ma", "mb"]);
+    expect(winnerProblem(ab, "ab")).toBeNull();
+  });
+  it("explains settings the server refuses", () => {
+    const conv = { ...ab, nodes: { ...ab.nodes, ab: { ...ab.nodes.ab, winner: { metric: "converted" as const, after_seconds: 60, min_per_variant: 1 } } } };
+    expect(winnerProblem(conv, "ab")).toMatch(/goal/);
+    expect(winnerProblem({ ...conv, goal: { event: "purchase" } }, "ab")).toBeNull();
+    const smsOnly = { ...ab, nodes: { ab: { ...ab.nodes.ab, variants: [{ weight: 1, next: "s" }, { weight: 1, next: "x" }] }, s: { type: "send_sms", template_id: 2, next: "x" }, x: { type: "exit" } } };
+    expect(winnerProblem(smsOnly, "ab")).toMatch(/email or app inbox/);
+    const few = { ...ab, nodes: { ...ab.nodes, ab: { ...ab.nodes.ab, winner: { metric: "clicked" as const, after_seconds: 60, min_per_variant: 0 } } } };
+    expect(problems(few).some((p) => p.includes("1 to 1,000,000"))).toBe(true);
   });
 });

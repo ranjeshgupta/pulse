@@ -51,7 +51,8 @@ type Scope struct {
 	Run      int64 // broadcasts: 0 = every run
 }
 
-func (sc Scope) where() (string, []any) {
+// Where is the scope as a WHERE condition over message_events, with its arguments.
+func (sc Scope) Where() (string, []any) {
 	w := "tenant_id = ? AND source = ? AND source_id = ?"
 	args := []any{uint64(sc.Tenant), sc.Source, uint64(sc.SourceID)}
 	if sc.Run != 0 {
@@ -63,7 +64,7 @@ func (sc Scope) where() (string, []any) {
 
 // groupCounts runs "SELECT <key>, kind, uniqExact(contact_id) ... GROUP BY <key>, kind".
 func (s *Store) groupCounts(ctx context.Context, sc Scope, key string) (map[string]model.MessageCounts, error) {
-	w, args := sc.where()
+	w, args := sc.Where()
 	rows, err := s.conn.Query(ctx, "SELECT "+key+" AS k, kind, uniqExact(contact_id) FROM message_events WHERE "+w+
 		" GROUP BY k, kind", args...)
 	if err != nil {
@@ -110,6 +111,18 @@ type Report struct {
 	ByChannel map[string]model.MessageCounts `json:"by_channel"`
 	Links     []LinkCount                    `json:"links"`
 	Daily     []DayKindCount                 `json:"daily"` // sent, opened, clicked per UTC day
+	// Revenue from recipients (the workspace's revenue event), when there is any.
+	Revenue *RevenueReport `json:"revenue,omitempty"`
+}
+
+// RevenueReport is the revenue of a broadcast's or journey's recipients: revenue events they did
+// within Days of their first message.
+type RevenueReport struct {
+	Revenue
+	ByVariant map[string]Revenue `json:"by_variant,omitempty"`
+	Event     string             `json:"event"`
+	Currency  string             `json:"currency"`
+	Days      int                `json:"days"`
 }
 
 // MessageReport builds the report for a broadcast or journey. With conversionEvent set (broadcasts),
@@ -155,7 +168,7 @@ func (s *Store) MessageReport(ctx context.Context, sc Scope, conversionEvent str
 		}
 	}
 
-	w, args := sc.where()
+	w, args := sc.Where()
 	lrows, err := s.conn.Query(ctx, "SELECT url, uniqExact(contact_id) AS c, uniqExact(id) FROM message_events WHERE "+w+
 		" AND kind = 'clicked' AND url != '' GROUP BY url ORDER BY c DESC LIMIT 20", args...)
 	if err != nil {
@@ -190,7 +203,7 @@ func (s *Store) MessageReport(ctx context.Context, sc Scope, conversionEvent str
 // conversions counts recipients who did ev within days of their send, grouped by key ("”" for
 // one total, "variant" per A/B variant).
 func (s *Store) conversions(ctx context.Context, sc Scope, ev string, days int, key string) (map[string]uint64, error) {
-	w, args := sc.where()
+	w, args := sc.Where()
 	q := `
 		SELECT k, uniqExact(m.contact_id)
 		FROM (SELECT contact_id, ` + key + ` AS k, min(ts) AS sent_at FROM message_events

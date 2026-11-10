@@ -85,6 +85,11 @@ func (e *Engine) Refresh(ctx context.Context) error {
 			e.log.Error("skipping invalid journey", "journey", j.ID, "err", err)
 			continue
 		}
+		if ds, err := Decisions(j.SplitWinners); err != nil {
+			e.log.Error("ignoring invalid A/B winners", "journey", j.ID, "err", err)
+		} else {
+			g.ApplyDecisions(ds)
+		}
 		a := &active{Journey: j, graph: g}
 		idx.byID[j.ID] = a
 		switch g.Trigger.Type {

@@ -158,14 +158,25 @@ export interface JourneyNode {
   stage?: string;
   /** message_decision: the send step whose message it watches, and what it waits for. */
   step?: string; outcome?: "opened" | "clicked" | "delivered" | "read";
+  /** split: pick a winning path automatically (an A/B test). */
+  winner?: SplitWinner | null;
 }
+/** A split's A/B test: after after_seconds, once every path has min_per_variant contacts, the best rate of metric wins. */
+export interface SplitWinner { metric: "opened" | "clicked" | "converted"; after_seconds: number; min_per_variant: number }
+export interface PathStat { path: number; entrants: number; hits: number; rate: number }
+/** A split's recorded winner: every contact after decided_at takes path. */
+export interface SplitDecision { path: number; next: string; label?: string; metric: string; decided_at: string; stats: PathStat[] }
 export interface JourneyGraph {
   trigger: { type: "segment_entered" | "event"; segment_id?: number; event?: string; include_backfill?: boolean; reentry?: "once" | "always" | "after_days"; days?: number };
   goal?: { event: string } | null;
   entry: string;
   nodes: Record<string, JourneyNode>;
 }
-export interface Journey { id: number; name: string; graph: JourneyGraph; status: "draft" | "active" | "paused"; start_at?: string; end_at?: string | null; stats?: Stats }
+export interface Journey {
+  id: number; name: string; graph: JourneyGraph; status: "draft" | "active" | "paused"; start_at?: string; end_at?: string | null; stats?: Stats;
+  /** Automatic A/B winners by split step id. */
+  split_winners?: Record<string, SplitDecision>;
+}
 export type Stats = { status: Record<string, number>; node: Record<string, number> };
 
 export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean }
@@ -209,8 +220,13 @@ export interface MessageReport {
   by_channel: Record<string, MessageCounts>;
   links: { url: string; contacts: number; clicks: number }[];
   daily: { day: string; kind: "sent" | "opened" | "clicked"; count: number }[];
+  /** Revenue events recipients did within `days` of their first message (only when there are any). */
+  revenue?: RevenueCounts & { by_variant?: Record<string, RevenueCounts>; event: string; currency: string; days: number };
 }
-export interface JourneyReport { messages: MessageReport; enrollments: Stats }
+export interface RevenueCounts { revenue: number; orders: number; buyers: number }
+/** A split step in the journey report: contacts (and, for A/B tests, hits of the metric) per path. */
+export interface SplitReport { metric?: string; paths: PathStat[]; decision?: SplitDecision }
+export interface JourneyReport { messages: MessageReport; enrollments: Stats; splits?: Record<string, SplitReport> }
 
 export type FormFieldType = "text" | "email" | "tel" | "number" | "textarea" | "select" | "checkbox" | "hidden";
 export interface FormField { key: string; label: string; type: FormFieldType; required?: boolean; options?: string[]; default?: string; progressive?: boolean }
@@ -251,7 +267,63 @@ export interface Funnel { id: number; name: string; steps: FunnelStep[]; window_
 export interface FunnelResult {
   from: string; to: string;
   steps: { event: string; label?: string; contacts: number; of_first: number; of_previous: number; dropped: number }[];
+  /** With a breakdown: contacts reaching each step for the top 10 values of the attribute; other is everyone else. */
+  breakdown?: { attr: string; rows: { value: string; reached: number[] }[]; other?: number[] };
 }
+
+// ---- analytics (batch 7) ----
+
+/** A saved analytics report (cohort or custom). */
+export interface SavedReport<S> { id: number; kind: "cohort" | "custom"; name: string; spec: S; updated_at: string }
+
+export type Period = "day" | "week" | "month";
+/** Most periods a cohort report follows, per period. */
+export const MAX_PERIODS: Record<Period, number> = { day: 60, week: 26, month: 12 };
+export const MAX_COHORTS = 60;
+export interface CohortSpec {
+  /** first_seen: the contact's first event; event: the first time in the range they did `event`. */
+  by: "first_seen" | "event"; event?: string; where?: PropFilter[];
+  period: Period; periods: number;
+  /** What counts as coming back: an event (with filters), or any activity when event is empty. */
+  return: { event?: string; where?: PropFilter[] };
+  segment_id?: number;
+}
+/** returned[i]: contacts of the cohort who came back in period i (0 = the start period); null = not reached yet. */
+export interface CohortRow { start: string; size: number; returned: (number | null)[] }
+export interface CohortResult { period: Period; periods: number; from: string; to: string; cohorts: CohortRow[]; average: (number | null)[] }
+
+export interface RevenueSettings { event: string; amount_prop: string; currency: string }
+export type AttributionModel = "last_touch" | "first_touch" | "linear";
+export interface Credit {
+  kind: "broadcast" | "journey" | "utm"; id?: number; source?: string; medium?: string; campaign?: string; name?: string;
+  revenue: number; conversions: number;
+}
+export interface Attribution { credits: Credit[]; revenue: number; conversions: number }
+export interface RevenueReport {
+  settings: RevenueSettings; from: string; to: string; model: AttributionModel; window_days: number;
+  totals: { orders: number; revenue: number; buyers: number };
+  messages: Attribution; campaigns: Attribution;
+}
+
+export type ReportSource = "events" | "messages" | "contacts";
+export type ReportMetric = "count" | "unique_contacts" | "sum" | "avg";
+export type ReportGroup = "none" | "event" | "prop" | "attr" | "kind" | "channel" | "campaign" | "day" | "week" | "month";
+export interface ReportSpec {
+  source: ReportSource;
+  metric: { type: ReportMetric; key?: string };
+  group_by: { type: ReportGroup; key?: string };
+  /** events: only these event names (10 at most). */
+  events?: string[];
+  /** events: property filters; contacts: attribute filters (5 at most). */
+  where?: PropFilter[];
+  /** messages: broadcast or journey (empty: both), channels and outcomes. */
+  message_source?: "" | "broadcast" | "journey"; channels?: Channel[]; kinds?: string[];
+  segment_id?: number;
+  chart: "table" | "bars" | "line";
+  /** Default range: the last N days. */
+  range_days?: number;
+}
+export interface ReportResult { rows: { group: string; value: number }[]; labels: Record<string, string>; from: string; to: string; max_groups: number }
 
 export interface SSOConfig { enabled: boolean; issuer: string; discovery_url: string; client_id: string; client_secret?: string; has_client_secret: boolean; auto_create_users: boolean; default_role: RoleKey }
 

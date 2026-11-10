@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"pulse/internal/attr"
 	"pulse/internal/model"
 	"pulse/internal/segment"
 	"pulse/internal/store/ch"
@@ -52,12 +53,25 @@ func (s *Server) journeyReport(w http.ResponseWriter, r *http.Request, tenant in
 		s.fail(w, err)
 		return
 	}
-	rep, err := ra.MessageReport(r.Context(), ch.Scope{Tenant: tenant, Source: "journey", SourceID: id}, "", 0)
+	sc := ch.Scope{Tenant: tenant, Source: "journey", SourceID: id}
+	rep, err := ra.MessageReport(r.Context(), sc, "", 0)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": rep, "enrollments": stats})
+	if err := s.messageRevenue(r.Context(), &rep, sc, 7, false); err != nil {
+		s.fail(w, err)
+		return
+	}
+	out := map[string]any{"messages": rep, "enrollments": stats}
+	if us, ok := s.Store.(UIStore); ok {
+		if j, err := us.GetJourney(r.Context(), tenant, id); err == nil {
+			if splits := s.journeySplits(r.Context(), j); len(splits) > 0 {
+				out["splits"] = splits
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) eventNames(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -176,8 +190,16 @@ func (s *Server) runFunnel(w http.ResponseWriter, r *http.Request, tenant int64)
 		From       time.Time          `json:"from"`
 		To         time.Time          `json:"to"`
 		SegmentID  int64              `json:"segment_id"`
+		// Breakdown splits the counts by a profile attribute (the top 10 values, then "other").
+		Breakdown *struct {
+			Attr string `json:"attr"`
+		} `json:"breakdown"`
 	}
 	if !decode(w, r, &req) {
+		return
+	}
+	if req.Breakdown != nil && !attr.ValidKey(req.Breakdown.Attr) {
+		writeErr(w, http.StatusBadRequest, "choose the attribute to break the funnel down by, e.g. geo_country")
 		return
 	}
 	steps, err := funnelSteps(req.Steps, req.WindowDays)
@@ -211,7 +233,16 @@ func (s *Server) runFunnel(w http.ResponseWriter, r *http.Request, tenant int64)
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"steps": funnelResults(req.Steps, reached), "from": req.From, "to": req.To})
+	out := map[string]any{"steps": funnelResults(req.Steps, reached), "from": req.From, "to": req.To}
+	if req.Breakdown != nil {
+		bd, err := s.funnelBreakdown(r.Context(), tenant, steps, req.WindowDays, req.From, req.To, req.SegmentID, req.Breakdown.Attr, reached)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		out["breakdown"] = bd
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func funnelResults(steps []model.FunnelStep, reached []uint64) []funnelStepResult {

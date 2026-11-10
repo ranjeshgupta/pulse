@@ -21,7 +21,8 @@ var areaByPrefix = map[string]string{
 	"broadcasts": auth.AreaBroadcasts,
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
 	"assets": auth.AreaContent, "landing-pages": auth.AreaContent,
-	"stats": auth.AreaReports, "funnels": auth.AreaReports,
+	"stats": auth.AreaReports, "funnels": auth.AreaReports, "cohorts": auth.AreaReports, "reports": auth.AreaReports,
+	"revenue":  auth.AreaReports,
 	"channels": auth.AreaChannels, "sandbox": auth.AreaChannels,
 	"settings": auth.AreaSettings, "users": auth.AreaSettings, "roles": auth.AreaSettings, "audit": auth.AreaSettings,
 }
@@ -35,7 +36,11 @@ var special = map[string]need{
 	"POST /v1/landing-pages/preview":                  {auth.AreaContent, auth.View},
 	"POST /v1/templates/text":                         {auth.AreaContent, auth.View},
 	"POST /v1/funnels/run":                            {auth.AreaReports, auth.View},
-	"POST /v1/channels/test":                          {auth.AreaContent, auth.Edit}, // a test send of a template
+	"POST /v1/cohorts/run":                            {auth.AreaReports, auth.View},
+	"POST /v1/reports/run":                            {auth.AreaReports, auth.View},
+	"POST /v1/revenue/report":                         {auth.AreaReports, auth.View},
+	"PUT /v1/revenue/settings":                        {auth.AreaSettings, auth.Edit}, // a workspace setting
+	"POST /v1/channels/test":                          {auth.AreaContent, auth.Edit},  // a test send of a template
 	"POST /v1/journeys/{id}/{action}":                 {auth.AreaJourneys, auth.Publish},
 	"POST /v1/broadcasts/{id}/schedule":               {auth.AreaBroadcasts, auth.Publish},
 	"POST /v1/broadcasts/{id}/cancel":                 {auth.AreaBroadcasts, auth.Publish},

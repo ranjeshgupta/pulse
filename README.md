@@ -51,7 +51,13 @@ and journeys within seconds, not on a 15-minute cron.
   script-free preview and views/visitors/submissions from the web SDK's `landing_page_viewed`.
 - **Rich text editor (done):** a CKEditor-style editor (TipTap) on every HTML field: email templates and landing pages
   (a Rich text tab beside drag and drop and HTML), focus items and web content, with merge tags and a Source view.
-- **Still to build:** the rest of P2 in the feature-parity doc.
+- **Batch 7, analytics (done):** cohorts / retention (`POST /v1/cohorts/run`, saved under `/v1/cohorts`), revenue
+  attribution (`/v1/revenue/settings`, `POST /v1/revenue/report`: last touch, first touch or linear over broadcasts,
+  journeys and UTM campaigns; recipients' revenue in broadcast and journey reports), UTM capture in the web SDK
+  (`first_utm_*` / `last_utm_*` profile attributes, the session's campaign on `page_view`), funnel breakdowns
+  (`breakdown: {attr}`), a custom report builder (`POST /v1/reports/run`, saved under `/v1/reports`) and automatic A/B
+  winners on journey split steps (`winner: {metric, after_seconds, min_per_variant}`).
+- **Still to build:** the rest of P2 in the feature-parity doc (batch 8).
 
 ## Run it
 
@@ -79,7 +85,8 @@ cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies t
 Pulse maintains some profile attributes itself, so they can't be set directly by browsers, forms, journey "update
 profile" steps, server events or CSV imports (they are dropped there): `tags`, `points`, `stage`, `stage_changed_at`,
 `company_id`, `company_name` and every `company_*` key, `first_seen`, `last_seen`, `merged_into`, `email_bounced` (a server
-may clear it), and the `optout_*` consent flags. Change them through their own APIs and events: tags, points, stages
+may clear it), and the `optout_*` consent flags. `first_utm_*` and `first_referrer` (first-touch attribution, set by the
+web SDK) can be set but keep their first value. Change them through their own APIs and events: tags, points, stages
 (`PUT /v1/contacts/{id}/stage`, journey step `change_stage`), companies (`PUT /v1/contacts/{id}/company`, or an identify
 with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`). Name your own fields differently, e.g.
 `team_size` rather than `company_size`.

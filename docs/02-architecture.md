@@ -223,3 +223,59 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   non-image data: URLs are removed. A nonce CSP allows only the Pulse SDK scripts.
 - On Pulse-hosted pages the SDK namespaces its stored ids by site key (`storagePrefix`), so workspaces sharing the pages origin
   never share a visitor's identity.
+
+## Analytics (batch 7)
+
+All report SQL is compiled in `internal/analytics` (cohorts, attribution, custom reports, A/B test stats) and
+`internal/segment` (funnels and breakdowns), with every user value bound as an argument and keys checked with
+`attr.ValidKey` / `event.ValidName`; only fixed fragments chosen by validated enums and computed integers are spliced in.
+Event queries name their events and bound `ts`, so they read the `(tenant_id, name, …)` key range of the partitions in range;
+ranges are a year at most. Counts that come from joins of rows already unique per contact are plain `count()`; report-builder
+counts use `uniq` (approximate above 65k, exact below); funnels, cohorts' inputs and attributed purchases stay exact.
+
+- **Cohorts.** Members are `(contact, cohort start)`: from the contacts snapshot's `first_seen`, or the first time in the range
+  a contact did an event. Return activity is `(contact, period start)` for the return event (or any event except Pulse's own
+  sends, outcomes and bookkeeping), joined with the members (the hash side) and bucketed by calendar period (UTC; weeks start
+  Monday). At most 60 cohorts and 60 days / 26 weeks / 12 months followed; periods that haven't started are `null`.
+- **Revenue attribution.** A workspace names its revenue event and amount property (`tenant_settings.revenue`, default
+  `purchase` / `amount`; the currency is a display code). Touches are message opens and clicks of broadcasts and journeys
+  (`message_events`), and page views carrying a UTM campaign (the web SDK adds the session's `utm_*` to `page_view`, and
+  `landing_page_viewed` has them). For each purchase in the range ClickHouse summarizes the same contact's touches in the
+  N days before it (window 1-90 days): the first, the last and the distinct sources. Go applies the model: last touch (all
+  credit to the latest), first touch (the earliest in the window) or linear (an equal share per distinct source).
+  Messages and UTM campaigns are attributed separately; purchases with no touch are unattributed. Broadcast and journey
+  reports add the revenue of their recipients: revenue events within the conversion window (broadcasts) or 7 days of a
+  contact's first message.
+- **UTM capture.** The web SDK reads `utm_source/medium/campaign/term/content` (and the referring site's domain) from the
+  landing URL: first touch is stored once, last touch every time, and both go with `identify` and SDK form submissions as
+  `first_utm_*`, `first_referrer`, `last_utm_*`, `last_referrer` (the profile keeps `first_*` once set). Landing pages get it
+  through the SDK that `lp.js` starts.
+- **Custom reports.** Sources: events, message outcomes (`message_events`, test sends excluded) and contacts (snapshot).
+  Metrics: count, unique contacts, sum or average of a numeric property / attribute. Groups: event name, property, profile
+  attribute (events aggregate per contact first, then join the snapshot), outcome, channel, broadcast/journey, day/week/
+  month. At most 100 groups (`LIMIT 100`), at most a year, and grouping by day only for ranges of 100 days or less.
+  Saved cohort and custom reports share `saved_reports (kind, spec)`.
+- **Funnel breakdown.** The funnel's per-contact levels join the contacts snapshot (streamed; the funnel's contacts are the
+  hash side) on one attribute; the top 10 values by step-1 contacts come back and the rest is "everyone else".
+- **Journey A/B winners.** A split step records `journey_split {journey_id, step, path, label, decided}` (platform-only)
+  for every contact it routes. A split with `winner: {metric, after_seconds, min_per_variant}` is checked every 5 s by the
+  journey workers (`journey.WinnerPicker`): per path, contacts routed before a decision and those who then opened or clicked
+  a message of an email/inbox step after the split (`message_events`) or did the goal event. Once `after_seconds` have passed
+  since the first contact and every path has `min_per_variant`, the best rate wins (ties: more hits, then the first path)
+  and is written once to `journeys.split_winners`; the engine's next refresh routes every later contact down it. A decision
+  whose path no longer leads to the same step (the journey was edited) is ignored. Assignment before the decision stays
+  the per-enrollment hash.
+
+### At scale (needs pre-aggregation)
+
+These run on raw events today and are fine into the hundreds of millions of rows per tenant; past that they want rollups:
+
+- Cohorts by first seen read the whole contacts snapshot of the tenant (`FINAL`, the attrs map); "any activity" returns
+  read every event name in the range. A daily `(tenant, contact, day)` activity table (an `AggregatingMergeTree` fed by a
+  materialized view) would make return activity a narrow scan.
+- Attribution groups purchases by event id to drop pipeline duplicates and streams one row per attributed purchase to the
+  API; a `purchases` table (ReplacingMergeTree by id, with the amount extracted) and a per-contact touch rollup would cut
+  both.
+- Breakdowns and attribute groups join the contacts snapshot; a narrow `(tenant, id, key, value)` table for frequently used
+  attributes (or a dictionary) would avoid reading the attrs map.
+- Report builder sums use events as stored, so a redelivered event can count twice until ClickHouse merges its copies.

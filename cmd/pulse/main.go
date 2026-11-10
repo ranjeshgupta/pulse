@@ -349,8 +349,19 @@ func runJourneys(ctx context.Context, d *deps) error {
 	g.Go(func() error { return runBroadcasts(ctx, pgs, d, prod) })
 	g.Go(func() error { return runImports(ctx, pgs, d, prod) })
 	g.Go(func() error { return runMaintenance(ctx, pgs, d) })
+	g.Go(func() error { return runSplitWinners(ctx, pgs, d) })
 	g.Go(func() error { return c.Run(ctx, eng.Handle) })
 	return g.Wait()
+}
+
+// runSplitWinners decides journey A/B tests (split steps with a winner setting) that are due.
+func runSplitWinners(ctx context.Context, pgs *pg.Store, d *deps) error {
+	chs, err := d.ch(ctx)
+	if err != nil {
+		return err
+	}
+	p := &journey.WinnerPicker{Store: pgs, Stats: chs, Log: d.log, Now: time.Now}
+	return p.Run(ctx, 5*time.Second)
 }
 
 // runBroadcasts sends due broadcast runs. It lives with the journey workers: both turn schedules

@@ -32,11 +32,11 @@ func (s *Store) DeleteSegment(ctx context.Context, tenant, id int64) error {
 	return err
 }
 
-const journeyCols = `id, tenant_id, name, graph, status, start_at, end_at`
+const journeyCols = `id, tenant_id, name, graph, status, start_at, end_at, split_winners`
 
 func scanJourney(row pgx.Row) (model.Journey, error) {
 	var j model.Journey
-	err := row.Scan(&j.ID, &j.TenantID, &j.Name, &j.Graph, &j.Status, &j.StartAt, &j.EndAt)
+	err := row.Scan(&j.ID, &j.TenantID, &j.Name, &j.Graph, &j.Status, &j.StartAt, &j.EndAt, &j.SplitWinners)
 	return j, notFound(err)
 }
 

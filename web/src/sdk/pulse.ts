@@ -7,6 +7,8 @@
 // Visitors are anonymous ("anon-…") until identify(userId). Focus items render in a Shadow DOM so
 // neither the site's CSS nor ours leaks across.
 
+import { pageProps, parseTouch, profileAttrs, touchFromUrl } from "./attribution";
+
 type Props = Record<string, unknown>;
 interface Config {
   siteKey: string;
@@ -104,7 +106,9 @@ export function identify(userId: string, attrs?: Props, opts?: { userHash?: stri
   if (opts?.userHash) store.set("pulse.uh", opts.userHash);
   else store.del("pulse.uh");
   const { email, ...rest } = attrs ?? {};
-  enqueue({ name: "identify", email: typeof email === "string" ? email : undefined, attrs: rest, props: { anonymous_id: previous } });
+  // First- and last-touch campaigns go with every identify (your own attributes win).
+  const merged = { ...attribution(), ...rest };
+  enqueue({ name: "identify", email: typeof email === "string" ? email : undefined, attrs: merged, props: { anonymous_id: previous } });
   flush();
   window.setTimeout(refresh, 1500); // new segments can change what this person should see
 }
@@ -114,10 +118,33 @@ export function reset() {
   store.del("pulse.uid");
   store.del("pulse.uh");
   store.del("pulse.aid");
+  store.del("pulse.ft"); // campaigns belong to the person, not the browser
+  store.del("pulse.lt");
 }
 
 export function page(props?: Props) {
-  track("page_view", { url: location.href, path: location.pathname, title: document.title, referrer: document.referrer, ...props });
+  track("page_view", {
+    url: location.href, path: location.pathname, title: document.title, referrer: document.referrer,
+    ...pageProps(parseTouch(store.sget("pulse.st"))), // this session's campaign, for revenue attribution
+    ...props,
+  });
+}
+
+// ---------- UTM attribution ----------
+
+/** captureTouch records the landing URL's campaign: first touch once, last touch and this session's every time. */
+function captureTouch() {
+  const t = touchFromUrl(location.href, document.referrer);
+  if (!t) return;
+  const json = JSON.stringify(t);
+  if (!store.get("pulse.ft")) store.set("pulse.ft", json);
+  store.set("pulse.lt", json);
+  store.sset("pulse.st", json);
+}
+
+/** attribution is the visitor's first- and last-touch campaign as profile attributes (first_utm_source, ...). */
+export function attribution(): Record<string, string> {
+  return profileAttrs(parseTouch(store.get("pulse.ft")), parseTouch(store.get("pulse.lt")));
 }
 
 /** registerPushToken stores a web push token (e.g. from Firebase Messaging getToken) for this user. */
@@ -333,7 +360,7 @@ export async function form(target: HTMLElement, key: string) {
     btn.disabled = true;
     const r = await fetch(`${cfg!.host}/v1/web/forms/${encodeURIComponent(key)}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ values, id: currentId(), user_hash: userHash(), page_url: location.href, shown: def.shown, hp: hp.value }),
+      body: JSON.stringify({ values, id: currentId(), user_hash: userHash(), page_url: location.href, shown: def.shown, hp: hp.value, attribution: attribution() }),
     }).catch(() => undefined);
     btn.disabled = false;
     const body = r ? await r.json().catch(() => ({})) : { error: "Couldn't send. Check your connection and try again." };
@@ -361,6 +388,7 @@ export function init(c: Config) {
   cfg = { host: scriptHost, autoPageview: true, onsite: true, storagePrefix: "", ...c, siteKey: c.siteKey } as Required<Config>;
   cfg.host = cfg.host.replace(/\/$/, "");
   anonymousId();
+  captureTouch();
   if (cfg.autoPageview) page();
   const go = () => { mountForms(); void refresh(); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);

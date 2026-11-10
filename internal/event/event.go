@@ -49,6 +49,9 @@ const (
 	AssetDownloaded = "asset_downloaded"
 	// LandingPageViewed is sent by the web SDK on a Pulse landing page (props page_id, utm_*).
 	LandingPageViewed = "landing_page_viewed"
+	// JourneySplit is recorded by a journey's split step for each contact it routes (props
+	// journey_id, step, path, label, decided), so A/B paths can be compared and a winner picked.
+	JourneySplit = "journey_split"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -56,7 +59,7 @@ const (
 func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
-		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded:
+		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit:
 		return true
 	}
 	return false
@@ -66,7 +69,7 @@ func ServerOnly(name string) bool {
 // which validate it), so POST /v1/events refuses it.
 func PlatformOnly(name string) bool {
 	switch name {
-	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated:
+	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit:
 		return true
 	}
 	return false
@@ -94,6 +97,11 @@ const (
 func EventOnlyAttr(k string) bool {
 	return k == AttrMergedInto || k == AttrStage || k == AttrStageChangedAt || strings.HasPrefix(k, CompanyAttrPrefix)
 }
+
+// SetOnceAttr reports whether a profile attribute keeps its first value: the first-touch
+// attribution the web SDK sends (first_utm_source, first_utm_medium, first_utm_campaign,
+// first_utm_term, first_utm_content, first_referrer). Later values are ignored once it's set.
+func SetOnceAttr(k string) bool { return strings.HasPrefix(k, "first_utm_") || k == "first_referrer" }
 
 // Kafka topics.
 const (

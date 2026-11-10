@@ -1,6 +1,7 @@
 package segment
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -164,4 +165,65 @@ func FilterCountsSQL(tenantID int64, f Filter, asOf time.Time) Query {
 			" GROUP BY contact_id, day",
 		Args: b.args,
 	}
+}
+
+// ValidatePropFilters checks property filters the way event rules do (at most 5, valid names and
+// comparisons, no relative-date ops), for analytics queries that reuse them.
+func ValidatePropFilters(what string, where []PropFilter) error {
+	if len(where) > maxWhere {
+		return fmt.Errorf("%s: at most %d property filters", what, maxWhere)
+	}
+	for _, f := range where {
+		if !attr.ValidKey(f.Prop) {
+			return fmt.Errorf("%s: invalid property name %q", what, f.Prop)
+		}
+		if err := validCompare(fmt.Sprintf("%s property %q", what, f.Prop), f.Op, f.Value); err != nil {
+			return err
+		}
+		if RelativeDateOp(f.Op) {
+			return fmt.Errorf("%s property %q: use before or after for event properties", what, f.Prop)
+		}
+	}
+	return nil
+}
+
+// ValidateAttrFilters checks attribute comparisons (as in attribute rules) used as filters.
+func ValidateAttrFilters(what string, where []PropFilter) error {
+	if len(where) > maxWhere {
+		return fmt.Errorf("%s: at most %d attribute filters", what, maxWhere)
+	}
+	for _, f := range where {
+		if !attr.ValidKey(f.Prop) {
+			return fmt.Errorf("%s: invalid attribute name %q", what, f.Prop)
+		}
+		if err := validCompare(fmt.Sprintf("%s attribute %q", what, f.Prop), f.Op, f.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PropFilterSQL compiles validated property filters to " AND ..." conditions over an events row's
+// props, with the same semantics as event-rule filters. Every value is a bound argument.
+func PropFilterSQL(where []PropFilter) (string, []any) {
+	b := &sqlBuilder{}
+	return b.props(where), b.args
+}
+
+// AttrFilterSQL compiles validated attribute comparisons to " AND ..." conditions over a contacts
+// row's attrs map, with the same semantics as attribute rules (asOf fixes "today" for date ops).
+func AttrFilterSQL(where []PropFilter, asOf time.Time) (string, []any) {
+	b := &sqlBuilder{asOf: asOf.UTC()}
+	var sb strings.Builder
+	for _, f := range where {
+		b.args = append(b.args, f.Prop)
+		sb.WriteString(" AND " + b.compare("attrs[?]", f.Op, f.Value, "mapContains(attrs, ?)"))
+	}
+	return sb.String(), b.args
+}
+
+// PropValueSQL is the canonical string value of one event property (see propExpr), with its
+// arguments: strings as-is, numbers in shortest form, missing as "".
+func PropValueSQL(prop string) (string, []any) {
+	return propExpr, []any{prop, prop, prop, prop, prop, prop}
 }
