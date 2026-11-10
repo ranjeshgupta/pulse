@@ -10,6 +10,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/attr"
 	"pulse/internal/channel"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
@@ -96,12 +97,16 @@ func (e *Engine) Refresh(ctx context.Context) error {
 			idx.byEvent[j.TenantID][g.Trigger.Event] = append(idx.byEvent[j.TenantID][g.Trigger.Event], a)
 		}
 		for _, n := range g.Nodes {
-			if n.Type == NodeWaitForEvent {
-				if idx.awaited[j.TenantID] == nil {
-					idx.awaited[j.TenantID] = map[string]bool{}
-				}
-				idx.awaited[j.TenantID][n.Event] = true
+			name := n.Event
+			if n.Type == NodeMessageDecision {
+				name, _ = g.MessageEvent(0, n)
+			} else if n.Type != NodeWaitForEvent {
+				continue
 			}
+			if idx.awaited[j.TenantID] == nil {
+				idx.awaited[j.TenantID] = map[string]bool{}
+			}
+			idx.awaited[j.TenantID][name] = true
 		}
 		if g.Goal != nil {
 			if idx.goals[j.TenantID] == nil {
@@ -151,6 +156,9 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 				return err
 			}
 			for _, w := range waits {
+				if w.MessageID != "" && attr.String(ev.Props["message_id"]) != w.MessageID {
+					continue // a message decision waits for one message's event, not any
+				}
 				j := idx.byID[w.Enrollment.JourneyID]
 				if j == nil {
 					continue // paused: the contact keeps waiting, and the timeout still applies

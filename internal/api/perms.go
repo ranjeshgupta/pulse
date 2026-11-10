@@ -50,6 +50,7 @@ var special = map[string]need{
 	"POST /v1/sandbox/bounce":                         {auth.AreaContent, auth.Edit},
 	"POST /v1/sandbox/inbound":                        {auth.AreaContent, auth.Edit},
 	"GET /v1/sandbox/messages":                        {auth.AreaContent, auth.View},
+	"GET /v1/inapp/check":                             {auth.AreaContacts, auth.View}, // reveals a contact's segment matches
 	"GET /v1/audit":                                   {auth.AreaSettings, auth.Edit},
 	"GET /v1/channels/catalog":                        {auth.AreaChannels, auth.View},
 }

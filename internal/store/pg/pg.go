@@ -552,16 +552,18 @@ func parkTx(ctx context.Context, tx pgx.Tx, enrollment int64, waitNode, resumeNo
 
 // WaitForEvent parks the enrollment until the contact does eventName (resume at yesNode) or the
 // timeout passes (resume at timeoutNode), whichever comes first.
-func (s *Store) WaitForEvent(ctx context.Context, en model.Enrollment, waitNode, eventName, yesNode, timeoutNode string, due time.Time) error {
+// messageID, when set, limits it to that message's event (a message decision).
+func (s *Store) WaitForEvent(ctx context.Context, en model.Enrollment, waitNode, eventName, messageID, yesNode, timeoutNode string, due time.Time) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		if err := parkTx(ctx, tx, en.ID, waitNode, timeoutNode, due); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO journey_event_waits (enrollment_id, tenant_id, contact_id, event, wait_node, yes_node)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (enrollment_id) DO UPDATE SET event = EXCLUDED.event, wait_node = EXCLUDED.wait_node, yes_node = EXCLUDED.yes_node`,
-			en.ID, en.TenantID, int64(en.ContactID), eventName, waitNode, yesNode)
+			INSERT INTO journey_event_waits (enrollment_id, tenant_id, contact_id, event, wait_node, yes_node, message_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (enrollment_id) DO UPDATE SET event = EXCLUDED.event, wait_node = EXCLUDED.wait_node, yes_node = EXCLUDED.yes_node,
+				message_id = EXCLUDED.message_id`,
+			en.ID, en.TenantID, int64(en.ContactID), eventName, waitNode, yesNode, messageID)
 		return err
 	})
 }
@@ -608,11 +610,12 @@ type EventWait struct {
 	Enrollment model.Enrollment
 	WaitNode   string
 	YesNode    string
+	MessageID  string // only this message's event counts ("" = any)
 }
 
 func (s *Store) EventWaits(ctx context.Context, tenant int64, contact uint32, eventName string) ([]EventWait, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT w.enrollment_id, e.journey_id, w.wait_node, w.yes_node FROM journey_event_waits w
+		SELECT w.enrollment_id, e.journey_id, w.wait_node, w.yes_node, w.message_id FROM journey_event_waits w
 		JOIN journey_enrollments e ON e.id = w.enrollment_id
 		WHERE w.tenant_id = $1 AND w.contact_id = $2 AND w.event = $3`, tenant, int64(contact), eventName)
 	if err != nil {
@@ -620,7 +623,7 @@ func (s *Store) EventWaits(ctx context.Context, tenant int64, contact uint32, ev
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (EventWait, error) {
 		w := EventWait{Enrollment: model.Enrollment{TenantID: tenant, ContactID: contact}}
-		err := r.Scan(&w.Enrollment.ID, &w.Enrollment.JourneyID, &w.WaitNode, &w.YesNode)
+		err := r.Scan(&w.Enrollment.ID, &w.Enrollment.JourneyID, &w.WaitNode, &w.YesNode, &w.MessageID)
 		return w, err
 	})
 }

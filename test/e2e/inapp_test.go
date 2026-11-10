@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
@@ -175,4 +177,62 @@ func TestInAppCampaigns(t *testing.T) {
 		s, _ := st[fmt.Sprint(id)].(map[string]any)
 		return s["shown"] == 1.0 && s["clicked"] == 1.0
 	})
+}
+
+// TestMessageDecision: a journey branches on whether its own email was opened.
+func TestMessageDecision(t *testing.T) {
+	c, _ := workspace(t, "Decision")
+	run := fmt.Sprint(time.Now().UnixNano())
+	tpl := jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "hello", "channel": "email", "subject": "Decision " + run, "html": "<p>Hi</p>"}, 201)["id"]
+	j := jsonCall(t, c, "POST", "/v1/journeys", map[string]any{"name": "opened?", "graph": map[string]any{
+		"trigger": map[string]any{"type": "event", "event": "signup"}, "entry": "mail",
+		"nodes": map[string]any{
+			"mail":   map[string]any{"type": "send_email", "template_id": tpl, "next": "opened"},
+			"opened": map[string]any{"type": "message_decision", "step": "mail", "outcome": "opened", "seconds": 86400, "yes": "tag", "no": "x"},
+			"tag":    map[string]any{"type": "update_tags", "add_tags": []any{"engaged"}, "next": "x"},
+			"x":      map[string]any{"type": "exit"},
+		}}}, 201)["id"]
+	jsonCall(t, c, "POST", fmt.Sprintf("/v1/journeys/%v/activate", j), nil, 200)
+	time.Sleep(2 * time.Second)
+	ext, other := "md-"+run, "md2-"+run
+	for _, e := range []string{ext, other} {
+		jsonCall(t, c, "POST", "/v1/events", map[string]any{"events": []any{
+			map[string]any{"external_id": e, "name": "identify", "email": e + "@example.com"},
+			map[string]any{"external_id": e, "name": "signup"},
+		}}, 202)
+	}
+	var search struct {
+		Messages []struct {
+			ID string
+			To []struct{ Address string }
+		} `json:"messages"`
+	}
+	waitFor(t, 15*time.Second, func() bool {
+		mailpitGet(t, "/api/v1/search?query="+url.QueryEscape("subject:\"Decision "+run+"\""), &search)
+		return len(search.Messages) == 2
+	})
+	// The other contact opens an unrelated email event: it must not count for this journey.
+	jsonCall(t, c, "POST", "/v1/events", map[string]any{"external_id": other, "name": "email_opened", "props": map[string]any{"message_id": "999:mail"}}, 202)
+	for _, m := range search.Messages {
+		if m.To[0].Address != ext+"@example.com" {
+			continue
+		}
+		var msg struct{ HTML string }
+		mailpitGet(t, "/api/v1/message/"+m.ID, &msg)
+		px := regexp.MustCompile(`src="(` + regexp.QuoteMeta(apiURL) + `/t/o/[^"]+)"`).FindStringSubmatch(msg.HTML)
+		if px == nil {
+			t.Fatal("no open pixel")
+		}
+		resp, err := http.Get(html.UnescapeString(px[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	took := waitFor(t, 15*time.Second, func() bool { return fmt.Sprint(attrsOf(t, c, ext)["tags"]) == "[engaged]" })
+	t.Logf("email opened -> yes branch in %v", took)
+	time.Sleep(2 * time.Second)
+	if attrsOf(t, c, other)["tags"] != nil {
+		t.Error("an open of a different message took the yes branch")
+	}
 }

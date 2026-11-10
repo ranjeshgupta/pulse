@@ -56,6 +56,7 @@ func TestParseGraphInvalid(t *testing.T) {
 // ---- executor ----
 
 type fakeStore struct {
+	lastMsgID  string
 	eventWaits []string
 	nodes      map[int64][2]string // enrollment -> {node, status}
 	timers     map[int64]struct {
@@ -76,8 +77,9 @@ func (f *fakeStore) SetNode(_ context.Context, en int64, node, status string) er
 	return nil
 }
 
-func (f *fakeStore) WaitForEvent(_ context.Context, en model.Enrollment, waitNode, ev, yes, timeout string, due time.Time) error {
+func (f *fakeStore) WaitForEvent(_ context.Context, en model.Enrollment, waitNode, ev, msgID, yes, timeout string, due time.Time) error {
 	f.eventWaits = append(f.eventWaits, ev+":"+yes+":"+timeout)
+	f.lastMsgID = msgID
 	return f.Wait(context.Background(), en.ID, waitNode, timeout, due)
 }
 

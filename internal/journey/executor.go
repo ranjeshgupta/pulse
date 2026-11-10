@@ -28,7 +28,7 @@ const (
 type Store interface {
 	SetNode(ctx context.Context, enrollment int64, node, status string) error
 	Wait(ctx context.Context, enrollment int64, waitNode, resumeNode string, due time.Time) error
-	WaitForEvent(ctx context.Context, en model.Enrollment, waitNode, eventName, yesNode, timeoutNode string, due time.Time) error
+	WaitForEvent(ctx context.Context, en model.Enrollment, waitNode, eventName, messageID, yesNode, timeoutNode string, due time.Time) error
 }
 
 type Membership interface {
@@ -101,7 +101,12 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 
 		case NodeWaitForEvent:
 			due := x.Now().Add(time.Duration(n.Seconds) * time.Second)
-			return x.Store.WaitForEvent(ctx, en, id, n.Event, n.Yes, n.No, due)
+			return x.Store.WaitForEvent(ctx, en, id, n.Event, "", n.Yes, n.No, due)
+
+		case NodeMessageDecision:
+			due := x.Now().Add(time.Duration(n.Seconds) * time.Second)
+			name, msgID := g.MessageEvent(en.ID, n)
+			return x.Store.WaitForEvent(ctx, en, id, name, msgID, n.Yes, n.No, due)
 
 		case NodeCondition:
 			in, err := x.Membership.IsMember(ctx, en.TenantID, n.SegmentID, en.ContactID)

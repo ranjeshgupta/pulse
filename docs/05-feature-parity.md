@@ -47,7 +47,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Wait for a duration | ✅ | ✅ | ✅ durable timers | |
 | Wait until a date/time, or until an event (with timeout) | ✅ | ✅ | ✅ date, next time of day in the contact's zone, wait for event with timeout | |
 | Condition: in segment | ✅ | ✅ | ✅ | |
-| Condition: attribute value, opened/clicked, visited page | ✅ | ✅ | ✅ "Check contact" with any segment rule, including email_opened/clicked and page_view counts | Per-message "opened *this* email": P2 |
+| Condition: attribute value, opened/clicked, visited page | ✅ | ✅ | ✅ "Check contact" with any segment rule, including email_opened/clicked and page_view counts | |
+| Decision on this journey's own message (email opened/clicked, WhatsApp/RCS read, SMS/push delivered, inbox opened) | ✅ | ✅ | ✅ `message_decision` step with a timeout, yes/no branches | |
 | A/B split | ✅ | ✅ | ✅ 2-5 weighted paths, stable per enrollment | Winner auto-selection: P2 |
 | Send email, SMS, WhatsApp (SMS fallback), RCS (SMS fallback), push | 🟡 | ✅ | ✅ | |
 | Update attribute, add/remove tag, change points | ✅ | ✅ | ✅ update profile, tag contact, adjust points, add to / remove from list | |
@@ -144,8 +145,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      geo_timezone; Data & privacy switch to track anonymous visitors or not.
    - ✅ Cleanup like Mautic's maintenance (hourly): anonymous visitors idle for N days with their events, events older
      than N days, audit entries older than N days; expired inbox messages and old webhook deliveries are always pruned.
-   - Journeys built from Actions, Conditions and Decisions (Mautic's model, WebEngage's blocks), including decisions
-     on a specific message's engagement: email opened or clicked, WhatsApp/RCS read, SMS delivered.
+   - Journeys built from Actions, Conditions and Decisions (Mautic's model, WebEngage's blocks): ✅ decisions on a specific
+     message's engagement (`message_decision`); the builder's grouped palette is next.
    - Segment builder with every Mautic and WebEngage filter (geo, device and platform, first/last seen, page visits,
      message engagement, campaign membership, "did not do").
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its

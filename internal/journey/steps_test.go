@@ -232,3 +232,28 @@ func TestAudienceSteps(t *testing.T) {
 		}
 	}
 }
+
+func TestMessageDecision(t *testing.T) {
+	g := Graph{Trigger: Trigger{Type: TriggerEvent, Event: "signup"}, Entry: "mail", Nodes: map[string]Node{
+		"mail":   {Type: NodeSendEmail, TemplateID: 1, Next: "opened"},
+		"opened": {Type: NodeMessageDecision, Step: "mail", Outcome: "opened", Seconds: 86400, Yes: "x", No: "x"},
+		"x":      {Type: NodeExit},
+	}}
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	name, id := g.MessageEvent(42, g.Nodes["opened"])
+	if name != "email_opened" || id != "42:mail" {
+		t.Errorf("waits for %s %s", name, id)
+	}
+	bad := g
+	bad.Nodes = map[string]Node{"mail": g.Nodes["mail"], "x": g.Nodes["x"],
+		"opened": {Type: NodeMessageDecision, Step: "mail", Outcome: "read", Seconds: 86400, Yes: "x", No: "x"}}
+	if err := bad.Validate(); err == nil {
+		t.Error("an email can't be read (only opened, clicked, delivered)")
+	}
+	bad.Nodes["opened"] = Node{Type: NodeMessageDecision, Step: "x", Outcome: "opened", Seconds: 86400, Yes: "x", No: "x"}
+	if err := bad.Validate(); err == nil {
+		t.Error("the step must be a send step")
+	}
+}

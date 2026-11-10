@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"pulse/internal/attr"
@@ -33,13 +36,16 @@ const (
 	NodeExit         = "exit"
 	NodeWaitUntil    = "wait_until"     // a date/time, or the next time of day in the contact's zone
 	NodeWaitForEvent = "wait_for_event" // until the contact does an event (yes) or the timeout passes (no)
-	NodeCheck        = "check"          // any segment rule, evaluated for this contact right now
-	NodeSplit        = "split"          // A/B/n split by weight, stable per enrollment
-	NodeUpdate       = "update_attr"    // set profile attributes
-	NodeWebhook      = "webhook"        // call an external HTTP endpoint
-	NodeTags         = "update_tags"    // add and remove tags
-	NodePoints       = "adjust_points"  // add (or take away) points
-	NodeList         = "update_list"    // add to or remove from a static list
+	// NodeMessageDecision waits for an earlier send step's message to be opened, clicked, delivered
+	// or read (yes) or the timeout to pass (no): Mautic's "opens email" / WebEngage's "message read".
+	NodeMessageDecision = "message_decision"
+	NodeCheck           = "check"         // any segment rule, evaluated for this contact right now
+	NodeSplit           = "split"         // A/B/n split by weight, stable per enrollment
+	NodeUpdate          = "update_attr"   // set profile attributes
+	NodeWebhook         = "webhook"       // call an external HTTP endpoint
+	NodeTags            = "update_tags"   // add and remove tags
+	NodePoints          = "adjust_points" // add (or take away) points
+	NodeList            = "update_list"   // add to or remove from a static list
 
 	ReentryOnce      = "once"
 	ReentryAlways    = "always"     // again after each finish
@@ -96,6 +102,8 @@ type Node struct {
 	TimeOfDay  string          `json:"time_of_day,omitempty"` // wait_until: "09:30", next occurrence
 	Timezone   string          `json:"timezone,omitempty"`    // wait_until: zone when the contact has none
 	Event      string          `json:"event,omitempty"`       // wait_for_event
+	Step       string          `json:"step,omitempty"`        // message_decision: the send step whose message it watches
+	Outcome    string          `json:"outcome,omitempty"`     // message_decision: opened | clicked | delivered | read
 	Rule       json.RawMessage `json:"rule,omitempty"`        // check: a segment rule
 	Variants   []Variant       `json:"variants,omitempty"`    // split
 	Attrs      map[string]any  `json:"attrs,omitempty"`       // update_attr
@@ -190,6 +198,10 @@ func (g Graph) Validate() error {
 			if err := validWaitUntil(n); err != nil {
 				return fmt.Errorf("wait until %q: %w", id, err)
 			}
+		case NodeMessageDecision:
+			if err := g.validMessageDecision(id, n); err != nil {
+				return err
+			}
 		case NodeWaitForEvent:
 			if !event.ValidName(n.Event) {
 				return fmt.Errorf("wait for event %q: enter the event to wait for", id)
@@ -259,7 +271,7 @@ func (n Node) edges() []string {
 	case NodeWait, NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox, NodeWaitUntil, NodeUpdate, NodeWebhook,
 		NodeTags, NodePoints, NodeList:
 		return []string{n.Next}
-	case NodeCondition, NodeCheck, NodeWaitForEvent:
+	case NodeCondition, NodeCheck, NodeWaitForEvent, NodeMessageDecision:
 		return []string{n.Yes, n.No}
 	case NodeSplit:
 		out := make([]string, len(n.Variants))
@@ -269,6 +281,36 @@ func (n Node) edges() []string {
 		return out
 	}
 	return nil
+}
+
+// Outcomes lists what a message decision can wait for on each channel.
+var Outcomes = map[string][]string{
+	channel.Email:    {"opened", "clicked", "delivered"},
+	channel.SMS:      {"delivered"},
+	channel.WhatsApp: {"delivered", "read"},
+	channel.RCS:      {"delivered", "read"},
+	channel.Push:     {"delivered"},
+	channel.Inbox:    {"opened", "clicked"},
+}
+
+func (g Graph) validMessageDecision(id string, n Node) error {
+	step, ok := g.Nodes[n.Step]
+	ch := sendNodes[step.Type]
+	if !ok || ch == "" {
+		return fmt.Errorf("message decision %q: choose a send step it follows", id)
+	}
+	if !slices.Contains(Outcomes[ch], n.Outcome) {
+		return fmt.Errorf("message decision %q: a %s message can be %s", id, ch, strings.Join(Outcomes[ch], ", "))
+	}
+	if n.Seconds < 60 || n.Seconds > maxWaitSecs {
+		return fmt.Errorf("message decision %q: wait 1 minute to 365 days for it", id)
+	}
+	return nil
+}
+
+// MessageEvent is the event and message id a message decision waits for.
+func (g Graph) MessageEvent(enrollment int64, n Node) (string, string) {
+	return sendNodes[g.Nodes[n.Step].Type] + "_" + n.Outcome, strconv.FormatInt(enrollment, 10) + ":" + n.Step
 }
 
 var timeOfDay = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
