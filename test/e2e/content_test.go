@@ -155,7 +155,7 @@ func TestLandingPage(t *testing.T) {
 	doc := string(body)
 	if strings.Count(doc, "<script") != 2 || strings.Count(doc, `<script nonce="`+nonce[1]+`"`) != 2 || strings.Contains(doc, "onclick") ||
 		!strings.Contains(doc, `data-site-key="`+siteKey+`"`) || !strings.Contains(doc, `<div data-pulse-form="`+formKey+`"></div>`) ||
-		!strings.Contains(doc, `<meta name="description" content="Everything 20% off">`) {
+		!strings.Contains(doc, `<meta name="description" content="Everything 20% off"/>`) {
 		t.Errorf("page:\n%s", doc)
 	}
 	for _, js := range []string{"/sdk/pulse.js", "/sdk/lp.js"} {
