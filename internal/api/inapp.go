@@ -119,7 +119,9 @@ func (s *Server) deleteInApp(w http.ResponseWriter, r *http.Request, tenant int6
 }
 
 // webInApp answers the SDK: the campaigns this visitor may see on this platform, with their triggers.
-// An unverified known user is treated as anonymous, so nobody learns someone else's segments.
+// A signed-in user's segments only count with their user hash (as for the inbox, whatever the
+// workspace's verification setting); without it they get what an anonymous visitor gets, so the
+// public site key can't reveal someone's segments.
 func (s *Server) webInApp(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.siteTenant(w, r)
 	if !ok {
@@ -137,8 +139,12 @@ func (s *Server) webInApp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "platform must be android or ios")
 		return
 	}
-	if !webIdentityOK(t, req.ID, req.UserHash) {
+	if !strings.HasPrefix(req.ID, "anon-") && !validUserHash(t.IdentitySecret, req.ID, req.UserHash) {
 		req.ID = ""
+	}
+	if !s.allowWeb(r.Context(), t.ID, r, 1) {
+		writeErr(w, http.StatusTooManyRequests, "too many requests from this app")
+		return
 	}
 	ms, err := s.inappStore().ListInApp(r.Context(), t.ID, true)
 	if err != nil {

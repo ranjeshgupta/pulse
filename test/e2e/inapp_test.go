@@ -122,9 +122,19 @@ func TestInAppCampaigns(t *testing.T) {
 	jsonCall(t, c, "POST", "/v1/inapp", map[string]any{"name": "bad", "layout": "modal", "content": map[string]any{"title": "x"},
 		"targeting": map[string]any{"trigger_event": "app_open", "frequency": "once", "segment_ids": []any{999999}}}, 400)
 
+	secret := jsonCall(t, c, "GET", "/v1/settings/identity", nil, 200)["secret"].(string)
+	hashOf := func(id string) string {
+		m := hmac.New(sha256.New, []byte(secret))
+		m.Write([]byte(id))
+		return hex.EncodeToString(m.Sum(nil))
+	}
 	count := func(who, platform string) int {
-		_, out := webCall(t, "POST", "/v1/web/inapp", siteKey, map[string]any{"id": who, "platform": platform})
+		_, out := webCall(t, "POST", "/v1/web/inapp", siteKey, map[string]any{"id": who, "user_hash": hashOf(who), "platform": platform})
 		return len(asList(out["messages"]))
+	}
+	// Without the user hash a signed-in user is treated as anonymous: segment campaigns stay hidden.
+	if _, out := webCall(t, "POST", "/v1/web/inapp", siteKey, map[string]any{"id": vip, "platform": "android"}); len(asList(out["messages"])) != 0 {
+		t.Error("segment campaigns were shown without the user hash")
 	}
 	if n := count(vip, "android"); n != 1 {
 		t.Errorf("VIP on android sees %d campaigns, want 1", n)

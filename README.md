@@ -35,6 +35,8 @@ and journeys within seconds, not on a 15-minute cron.
   SDKs list and update it (`GET/POST /v1/web/inbox`, `Pulse.inbox`), reads and clicks count in reports.
   A signed-in user's inbox always needs their user hash (identity verification); anonymous visitors' doesn't.
 - **In-app campaigns (backend done):** `/v1/inapp` to manage them, `POST /v1/web/inapp` for the app SDK (android, ios).
+  Segment targeting counts for signed-in users only with their user hash. (On-site focus items follow the workspace's
+  identity-verification setting instead.)
 - **Still to build:** in-app rendering in the Flutter SDK and the editor page, then batch 5 and P2 in the feature-parity doc.
 
 ## Run it
