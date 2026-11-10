@@ -26,6 +26,8 @@ import { WebhookEdit, WebhookList } from "./pages/Webhooks";
 import { Imports } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
+import { AssetList } from "./pages/Assets";
+import { LandingPageEdit, LandingPageList } from "./pages/LandingPages";
 import Shell from "./Shell";
 import "./styles.css";
 import { ToastProvider } from "./ui";
@@ -70,6 +72,9 @@ const router = createBrowserRouter([
       { path: "in-app/:id", element: <InAppEdit /> },
       { path: "forms", element: <FormList /> },
       { path: "forms/:id", element: <FormEdit /> },
+      { path: "landing-pages", element: <LandingPageList /> },
+      { path: "landing-pages/:id", element: <LandingPageEdit /> },
+      { path: "assets", element: <AssetList /> },
       { path: "funnels", element: <FunnelList /> },
       { path: "funnels/:id", element: <FunnelEdit /> },
       { path: "channels", element: <Channels /> },

@@ -339,3 +339,55 @@ func (s *Store) InAppStats(ctx context.Context, tenant int64) (map[int64]map[str
 	}
 	return out, rows.Err()
 }
+
+// PageStats are a landing page's views (landing_page_viewed, sent by the web SDK on the page),
+// unique visitors and form submissions made on it (form_submitted with landing_page_id).
+type PageStats struct {
+	Views       uint64    `json:"views"`
+	Visitors    uint64    `json:"visitors"`
+	Submissions uint64    `json:"submissions"`
+	PerDay      []PageDay `json:"per_day"`
+}
+
+type PageDay struct {
+	Day         string `json:"day"`
+	Views       uint64 `json:"views"`
+	Visitors    uint64 `json:"visitors"`
+	Submissions uint64 `json:"submissions"`
+}
+
+func (s *Store) LandingPageStats(ctx context.Context, tenant, page int64) (PageStats, error) {
+	st := PageStats{PerDay: []PageDay{}}
+	const where = `tenant_id = ? AND name IN ('landing_page_viewed', 'form_submitted') AND (
+		(name = 'landing_page_viewed' AND JSONExtractUInt(props, 'page_id') = ?) OR
+		(name = 'form_submitted' AND JSONExtractUInt(props, 'landing_page_id') = ?))`
+	const cols = `uniqExactIf(id, name = 'landing_page_viewed'), uniqExactIf(contact_id, name = 'landing_page_viewed'),
+		uniqExactIf(id, name = 'form_submitted')`
+	args := []any{uint64(tenant), uint64(page), uint64(page)}
+	if err := s.conn.QueryRow(ctx, "SELECT "+cols+" FROM events WHERE "+where, args...).Scan(&st.Views, &st.Visitors, &st.Submissions); err != nil {
+		return st, err
+	}
+	rows, err := s.conn.Query(ctx, "SELECT toString(toDate(ts, 'UTC')) AS d, "+cols+" FROM events WHERE "+where+
+		" AND ts >= now() - INTERVAL 30 DAY GROUP BY d ORDER BY d", args...)
+	if err != nil {
+		return st, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d PageDay
+		if err := rows.Scan(&d.Day, &d.Views, &d.Visitors, &d.Submissions); err != nil {
+			return st, err
+		}
+		st.PerDay = append(st.PerDay, d)
+	}
+	return st, rows.Err()
+}
+
+// AssetDownloads counts an asset's asset_downloaded events (downloads by known contacts) and the
+// contacts behind them.
+func (s *Store) AssetDownloads(ctx context.Context, tenant, asset int64) (downloads, contacts uint64, err error) {
+	err = s.conn.QueryRow(ctx, `SELECT uniqExact(id), uniqExact(contact_id) FROM events
+		WHERE tenant_id = ? AND name = 'asset_downloaded' AND JSONExtractUInt(props, 'asset_id') = ?`,
+		uint64(tenant), uint64(asset)).Scan(&downloads, &contacts)
+	return downloads, contacts, err
+}

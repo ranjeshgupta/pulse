@@ -22,7 +22,8 @@ func Handler() http.Handler {
 		if p == "" || p == "." {
 			p = "index.html"
 		}
-		if _, err := fs.Stat(root, p); err != nil {
+		// Directories (assets/, sdk/) are never listed: they are app routes too (/assets).
+		if st, err := fs.Stat(root, p); err != nil || st.IsDir() {
 			p = "index.html"
 		}
 		if p == "index.html" {

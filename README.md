@@ -44,6 +44,11 @@ and journeys within seconds, not on a 15-minute cron.
   points thresholds that only move contacts forward), companies (Audience → Companies; attributes copied to contacts as
   `company_<key>`, linked by hand or by a server identify with `attrs.company`), and duplicate merge
   (`POST /v1/contacts/merge`, `GET /v1/contacts/duplicates`, Contacts → Duplicates and "Merge into…").
+- **Batch 6, content (done):** every email carries a plain-text part (written in the template's Plain text tab, or
+  generated from the HTML) and may attach up to 10 files (10 MB together); Engage → Assets holds uploaded files
+  (25 MB each, kept in Postgres) downloadable at `/a/{key}`, openly or behind a form (`asset_downloaded` for the
+  submitter); Engage → Landing pages publishes pages at `/p/{workspace}/{page}` with embedded forms, a schedule, a
+  script-free preview and views/visitors/submissions from the web SDK's `landing_page_viewed`.
 - **Still to build:** the rest of P2 in the feature-parity doc.
 
 ## Run it
@@ -81,7 +86,7 @@ with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links and webhook secrets |
+| `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links, webhook secrets and download links (form-gated assets, attachment links for the custom gateway need it) |
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
 | `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks and the custom gateway call private addresses (development only) |

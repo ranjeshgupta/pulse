@@ -115,6 +115,19 @@ func (c *Codec) Instrument(htmlBody, token string) string {
 	return insertBeforeBodyEnd(out, `<img src="`+html.EscapeString(c.OpenURL(token))+`" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px">`)
 }
 
+// InstrumentText adds the unsubscribe link to an email's plain-text part when the text doesn't
+// carry it already. Links in the text part stay direct: no click redirects and no open pixel.
+func (c *Codec) InstrumentText(text, token string) string {
+	unsub := c.UnsubscribeURL(token)
+	if text == "" || strings.Contains(text, unsub) {
+		return text
+	}
+	return strings.TrimRight(text, "\n ") + "\n\n--\nUnsubscribe: " + unsub + "\n"
+}
+
+// Base is the public base URL links point to.
+func (c *Codec) Base() string { return c.base }
+
 func insertBeforeBodyEnd(doc, fragment string) string {
 	if i := strings.LastIndex(strings.ToLower(doc), "</body>"); i >= 0 {
 		return doc[:i] + fragment + doc[i:]

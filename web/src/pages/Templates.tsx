@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, CHANNEL_NAMES, CHANNELS, type Channel, type ChannelContent, type Template } from "../api";
-import { MessagePreview, PreviewModal, TestSendModal } from "../messagePreview";
+import { api, CHANNEL_NAMES, CHANNELS, type AssetList, type Channel, type ChannelContent, type Template } from "../api";
+import { formatBytes, MessagePreview, PreviewModal, TestSendModal } from "../messagePreview";
 import { ChannelLabel, Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import type { EmailBuilderHandle } from "./EmailBuilder";
 
@@ -76,7 +76,8 @@ export function TemplateEdit() {
   const toast = useToast();
   const existing = useQuery({ queryKey: ["template", id], queryFn: () => api.get<Template>(`/v1/templates/${id}`), enabled: !isNew });
   const [t, setT] = useState<Template | null>(null);
-  const [emailMode, setEmailMode] = useState<"visual" | "html">("visual");
+  // The email body is edited in the builder or as HTML; "text" edits the plain-text part.
+  const [emailMode, setEmailMode] = useState<"visual" | "html" | "text">("visual");
   const [testing, setTesting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const builder = useRef<EmailBuilderHandle>(null);
@@ -146,8 +147,15 @@ export function TemplateEdit() {
               <div className="tabs" role="tablist">
                 <button role="tab" aria-selected={emailMode === "visual"} onClick={() => setEmailMode("visual")}>Visual builder</button>
                 <button role="tab" aria-selected={emailMode === "html"} onClick={() => { if (builder.current) setT({ ...t, html: builder.current.read().html }); setEmailMode("html"); }}>HTML</button>
+                <button role="tab" aria-selected={emailMode === "text"} onClick={() => {
+                  // Keep the builder's layout: only the HTML tab replaces it.
+                  if (emailMode === "visual" && builder.current) { const r = builder.current.read(); setT({ ...t, html: r.html, builder: r.project }); }
+                  setEmailMode("text");
+                }}>Plain text{c.text ? "" : " (auto)"}</button>
               </div>
-              {emailMode === "visual" ? (
+              {emailMode === "text" ? (
+                <PlainTextEditor t={t} setText={(text) => setC({ text })} />
+              ) : emailMode === "visual" ? (
                 <Suspense fallback={<div className="gjs-host" />}><EmailBuilder ref={builder} html={t.html} project={t.builder} /></Suspense>
               ) : (
                 <div className="grid-2" style={{ gap: 18 }}>
@@ -156,6 +164,7 @@ export function TemplateEdit() {
                 </div>
               )}
               {emailMode === "html" && t.builder === undefined && !isNew && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the HTML tab replaces the visual layout with this HTML.</p>}
+              <AttachmentPicker ids={c.attachments ?? []} onChange={(attachments) => setC({ attachments: attachments.length ? attachments : undefined })} />
             </>
           )}
 
@@ -216,6 +225,78 @@ export function TemplateEdit() {
       {testing && <TestSendModal template={t} onClose={() => setTesting(false)} />}
       {previewing && <PreviewModal template={t} onClose={() => setPreviewing(false)} />}
     </div>
+  );
+}
+
+// PlainTextEditor edits the email's plain-text part. Empty means "generate it from the HTML at send
+// time"; "Generate from HTML" fills it with that text (rendered on the server) to edit by hand.
+function PlainTextEditor({ t, setText }: { t: Template; setText: (s: string) => void }) {
+  const toast = useToast();
+  const gen = useMutation({
+    // From the template's HTML as written, so personalization tags stay tags.
+    mutationFn: () => api.post<{ text: string }>("/v1/templates/text", { html: t.html }),
+    onSuccess: (r) => {
+      setText(r.text);
+      toast({ text: "Plain text generated from the HTML" });
+    },
+  });
+  const text = t.content.text ?? "";
+  return (
+    <div>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <p className="xs muted" style={{ margin: 0, maxWidth: 640 }}>
+          Every email also goes out with a plain-text version for clients that don't show HTML. Leave this empty and Pulse generates it from the HTML when sending (links become "text (url)"). {PERSONALIZE}
+        </p>
+        <div className="row" style={{ gap: 6 }}>
+          {text && <button type="button" className="btn sm ghost" onClick={() => setText("")}>Clear (generate automatically)</button>}
+          <button type="button" className="btn sm" disabled={gen.isPending || !t.html} onClick={() => gen.mutate()}>{gen.isPending ? "Generating…" : "Generate from HTML"}</button>
+        </div>
+      </div>
+      <ErrorNote error={gen.error} />
+      <textarea className="textarea code-editor" style={{ minHeight: 360, width: "100%" }} value={text} onChange={(e) => setText(e.target.value)}
+        aria-label="Plain-text part" spellCheck placeholder="Empty: generated from the HTML when the email is sent." />
+    </div>
+  );
+}
+
+// AttachmentPicker chooses workspace assets to attach to every email from this template.
+function AttachmentPicker({ ids, onChange }: { ids: number[]; onChange: (ids: number[]) => void }) {
+  const q = useQuery({ queryKey: ["assets"], queryFn: () => api.get<AssetList>("/v1/assets") });
+  const [pick, setPick] = useState("");
+  const all = q.data?.assets ?? [];
+  const max = q.data?.max_attachment_bytes ?? 10 << 20;
+  const chosen = ids.map((id) => all.find((a) => a.id === id) ?? { id, title: `File ${id}`, filename: `missing file #${id}`, size: 0 });
+  const total = chosen.reduce((n, a) => n + a.size, 0);
+  const left = all.filter((a) => !ids.includes(a.id));
+  return (
+    <section className="panel" style={{ marginTop: 16 }} aria-label="Attachments">
+      <div className="panel-head"><h3>Attachments</h3><span className="xs muted">{ids.length}/10 files, {formatBytes(total)} of {formatBytes(max)}</span></div>
+      <div className="panel-body">
+        {chosen.length === 0 && <p className="small muted" style={{ marginTop: 0 }}>No files attached. Attach files from <Link to="/assets">Assets</Link> (PDF, images, CSV, TXT, ICS, ZIP, Word, Excel, PowerPoint).</p>}
+        {chosen.length > 0 && (
+          <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {chosen.map((a) => (
+              <span key={a.id} className="tag-chip" title={a.title}>
+                {a.filename} <span className="xs muted">{formatBytes(a.size)}</span>
+                <button type="button" aria-label={`Remove ${a.filename}`} onClick={() => onChange(ids.filter((x) => x !== a.id))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {total > max && <div className="alert error">Attachments can be at most {formatBytes(max)} together; remove some before saving.</div>}
+        {ids.length < 10 && (
+          <div className="row" style={{ gap: 6 }}>
+            <select className="select" value={pick} onChange={(e) => setPick(e.target.value)} aria-label="File to attach" disabled={left.length === 0}>
+              <option value="">{left.length ? "Choose a file…" : all.length ? "Every file is attached" : "No files uploaded yet"}</option>
+              {left.map((a) => <option key={a.id} value={a.id}>{a.title} ({a.filename}, {formatBytes(a.size)})</option>)}
+            </select>
+            <button type="button" className="btn sm" disabled={!pick} onClick={() => { onChange([...ids, Number(pick)]); setPick(""); }}>Attach</button>
+            <Link className="btn sm ghost" to="/assets">Upload files</Link>
+          </div>
+        )}
+        <p className="xs muted" style={{ marginBottom: 0 }}>Attached files go with every message from this template, so mind the size for large sends.</p>
+      </div>
+    </section>
   );
 }
 

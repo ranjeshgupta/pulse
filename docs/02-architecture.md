@@ -166,6 +166,49 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - Providers sit behind the `channel.Sender` interface: SMTP in Phase 1, then SES, Twilio, Gupshup, MSG91, Google RBM, FCM/APNs and VAPID.
 - Every send emits an `email_sent` or `email_failed` event back into `events.raw`, so journeys and segments can react to delivery.
 
+## Content: emails, assets and landing pages
+
+- **Email parts.** `channel.RenderFor` renders the HTML and the plain-text part (`content.text`, a text template); when the
+  template has no text, `channel.TextFromHTML` generates it from the rendered HTML (links become "text (url)", lists get
+  dashes, entities decoded, whitespace collapsed). The dispatcher tracks the HTML only: text links stay direct (no click
+  redirect, no pixel), and the unsubscribe link is appended to the text unless it already has it. The SMTP adapter
+  (`providers.BuildMessage`) writes `multipart/alternative` (text, then HTML, quoted-printable), inside
+  `multipart/mixed` with base64 attachments when the template lists any (`content.attachments`: asset ids, at most 10,
+  10 MB together, checked on save and in the preview). The dispatcher caches attachment bytes per asset (assets never
+  change their file). The custom HTTP gateway gets `text` and `attachments: [{filename, content_type, size, url}]` with
+  signed download links valid 7 days rather than inline bytes, so requests stay small.
+- **Assets.** Files live in Postgres (`assets` for metadata, `asset_files` for the bytes, stored out of line, 25 MB each,
+  2 GB per workspace) rather than a disk directory, so every API instance serves every file with no shared volume, backup
+  is the database's, and there is no path to traverse. Uploads are accepted by extension from an allowlist (PDF, PNG,
+  JPEG, GIF, WebP, SVG, CSV, TXT, ICS, ZIP, DOCX, XLSX, PPTX); binary types must start with their format's signature and
+  text types must be UTF-8. Every download is `Content-Disposition: attachment` with the stored type, `nosniff` and
+  `Content-Security-Policy: default-src 'none'; sandbox`, so SVG or anything else is never rendered on Pulse's origin.
+- **Gated downloads.** An asset with `form_id` shows that form at `/a/{key}`; a valid submission (the forms pipeline:
+  rate limit, honeypot, fill time, `form_submitted` with `asset_id`) gets a link `/a/{key}/download?t=` sealed with
+  AES-GCM (purpose, asset, workspace, submitter, 15-minute expiry); following it records `asset_downloaded {asset_id}` for
+  the submitter (one event per link). A gated asset whose form is deleted or a draft isn't served (never opened up).
+  Open downloads count in `download_count` only: a plain link carries no identity.
+- **Landing pages** are served at `/p/{workspace slug}/{page slug}` while published and inside their window. Authored
+  HTML is trusted but never runs: `<script>`, inline handlers, `javascript:` URLs, `<base>` and `<meta http-equiv>` are
+  removed, and the CSP allows only scripts carrying the response's nonce: `/sdk/pulse.js` and `/sdk/lp.js` (the
+  bootstrap, configured by data attributes). Pages may be framed by any site. `lp.js` starts the SDK with the
+  workspace's site key and sends `landing_page_viewed {page_id, utm_*}`; the SDK renders embedded forms (`{form:KEY}`),
+  so a submission merges the visitor's anonymous views into the contact. Submissions whose page URL is one of the
+  workspace's pages carry `landing_page_id`. Stats (views, unique visitors, submissions) come from ClickHouse; anonymous
+  visitors count only when the workspace tracks anonymous visitors. The app's preview (`POST /v1/landing-pages/preview`,
+  signed-in, content view) renders unsaved HTML without scripts (forms drawn statically) into a sandboxed `srcdoc` frame.
+
+### Public routes
+
+| Route | What | Limits |
+|---|---|---|
+| `GET /f/{key}`, `POST /f/{key}` | hosted form | 10 submissions/min per IP and workspace |
+| `GET /a/{key}`, `POST /a/{key}` | asset download, or its gate form | 60 downloads/min per IP and workspace; form limits |
+| `GET /a/{key}/download?t=` | sealed 15-minute (gate) or 7-day (gateway attachment) link | same |
+| `GET /p/{workspace}/{page}` | landing page | 300 views/min per IP and workspace |
+| `/v1/web/*` | web SDK API (site key) | 600 events/min per IP and workspace |
+| `/t/*`, `/u/*` | email tracking and unsubscribe (sealed tokens) | |
+
 ## ClickHouse tables
 - `events`: `MergeTree PARTITION BY toYYYYMM(ts) ORDER BY (tenant_id, name, contact_id, ts)`. Event-window segment queries hit only the
   key range for (tenant, event name).

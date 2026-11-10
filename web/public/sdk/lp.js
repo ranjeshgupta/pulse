@@ -1,0 +1,16 @@
+// Landing page bootstrap for Pulse-hosted pages (/p/...). Kept in a file, not inline, so pages work
+// under their strict Content-Security-Policy. Starts the SDK with the workspace's site key (page
+// views, embedded forms) and records landing_page_viewed with the page id and any utm_* parameters.
+(function () {
+  var s = document.currentScript;
+  var key = s && s.getAttribute("data-site-key");
+  var page = Number(s && s.getAttribute("data-page-id"));
+  if (!key || !window.Pulse) return;
+  Pulse.init({ siteKey: key });
+  var props = { page_id: page, url: location.href, referrer: document.referrer };
+  new URLSearchParams(location.search).forEach(function (v, k) {
+    if (/^utm_[a-z_]{1,30}$/.test(k)) props[k] = v.slice(0, 200);
+  });
+  Pulse.track("landing_page_viewed", props);
+  Pulse.flush();
+})();

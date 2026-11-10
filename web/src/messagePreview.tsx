@@ -4,19 +4,24 @@ import { useState } from "react";
 import { api, CHANNEL_NAMES, type Channel, type ChannelContent, type Template } from "./api";
 import { ErrorNote, Field, Modal, useToast } from "./ui";
 
-export type Rendered = { subject?: string; html?: string; content: ChannelContent };
+/** A file attached to an email (template preview). */
+export type PreviewAttachment = { id: number; title: string; filename: string; content_type: string; size: number };
+export type Rendered = {
+  subject?: string; html?: string; content: ChannelContent;
+  // email (template preview): the plain-text part as sent, whether it was generated from the HTML, attachments
+  text?: string; text_generated?: boolean; attachments?: PreviewAttachment[]; attachment_error?: string;
+};
+
+export function formatBytes(n: number): string {
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
+  if (n >= 1 << 10) return `${Math.round(n / 1024)} KB`;
+  return `${n} bytes`;
+}
 
 // MessagePreview draws a rendered message the way the recipient sees it.
 export function MessagePreview({ channel, r, label }: { channel: Channel; r: Rendered; label?: string }) {
   const c = r.content ?? {};
-  if (channel === "email") {
-    return (
-      <div>
-        <p className="small" style={{ marginBottom: 8 }}><span className="muted">Subject:</span> <strong>{r.subject || "(no subject)"}</strong></p>
-        <iframe className="preview-frame" title="Email preview" sandbox="" srcDoc={r.html ?? ""} />
-      </div>
-    );
-  }
+  if (channel === "email") return <EmailPreview r={r} />;
   let body: React.ReactNode = null;
   if (channel === "sms") body = <div className="bubble">{c.text || <span className="faint">Your message</span>}</div>;
   if (channel === "whatsapp") {
@@ -69,6 +74,39 @@ export function MessagePreview({ channel, r, label }: { channel: Channel; r: Ren
       <div className="phone-top">{label ?? `${channel === "push" ? "Lock screen" : CHANNEL_NAMES[channel]} preview`}</div>
       {body}
     </aside>
+  );
+}
+
+function EmailPreview({ r }: { r: Rendered }) {
+  const [part, setPart] = useState<"html" | "text">("html");
+  const hasText = r.text !== undefined;
+  return (
+    <div>
+      <p className="small" style={{ marginBottom: 8 }}><span className="muted">Subject:</span> <strong>{r.subject || "(no subject)"}</strong></p>
+      {hasText && (
+        <div className="tabs" role="tablist" style={{ marginBottom: 10 }}>
+          <button role="tab" aria-selected={part === "html"} onClick={() => setPart("html")}>HTML</button>
+          <button role="tab" aria-selected={part === "text"} onClick={() => setPart("text")}>Plain text{r.text_generated ? " (generated)" : ""}</button>
+        </div>
+      )}
+      {part === "html" || !hasText ? (
+        <iframe className="preview-frame" title="Email preview" sandbox="" srcDoc={r.html ?? ""} />
+      ) : (
+        <>
+          <pre className="preview-frame" style={{ whiteSpace: "pre-wrap", padding: 14, margin: 0, overflow: "auto", font: "13px/1.55 ui-monospace, monospace" }} aria-label="Plain-text part">{r.text || "(empty)"}</pre>
+          <p className="xs muted" style={{ marginTop: 6 }}>Links in the plain-text part go straight to their pages (no click tracking). The unsubscribe link is added at the end when the text doesn't place {"{{.UnsubscribeURL}}"} itself.</p>
+        </>
+      )}
+      {r.attachments && r.attachments.length > 0 && (
+        <div style={{ marginTop: 10 }} aria-label="Attachments">
+          <p className="xs muted" style={{ margin: "0 0 4px" }}>Attachments</p>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {r.attachments.map((a) => <span key={a.id} className="tag-chip" style={{ paddingRight: 9 }}>{a.filename} <span className="muted xs">{formatBytes(a.size)}</span></span>)}
+          </div>
+        </div>
+      )}
+      {r.attachment_error && <div className="alert error" style={{ marginTop: 8 }}>{r.attachment_error}</div>}
+    </div>
   );
 }
 

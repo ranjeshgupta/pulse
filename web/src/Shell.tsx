@@ -26,6 +26,8 @@ const I = {
   log: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M8.5 4.5v4l2.8 1.8" /></>,
   building: <><rect x="2.5" y="2" width="8" height="13.5" rx="1" /><path d="M10.5 7h4v8.5h-4M5 5h3M5 8h3M5 11h3" /></>,
   stairs: <path d="M1.5 15h4v-4h4V7h4V3h2" />,
+  page: <><rect x="1.5" y="1.5" width="14" height="14" rx="1.5" /><path d="M1.5 5h14" /><rect x="4" y="7.5" width="9" height="3" rx=".6" /><path d="M4 13h5" /></>,
+  file: <><path d="M4 1.5h6l3.5 3.5v10.5h-9.5z" /><path d="M8.5 7v5.5M6.3 10.3l2.2 2.2 2.2-2.2" /></>,
 };
 
 function Icon({ d }: { d: React.ReactNode }) {
@@ -61,6 +63,8 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/focus-items", label: "Focus items", icon: I.window, need: ["content", "view"] },
       { to: "/web-content", label: "Web content", icon: I.slot, need: ["content", "view"] },
       { to: "/in-app", label: "In-app messages", icon: I.phone, need: ["content", "view"] },
+      { to: "/landing-pages", label: "Landing pages", icon: I.page, need: ["content", "view"] },
+      { to: "/assets", label: "Assets", icon: I.file, need: ["content", "view"] },
     ],
   },
   { title: "Analyze", items: [{ to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] }] },

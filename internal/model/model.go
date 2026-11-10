@@ -506,3 +506,37 @@ type RetentionSettings struct {
 func DefaultDataSettings() DataSettings {
 	return DataSettings{Tracking: TrackingSettings{Anonymous: true, GeoIP: true}, Retention: RetentionSettings{AuditDays: 365}}
 }
+
+// Asset is an uploaded file: a download at /a/{public_key} (gated by a form when FormID is set)
+// and an email attachment. The file itself is fetched separately (AssetData).
+type Asset struct {
+	ID            int64     `json:"id"`
+	TenantID      int64     `json:"tenant_id"`
+	PublicKey     string    `json:"public_key"`
+	Title         string    `json:"title"`
+	Description   string    `json:"description"`
+	Filename      string    `json:"filename"`
+	ContentType   string    `json:"content_type"`
+	Size          int64     `json:"size"`
+	SHA256        string    `json:"sha256"`
+	FormID        *int64    `json:"form_id,omitempty"`
+	DownloadCount int64     `json:"download_count"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// LandingPage is a workspace page served at /p/{workspace slug}/{slug} while published and live.
+type LandingPage struct {
+	ID              int64           `json:"id"`
+	TenantID        int64           `json:"tenant_id"`
+	Slug            string          `json:"slug"`
+	Title           string          `json:"title"`
+	MetaDescription string          `json:"meta_description"`
+	HTML            string          `json:"html"`
+	Builder         json.RawMessage `json:"builder,omitempty"`
+	Status          string          `json:"status"` // draft | published
+	StartAt         time.Time       `json:"start_at"`
+	EndAt           *time.Time      `json:"end_at,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+}

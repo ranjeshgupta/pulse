@@ -55,13 +55,34 @@ type gatewayMessage struct {
 	Platform  string            `json:"platform,omitempty"`
 	Subject   string            `json:"subject,omitempty"`
 	HTML      string            `json:"html,omitempty"`
+	Text      string            `json:"text,omitempty"` // email: the plain-text part
 	Content   channel.Content   `json:"content"`
 	Headers   map[string]string `json:"headers,omitempty"`
+	// email: attachments as signed download links (valid 7 days), not inline bytes, so requests
+	// stay small whatever the files' size.
+	Attachments []gatewayAttachment `json:"attachments,omitempty"`
+}
+
+type gatewayAttachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int    `json:"size"`
+	URL         string `json:"url"`
 }
 
 func (g *Gateway) Send(ctx context.Context, o Outbound) (Result, error) {
-	body, _ := json.Marshal(gatewayMessage{MessageID: o.MessageID, Channel: o.Channel, To: o.To, Platform: o.Platform,
-		Subject: o.Rendered.Subject, HTML: o.Rendered.HTML, Content: o.Rendered.Content, Headers: o.Headers})
+	msg := gatewayMessage{MessageID: o.MessageID, Channel: o.Channel, To: o.To, Platform: o.Platform,
+		Subject: o.Rendered.Subject, HTML: o.Rendered.HTML, Content: o.Rendered.Content, Headers: o.Headers}
+	if o.Channel == channel.Email {
+		msg.Text = o.Rendered.Content.Text
+	}
+	for _, a := range o.Attachments {
+		if a.URL == "" {
+			return Result{}, Permanent("gateway: attachments need download links, which need PULSE_SECRET_KEY")
+		}
+		msg.Attachments = append(msg.Attachments, gatewayAttachment{Filename: a.Filename, ContentType: a.ContentType, Size: len(a.Data), URL: a.URL})
+	}
+	body, _ := json.Marshal(msg)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.URL, bytes.NewReader(body))
 	if err != nil {
 		return Result{}, Permanent(err.Error())

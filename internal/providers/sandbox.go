@@ -40,8 +40,13 @@ func (s *Sandbox) Send(ctx context.Context, o Outbound) (Result, error) {
 	if s.UnreachableSuffix != "" && strings.HasSuffix(o.To, s.UnreachableSuffix) {
 		return Result{}, Unreachable("sandbox: " + o.To + " is configured as unreachable")
 	}
+	files := []map[string]any{}
+	for _, a := range o.Attachments {
+		files = append(files, map[string]any{"filename": a.Filename, "content_type": a.ContentType, "size": len(a.Data)})
+	}
 	payload, err := json.Marshal(map[string]any{
 		"subject": o.Rendered.Subject, "html": o.Rendered.HTML, "content": o.Rendered.Content, "platform": o.Platform,
+		"attachments": files,
 	})
 	if err != nil {
 		return Result{}, err

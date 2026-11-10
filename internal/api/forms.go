@@ -236,53 +236,59 @@ type formInput struct {
 	PageURL  string
 	Source   string // hosted | sdk
 	Honeypot string
-	Elapsed  time.Duration // since the form was shown
+	Elapsed  time.Duration  // since the form was shown
+	Meta     map[string]any // extra form_submitted properties (e.g. asset_id)
 }
 
-// submit validates and records a submission. Bot-looking submissions get a normal-looking success
-// (so bots learn nothing) but record nothing.
-func (s *Server) submit(ctx context.Context, f model.Form, t model.Tenant, in formInput, r *http.Request) ([]forms.FieldError, int, error) {
+// submit validates and records a submission, and returns the submitter's external id. Bot-looking
+// submissions get a normal-looking success (so bots learn nothing) but record nothing (and no id).
+func (s *Server) submit(ctx context.Context, f model.Form, t model.Tenant, in formInput, r *http.Request) ([]forms.FieldError, int, string, error) {
 	if !s.allowRate(ctx, "rlform", t.ID, r, 1, formSubmitsPerMin) {
-		return nil, http.StatusTooManyRequests, errors.New("too many submissions from this network; try again in a minute")
+		return nil, http.StatusTooManyRequests, "", errors.New("too many submissions from this network; try again in a minute")
 	}
 	if in.Honeypot != "" || in.Elapsed < formMinFill {
 		s.Log.Info("form submission dropped as a bot", "form", f.ID, "honeypot", in.Honeypot != "", "elapsed", in.Elapsed)
-		return nil, http.StatusOK, nil
+		return nil, http.StatusOK, "", nil
 	}
 	visible := forms.Visible(f, s.visitorProfile(ctx, t, in.Visitor, in.UserHash))
 	sub, ferrs := forms.Parse(f, visible, in.Values)
 	if len(ferrs) > 0 {
-		return ferrs, http.StatusUnprocessableEntity, nil
+		return ferrs, http.StatusUnprocessableEntity, "", nil
 	}
 	ext, anon, err := s.submitterID(ctx, t, sub, in.Visitor, in.UserHash)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 	meta := map[string]any{"source": in.Source}
+	for k, v := range in.Meta {
+		meta[k] = v
+	}
 	if in.PageURL != "" && len(in.PageURL) < 2000 {
 		meta["page_url"] = in.PageURL
+		if id := s.landingPageOf(ctx, t, in.PageURL); id != 0 {
+			meta["landing_page_id"] = id // the form sits on one of the workspace's landing pages
+		}
 	}
 	if sub.Consent {
 		meta["consent"], meta["consent_text"] = true, f.Settings.ConsentText
 	}
 	if err := s.publishEvents(ctx, t.ID, forms.Events(f, sub, ext, anon, meta)); err != nil {
-		return nil, http.StatusServiceUnavailable, errors.New("we couldn't save that; please try again")
+		return nil, http.StatusServiceUnavailable, "", errors.New("we couldn't save that; please try again")
 	}
-	return nil, http.StatusOK, nil
+	return nil, http.StatusOK, ext, nil
 }
 
 // ---- hosted page ----
 
-var formPage = template.Must(template.New("f").Funcs(template.FuncMap{
+// formTemplates holds the parts shared by the hosted form page and the gated download page.
+var formTemplates = template.Must(template.New("base").Funcs(template.FuncMap{
 	"accent": func(c string) template.CSS {
 		if c == "" {
 			c = "#2747d6"
 		}
 		return template.CSS(c) // validated as #rrggbb when saved
 	},
-}).Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>{{.Form.Name}}</title>
-<style>:root{--accent:{{accent .Form.Settings.Theme}}}*{box-sizing:border-box}
+}).Parse(`{{define "css"}}:root{--accent:{{accent .Form.Settings.Theme}}}*{box-sizing:border-box}
 body{font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#152238;margin:0;background:transparent}
 main{max-width:520px;margin:0 auto;padding:20px 16px}h1{font-size:22px;margin:0 0 6px}.desc{color:#5b6474;margin:0 0 18px}
 label{display:block;margin:0 0 14px;font-weight:600;font-size:14px}label .req{color:#b42318}
@@ -291,12 +297,8 @@ textarea{min-height:96px}input:focus,textarea:focus,select:focus{outline:2px sol
 .check{display:flex;gap:10px;align-items:flex-start;font-weight:400}.check input{margin-top:4px;width:18px;height:18px;accent-color:var(--accent)}
 .err{display:block;color:#b42318;font-weight:400;font-size:13px;margin-top:4px}.alert{background:#fdecea;color:#7a1a12;border-radius:6px;padding:10px 12px;margin:0 0 14px}
 button{font:inherit;font-weight:600;background:var(--accent);color:#fff;border:0;border-radius:6px;padding:11px 18px;cursor:pointer;width:100%}
-.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.done{padding:28px 0;text-align:center}.done h1{margin-bottom:8px}</style></head>
-<body><main>{{if .Done}}<div class="done" role="status"><h1>{{.Done}}</h1></div>{{else}}
-<h1>{{.Form.Name}}</h1>{{with .Form.Settings.Description}}<p class="desc">{{.}}</p>{{end}}
-{{with .Problem}}<div class="alert" role="alert">{{.}}</div>{{end}}
-<form method="post" novalidate>
-<input type="hidden" name="_ts" value="{{.Shown}}">
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.done{padding:28px 0;text-align:center}.done h1{margin-bottom:8px}{{end}}
+{{define "fields"}}<input type="hidden" name="_ts" value="{{.Shown}}">
 <div class="hp" aria-hidden="true"><label>Leave this empty <input type="text" name="_hp" tabindex="-1" autocomplete="off"></label></div>
 {{range .Fields}}{{$v := index $.Values .Key}}{{$e := index $.Errors .Key}}
 {{if eq .Type "hidden"}}<input type="hidden" name="{{.Key}}" value="{{if $v}}{{$v}}{{else}}{{.Default}}{{end}}">
@@ -307,8 +309,15 @@ button{font:inherit;font-weight:600;background:var(--accent);color:#fff;border:0
 {{else}}<input type="{{.Type}}" name="{{.Key}}" value="{{$v}}"{{if .Required}} required{{end}}{{if eq .Type "email"}} autocomplete="email"{{else if eq .Type "tel"}} autocomplete="tel" placeholder="+91 98123 45678"{{end}}>{{end}}
 {{with $e}}<span class="err">{{.}}</span>{{end}}</label>{{end}}{{end}}
 {{with .Form.Settings.ConsentText}}<label class="check"><input type="checkbox" name="_consent"{{if index $.Values "_consent"}} checked{{end}} required> <span>{{.}}{{with index $.Errors "_consent"}}<span class="err">{{.}}</span>{{end}}</span></label>{{end}}
-<button type="submit">{{if .Form.Settings.SubmitText}}{{.Form.Settings.SubmitText}}{{else}}Submit{{end}}</button>
-</form>{{end}}</main></body></html>`))
+<button type="submit">{{if .Form.Settings.SubmitText}}{{.Form.Settings.SubmitText}}{{else}}Submit{{end}}</button>{{end}}`))
+
+var formPage = template.Must(template.Must(formTemplates.Clone()).New("f").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>{{.Form.Name}}</title>
+<style>{{template "css" .}}</style></head>
+<body><main>{{if .Done}}<div class="done" role="status"><h1>{{.Done}}</h1></div>{{else}}
+<h1>{{.Form.Name}}</h1>{{with .Form.Settings.Description}}<p class="desc">{{.}}</p>{{end}}
+{{with .Problem}}<div class="alert" role="alert">{{.}}</div>{{end}}
+<form method="post" novalidate>{{template "fields" .}}</form>{{end}}</main></body></html>`))
 
 type formView struct {
 	Form    model.Form
@@ -368,7 +377,7 @@ func (s *Server) hostedFormSubmit(w http.ResponseWriter, r *http.Request) {
 	shown, _ := strconv.ParseInt(values["_ts"], 10, 64)
 	in := formInput{Values: values, PageURL: r.Referer(), Source: "hosted", Honeypot: values["_hp"],
 		Elapsed: s.now().Sub(time.UnixMilli(shown))}
-	ferrs, code, err := s.submit(r.Context(), f, t, in, r)
+	ferrs, code, _, err := s.submit(r.Context(), f, t, in, r)
 	view := formView{Form: f, Fields: f.Fields, Values: values, Errors: map[string]string{}, Shown: shown}
 	switch {
 	case err != nil && code == 0:
@@ -431,7 +440,7 @@ func (s *Server) webFormSubmit(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	ferrs, code, err := s.submit(r.Context(), f, t, formInput{Values: req.Values, Visitor: req.ID, UserHash: req.UserHash,
+	ferrs, code, _, err := s.submit(r.Context(), f, t, formInput{Values: req.Values, Visitor: req.ID, UserHash: req.UserHash,
 		PageURL: req.PageURL, Source: "sdk", Honeypot: req.HP, Elapsed: s.now().Sub(time.UnixMilli(req.Shown))}, r)
 	switch {
 	case err != nil && code == 0:

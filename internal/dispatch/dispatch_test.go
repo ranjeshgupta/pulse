@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,12 +12,15 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/assets"
+	"pulse/internal/auth"
 	"pulse/internal/channel"
 	"pulse/internal/delivery"
 	"pulse/internal/event"
 	"pulse/internal/model"
 	"pulse/internal/providers"
 	"pulse/internal/store/pg"
+	"pulse/internal/tracking"
 )
 
 func TestLimiter(t *testing.T) {
@@ -53,6 +57,17 @@ type memStore struct {
 	deleted   []string
 	rules     delivery.Rules
 	inbox     []model.InboxMessage
+	files     map[int64][]byte // asset id -> bytes
+	fileLoads int
+}
+
+func (m *memStore) AssetFile(_ context.Context, tenant, id int64) (model.Asset, []byte, error) {
+	b, ok := m.files[id]
+	if !ok {
+		return model.Asset{}, nil, pg.ErrNotFound
+	}
+	m.fileLoads++
+	return model.Asset{ID: id, TenantID: tenant, PublicKey: "akey", Filename: "guide.pdf", ContentType: "application/pdf", Size: int64(len(b))}, b, nil
 }
 
 func (m *memStore) DeliveryRules(context.Context, int64) (delivery.Rules, error) { return m.rules, nil }
@@ -375,5 +390,54 @@ func TestQuietHoursDeferAndRelease(t *testing.T) {
 	}
 	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "sms_sent" {
 		t.Errorf("after release: %v", evs)
+	}
+}
+
+// An email goes out with its generated text part (unsubscribe link added, links direct) and its
+// attachments, loaded once and cached; a deleted attachment fails the message.
+func TestEmailTextPartAndAttachments(t *testing.T) {
+	f := setup(t)
+	box, _ := auth.NewBox(strings.Repeat("cd", 32))
+	f.d.cfg.Box = box
+	f.d.cfg.Tracking = tracking.New(box, strings.Repeat("cd", 32), "https://pulse.test")
+	f.st.files = map[int64][]byte{7: []byte("%PDF-1.7 guide")}
+	f.st.templates[5] = model.Template{ID: 5, Channel: channel.Email, Subject: "Guide",
+		HTML: `<p>Hi {{.Attrs.first_name}}, read <a href="https://shop.test/guide">the guide</a>.</p>`, Content: json.RawMessage(`{"attachments":[7]}`)}
+	ctx := context.Background()
+	for _, id := range []string{"att:1", "att:2"} {
+		if err := f.d.Handle(ctx, msgRecord(model.Message{ID: id, TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 5})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(f.mail.sent) != 2 || f.st.fileLoads != 1 {
+		t.Fatalf("sent %d, file loads %d (want 2 and 1: cached)", len(f.mail.sent), f.st.fileLoads)
+	}
+	o := f.mail.sent[0]
+	text := o.Rendered.Content.Text
+	if !strings.HasPrefix(text, "Hi Asha, read the guide (https://shop.test/guide).") || !strings.Contains(text, "Unsubscribe: https://pulse.test/u/") {
+		t.Errorf("text part = %q", text)
+	}
+	if !strings.Contains(o.Rendered.HTML, "/t/c/") || strings.Contains(text, "/t/c/") || strings.Contains(text, "/t/o/") {
+		t.Error("the HTML links should be tracked and the text links direct, with no pixel")
+	}
+	if len(o.Attachments) != 1 || string(o.Attachments[0].Data) != "%PDF-1.7 guide" || o.Attachments[0].Filename != "guide.pdf" {
+		t.Fatalf("attachments = %+v", o.Attachments)
+	}
+	u := o.Attachments[0].URL
+	if !strings.HasPrefix(u, "https://pulse.test/a/akey/download?t=") {
+		t.Fatalf("attachment link = %s", u)
+	}
+	tok, err := assets.Open(box, strings.TrimPrefix(u, "https://pulse.test/a/akey/download?t="), time.Now())
+	if err != nil || tok.Purpose != assets.PurposeAttach || tok.AssetID != 7 || tok.TenantID != 1 {
+		t.Errorf("attachment token = %+v, %v", tok, err)
+	}
+	f.pub.take()
+
+	f.st.templates[6] = model.Template{ID: 6, Channel: channel.Email, Subject: "x", HTML: "<p>x</p>", Content: json.RawMessage(`{"attachments":[8]}`)}
+	if err := f.d.Handle(ctx, msgRecord(model.Message{ID: "att:3", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 6})); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_failed" {
+		t.Errorf("events = %v, want email_failed for the deleted attachment", evs)
 	}
 }

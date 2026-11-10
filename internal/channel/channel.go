@@ -49,9 +49,11 @@ func FallsBackToSMS(ch string) bool { return ch == WhatsApp || ch == RCS }
 // Content is a template's channel-specific body. Every string may use Go template syntax over
 // {{.Contact.Email}}, {{.Attrs.first_name}} and so on.
 type Content struct {
-	// sms
-	Text     string `json:"text,omitempty"`      // also rcs
+	// sms; Text is also rcs, and email's plain-text part (generated from the HTML when empty)
+	Text     string `json:"text,omitempty"`
 	SenderID string `json:"sender_id,omitempty"` // sms: alphanumeric sender / DLT header
+	// email: asset ids sent as attachments (checked against the workspace's assets when saved)
+	Attachments []int64 `json:"attachments,omitempty"`
 	// whatsapp: a pre-approved template on the WhatsApp Business account
 	TemplateName   string   `json:"template_name,omitempty"`
 	Language       string   `json:"language,omitempty"`
@@ -107,6 +109,9 @@ func Validate(t model.Template) error {
 	if err != nil {
 		return err
 	}
+	if t.Channel != Email && len(c.Attachments) > 0 {
+		return errors.New("only email templates take attachments")
+	}
 	var missing []string
 	need := func(name, v string) {
 		if strings.TrimSpace(v) == "" {
@@ -117,6 +122,19 @@ func Validate(t model.Template) error {
 	case Email:
 		need("subject", t.Subject)
 		need("html", t.HTML)
+		if len(c.Text) > 200_000 {
+			return errors.New("the plain-text part is longer than 200,000 characters")
+		}
+		if len(c.Attachments) > MaxAttachments {
+			return fmt.Errorf("an email can have at most %d attachments", MaxAttachments)
+		}
+		seen := map[int64]bool{}
+		for _, id := range c.Attachments {
+			if id <= 0 || seen[id] {
+				return errors.New("attachments must be distinct asset ids")
+			}
+			seen[id] = true
+		}
 	case SMS:
 		need("content.text", c.Text)
 		if len(c.Text) > 1600 {
@@ -155,11 +173,16 @@ func Validate(t model.Template) error {
 	return err
 }
 
+// MaxAttachments is how many files one email may attach (their total size is capped in assets).
+const MaxAttachments = 10
+
 // Rendered is a template filled in for one contact.
 type Rendered struct {
 	Subject string
 	HTML    string
 	Content Content
+	// TextGenerated: the email's plain-text part (Content.Text) was generated from the HTML.
+	TextGenerated bool
 }
 
 type data struct {
@@ -237,6 +260,9 @@ func RenderFor(t model.Template, contact model.Contact, links Links) (Rendered, 
 	c.ImageURL, c.URL = text("image_url", c.ImageURL), text("url", c.URL)
 	for k, v := range c.Data {
 		c.Data[k] = text("data."+k, v)
+	}
+	if (t.Channel == Email || t.Channel == "") && strings.TrimSpace(c.Text) == "" && out.HTML != "" {
+		c.Text, out.TextGenerated = TextFromHTML(out.HTML), true
 	}
 	out.Content = c
 	return out, firstErr

@@ -29,6 +29,39 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
   del: (path: string) => request<void>("DELETE", path),
+  /** POSTs JSON and returns the response body as text (HTML previews). */
+  postText: async (path: string, body: unknown): Promise<string> => {
+    const res = await fetch(path, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Pulse-CSRF": "1" }, body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = `Request failed (${res.status})`;
+      try { msg = JSON.parse(text).error ?? msg; } catch { /* not JSON */ }
+      throw new ApiError(res.status, msg);
+    }
+    return text;
+  },
+  /** Uploads multipart form data with progress (0..1); fetch can't report upload progress. */
+  upload: <T>(path: string, form: FormData, onProgress?: (fraction: number) => void, signal?: AbortSignal) =>
+    new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", path);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("X-Pulse-CSRF", "1");
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+      xhr.onload = () => {
+        let data: { error?: string } = {};
+        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch { /* not JSON */ }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
+        else reject(new ApiError(xhr.status, data.error ?? `Upload failed (${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new ApiError(0, "The upload failed. Check your connection and try again."));
+      xhr.onabort = () => reject(new ApiError(0, "Upload cancelled"));
+      signal?.addEventListener("abort", () => xhr.abort());
+      xhr.send(form);
+    }),
 };
 
 // ---- models (mirror internal/model) ----
@@ -103,6 +136,8 @@ export interface ChannelContent {
   card?: { title: string; description?: string; image_url?: string } | null;
   title?: string; body?: string; image_url?: string; url?: string; data?: Record<string, string>;
   expires_days?: number; category?: string; // inbox
+  /** email: asset ids attached to every message (10 at most, 10 MB together). */
+  attachments?: number[];
 }
 export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; updated_at: string }
 
@@ -188,6 +223,27 @@ export interface FormStats {
   total: number; last_30_days: number; contacts: number;
   recent: { external_id: string; ts: string; props: string }[];
   per_day: { day: string; count: number }[];
+}
+
+/** An uploaded file: downloaded at /a/{public_key} (behind form_id when set) and attachable to emails. */
+export interface Asset {
+  id: number; public_key: string; title: string; description: string; filename: string; content_type: string;
+  size: number; sha256: string; form_id?: number | null; download_count: number; created_at: string; updated_at: string;
+}
+export interface AssetList { assets: Asset[]; base_url: string; max_size: number; max_attachment_bytes: number; extensions: string[] }
+/** downloads counts every download; known_downloads and contacts count form-gated downloads by known contacts. */
+export interface AssetDetail { asset: Asset; url: string; stats: { downloads: number; known_downloads?: number; contacts?: number }; templates: string[] }
+
+/** A landing page, served at {base_url}{slug} while published and inside its schedule. */
+export interface LandingPage {
+  id: number; slug: string; title: string; meta_description: string; html: string; builder?: unknown;
+  status: "draft" | "published"; start_at: string; end_at?: string | null; created_at?: string; updated_at?: string;
+}
+export interface LandingPageList { pages: { page: LandingPage; live: boolean }[]; base_url: string }
+export interface LandingPageDetail { page: LandingPage; url: string; base_url: string; live: boolean }
+export interface PageStats {
+  views: number; visitors: number; submissions: number;
+  per_day: { day: string; views: number; visitors: number; submissions: number }[];
 }
 
 export interface FunnelStep { event: string; where?: PropFilter[]; label?: string }

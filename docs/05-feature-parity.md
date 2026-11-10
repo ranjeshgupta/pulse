@@ -79,7 +79,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
 | Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{.UnsubscribeURL}}`, RFC 8058 one-click, confirm page | |
 | Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe | SMTP DSN mailbox parsing: P2 |
-| Plain-text part, attachments | ✅ | 🟡 | ⬜ | P2 |
+| Plain-text part, attachments | ✅ | 🟡 | ✅ every email is multipart/alternative: the template's own text or one generated from the HTML (links as "text (url)", direct, plus the unsubscribe link); up to 10 asset attachments (10 MB together) in multipart/mixed; the custom gateway gets signed 7-day download links; preview shows the text part and the files | P2 |
 | SMS (Twilio, MSG91) | ✅ | ✅ | ✅ adapters, not tried on live accounts | |
 | WhatsApp (Meta Cloud) with SMS fallback | ⬜ | ✅ | ✅ | |
 | RCS (Google RBM) with SMS fallback | ⬜ | ✅ | ✅ | |
@@ -100,8 +100,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | "See what a contact would see" check | 🟡 | 🟡 | ✅ this change | |
 | Rendering on websites (JS SDK) | ✅ | ✅ | ✅ `/sdk/pulse.js` (3 KB gzipped): focus items with all triggers and frequency caps, content slots | |
 | Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; lists, tags, consent opt-in; honeypot, fill time, rate limit; submissions log | File uploads, multi-page forms: P2 |
-| Landing pages | ✅ | ⬜ | ⬜ | P2 |
-| Assets (gated downloads) | ✅ | ⬜ | ⬜ | P2 |
+| Landing pages | ✅ | ⬜ | ✅ `/p/{workspace}/{page}`, drag-and-drop or HTML, title and meta description, embedded forms (`{form:KEY}`), draft/published with a schedule; nonce CSP (only the Pulse SDK runs, scripts and handlers stripped), frameable; `landing_page_viewed` via the web SDK; views, unique visitors, form submissions; script-free preview | P2 |
+| Assets (gated downloads) | ✅ | ⬜ | ✅ uploads up to 25 MB (type allowlist checked against file signatures) kept in Postgres; `/a/{key}` open or gated by a form (15-minute sealed link, `asset_downloaded` for the submitter); always `Content-Disposition: attachment`, nosniff, sandbox CSP; download counts; email attachments | P2 |
 
 ## Analytics
 
@@ -154,7 +154,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    - Decision kept: contact records stay in Postgres (atomic identity, point reads and updates); ClickHouse keeps its
      mirror for every query. Revisit with a Redis profile cache if Postgres becomes the bottleneck.
 7. **P2, in this order:**
-   - **Batch 6, contacts and content:** stages, companies and duplicate merge (done); plain-text email part and
+   - **Batch 6, contacts and content (done):** stages, companies and duplicate merge; plain-text email part and
      attachments, landing pages, assets (gated downloads).
    - **Requested 2026-11-11, next after batch 6:** a CKEditor-style rich text editor (toolbar, links, images, tables, colours,
      alignment, source view) for every HTML field: email templates (beside the drag-and-drop builder), landing pages, focus

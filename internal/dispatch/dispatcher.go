@@ -21,6 +21,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/assets"
 	"pulse/internal/attr"
 	"pulse/internal/auth"
 	"pulse/internal/channel"
@@ -59,6 +60,8 @@ type Store interface {
 	VAPIDKeys(ctx context.Context, tenant int64) (public string, sealedPrivate []byte, err error)
 	// InsertInbox stores an app inbox message (once per message id).
 	InsertInbox(ctx context.Context, m model.InboxMessage) error
+	// AssetFile returns an asset with its bytes (email attachments).
+	AssetFile(ctx context.Context, tenant, id int64) (model.Asset, []byte, error)
 }
 
 type Config struct {
@@ -83,7 +86,21 @@ type Dispatcher struct {
 	templates map[[2]int64]cached[model.Template]
 	senders   map[string]cached[providers.Provider]
 	rules     map[int64]cached[delivery.Rules]
+	files     map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
+	fileBytes int
 }
+
+type attachment struct {
+	asset model.Asset
+	data  []byte
+}
+
+const (
+	fileCacheTTL   = 10 * time.Minute
+	fileCacheBytes = 128 << 20
+	// attachLinkTTL is how long the download links handed to the custom gateway work.
+	attachLinkTTL = 7 * 24 * time.Hour
+)
 
 // deferredKey is a sorted set of messages held back by quiet hours, scored by when they may go.
 const deferredKey = "deferred:messages"
@@ -103,7 +120,7 @@ func New(store Store, rdb redis.Cmdable, pub kafka.Publisher, cfg Config) *Dispa
 	}
 	d := &Dispatcher{cfg: cfg, store: store, rdb: rdb, limiters: map[string]*Limiter{}, pub: pub, now: time.Now,
 		templates: map[[2]int64]cached[model.Template]{}, senders: map[string]cached[providers.Provider]{},
-		rules: map[int64]cached[delivery.Rules]{}}
+		rules: map[int64]cached[delivery.Rules]{}, files: map[[2]int64]cached[attachment]{}}
 	for ch, r := range rates {
 		d.limiters[ch] = &Limiter{RDB: rdb, Rate: r, Burst: r, Now: time.Now}
 	}
@@ -218,6 +235,16 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	}
 	if token != "" {
 		rendered.HTML = d.cfg.Tracking.Instrument(rendered.HTML, token)
+		rendered.Content.Text = d.cfg.Tracking.InstrumentText(rendered.Content.Text, token)
+	}
+	var files []providers.Attachment
+	if m.Channel == channel.Email && len(rendered.Content.Attachments) > 0 {
+		files, err = d.attachments(ctx, m.TenantID, rendered.Content.Attachments)
+		if errors.Is(err, pg.ErrNotFound) {
+			return d.finish(ctx, sentKey, m, c, "failed", "an attachment of the template was deleted")
+		} else if err != nil {
+			return fmt.Errorf("load attachments: %w", err)
+		}
 	}
 	// Browser push subscriptions go through Web Push with the workspace's VAPID keys; everything
 	// else through the channel's default provider (fetched only when needed).
@@ -259,7 +286,7 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 		}
 		res, err := via.Send(ctx, providers.Outbound{
 			TenantID: m.TenantID, MessageID: m.ID, Channel: m.Channel, To: tg.to, Platform: tg.platform,
-			From: d.cfg.From, Rendered: rendered, Headers: headers,
+			From: d.cfg.From, Rendered: rendered, Headers: headers, Attachments: files,
 		})
 		switch {
 		case err == nil:
@@ -575,6 +602,44 @@ func (d *Dispatcher) template(ctx context.Context, tenant, id int64) (model.Temp
 	d.templates[key] = cached[model.Template]{v: t, exp: d.now().Add(cacheTTL)}
 	d.mu.Unlock()
 	return t, nil
+}
+
+// attachments loads a template's files (cached: an asset's file never changes) with a signed
+// download link for providers that take links.
+func (d *Dispatcher) attachments(ctx context.Context, tenant int64, ids []int64) ([]providers.Attachment, error) {
+	out := make([]providers.Attachment, 0, len(ids))
+	for _, id := range ids {
+		key := [2]int64{tenant, id}
+		d.mu.Lock()
+		f, ok := d.files[key]
+		d.mu.Unlock()
+		if !ok || !d.now().Before(f.exp) {
+			a, data, err := d.store.AssetFile(ctx, tenant, id)
+			if err != nil {
+				return nil, err
+			}
+			f = cached[attachment]{v: attachment{asset: a, data: data}, exp: d.now().Add(fileCacheTTL)}
+			d.mu.Lock()
+			if d.fileBytes+len(data) > fileCacheBytes { // simple bound: start over rather than track recency
+				d.files, d.fileBytes = map[[2]int64]cached[attachment]{}, 0
+			}
+			if old, had := d.files[key]; had {
+				d.fileBytes -= len(old.v.data)
+			}
+			d.files[key] = f
+			d.fileBytes += len(data)
+			d.mu.Unlock()
+		}
+		a := f.v.asset
+		pa := providers.Attachment{Filename: a.Filename, ContentType: a.ContentType, Data: f.v.data}
+		if d.cfg.Box != nil && d.cfg.Tracking != nil {
+			tok := assets.Seal(d.cfg.Box, assets.Token{TenantID: tenant, AssetID: a.ID, Purpose: assets.PurposeAttach,
+				Expires: d.now().Add(attachLinkTTL).Unix()})
+			pa.URL = d.cfg.Tracking.Base() + "/a/" + a.PublicKey + "/download?t=" + tok
+		}
+		out = append(out, pa)
+	}
+	return out, nil
 }
 
 // sender returns the workspace's default provider for a channel (the server SMTP for email when none).

@@ -44,6 +44,11 @@ const (
 	CompanyLinked   = "company_linked"
 	CompanyUnlinked = "company_unlinked"
 	CompanyUpdated  = "company_updated"
+
+	// AssetDownloaded is recorded by Pulse when a form-gated file is downloaded (props asset_id).
+	AssetDownloaded = "asset_downloaded"
+	// LandingPageViewed is sent by the web SDK on a Pulse landing page (props page_id, utm_*).
+	LandingPageViewed = "landing_page_viewed"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -51,7 +56,7 @@ const (
 func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
-		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated:
+		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded:
 		return true
 	}
 	return false

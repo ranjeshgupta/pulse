@@ -20,6 +20,7 @@ var areaByPrefix = map[string]string{
 	"journeys":   auth.AreaJourneys,
 	"broadcasts": auth.AreaBroadcasts,
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
+	"assets": auth.AreaContent, "landing-pages": auth.AreaContent,
 	"stats": auth.AreaReports, "funnels": auth.AreaReports,
 	"channels": auth.AreaChannels, "sandbox": auth.AreaChannels,
 	"settings": auth.AreaSettings, "users": auth.AreaSettings, "roles": auth.AreaSettings, "audit": auth.AreaSettings,
@@ -31,6 +32,8 @@ var special = map[string]need{
 	"GET /v1/events/names":                            {auth.AreaReports, auth.View},
 	"POST /v1/segments/preview":                       {auth.AreaSegments, auth.View},
 	"POST /v1/templates/preview":                      {auth.AreaContent, auth.View},
+	"POST /v1/landing-pages/preview":                  {auth.AreaContent, auth.View},
+	"POST /v1/templates/text":                         {auth.AreaContent, auth.View},
 	"POST /v1/funnels/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/channels/test":                          {auth.AreaContent, auth.Edit}, // a test send of a template
 	"POST /v1/journeys/{id}/{action}":                 {auth.AreaJourneys, auth.Publish},

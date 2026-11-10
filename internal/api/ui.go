@@ -53,6 +53,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/templates/{id}", s.tenant(s.getTemplate))
 	mux.HandleFunc("PUT /v1/templates/{id}", s.tenant(s.updateTemplate))
 	mux.HandleFunc("DELETE /v1/templates/{id}", s.tenant(s.deleteTemplate))
+	mux.HandleFunc("POST /v1/templates/text", s.tenant(s.templateText))
 
 	mux.HandleFunc("GET /v1/journeys", s.tenant(s.listJourneys))
 	mux.HandleFunc("GET /v1/journeys/{id}", s.tenant(s.getJourney))
@@ -173,13 +174,35 @@ func (req templateReq) template(tenant int64) model.Template {
 		HTML: req.HTML, Content: req.Content, Builder: req.Builder, Transactional: req.Transactional}
 }
 
-func validTemplate(w http.ResponseWriter, t model.Template) bool {
+func (s *Server) validTemplate(w http.ResponseWriter, r *http.Request, t model.Template) bool {
 	err := channel.Validate(t)
 	if t.Name == "" || err != nil {
 		writeErr(w, http.StatusBadRequest, errors.Join(errIf(t.Name == "", "name is required"), err).Error())
 		return false
 	}
+	if c, _ := channel.ParseContent(t.Content); len(c.Attachments) > 0 {
+		var ue errUser
+		if err := s.checkAttachments(r.Context(), t.TenantID, c.Attachments); errors.As(err, &ue) {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return false
+		} else if err != nil {
+			s.fail(w, err)
+			return false
+		}
+	}
 	return true
+}
+
+// templateText generates an email's plain-text part from HTML as written (personalization tags stay
+// tags), for authors who want to start from it and edit.
+func (s *Server) templateText(w http.ResponseWriter, r *http.Request, _ int64) {
+	var req struct {
+		HTML string `json:"html"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"text": channel.TextFromHTML(req.HTML)})
 }
 
 func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -188,7 +211,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, tenant i
 		return
 	}
 	t := req.template(tenant)
-	if !validTemplate(w, t) {
+	if !s.validTemplate(w, r, t) {
 		return
 	}
 	id, err := s.Store.CreateTemplate(r.Context(), t)
@@ -242,7 +265,7 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request, tenant i
 	}
 	t := req.template(tenant)
 	t.ID, t.Channel = id, cur.Channel // a template's channel is fixed
-	if !validTemplate(w, t) {
+	if !s.validTemplate(w, r, t) {
 		return
 	}
 	if err := s.uiStore().UpdateTemplate(r.Context(), t); err != nil {

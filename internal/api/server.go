@@ -185,6 +185,8 @@ func (s *Server) Handler() http.Handler {
 	s.dataSettingsRoutes(mux)
 	s.auditRoutes(mux)
 	s.preferenceRoutes(mux)
+	s.assetRoutes(mux)
+	s.landingRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)
@@ -201,6 +203,8 @@ func bodyLimit(h http.Handler) http.Handler {
 			limit = maxImportBytes
 		case "/v1/imports":
 			limit = maxBackgroundSize
+		case "/v1/assets":
+			limit = maxAssetUpload
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		h.ServeHTTP(w, r)
@@ -211,8 +215,8 @@ func securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		// The site-key API and hosted forms are embedded on customer sites.
-		if !strings.HasPrefix(r.URL.Path, "/v1/web/") && !strings.HasPrefix(r.URL.Path, "/f/") {
+		// The site-key API, hosted forms and landing pages are embedded on customer sites.
+		if p := r.URL.Path; !strings.HasPrefix(p, "/v1/web/") && !strings.HasPrefix(p, "/f/") && !strings.HasPrefix(p, "/p/") {
 			w.Header().Set("X-Frame-Options", "DENY")
 		}
 		h.ServeHTTP(w, r)

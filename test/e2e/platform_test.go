@@ -130,14 +130,20 @@ func TestRolesAndAudit(t *testing.T) {
 	jsonCall(t, owner, "PUT", fmt.Sprintf("/v1/users/%d/role", anaID), map[string]any{"role": "editor"}, 200)
 	jsonCall(t, ana, "POST", "/v1/segments", map[string]any{"name": "Pune " + run, "rule": map[string]any{"attr": "city", "op": "eq", "value": "Pune"}}, 201)
 
-	var entries []any
+	// Audit entries are written in the background: wait for every one the test looks at.
+	wants := []string{`"actor":"` + email + `"`, `"action":"POST /v1/segments"`, `"action":"sign-in"`, `"action":"PUT /v1/users/{id}/role"`, `[redacted]`}
+	var all string
 	waitFor(t, 5*time.Second, func() bool {
-		entries = asList(jsonCall(t, owner, "GET", "/v1/audit", nil, 200)["entries"])
-		return len(entries) >= 6
+		raw, _ := json.Marshal(asList(jsonCall(t, owner, "GET", "/v1/audit", nil, 200)["entries"]))
+		all = string(raw)
+		for _, w := range wants {
+			if !strings.Contains(all, w) {
+				return false
+			}
+		}
+		return true
 	})
-	raw, _ := json.Marshal(entries)
-	all := string(raw)
-	for _, want := range []string{`"actor":"` + email + `"`, `"action":"POST /v1/segments"`, `"action":"sign-in"`, `"action":"PUT /v1/users/{id}/role"`, `[redacted]`} {
+	for _, want := range wants {
 		if !strings.Contains(all, want) {
 			t.Errorf("audit log is missing %s", want)
 		}

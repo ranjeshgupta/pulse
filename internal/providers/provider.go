@@ -39,6 +39,18 @@ type Outbound struct {
 	From      string // email sender
 	Rendered  channel.Rendered
 	Headers   map[string]string // email: extra headers (List-Unsubscribe)
+	// email: files to attach (SMTP sends them in multipart/mixed; the custom gateway gets URLs)
+	Attachments []Attachment
+}
+
+// Attachment is one file attached to an email.
+type Attachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+	// URL is a signed, expiring download link for the file, for providers that take links rather
+	// than bytes (the custom HTTP gateway). Empty without a server secret key.
+	URL string
 }
 
 // Result is what the provider returned for an accepted message.

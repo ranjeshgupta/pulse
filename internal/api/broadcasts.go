@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"pulse/internal/assets"
 	"pulse/internal/auth"
 	"pulse/internal/broadcast"
 	"pulse/internal/channel"
@@ -329,13 +330,40 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 			return
 		}
 	}
-	out, err := channel.Render(req.Template.template(tenant), c)
+	t := req.Template.template(tenant)
+	out, err := channel.Render(t, c)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"subject": out.Subject, "html": out.HTML, "content": out.Content,
-		"contact": map[string]any{"external_id": c.ExternalID, "email": c.Email, "phone": c.Attrs["phone"]}})
+	resp := map[string]any{"subject": out.Subject, "html": out.HTML, "content": out.Content,
+		"contact": map[string]any{"external_id": c.ExternalID, "email": c.Email, "phone": c.Attrs["phone"]}}
+	if t.Channel == channel.Email {
+		// The plain-text part as sent (links stay direct; the unsubscribe link is added at send time
+		// when the text doesn't place {{.UnsubscribeURL}}), and the files attached.
+		resp["text"], resp["text_generated"] = out.Content.Text, out.TextGenerated
+		files := []map[string]any{}
+		if ids := out.Content.Attachments; len(ids) > 0 {
+			as, err := s.assetStore().AssetsByIDs(r.Context(), tenant, ids)
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+			var total int64
+			for _, a := range as {
+				total += a.Size
+				files = append(files, map[string]any{"id": a.ID, "title": a.Title, "filename": a.Filename,
+					"content_type": a.ContentType, "size": a.Size})
+			}
+			if len(as) != len(ids) {
+				resp["attachment_error"] = "an attachment doesn't exist in this workspace any more"
+			} else if total > assets.MaxAttachmentBytes {
+				resp["attachment_error"] = "attachments can be at most 10 MB together"
+			}
+		}
+		resp["attachments"] = files
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // testProvider sends a fixed test message straight through one provider and reports the provider's
