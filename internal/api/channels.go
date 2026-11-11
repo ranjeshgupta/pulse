@@ -205,8 +205,10 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		TemplateID         int64  `json:"template_id"`
 		FallbackTemplateID int64  `json:"fallback_template_id"`
 		ExternalID         string `json:"external_id"`
+		// Event: sample trigger event properties for {{event.x}} (as a journey would carry them).
+		Event map[string]any `json:"event"`
 	}
-	if !decode(w, r, &req) {
+	if !decode(w, r, &req) || !eventFits(w, req.Event) {
 		return
 	}
 	t, err := s.uiStore().Template(r.Context(), tenant, req.TemplateID)
@@ -224,7 +226,10 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		return
 	}
 	m := model.Message{ID: "test:" + auth.NewToken(""), TenantID: tenant, ContactID: c.ID, Channel: t.Channel,
-		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID}
+		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID, Campaign: "Test send"}
+	if len(req.Event) > 0 {
+		m.Event, _ = json.Marshal(req.Event)
+	}
 	rec, err := kafka.JSON(channel.Topic(t.Channel), event.ContactKey(tenant, c.ID), m)
 	if err != nil {
 		s.fail(w, err)

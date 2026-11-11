@@ -175,6 +175,8 @@ type templateReq struct {
 	Builder json.RawMessage `json:"builder"`
 	// Transactional templates skip frequency caps and quiet hours.
 	Transactional bool `json:"transactional"`
+	// MissingValues: "empty" (default) or "skip" when a variable has no value and no default.
+	MissingValues string `json:"missing_values"`
 }
 
 func (req templateReq) template(tenant int64) model.Template {
@@ -182,7 +184,7 @@ func (req templateReq) template(tenant int64) model.Template {
 		req.Channel = channel.Email
 	}
 	return model.Template{TenantID: tenant, Name: req.Name, Channel: req.Channel, Subject: req.Subject,
-		HTML: req.HTML, Content: req.Content, Builder: req.Builder, Transactional: req.Transactional}
+		HTML: req.HTML, Content: req.Content, Builder: req.Builder, Transactional: req.Transactional, MissingValues: req.MissingValues}
 }
 
 func (s *Server) validTemplate(w http.ResponseWriter, r *http.Request, t model.Template) bool {

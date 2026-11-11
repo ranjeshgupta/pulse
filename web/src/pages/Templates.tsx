@@ -7,14 +7,22 @@ import { ChannelLabel, Empty, ErrorNote, Field, PageHead, timeAgo, useToast } fr
 import { initialEmailMode, replacesLayout, switchWarning, type EmailMode } from "../editorModes";
 import { RichText } from "../RichText";
 import { EMAIL_STYLE, unwrapRichText, wrapRichText } from "../richTextHtml";
+import { exampleEvent, fillSample, lintAll, SAMPLE_CONTACT, type Sample } from "../personalize";
+import { EventScopePicker, PersonalizeScopeProvider, TemplatedInput, TemplatedText, useVariables, VarPicker, VarProblems } from "../VarPicker";
 import type { EmailBuilderHandle } from "./EmailBuilder";
 
 const EmailBuilder = lazy(() => import("./EmailBuilder"));
 
 /** A new rich-text email starts from a greeting. */
-const RICH_STARTER = wrapRichText("<p>Hi {{.Attrs.first_name}},</p><p></p>", EMAIL_STYLE);
+const RICH_STARTER = wrapRichText('<p>Hi {{contact.first_name | default:"there"}},</p><p></p>', EMAIL_STYLE);
 
-const PERSONALIZE = "Personalize with {{.Attrs.first_name}}, {{.Attrs.city}} or any contact attribute.";
+const PERSONALIZE = "Personalize with { } Variable: {{contact.first_name | default:\"there\"}}, {{event.product_name}}, {{campaign.name}}.";
+
+/** The event whose properties {{event.x}} offers, remembered per browser. */
+const SCOPE_KEY = "pulse.template-event";
+function savedScope(): string {
+  try { return localStorage.getItem(SCOPE_KEY) ?? ""; } catch { return ""; }
+}
 
 export function TemplateList() {
   const [params, setParams] = useSearchParams();
@@ -86,7 +94,9 @@ export function TemplateEdit() {
   const [emailMode, setEmailMode] = useState<EmailMode>("visual");
   const [testing, setTesting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [scopeEvent, setScopeEvent] = useState(() => params.get("event") ?? savedScope());
   const builder = useRef<EmailBuilderHandle>(null);
+  const setScope = (v: string) => { setScopeEvent(v); try { localStorage.setItem(SCOPE_KEY, v); } catch { /* private window */ } };
 
   useEffect(() => {
     if (isNew && !t) {
@@ -98,6 +108,8 @@ export function TemplateEdit() {
     }
   }, [existing.data, isNew, params, t]);
 
+  const warnings = useTemplateWarnings(t, scopeEvent);
+  const sample = useSample(scopeEvent, t?.channel ?? "email");
   const save = useMutation({
     mutationFn: async () => {
       let body = { ...t! };
@@ -111,7 +123,7 @@ export function TemplateEdit() {
     },
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["templates"] });
-      toast({ text: "Template saved" });
+      toast({ text: warnings ? `Template saved. Check ${warnings === 1 ? "1 variable" : `${warnings} variables`}: they may render empty.` : "Template saved" });
       if (isNew) {
         // The page stays mounted under its new address: keep the saved id so Send a test and later saves use it.
         setT((cur) => (cur ? { ...cur, id: r.id } : cur));
@@ -149,6 +161,7 @@ export function TemplateEdit() {
   };
 
   return (
+    <PersonalizeScopeProvider value={{ event: scopeEvent || undefined, channel: t.channel }}>
     <div className="page" style={t.channel === "email" ? { maxWidth: "none" } : undefined}>
       <PageHead
         back={<Link className="back" to={`/templates?channel=${t.channel}`}>Message templates</Link>}
@@ -161,6 +174,16 @@ export function TemplateEdit() {
         </>}
       />
       <ErrorNote error={save.error ?? remove.error} />
+      <div className="vp-toolbar" aria-label="Personalisation">
+        <EventScopePicker value={scopeEvent} onChange={setScope} />
+        <label className="vp-policy">
+          <span className="xs muted">When a variable has no value and no default</span>
+          <select className="select inline" value={t.missing_values ?? "empty"} onChange={(e) => setT({ ...t, missing_values: e.target.value as "empty" | "skip" })} aria-label="When a variable has no value">
+            <option value="empty">leave it empty</option>
+            <option value="skip">don't send to that contact</option>
+          </select>
+        </label>
+      </div>
       <div className={t.channel === "email" ? "" : "editor-split"}>
         <div>
           <label className="check">
@@ -169,7 +192,7 @@ export function TemplateEdit() {
           </label>
           <div className="grid-2">
             <Field label="Template name"><input className="input" value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} placeholder="Welcome series, day 1" /></Field>
-            {t.channel === "email" && <Field label="Subject" hint={<>{PERSONALIZE} Pulse adds an unsubscribe link and open/click tracking to every email; place the link yourself with <code>{"{{.UnsubscribeURL}}"}</code>, and link the preference center with <code>{"{{.PreferencesURL}}"}</code>.</>}><input className="input" value={t.subject} onChange={(e) => setT({ ...t, subject: e.target.value })} /></Field>}
+            {t.channel === "email" && <Field label="Subject" hint={<>{PERSONALIZE} Pulse adds an unsubscribe link and open/click tracking to every email; place the link yourself with <code>{"{{links.unsubscribe}}"}</code>, and link the preference center with <code>{"{{links.preferences}}"}</code>.</>}><TemplatedInput label="Subject" value={t.subject} onChange={(subject) => setT({ ...t, subject })} /></Field>}
           </div>
 
           {t.channel === "email" && (
@@ -184,20 +207,27 @@ export function TemplateEdit() {
               {emailMode === "text" ? (
                 <PlainTextEditor t={t} setText={(text) => setC({ text })} />
               ) : emailMode === "visual" ? (
-                <Suspense fallback={<div className="gjs-host" />}><EmailBuilder ref={builder} html={t.html} project={t.builder} /></Suspense>
+                <>
+                  <div className="row" style={{ justifyContent: "flex-end", marginBottom: 6 }}>
+                    <span className="xs muted">Copy a variable, then paste it into a text block.</span>
+                    <VarPicker copyOnly onInsert={(tag) => toast({ text: `Copied ${tag}: paste it into the email` })} />
+                  </div>
+                  <Suspense fallback={<div className="gjs-host" />}><EmailBuilder ref={builder} html={t.html} project={t.builder} /></Suspense>
+                </>
               ) : emailMode === "richtext" ? (
                 <div className="grid-2" style={{ gap: 18, gridTemplateColumns: "minmax(0, 1.25fr) minmax(0, 1fr)" }}>
                   <RichText value={unwrapRichText(t.html) ?? t.html} label="Email body" minHeight={420} personalize="email" allowImages allowTables
                     placeholder="Write your email…" lossHint={<>or use the Visual builder</>}
                     onChange={(inner) => setT((cur) => cur && { ...cur, html: wrapRichText(inner, EMAIL_STYLE), builder: undefined })} />
-                  <iframe className="preview-frame" title="Email preview, with sample values" sandbox="" srcDoc={fillPreview(t.html)} />
+                  <iframe className="preview-frame" title="Email preview, with sample values" sandbox="" srcDoc={fillSample(t.html, sample)} />
                 </div>
               ) : (
                 <div className="grid-2" style={{ gap: 18 }}>
-                  <textarea className="textarea code-editor" value={t.html} onChange={(e) => setT({ ...t, html: e.target.value, builder: undefined })} aria-label="Email HTML" spellCheck={false} />
-                  <iframe className="preview-frame" title="Email preview, with sample values" sandbox="" srcDoc={fillPreview(t.html)} />
+                  <TemplatedText className="textarea code-editor" label="Email HTML" value={t.html} onChange={(html) => setT({ ...t, html, builder: undefined })} />
+                  <iframe className="preview-frame" title="Email preview, with sample values" sandbox="" srcDoc={fillSample(t.html, sample)} />
                 </div>
               )}
+              {emailMode !== "html" && <BodyProblems html={t.html} />}
               {replacesLayout(emailMode) && existing.data?.builder != null && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the {emailMode === "html" ? "HTML" : "Rich text"} tab replaces the visual layout with this HTML.</p>}
               <AttachmentPicker ids={c.attachments ?? []} onChange={(attachments) => setC({ attachments: attachments.length ? attachments : undefined })} />
             </>
@@ -205,7 +235,7 @@ export function TemplateEdit() {
 
           {t.channel === "sms" && (
             <>
-              <Field label="Message" hint={<SmsCount text={c.text ?? ""} />}><textarea className="textarea" value={c.text ?? ""} onChange={(e) => setC({ text: e.target.value })} /></Field>
+              <Field label="Message" hint={<SmsCount text={c.text ?? ""} />}><TemplatedText label="Message" value={c.text ?? ""} onChange={(text) => setC({ text })} /></Field>
               <Field label="Sender ID" hint="Your registered header (e.g. PULSEX for India DLT). Leave empty to use the provider's default."><input className="input" value={c.sender_id ?? ""} onChange={(e) => setC({ sender_id: e.target.value })} /></Field>
               <TrackLinks c={c} setC={setC} />
               <p className="xs muted">{PERSONALIZE}</p>
@@ -222,8 +252,8 @@ export function TemplateEdit() {
               <Field label="Template text, for the preview" hint="Paste the approved text with {{1}}, {{2}}… where variables go. It isn't sent; Meta uses its own copy.">
                 <textarea className="textarea" value={c.preview_text ?? ""} onChange={(e) => setC({ preview_text: e.target.value })} />
               </Field>
-              <ListEditor label="Variables" hint={PERSONALIZE} items={c.body_params ?? []} placeholder={(i) => `{{${i + 1}}}, e.g. {{.Attrs.first_name}}`} onChange={(body_params) => setC({ body_params })} />
-              <Field label="Header image URL (optional)"><input className="input" value={c.header_image_url ?? ""} onChange={(e) => setC({ header_image_url: e.target.value })} /></Field>
+              <ListEditor label="Variables" hint={PERSONALIZE} items={c.body_params ?? []} placeholder={(i) => `{{${i + 1}}}, e.g. {{contact.first_name}}`} onChange={(body_params) => setC({ body_params })} />
+              <Field label="Header image URL (optional)"><TemplatedInput label="Header image URL" value={c.header_image_url ?? ""} onChange={(header_image_url) => setC({ header_image_url })} /></Field>
             </>
           )}
 
@@ -232,11 +262,11 @@ export function TemplateEdit() {
           {t.channel === "inbox" && (
             <>
               <p className="xs muted" style={{ marginTop: 0 }}>Stays in the contact's app inbox (the mobile and web SDKs show it) until it expires or they delete it. Pulse delivers it itself: no provider needed.</p>
-              <Field label="Title"><input className="input" value={c.title ?? ""} onChange={(e) => setC({ title: e.target.value })} /></Field>
-              <Field label="Message" hint={PERSONALIZE}><textarea className="textarea" value={c.body ?? ""} onChange={(e) => setC({ body: e.target.value })} /></Field>
+              <Field label="Title"><TemplatedInput label="Title" value={c.title ?? ""} onChange={(title) => setC({ title })} /></Field>
+              <Field label="Message" hint={PERSONALIZE}><TemplatedText label="Message" value={c.body ?? ""} onChange={(body) => setC({ body })} /></Field>
               <div className="grid-2">
                 <Field label="Image URL (optional)"><input className="input" value={c.image_url ?? ""} onChange={(e) => setC({ image_url: e.target.value })} /></Field>
-                <Field label="Open this link when tapped"><input className="input" value={c.url ?? ""} onChange={(e) => setC({ url: e.target.value })} placeholder="https:// or app deep link" /></Field>
+                <Field label="Open this link when tapped"><TemplatedInput label="Open this link when tapped" value={c.url ?? ""} onChange={(url) => setC({ url })} placeholder="https:// or app deep link" /></Field>
                 <Field label="Category (optional)" hint="Lets the app filter its inbox, e.g. offers or orders."><input className="input" value={c.category ?? ""} onChange={(e) => setC({ category: e.target.value })} /></Field>
                 <Field label="Keep for (days)" hint="Then it disappears from the inbox. 1-365; 30 if empty.">
                   <input className="input" type="number" min={1} max={365} value={c.expires_days ?? ""} onChange={(e) => setC({ expires_days: e.target.value ? Number(e.target.value) : undefined })} />
@@ -247,21 +277,45 @@ export function TemplateEdit() {
 
           {t.channel === "push" && (
             <>
-              <Field label="Title"><input className="input" value={c.title ?? ""} onChange={(e) => setC({ title: e.target.value })} /></Field>
-              <Field label="Message" hint={PERSONALIZE}><textarea className="textarea" value={c.body ?? ""} onChange={(e) => setC({ body: e.target.value })} /></Field>
+              <Field label="Title"><TemplatedInput label="Title" value={c.title ?? ""} onChange={(title) => setC({ title })} /></Field>
+              <Field label="Message" hint={PERSONALIZE}><TemplatedText label="Message" value={c.body ?? ""} onChange={(body) => setC({ body })} /></Field>
               <div className="grid-2">
                 <Field label="Image URL (optional)"><input className="input" value={c.image_url ?? ""} onChange={(e) => setC({ image_url: e.target.value })} /></Field>
-                <Field label="Open this link when tapped"><input className="input" value={c.url ?? ""} onChange={(e) => setC({ url: e.target.value })} placeholder="https:// or app deep link" /></Field>
+                <Field label="Open this link when tapped" hint="Web push and app deep links, e.g. myapp://cart/{{event.cart_id}}"><TemplatedInput label="Open this link when tapped" value={c.url ?? ""} onChange={(url) => setC({ url })} placeholder="https:// or app deep link" /></Field>
               </div>
             </>
           )}
         </div>
-        {t.channel !== "email" && <MessagePreview channel={t.channel} r={{ content: fillContent(c) }} label={`${t.channel === "push" ? "Lock screen" : CHANNEL_NAMES[t.channel]} preview, with sample values`} />}
+        {t.channel !== "email" && <MessagePreview channel={t.channel} r={{ content: fillContent(c, sample) }} label={`${t.channel === "push" ? "Lock screen" : CHANNEL_NAMES[t.channel]} preview, with sample values`} />}
       </div>
-      {testing && <TestSendModal template={t} onClose={() => setTesting(false)} />}
-      {previewing && <PreviewModal template={t} onClose={() => setPreviewing(false)} />}
+      {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
+      {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}
     </div>
+    </PersonalizeScopeProvider>
   );
+}
+
+/** useTemplateWarnings counts the variable problems of every templated field (for the save message). */
+function useTemplateWarnings(t: Template | null, event: string): number {
+  const v = useVariables({ event: event || undefined, channel: t?.channel });
+  if (!t) return 0;
+  const c = t.content ?? {};
+  return lintAll([t.subject, t.html, c.text, c.title, c.body, c.url, c.header_image_url, ...(c.body_params ?? []), c.card?.title, c.card?.description,
+    ...(c.suggestions ?? []).flatMap((x) => [x.text, x.value])], { contact: v.contact, event: v.event, channel: t.channel }).length;
+}
+
+/** useSample: the preview's sample contact and event (the scope event's schema example). */
+function useSample(event: string, channel: string): Sample {
+  const v = useVariables({ event: event || undefined, channel });
+  return { contact: SAMPLE_CONTACT, event: v.schema ? exampleEvent(v.schema) : null,
+    campaign: { name: "Sample campaign", type: "journey", id: 1, step: "s1", channel, template: "This template" },
+    links: { unsubscribe: "#unsubscribe", preferences: "#preferences" } };
+}
+
+/** BodyProblems lists the variable problems of an email body edited visually. */
+function BodyProblems({ html }: { html: string }) {
+  const v = useVariables();
+  return <VarProblems problems={lintAll([html], { contact: v.contact, event: v.event, channel: "email" })} />;
 }
 
 // PlainTextEditor edits the email's plain-text part. Empty means "generate it from the HTML at send
@@ -289,8 +343,8 @@ function PlainTextEditor({ t, setText }: { t: Template; setText: (s: string) => 
         </div>
       </div>
       <ErrorNote error={gen.error} />
-      <textarea className="textarea code-editor" style={{ minHeight: 360, width: "100%" }} value={text} onChange={(e) => setText(e.target.value)}
-        aria-label="Plain-text part" spellCheck placeholder="Empty: generated from the HTML when the email is sent." />
+      <TemplatedText className="textarea code-editor plain-text-part" value={text} onChange={setText}
+        aria-label="Plain-text part" placeholder="Empty: generated from the HTML when the email is sent." />
     </div>
   );
 }
@@ -344,12 +398,12 @@ function RcsFields({ c, setC }: { c: ChannelContent; setC: (p: Partial<ChannelCo
       <label className="check"><input type="checkbox" checked={!!card} onChange={(e) => setC({ card: e.target.checked ? { title: "", description: "", image_url: "" } : null })} />Send as a rich card</label>
       {card ? (
         <>
-          <Field label="Card title"><input className="input" value={card.title} onChange={(e) => setC({ card: { ...card, title: e.target.value } })} /></Field>
-          <Field label="Card description"><textarea className="textarea" value={card.description ?? ""} onChange={(e) => setC({ card: { ...card, description: e.target.value } })} /></Field>
+          <Field label="Card title"><TemplatedInput label="Card title" value={card.title} onChange={(title) => setC({ card: { ...card, title } })} /></Field>
+          <Field label="Card description"><TemplatedText label="Card description" value={card.description ?? ""} onChange={(description) => setC({ card: { ...card, description } })} /></Field>
           <Field label="Image URL"><input className="input" value={card.image_url ?? ""} onChange={(e) => setC({ card: { ...card, image_url: e.target.value } })} /></Field>
         </>
       ) : (
-        <Field label="Message" hint={PERSONALIZE}><textarea className="textarea" value={c.text ?? ""} onChange={(e) => setC({ text: e.target.value })} /></Field>
+        <Field label="Message" hint={PERSONALIZE}><TemplatedText label="Message" value={c.text ?? ""} onChange={(text) => setC({ text })} /></Field>
       )}
       <h3 className="small" style={{ margin: "6px 0 8px" }}>Suggested replies and actions <span className="muted">(up to 4)</span></h3>
       {sugg.map((s, i) => (
@@ -357,8 +411,8 @@ function RcsFields({ c, setC }: { c: ChannelContent; setC: (p: Partial<ChannelCo
           <select className="select" value={s.type} onChange={(e) => setC({ suggestions: sugg.map((x, j) => (j === i ? { ...x, type: e.target.value as "reply" | "url" | "dial" } : x)) })} aria-label="Suggestion type">
             <option value="reply">Reply</option><option value="url">Open link</option><option value="dial">Call</option>
           </select>
-          <input className="input" placeholder="Button text" value={s.text} onChange={(e) => setC({ suggestions: sugg.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)) })} aria-label="Button text" />
-          {s.type !== "reply" && <input className="input" placeholder={s.type === "url" ? "https://…" : "+91…"} value={s.value ?? ""} onChange={(e) => setC({ suggestions: sugg.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} aria-label="Link or number" />}
+          <TemplatedInput placeholder="Button text" value={s.text} onChange={(text) => setC({ suggestions: sugg.map((x, j) => (j === i ? { ...x, text } : x)) })} aria-label="Button text" />
+          {s.type !== "reply" && <TemplatedInput placeholder={s.type === "url" ? "https://…" : "+91…"} value={s.value ?? ""} onChange={(value) => setC({ suggestions: sugg.map((x, j) => (j === i ? { ...x, value } : x)) })} aria-label="Link or number" />}
           <button className="btn ghost sm" onClick={() => setC({ suggestions: sugg.filter((_, j) => j !== i) })}>Remove</button>
         </div>
       ))}
@@ -372,8 +426,9 @@ function ListEditor({ label, hint, items, placeholder, onChange }: { label: stri
     <div className="field">
       <span>{label}</span>
       {items.map((v, i) => (
-        <div className="row" key={i}>
-          <input className="input" style={{ flex: 1 }} value={v} placeholder={placeholder(i)} onChange={(e) => onChange(items.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Variable ${i + 1}`} />
+        <div className="row" key={i} style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
+          <span className="xs muted" style={{ paddingTop: 8, minWidth: 34 }}>{`{{${i + 1}}}`}</span>
+          <div style={{ flex: 1, minWidth: 0 }}><TemplatedInput value={v} placeholder={placeholder(i)} onChange={(nv) => onChange(items.map((x, j) => (j === i ? nv : x)))} aria-label={`Variable ${i + 1}`} /></div>
           <button className="btn ghost sm" onClick={() => onChange(items.filter((_, j) => j !== i))}>Remove</button>
         </div>
       ))}
@@ -391,19 +446,18 @@ function SmsCount({ text }: { text: string }) {
   return <>{text.length} characters, {parts} SMS{gsm ? "" : " (Unicode)"}. Personalized values change the length.</>;
 }
 
-function fillPreview(s = "") {
-  return s.replace(/\{\{\s*\.Attrs\.(\w+)\s*\}\}/g, (_, k) => ({ first_name: "Asha", city: "Pune", name: "Asha Rao" } as Record<string, string>)[k] ?? `[${k}]`);
-}
-
 // fillContent fills personalization tags with sample values for the live preview while typing.
-function fillContent(c: ChannelContent): ChannelContent {
+function fillContent(c: ChannelContent, sample: Sample): ChannelContent {
+  const f = (x?: string) => fillSample(x, sample);
   return {
     ...c,
-    text: fillPreview(c.text),
-    body_params: c.body_params?.map((p) => fillPreview(p)),
-    card: c.card ? { ...c.card, title: fillPreview(c.card.title), description: fillPreview(c.card.description) } : c.card,
-    title: fillPreview(c.title),
-    body: fillPreview(c.body),
+    text: f(c.text),
+    body_params: c.body_params?.map((p) => f(p)),
+    header_image_url: c.header_image_url ? f(c.header_image_url) : c.header_image_url,
+    card: c.card ? { ...c.card, title: f(c.card.title), description: f(c.card.description) } : c.card,
+    suggestions: c.suggestions?.map((x) => ({ ...x, text: f(x.text) })),
+    title: f(c.title),
+    body: f(c.body),
   };
 }
 

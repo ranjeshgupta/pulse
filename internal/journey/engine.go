@@ -13,6 +13,7 @@ import (
 	"pulse/internal/attr"
 	"pulse/internal/channel"
 	"pulse/internal/event"
+	"pulse/internal/eventschema"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/schedule"
@@ -41,6 +42,9 @@ type EngineStore interface {
 	Convert(ctx context.Context, tenant int64, contact uint32, journeys []int64) (int, error)
 	// SetEnrollmentForm records the form submission an enrollment started or resumed with.
 	SetEnrollmentForm(ctx context.Context, enrollment int64, props map[string]any) error
+	// SetEnrollmentTrigger records the properties of the event that started an enrollment, for
+	// {{event.x}} in its messages (see eventschema.MessageProps).
+	SetEnrollmentTrigger(ctx context.Context, enrollment int64, props json.RawMessage) error
 	// RemoveFromJourneys ends a contact's live enrollments in these journeys (change_journey steps).
 	RemoveFromJourneys(ctx context.Context, tenant int64, contact uint32, journeys []int64) (int, error)
 }
@@ -64,10 +68,18 @@ func newIndex() *index {
 		awaited: map[int64]map[string]bool{}, goals: map[int64]map[string][]int64{}}
 }
 
+// SchemaLookup finds an event's schema (eventschema.Cache), so properties marked personal are
+// never copied into messages.
+type SchemaLookup interface {
+	Lookup(ctx context.Context, tenant int64, name string) *eventschema.Schema
+}
+
 type Engine struct {
 	store EngineStore
 	exec  *Executor
 	log   *slog.Logger
+	// Schemas (optional) leaves personal properties out of the trigger event kept for messages.
+	Schemas SchemaLookup
 	idx   atomic.Pointer[index]
 	// changed asks RunTimers for a refresh now (Notify).
 	changed chan struct{}
@@ -105,6 +117,7 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		} else {
 			g.ApplyDecisions(ds)
 		}
+		g.Name = j.Name
 		a := &active{Journey: j, graph: g}
 		idx.byID[j.ID] = a
 		switch g.Trigger.Type {
@@ -242,6 +255,15 @@ func (e *Engine) enrollWith(ctx context.Context, j *active, contact uint32, ev *
 	}
 	if ev != nil && ev.Name == EventFormSubmitted {
 		if err := e.store.SetEnrollmentForm(ctx, en.ID, ev.Props); err != nil {
+			return err
+		}
+	}
+	if ev != nil {
+		var s *eventschema.Schema
+		if e.Schemas != nil {
+			s = e.Schemas.Lookup(ctx, ev.TenantID, ev.Name)
+		}
+		if err := e.store.SetEnrollmentTrigger(ctx, en.ID, eventschema.MessageProps(s, ev.Props)); err != nil {
 			return err
 		}
 	}

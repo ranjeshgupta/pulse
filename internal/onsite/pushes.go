@@ -2,7 +2,9 @@ package onsite
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"strconv"
 	"time"
 
@@ -38,6 +40,34 @@ func (p Pushes) PushDWC(ctx context.Context, tenant int64, contact uint32, slot,
 	pipe.Expire(ctx, k, ttl)
 	_, err := pipe.Exec(ctx)
 	return err
+}
+
+// personalMark starts stored content that a journey personalised with the contact's data: the
+// mark, then JSON {"p": personal HTML, "a": anonymous HTML}.
+const personalMark = "\x00pulse-personal\x00"
+
+// PersonalDWC encodes content a journey step personalised: personal is filled with the contact's
+// data, anon with the variables' defaults (for visitors whose identity isn't verified).
+func PersonalDWC(personal, anon string) string {
+	b, _ := json.Marshal(map[string]string{"p": personal, "a": anon})
+	return personalMark + string(b)
+}
+
+// ResolveDWC returns the stored content to show: personalised content only when the visitor's
+// identity is verified, else its anonymous version. Plain content is returned as it is.
+func ResolveDWC(stored string, verified bool) string {
+	raw, ok := strings.CutPrefix(stored, personalMark)
+	if !ok {
+		return stored
+	}
+	var v map[string]string
+	if json.Unmarshal([]byte(raw), &v) != nil {
+		return ""
+	}
+	if verified {
+		return v["p"]
+	}
+	return v["a"]
 }
 
 // TakeFocus returns and clears the focus items queued for the contact.

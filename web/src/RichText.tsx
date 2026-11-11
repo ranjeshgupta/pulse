@@ -16,7 +16,7 @@ export type RichTextProps = {
   placeholder?: string;
   /** Height of the editing area in px (it grows with the content). */
   minHeight?: number;
-  /** Offer merge tags ({{.Attrs.first_name}}). "email" adds the unsubscribe and preference-center links. */
+  /** Offer variables ({{contact.first_name}}, {{event.x}}, {{campaign.name}}). "email" adds the unsubscribe and preference-center links. */
   personalize?: boolean | "email";
   allowImages?: boolean;
   allowTables?: boolean;

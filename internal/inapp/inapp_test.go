@@ -55,3 +55,20 @@ func TestFor(t *testing.T) {
 		t.Errorf("excluded segment still sees it: %v", got)
 	}
 }
+
+func TestPersonalize(t *testing.T) {
+	c := model.InAppContent{Title: `Hi {{contact.first_name | default:"there"}}`, Body: "From {{.Attrs.city}}",
+		Buttons: []model.InAppButton{{Text: "Shop {{contact.city}}", Action: "url", Value: "myapp://shop?c={{contact.city | urlencode}}"}}}
+	got := Personalize(c, model.Contact{Attrs: map[string]any{"first_name": "Asha", "city": "Navi Mumbai"}})
+	if got.Title != "Hi Asha" || got.Body != "From Navi Mumbai" || got.Buttons[0].Text != "Shop Navi Mumbai" || got.Buttons[0].Value != "myapp://shop?c=Navi+Mumbai" {
+		t.Errorf("got %+v", got)
+	}
+	if anon := Personalize(c, model.Contact{Attrs: map[string]any{}}); anon.Title != "Hi there" {
+		t.Errorf("anonymous: %q", anon.Title)
+	}
+	m := msg()
+	m.Content.Title = "{{contact.first_name | shout}}"
+	if err := Validate(m); err == nil {
+		t.Error("bad pipe accepted")
+	}
+}

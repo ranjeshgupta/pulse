@@ -495,6 +495,15 @@ func webIdentityOK(t model.Tenant, externalID, hash string) bool {
 	return !t.RequireSignedIdentify || strings.HasPrefix(externalID, "anon-") || validUserHash(t.IdentitySecret, externalID, hash)
 }
 
+// verifiedIdentity reports whether a browser or app request proves who it is: the workspace has an
+// identity secret and the request's user hash for this (non-anonymous) ID checks out. Only then may
+// a public route show the contact's own data (personalised in-app text, personalised journey
+// content); anyone can claim an ID, and anon- IDs prove nothing.
+func verifiedIdentity(t model.Tenant, externalID, hash string) bool {
+	return t.IdentitySecret != "" && externalID != "" && !strings.HasPrefix(externalID, "anon-") &&
+		validUserHash(t.IdentitySecret, externalID, hash)
+}
+
 func validUserHash(secret, userID, hash string) bool {
 	return hash != "" && hmac.Equal([]byte(UserHash(secret, userID)), []byte(strings.ToLower(hash)))
 }

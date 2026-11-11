@@ -41,9 +41,9 @@ describe("merge tags", () => {
 
   it("are listed: common fields first, then the workspace's attributes", () => {
     const tags = mergeTags([{ key: "first_name", label: "First name" }, { key: "plan", label: "Plan" }, { key: "favourite-colour" }]);
-    expect(tags[0].tag).toBe("{{.Attrs.first_name}}");
-    expect(tags.filter((t) => t.tag === "{{.Attrs.first_name}}")).toHaveLength(1);
-    expect(tags.map((t) => t.tag)).toContain("{{.Attrs.plan}}");
+    expect(tags[0].tag).toBe('{{contact.first_name | default:"there"}}');
+    expect(tags.filter((t) => t.tag.startsWith("{{contact.first_name"))).toHaveLength(1);
+    expect(tags.map((t) => t.tag)).toContain("{{contact.plan}}");
     expect(attrTag("favourite-colour")).toBe(`{{index .Attrs "favourite-colour"}}`);
   });
 });

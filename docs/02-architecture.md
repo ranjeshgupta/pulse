@@ -205,11 +205,14 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   have `next`; decisions and conditions `yes` / `no`; splits one path per variant; `exit`, `jump` and `delete_contact` end
   the path.
   - **Actions:** `send_email`, `send_sms`, `send_whatsapp` and `send_rcs` (optional SMS fallback), `send_push`,
-    `send_inbox`; `send_message` (marketing message: `channels` [{channel, template_id}] in priority order, sent on the
-    first the contact can receive: an address or push device, consent, no bounce; none reachable records
-    `message_unreachable`); `notify_user` (email to users, the contact's owner or fixed addresses, the template rendered
+    `send_inbox`; `send_message` (marketing message: `channels` rules [{channel, template_id, fallback_template_id?,
+    when?}] in order; `when` is segment property filters over `{contact: {email, external_id, ...attrs}, event: trigger
+    props}`; the first rule whose conditions match and whose channel the contact can receive (an address or push device,
+    consent, no bounce) sends; the choice counts as step output `ch:<channel>`; no rule matched records `message_skipped`,
+    matched but none reachable `message_unreachable`, both `ch:none`); `notify_user` (email to users, the contact's owner or fixed addresses, the template rendered
     with the contact's data; the message carries `To`, so the dispatcher skips consent, caps, quiet hours and tracking and
-    records `notification_sent` / `notification_failed`); `webhook`; `update_attr` (values may use `{contactfield=x}`,
+    records `notification_sent` / `notification_failed`); `webhook` (`body` a text template with the variables, `| json`
+    and `{{json .Attrs}}`); `update_attr` (values may use `{contactfield=x}`, the variables (trigger event included),
     `{{.Attrs.x}}`, and `now`, `now+3hours`, `now-2days`… resolved at run time); `update_tags`, `adjust_points`,
     `update_list` (`list_id`+`list_action`, or `add_lists` / `remove_lists`: static lists only), `change_stage`,
     `update_owner` (`owner_changed`), `add_company` (`company_linked`; one company per contact, so also "primary
@@ -325,7 +328,10 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   template_id, journey_id, broadcast_id…}` once per message and link, then redirects (302); unknown or expired codes get
   404. WhatsApp is not covered: business-started WhatsApp messages are pre-approved templates whose button URLs live at
   Meta, so Pulse can't rewrite them.
-- Templates use Go `html/template` and `text/template` over `{contact, attrs}`.
+- Templates are rendered by `internal/personalize` (see "Personalisation (M2)"): standard variables translated into Go
+  `html/template` (email HTML, escaped per context) and `text/template` (every other field) actions, next to the older
+  `{{.Attrs.x}}` syntax over `{Contact, Attrs, UnsubscribeURL, PreferencesURL}`. Click tracking runs on the rendered HTML,
+  so links built from variables are tracked too.
 - Providers (`internal/providers`): SMTP (any relay, SES included), Twilio and MSG91 (SMS), Meta WhatsApp Cloud API, Google RBM
   (RCS), FCM, standard web push (VAPID), the sandbox, and the custom HTTP gateway for any channel. iOS push goes through FCM
   (no direct APNs).
@@ -609,3 +615,37 @@ These run on raw events today and are fine into the hundreds of millions of rows
 - **Starter schemas** (`eventschema.Suggested`): purchase (adds `product_code` and
   `items[].product_code` to `products`), signup and login (`method` → `social_provider`), add_to_cart,
   cart_abandoned, checkout_abandoned.
+
+## Personalisation (M2)
+
+`internal/personalize` fills templates; `internal/channel.RenderWith` applies it to every field of a template.
+
+- **Syntax.** `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}`, with pipes (`default`, `upper`, `lower`,
+  `title`, `date`, `money`, `number`, `truncate`, `urlencode`, `json`). `Translate` rewrites each such action into a Go
+  template pipeline (`{{pulseVar "contact.x" | pulseDefault "there" | pulseOut}}`) and leaves every other action alone,
+  so one parser handles both syntaxes and `html/template` escapes values in email HTML as before. In HTML, entities in
+  a standard action are decoded first. Unknown pipes, `campaign`/`links` keys and bad paths are parse errors, so
+  `channel.Validate` refuses them on save.
+- **Values.** `contact.*`: `email`/`external_id` from the contact, else attributes (dotted paths, list indexes,
+  `items[].x` joined). `event.*`: the message's trigger properties. `campaign.*`: from the message (`Campaign` name,
+  `Step`, journey or broadcast id). `links.*`: the dispatcher's unsubscribe and preference URLs (email). Values print
+  without exponents; lists join with ", ". A variable with no value and no default is recorded in `Rendered.Missing`.
+- **Trigger context.** When an event or form submission enrolls a contact, the engine stores
+  `eventschema.MessageProps(schema, props)` on `journey_enrollments.trigger` (migration 021): the props minus the schema's
+  personal paths, at most 16 KB (largest top-level properties dropped first). The journey role keeps its own
+  `eventschema.Cache` for this. Send steps (`send_*`, `send_message`, `notify_user`) of event and form journeys read it
+  (`EnrollmentTrigger`) and put it on the Kafka message with the journey's name and the step (`model.Message.Event`,
+  `Campaign`, `Step`); the SMS fallback copies them. Broadcasts set `Campaign` only.
+- **Missing values.** `templates.missing_values`: `empty` (default) or `skip`. With `skip` and anything missing, the
+  dispatcher records `<channel>_failed {reason: "skipped: no value for …", skipped: "missing_value"}` and sends nothing.
+- **Elsewhere.** Webhook bodies, `push_dwc` HTML (`html/template`, escaped) and `update_attr` values render with the
+  trigger event when the step runs. `POST /v1/web/inapp` fills in-app campaigns' title, body and buttons per app user
+  (`inapp.Personalize`; contact variables only). Public routes use the contact's data only for a verified identity
+  (`verifiedIdentity`: identity secret set and a valid user hash for a non-anonymous ID); otherwise defaults. A
+  personalised `push_dwc` stores a filled and an anonymous version (`onsite.PersonalDWC`), and `POST /v1/web/decide`
+  serves the anonymous one unless the visitor is verified (`onsite.ResolveDWC`).
+- **Previews.** `POST /v1/templates/preview` and `POST /v1/channels/test` take sample `event` props (≤ 16 KB);
+  `GET /v1/templates/sample-event` reads the contact's latest event of a name from ClickHouse (`LatestEvent`, personal
+  properties removed; contacts view) or builds `eventschema.Example(schema)`.
+- **Web.** `web/src/personalize.ts` mirrors the syntax (catalog, tag building, lint, sample fill for live previews);
+  `VarPicker.tsx` is the picker and the `TemplatedInput` / `TemplatedText` fields used by every templated field.

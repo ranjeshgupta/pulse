@@ -28,5 +28,8 @@ segments (VIP customers, Webinar attendees); journeys Welcome and Cart recovery 
 (draft); broadcasts (one sent, one scheduled next week, one draft); a form, a landing page
 (`/p/<workspace>/weekend-sale`), a focus item, web content, an in-app message; stages, companies,
 three teammates and a custom role; a funnel, a report and a cohort; and 300 contacts with activity
-spread over the last 30 days (`-contacts`, `-days`). `-if-exists <workspace ID>` makes it stop
-without changes when that workspace already exists and the admin can sign in.
+spread over the last 30 days (`-contacts`, `-days`); the six suggested event schemas with 60 days of shop
+events (M1); and the personalised **Cart rescue** email, SMS and WhatsApp templates with an active **Cart
+rescue** journey (cart_abandoned → SMS for Indian numbers, otherwise WhatsApp, then an email; M2).
+`-if-exists <workspace ID>` makes it stop when that workspace already exists and the admin can sign in,
+after adding (once) whatever later versions of the seed added: the event data, then the Cart rescue content.

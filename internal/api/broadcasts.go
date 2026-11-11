@@ -18,6 +18,7 @@ import (
 	"pulse/internal/dispatch"
 	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/personalize"
 	"pulse/internal/providers"
 	"pulse/internal/schedule"
 	"pulse/internal/segment"
@@ -328,11 +329,14 @@ var sampleContact = model.Contact{ExternalID: "sample", Email: "asha@example.com
 	Attrs: map[string]any{"first_name": "Asha", "name": "Asha Rao", "city": "Pune", "phone": "+919800000001"}}
 
 // previewTemplate renders a template, saved or not, for a real contact (or a sample one), exactly as
-// the dispatcher would.
+// the dispatcher would. event is a sample of the trigger event's properties for {{event.x}}
+// (GET /v1/templates/sample-event finds one); campaign names the journey or broadcast.
 func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant int64) {
 	var req struct {
-		Template   templateReq `json:"template"`
-		ExternalID string      `json:"external_id"`
+		Template   templateReq    `json:"template"`
+		ExternalID string         `json:"external_id"`
+		Event      map[string]any `json:"event"`
+		Campaign   string         `json:"campaign"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -345,13 +349,28 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 			return
 		}
 	}
+	if !eventFits(w, req.Event) {
+		return
+	}
 	t := req.Template.template(tenant)
-	out, err := channel.Render(t, c)
+	camp := personalize.Campaign{Type: "test", Name: req.Campaign}
+	if camp.Name == "" {
+		camp.Name = "Preview"
+	}
+	links := channel.Links{}
+	if t.Channel == channel.Email {
+		links = channel.Links{Unsubscribe: "https://example.com/u/preview", Preferences: "https://example.com/p/preview"}
+		if s.Tracking != nil {
+			links = channel.Links{Unsubscribe: s.Tracking.Base() + "/u/preview", Preferences: s.Tracking.Base() + "/p/preview"}
+		}
+	}
+	out, err := channel.RenderWith(t, c, channel.Vars{Event: req.Event, Campaign: camp, Links: links})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp := map[string]any{"subject": out.Subject, "html": out.HTML, "content": out.Content,
+	resp := map[string]any{"subject": out.Subject, "html": out.HTML, "content": out.Content, "missing": nonNil(out.Missing),
+		"skipped": t.MissingValues == channel.MissingSkip && len(out.Missing) > 0,
 		"contact": map[string]any{"external_id": c.ExternalID, "email": c.Email, "phone": c.Attrs["phone"]}}
 	if t.Channel == channel.Email {
 		// The plain-text part as sent (links stay direct; the unsubscribe link is added at send time

@@ -38,7 +38,7 @@ Gupshup gets SMS, WhatsApp and RCS.
 | 8 | Delivered / read / click / download / spam | Partial: no email delivered, complaints not in reports | M4 |
 | 9 | Segment date from–to | ✅ M1: between / since dates on behaviour, "is between" on date fields | M1 ✅ |
 | 10 | Reachable channels | Partial: no per-contact matrix or per-campaign counts | M3, M4 |
-| 11 | Standard variable names | Partial: raw `{{.Attrs.x}}`, picker only in rich text | M2 |
+| 11 | Standard variable names | ✅ M2: `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}` with defaults and formats, a picker on every templated field | M2 ✅ |
 | 12 | Web push / personalisation activation | Already | M6 adds a no-code opt-in prompt and install check |
 | 13 | Deliverability per campaign | Partial (as row 7) | M4 |
 | 14 | Live segment | Already | |
@@ -70,7 +70,7 @@ with screenshots, and committed on its own.
    (purchase, signup, login, add_to_cart, cart_abandoned, checkout_abandoned), nested property paths
    in segment rules, absolute date ranges, a "none of" group, list and enum contact fields (products),
    `phone_country`, property filters on event triggers, daily-refresh segments. New tutorial 12.
-2. **M2 Personalisation.** Standard variables `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`,
+2. **M2 Personalisation (done).** Standard variables `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`,
    `{{links.x}}` with defaults and formats, a picker on every templated field, the triggering event
    carried to every message of a journey, a missing-value policy, channel choice by condition in
    "Send marketing message" (Indian number → SMS, otherwise WhatsApp). Old syntax keeps working.
@@ -115,6 +115,60 @@ Built as designed, with these choices:
 - **List fields** are edited from the contact page with an `identify` event, so edits stay ordered with other events.
 - **Event trigger filters** use the segment property filters (`where`) and their paths.
 - Docs: [tutorial 12](tutorials/12-events-and-properties.md), tutorials 2 and 3, the API guide and the web SDK guide.
+
+## M2 as built
+
+Built as designed, with these choices:
+
+- **Renderer.** The standard variables are translated into Go template actions (`internal/personalize`), so the older
+  `{{.Attrs.x}}` syntax, `{{if}}` and friends keep working in the same field and HTML is still escaped by
+  `html/template` for where each value lands. In HTML, entities inside a tag are decoded first (an editor may write
+  `default:&quot;x&quot;`). `urlencode` output is marked as already encoded so links aren't encoded twice, and it can't
+  form a `javascript:` link. Numbers print without exponents, lists join with ", ", objects as JSON. Pipes:
+  `default`, `upper`, `lower`, `title`, `date` (Go layout, the contact's `timezone`/`geo_timezone`, a plain
+  `YYYY-MM-DD` stays that day), `money` (INR by default, ₹ with lakh grouping; halves round up), `number[:decimals]`,
+  `truncate:N` (ends with …), `urlencode`, and `json` (added for webhook bodies). Unknown pipes, `campaign.*` /
+  `links.*` keys and unclosed quotes are refused on save.
+- **Variables.** `contact.*` reads `email` and `external_id` from the contact and anything else from its attributes,
+  with dotted paths into objects. `event.items.0.name` reads one item, `event.items[].name` every item (joined).
+  `campaign.*` is `name`, `id`, `type` (journey, broadcast, test, inapp), `step`, `channel`, `template`; `links.*` is
+  `unsubscribe` and `preferences` (email only; no web-view link exists yet).
+- **Trigger context.** Migration 021 adds `journey_enrollments.trigger`: the event's (or form submission's) properties
+  when it enrolls, without the schema's personal paths, at most 16 KB (largest top-level properties dropped first;
+  `eventschema.MessageProps`). The journey role has its own schema cache for that. Send steps load it per step (only
+  for event and form journeys) and put it on the Kafka message (`model.Message.Event`, with `Campaign` and `Step`), so
+  the dispatcher stays stateless, waits and timers need nothing extra, and the SMS fallback carries it too. Contacts
+  added by another journey (change journey) have no trigger event.
+- **Missing values** are a template setting (`templates.missing_values`: `empty` default, or `skip`), not a step
+  setting: the template is where the variables are. A skipped contact is recorded as `<channel>_failed` with
+  `reason: "skipped: no value for …"` and `props.skipped = "missing_value"`, so reports count it under Failed without
+  a new ClickHouse view (M4 adds failure reasons). Variables with a default and the older syntax never count as missing.
+- **Picker and lint.** One catalog (`web/src/personalize.ts`) feeds the `{ } Variable` picker on every templated
+  field, the rich-text **Personalize…** menu (now the same variables) and copy-to-clipboard in the visual builder
+  (GrapesJS can't be typed into from outside). Templates don't know their journey, so the editor has a **Trigger event
+  for {{event.…}}** choice (remembered per browser); journey steps use the journey's trigger event. Unknown contact
+  fields and event properties are warnings (the value may still arrive); syntax mistakes are errors, mirrored by the
+  server. Email has no preheader field, so there is none to personalise.
+- **Preview and test.** `POST /v1/templates/preview` and `POST /v1/channels/test` take `event` (≤ 16 KB);
+  `GET /v1/templates/sample-event?event=&external_id=` returns the contact's latest real event of that name (personal
+  properties removed; needs contacts view), else an example built from the schema.
+- **Channel by condition.** `send_message` channels became rules: each may have `when` (segment property filters on
+  `contact.*` and `event.*`) and a `fallback_template_id`; the same channel may appear in several rules when conditions
+  differ (at most 10 rules). The first rule whose conditions match and whose channel the contact can receive sends; a
+  rule without conditions is the default. No match records `message_skipped`; matched but unreachable keeps
+  `message_unreachable`. The chosen channel is counted as step output `ch:<channel>` (`ch:none`) and shown on the
+  canvas. Old steps (no conditions) behave exactly as before.
+- **Elsewhere.** Webhook bodies, `push_dwc` HTML (escaped) and `update_attr` values take the variables with the trigger
+  event; in-app campaigns take contact variables per app user. Focus items aren't personalised per contact.
+- **Public routes show contact data only to a verified identity.** `POST /v1/web/inapp` and `POST /v1/web/decide` are
+  called with a site/app key and a person's ID, which anyone can send. Personalised in-app text and journey-pushed DWC
+  use the contact's data only when `verifiedIdentity` holds: the workspace has an identity secret and the request's
+  `user_hash` for that (non-`anon-`) ID checks out — stricter than `webIdentityOK`, which also passes when signed
+  identify isn't required. Otherwise the variables take their defaults. A `push_dwc` step with variables stores both
+  versions (`onsite.PersonalDWC`: filled, and filled with an empty contact and no event) and `decide` picks one
+  (`onsite.ResolveDWC`). Web push and messages go to the contact's own address or device; landing pages and focus items
+  aren't personalised, so no other public route renders `{{contact.x}}`.
+- Docs: [tutorial 13](tutorials/13-personalising-messages.md), tutorials 5, 6, 7, 8 and 12, the API guide.
 
 ## Risks
 

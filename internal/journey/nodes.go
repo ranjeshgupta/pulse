@@ -11,12 +11,13 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"text/template"
 	"time"
 
 	"pulse/internal/attr"
 	"pulse/internal/channel"
 	"pulse/internal/event"
+	"pulse/internal/model"
+	"pulse/internal/personalize"
 	"pulse/internal/segment"
 )
 
@@ -74,10 +75,64 @@ const (
 	EventPushFailed    = "integration_push_failed" // a push_integration step couldn't reach the CRM: props integration_id, error
 )
 
-// ChannelMessage is one channel of a send_message step.
+// ChannelMessage is one rule of a send_message step: a channel and its template, used when the
+// contact matches When (every filter; none = always) and can receive the channel. Rules are tried
+// in order and the first that applies sends.
 type ChannelMessage struct {
 	Channel    string `json:"channel"`
 	TemplateID int64  `json:"template_id"`
+	// FallbackTemplateID (whatsapp, rcs): an SMS template sent if the message can't reach them.
+	FallbackTemplateID int64 `json:"fallback_template_id,omitempty"`
+	// When: conditions on the contact and the trigger event, as segment property filters whose
+	// paths start with contact. or event. (contact.phone_country eq IN, event.total gt 1000).
+	When []segment.PropFilter `json:"when,omitempty"`
+}
+
+// EventMessageSkipped records a send_message step whose rules matched none of the contact's
+// details (and had no rule without conditions).
+const EventMessageSkipped = "message_skipped"
+
+// maxChannelRules caps a send_message step's rules.
+const maxChannelRules = 10
+
+// HasConditions reports whether any rule has conditions.
+func HasConditions(rules []ChannelMessage) bool {
+	for _, r := range rules {
+		if len(r.When) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ConditionProps is what send_message conditions read: contact.* (email, external_id and every
+// attribute) and event.* (the trigger event's properties).
+func ConditionProps(c model.Contact, ev map[string]any) map[string]any {
+	contact := make(map[string]any, len(c.Attrs)+2)
+	for k, v := range c.Attrs {
+		contact[k] = v
+	}
+	if c.Email != "" {
+		contact["email"] = c.Email
+	}
+	contact["external_id"] = c.ExternalID
+	if ev == nil {
+		ev = map[string]any{}
+	}
+	return map[string]any{"contact": contact, "event": ev}
+}
+
+// Matches reports whether the rule applies to a contact (with the journey's trigger event).
+func (m ChannelMessage) Matches(c model.Contact, ev map[string]any) bool {
+	return len(m.When) == 0 || segment.MatchProps(m.When, ConditionProps(c, ev))
+}
+
+// ChannelOutput is the step-stats output for the channel a send_message step chose ("" = none).
+func ChannelOutput(ch string) string {
+	if ch == "" {
+		return "ch:none"
+	}
+	return "ch:" + ch
 }
 
 type kind int
@@ -236,7 +291,7 @@ func validUpdateValues(attrs map[string]any) error {
 			}
 		}
 		if strings.Contains(s, "{{") {
-			if _, err := template.New(k).Parse(s); err != nil {
+			if err := personalize.Check(k, s, false); err != nil {
 				return fmt.Errorf("%s: %v", k, err)
 			}
 		}
@@ -320,17 +375,33 @@ func (g Graph) validNew(id string, n Node) (bool, error) {
 			}
 		}
 	case NodeSendMessage:
-		if len(n.Channels) == 0 || len(n.Channels) > len(channel.All) {
-			return fail("add 1 to %d channels", len(channel.All))
+		if len(n.Channels) == 0 || len(n.Channels) > maxChannelRules {
+			return fail("add 1 to %d channels", maxChannelRules)
 		}
 		seen := map[string]bool{}
-		for _, c := range n.Channels {
-			if !channel.Valid(c.Channel) || seen[c.Channel] {
-				return fail("each channel once")
+		for i, c := range n.Channels {
+			if !channel.Valid(c.Channel) {
+				return fail("rule %d: choose a channel", i+1)
 			}
-			seen[c.Channel] = true
+			if len(c.When) == 0 { // an unconditional rule: each channel once
+				if seen[c.Channel] {
+					return fail("each channel once without conditions")
+				}
+				seen[c.Channel] = true
+			}
 			if c.TemplateID <= 0 {
 				return fail("choose a %s template", c.Channel)
+			}
+			if c.FallbackTemplateID < 0 || c.FallbackTemplateID > 0 && !channel.FallsBackToSMS(c.Channel) {
+				return fail("only WhatsApp and RCS take an SMS fallback")
+			}
+			if err := segment.ValidatePropFilters(fmt.Sprintf("rule %d", i+1), c.When); err != nil {
+				return fail("%v", err)
+			}
+			for _, f := range c.When {
+				if !strings.HasPrefix(f.Prop, "contact.") && !strings.HasPrefix(f.Prop, "event.") {
+					return fail("rule %d: conditions read contact.<field> or event.<property>, not %q", i+1, f.Prop)
+				}
 			}
 		}
 	case NodeShowFocus:
@@ -343,6 +414,10 @@ func (g Graph) validNew(id string, n Node) (bool, error) {
 		}
 		if strings.TrimSpace(n.HTML) == "" || len(n.HTML) > maxDWCHTML {
 			return fail("enter the content (up to 64 KB)")
+		}
+		// Only the variables are checked: older content may hold other {{…}} text (it is then sent as written).
+		if _, _, err := personalize.Translate(n.HTML, true); err != nil {
+			return fail("%v", err)
 		}
 		if n.Days < 0 || n.Days > 365 {
 			return fail("keep it 1 to 365 days")

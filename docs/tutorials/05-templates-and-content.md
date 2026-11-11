@@ -39,21 +39,26 @@ fail to send).
 
 ## 2. Personalisation
 
-Templates use Go template tags. The most useful:
+Templates use **variables** in double braces, filled for each contact when the message goes out:
 
-| Tag | Gives |
+| Variable | Gives |
 |---|---|
-| `{{.Attrs.first_name}}` | Any contact attribute by its key (`city`, `plan`, your own fields from **Settings → Contact fields**) |
-| `{{.Contact.Email}}`, `{{.Contact.ExternalID}}` | The contact's email address and ID |
-| `{{index .Attrs "favourite-store"}}` | An attribute whose key has dashes or spaces |
-| `{{or .Attrs.first_name "there"}}` | A fallback when the attribute is empty (in subjects, SMS and other text fields) |
-| `{{.UnsubscribeURL}}`, `{{.PreferencesURL}}` | Email only: the contact's unsubscribe link and preference center |
+| `{{contact.first_name}}` | Any contact field by its key (`city`, `phone_country`, your own fields from **Settings → Contact fields**) |
+| `{{contact.email}}`, `{{contact.external_id}}` | The contact's email address and ID |
+| `{{contact.first_name \| default:"there"}}` | A fallback when the field is empty; other formats: `upper`, `title`, `date`, `money`, `truncate:40`… |
+| `{{event.product_name}}` | A property of the event that started the journey (a cart's product) |
+| `{{campaign.name}}` | The journey's or broadcast's name |
+| `{{links.unsubscribe}}`, `{{links.preferences}}` | Email only: the contact's unsubscribe link and preference center |
 
-A missing attribute prints nothing. In the email editor, the **Personalize…** menu inserts the tags for
-you.
+Every templated field has a **{ } Variable** button that lists them and adds a default or a format;
+in the rich text editor the **Personalize…** menu does the same. Above the editor, choose what happens
+when a variable has no value: **leave it empty** (the default) or **don't send to that contact**.
+[Tutorial 13](13-personalising-messages.md) covers variables, formats, the event that started a
+journey and choosing the channel by rule.
 
-> Mautic's `{contactfield=first_name}` works only in a journey's **Update contact** step, not in
-> templates. In templates, write `{{.Attrs.first_name}}`.
+> Templates written with the older Go template tags (`{{.Attrs.first_name}}`, `{{.Contact.Email}}`,
+> `{{.UnsubscribeURL}}`, `{{if …}}`) keep working, also next to variables. Mautic's
+> `{contactfield=first_name}` works only in a journey's **Update contact** step.
 
 ## 3. Write an email
 
@@ -76,13 +81,14 @@ you.
    the builder's layout with plain HTML.
 3. For this offer, click **Rich text** and confirm. Fill in:
    - **Template name**: `Diwali offer (email)`
-   - **Subject**: `{{.Attrs.first_name}}, your Diwali offer is here`
+   - **Subject**: `{{contact.first_name | default:"Hello"}}, your Diwali offer is here` (type it, or click
+     **{ } Variable** beside the field, choose **First name** and enter the default)
 4. Write the email. The toolbar has text styles, bold/italic/underline, colours, links (select text,
    then the link button or Ctrl+K), lists, alignment, images and tables. Put the cursor where the city
-   goes and choose **Personalize… → City**. The preview on the right fills tags with a sample contact
-   (Asha from Pune).
+   goes and choose **Personalize… → City**. The preview on the right fills variables with a sample
+   contact (Asha from Pune).
 
-   ![The Rich text tab: the email with {{.Attrs.first_name}} and {{.Attrs.city}} tags, a link, the Personalize menu highlighted, and the preview on the right showing Hi Asha and Pune](img/05-email-richtext.png)
+   ![The Rich text tab: the email with {{contact.first_name}} and {{contact.city}} variables, a link, the Personalize menu highlighted, and the preview on the right showing Hi Asha and Pune](img/05-email-richtext.png)
 
    The **Source** button shows the HTML of what you wrote. The **HTML** tab shows the whole email with
    its preview:
@@ -94,7 +100,7 @@ Pulse adds three things to every email when it is sent, so you don't have to:
 
 - **An unsubscribe link** in a footer (*You're receiving this because you subscribed. Unsubscribe*), and
   the List-Unsubscribe header mail apps use for their own unsubscribe button. If you place
-  `{{.UnsubscribeURL}}` yourself, that's used instead.
+  `{{links.unsubscribe}}` yourself, that's used instead.
 - **Open and click tracking**: every link goes through a signed tracking link, recorded as
   `email_clicked`; opens are recorded as `email_opened`. Journeys, segments and reports use both.
 - **A plain-text part**. Leave the **Plain text (auto)** tab empty and Pulse generates it from the HTML
@@ -142,14 +148,14 @@ Non-email templates show a phone preview beside the form, filled with sample val
 ### SMS
 
 1. On the **SMS** tab, click **New SMS template**. Name it `Diwali offer (SMS)`.
-2. **Message**: `Hi {{.Attrs.first_name}}, Diwali sale: 20% off everything until Sunday. Shop now:
+2. **Message**: `Hi {{contact.first_name | default:"there"}}, Diwali sale: 20% off everything until Sunday. Shop now:
    https://shop.example.com/diwali`. Under it Pulse counts characters and SMS parts (160 per SMS, or 70
    with characters outside the GSM alphabet such as emoji or Hindi).
 3. **Sender ID**: your registered header (e.g. `ACMEIN` for India DLT); empty uses the provider's.
 4. Tick **Track link clicks**: links become short tracked links (about 40 characters, working for 30
    days), so "Clicked a link in an SMS" works in segments and reports.
 
-   ![A new SMS template: the message with a first-name tag and a link, sender ID ACMEIN, Track link clicks ticked, and the SMS preview with Hi Asha](img/05-sms.png)
+   ![A new SMS template: the message with a first-name variable and a link, sender ID ACMEIN, Track link clicks ticked, and the SMS preview with Hi Asha](img/05-sms.png)
 5. **Save template** and **Send a test** to `cust-0287`. Through the sandbox, it appears in
    **Settings → Test inbox** with the link shortened:
 
@@ -167,7 +173,7 @@ WhatsApp template points at one:
 | **Approved template name** | The name in Meta, e.g. `cart_reminder` |
 | **Language code** | The approved language, e.g. `en`, `hi`, `en_US` |
 | **Template text, for the preview** | The approved text with `{{1}}`, `{{2}}`… (only for the preview; Meta sends its own copy) |
-| **Variables** | One per `{{n}}`, in order; **Add variable** for more. Each can use tags, e.g. `{{.Attrs.first_name}}` |
+| **Variables** | One per `{{n}}`, in order; **Add variable** for more. Each can use variables, e.g. `{{contact.first_name}}` or `{{event.product_name}}` |
 | **Header image URL (optional)** | For templates with an image header |
 
 ![The seeded Cart reminder (WhatsApp) template: approved template cart_reminder, language en, the preview text and one variable {{.Attrs.first_name}}, with the WhatsApp preview](img/05-whatsapp.png)

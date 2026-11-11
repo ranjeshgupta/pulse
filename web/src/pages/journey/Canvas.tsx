@@ -6,7 +6,7 @@ import {
   BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, Handle, Position, type EdgeProps, type NodeProps,
 } from "@xyflow/react";
 import { createContext, useContext } from "react";
-import type { JourneyGraph, MessageCounts, StepStats } from "../../api";
+import { CHANNEL_NAMES, type Channel, type JourneyGraph, type MessageCounts, type StepStats } from "../../api";
 import { itemForNode } from "../../journeyCatalog";
 import {
   emptyGraph, groupOf, nodeChannel, outputs, pathName, shapeOf, stepLabel, targetAt, TRIGGER_ID,
@@ -93,6 +93,10 @@ function StatsRow({ id }: { id: string }) {
   const shape = shapeOf(n.type);
   if (shape === "decision" || shape === "condition") lines.push(`Yes ${(st.yes ?? 0).toLocaleString("en-IN")} · No ${(st.no ?? 0).toLocaleString("en-IN")}`);
   if (shape === "split") lines.push((n.variants ?? []).map((_, i) => `${pathName(n, i)} ${(st[`v${i}`] ?? 0).toLocaleString("en-IN")}`).join(" · "));
+  if (n.type === "send_message") {
+    const chosen = Object.entries(st).filter(([k]) => k.startsWith("ch:")).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
+    if (chosen.length) lines.push(chosen.map(([k, v]) => `${k === "ch:none" ? "None" : CHANNEL_NAMES[k.slice(3) as Channel] ?? k.slice(3)} ${(v ?? 0).toLocaleString("en-IN")}`).join(" · "));
+  }
   const m = c.messages?.[id];
   const ch = nodeChannel(n.type);
   if (m && (ch || n.type === "send_message")) {

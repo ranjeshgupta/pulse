@@ -10,7 +10,7 @@ const AREA = "tutorials";
 const MAILPIT = process.env.MAILPIT_URL || "http://localhost:18025";
 
 const EMAIL_NAME = "Diwali offer (email)";
-const EMAIL_SUBJECT = "{{.Attrs.first_name}}, your Diwali offer is here";
+const EMAIL_SUBJECT = '{{contact.first_name | default:"Hello"}}, your Diwali offer is here';
 const SMS_NAME = "Diwali offer (SMS)";
 const PAGE_SLUG = "diwali-offer";
 const FORM_NAME = "Bulk order enquiry";
@@ -18,8 +18,8 @@ const ASSET_TITLE = "2026 bulk price list";
 
 const EMAIL_STYLE = "font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#152238;max-width:600px;margin:0 auto;padding:24px";
 const PAGE_STYLE = "font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:17px;line-height:1.65;color:#152238;max-width:720px;margin:0 auto;padding:48px 24px";
-const EMAIL_HTML = `<div class="pulse-rt" style="${EMAIL_STYLE}"><p>Hi {{.Attrs.first_name}},</p>` +
-  `<p>Our Diwali sale is on in {{.Attrs.city}}: <strong>20% off everything</strong> until Sunday.</p>` +
+const EMAIL_HTML = `<div class="pulse-rt" style="${EMAIL_STYLE}"><p>Hi {{contact.first_name | default:"there"}},</p>` +
+  `<p>Our Diwali sale is on in {{contact.city}}: <strong>20% off everything</strong> until Sunday.</p>` +
   `<p><a href="https://shop.example.com/diwali">Shop the Diwali sale</a></p>` +
   `<p>See you soon,<br>The Acme Retail team</p></div>`;
 const PAGE_HTML = `<div class="pulse-rt" style="${PAGE_STYLE}"><h1>Diwali offer: 20% off everything</h1>` +
@@ -144,7 +144,7 @@ async function templates(page, context, contact) {
   // 6. An SMS template with tracked links, and its test in the test inbox.
   await go(page, "/templates/new?channel=sms");
   await page.getByLabel("Template name").fill(SMS_NAME);
-  await page.getByLabel(/^Message/).fill("Hi {{.Attrs.first_name}}, Diwali sale: 20% off everything until Sunday. Shop now: https://shop.example.com/diwali");
+  await page.getByLabel(/^Message/).fill('Hi {{contact.first_name | default:"there"}}, Diwali sale: 20% off everything until Sunday. Shop now: https://shop.example.com/diwali');
   await page.getByLabel(/^Sender ID/).fill("ACMEIN");
   await page.getByRole("checkbox", { name: /Track link clicks/ }).check();
   await settle(page);

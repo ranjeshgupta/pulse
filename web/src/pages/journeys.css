@@ -111,11 +111,17 @@
 .insp-icon { flex: none; display: inline-flex; color: var(--muted); margin-top: 3px; }
 .j-checklist { max-height: 180px; overflow-y: auto; border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 6px 8px; }
 .j-checklist .check { margin-bottom: 4px; }
-.j-channels { list-style: decimal; padding-left: 20px; margin: 0 0 8px; }
-.j-channels li { margin-bottom: 6px; }
-.j-channels li > * { vertical-align: middle; }
-.j-channels li { display: list-item; }
-.j-channels li .select { width: auto; max-width: 150px; display: inline-block; margin: 0 4px; }
+.j-rules { list-style: none; padding: 0; margin: 0 0 8px; }
+.j-rule { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; margin-bottom: 8px; background: var(--porcelain); }
+.j-rule .select, .j-rule .input { min-width: 0; }
+.j-cond { margin-top: 6px; }
+.j-cond-and { display: block; margin-bottom: 2px; }
+.j-cond-line { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.j-cond-line > .input, .j-cond-line > .select { flex: 1; }
+.j-send { margin-top: 10px; }
+.j-full { width: 100%; margin-top: 6px; }
+.j-fallback { display: block; margin-top: 6px; }
+.j-rule .row { flex-wrap: wrap; }
 .j-issues { margin-top: 20px; }
 .j-issues h4 { margin-bottom: 6px; }
 /* Custom bullets on the first line: a wrapped link button would otherwise carry the marker to its last line. */

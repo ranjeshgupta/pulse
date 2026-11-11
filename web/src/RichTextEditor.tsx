@@ -7,9 +7,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type AssetList, type AttributeDef } from "./api";
+import { api, type AssetList } from "./api";
 import { richTextExtensions, roundTrip } from "./richTextExtensions";
-import { EMAIL_LINK_TAGS, mergeTags, normalizeLink, richTextLoss } from "./richTextHtml";
+import { EMAIL_LINK_TAGS, normalizeLink, richTextLoss } from "./richTextHtml";
+import { useVariables } from "./VarPicker";
 import "./richtext.css";
 import type { RichTextHandle, RichTextProps } from "./RichText";
 
@@ -307,14 +308,23 @@ function ColorMenu({ icon, tip, current, colors, disabled, onPick, onClear, clea
 }
 
 function TagPicker({ email, onTag }: { email: boolean; onTag: (tag: string) => void }) {
-  const q = useQuery({ queryKey: ["attributes"], queryFn: () => api.get<{ attributes: AttributeDef[] }>("/v1/attributes"), staleTime: 60_000 });
-  const tags = mergeTags(q.data?.attributes ?? []);
+  // The same catalog as every other templated field (VarPicker): contact fields, the trigger event, campaign, links.
+  const v = useVariables();
+  const tags = v.contact.map((c) => ({ label: c.label, tag: c.var === "contact.first_name" ? '{{contact.first_name | default:"there"}}' : `{{${c.var}}}` }));
   return (
     <select className="rt-select rt-tags" aria-label="Insert personalization" value=""
       onChange={(e) => { if (e.target.value) onTag(e.target.value); }}>
       <option value="">Personalize…</option>
       <optgroup label="Contact">
         {tags.map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
+      </optgroup>
+      {v.event && v.event.length > 0 && (
+        <optgroup label={`Trigger event (${v.eventName})`}>
+          {v.event.map((t) => <option key={t.var} value={`{{${t.var}}}`}>{t.label}</option>)}
+        </optgroup>
+      )}
+      <optgroup label="Campaign">
+        {v.campaign.map((t) => <option key={t.var} value={`{{${t.var}}}`}>{t.label}</option>)}
       </optgroup>
       {email && (
         <optgroup label="Links (as text)">

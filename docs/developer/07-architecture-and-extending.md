@@ -106,6 +106,7 @@ store function takes the tenant ([architecture, identity and tenancy](../02-arch
 | `internal/broadcast` | Scheduled broadcasts and A/B tests |
 | `internal/dispatch` | The send pipeline and rate limiter |
 | `internal/channel` | Channels, template content, rendering, validation |
+| `internal/personalize` | Standard variables (`{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}`) and pipes, translated into Go templates |
 | `internal/providers` | Provider adapters and their catalog (SMTP, Twilio, MSG91, Meta WhatsApp, Google RBM, FCM, web push, sandbox, custom gateway) |
 | `internal/consent`, `internal/delivery` | Opt-outs; frequency caps, quiet hours, keywords |
 | `internal/tracking`, `internal/replies`, `internal/bounces` | Open/click/unsubscribe links, reply codes, bounce parsing and IMAP mailboxes |

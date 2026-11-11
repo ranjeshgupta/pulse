@@ -254,9 +254,12 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if token != "" {
 		prefs = d.cfg.Tracking.PreferencesURL(token)
 	}
-	rendered, err := channel.RenderFor(t, c, channel.Links{Unsubscribe: unsub, Preferences: prefs})
+	rendered, err := channel.RenderWith(t, c, vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs}))
 	if err != nil {
 		return d.finish(ctx, sentKey, m, c, "failed", err.Error())
+	}
+	if t.MissingValues == channel.MissingSkip && len(rendered.Missing) > 0 {
+		return d.finish(ctx, sentKey, m, c, "failed", SkippedPrefix+strings.Join(rendered.Missing, ", "))
 	}
 	if token != "" {
 		rendered.HTML = d.cfg.Tracking.Instrument(rendered.HTML, token)
@@ -376,6 +379,28 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	}
 }
 
+// SkippedPrefix starts the reason of a message not sent because a variable had no value (the
+// template's missing-value policy is "skip"); the outcome is <channel>_failed with props.skipped.
+const SkippedPrefix = "skipped: no value for "
+
+// vars is a message's personalisation context: its trigger event, its campaign and its links.
+func vars(m model.Message, links channel.Links) channel.Vars {
+	v := channel.Vars{Links: links}
+	if len(m.Event) > 0 {
+		_ = json.Unmarshal(m.Event, &v.Event) // written by Pulse; a bad one just renders empty
+	}
+	v.Campaign.Name, v.Campaign.Step, v.Campaign.Channel = m.Campaign, m.Step, m.Channel
+	switch {
+	case m.BroadcastID != 0:
+		v.Campaign.Type, v.Campaign.ID = "broadcast", m.BroadcastID
+	case m.JourneyID != 0:
+		v.Campaign.Type, v.Campaign.ID = "journey", m.JourneyID
+	case strings.HasPrefix(m.ID, "test:"):
+		v.Campaign.Type = "test"
+	}
+	return v
+}
+
 // replyTo adds a Reply-To with a reply code when the workspace tracks replies (delivery rules
 // reply_to), so a reply can be matched to this message (package replies).
 func (d *Dispatcher) replyTo(ctx context.Context, m model.Message, token string, headers map[string]string) error {
@@ -424,9 +449,12 @@ func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.M
 	if t.Channel != channel.Email {
 		return done("failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
 	}
-	rendered, err := channel.RenderFor(t, c, channel.Links{})
+	rendered, err := channel.RenderWith(t, c, vars(m, channel.Links{}))
 	if err != nil {
 		return done("failed", err.Error())
+	}
+	if t.MissingValues == channel.MissingSkip && len(rendered.Missing) > 0 {
+		return done("failed", SkippedPrefix+strings.Join(rendered.Missing, ", "))
 	}
 	p, err := d.sender(ctx, m.TenantID, channel.Email)
 	if errors.Is(err, pg.ErrNotFound) {
@@ -556,7 +584,7 @@ func (d *Dispatcher) fallback(ctx context.Context, m model.Message, reason strin
 	}
 	sms := model.Message{ID: m.ID + ":sms", TenantID: m.TenantID, ContactID: m.ContactID, Channel: channel.SMS,
 		TemplateID: m.FallbackTemplateID, JourneyID: m.JourneyID, IsFallback: true,
-		BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant}
+		BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant, Event: m.Event, Campaign: m.Campaign, Step: m.Step}
 	rec, err := kafka.JSON(channel.Topic(channel.SMS), event.ContactKey(m.TenantID, m.ContactID), sms)
 	if err != nil {
 		return err
@@ -601,6 +629,9 @@ func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact
 	props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID}
 	if reason != "" {
 		props["reason"] = reason
+		if strings.HasPrefix(reason, SkippedPrefix) {
+			props["skipped"] = "missing_value"
+		}
 	}
 	if m.IsFallback {
 		props["fallback"] = true

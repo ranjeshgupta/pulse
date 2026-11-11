@@ -475,9 +475,9 @@ describe("validation mirror", () => {
     expect(one({ type: "notify_user" })).toEqual(["choose the email template.", "choose who gets the email."]);
     expect(one({ type: "notify_user", template_id: 1, emails: ["nope"] })).toEqual(["check the email addresses."]);
     expect(one({ type: "notify_user", template_id: 1, to_owner: true })).toEqual([]);
-    expect(one({ type: "send_message", channels: [{ channel: "email", template_id: 1 }, { channel: "email", template_id: 2 }] })).toEqual(["use each channel once."]);
-    expect(one({ type: "send_message", channels: [{ channel: "push" }, { channel: "email", template_id: 2 }] })).toEqual(["choose a template for every channel."]);
-    expect(one({ type: "send_message", channels: [] })).toEqual(["choose 1 to 6 channels."]);
+    expect(one({ type: "send_message", channels: [{ channel: "email", template_id: 1 }, { channel: "email", template_id: 2 }] })).toEqual(["use each channel once in rules without conditions."]);
+    expect(one({ type: "send_message", channels: [{ channel: "push" }, { channel: "email", template_id: 2 }] })).toEqual(["choose a template for every rule."]);
+    expect(one({ type: "send_message", channels: [] })).toEqual(["add 1 to 10 rules."]);
     expect(one({ type: "show_focus" })).toEqual(["choose the focus item to show."]);
     expect(one({ type: "push_dwc", slot: "hero", html: " " })).toEqual(["enter the content to show."]);
     expect(one({ type: "push_dwc", slot: "hero", html: "x".repeat(65 * 1024) })).toEqual(["the content can be at most 64 KB."]);

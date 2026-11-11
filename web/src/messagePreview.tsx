@@ -1,7 +1,7 @@
 // Preview and test-send, shared by templates, journey steps and broadcasts, for every channel.
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { api, CHANNEL_NAMES, type Channel, type ChannelContent, type Template } from "./api";
+import { useEffect, useState } from "react";
+import { api, CHANNEL_NAMES, type Channel, type ChannelContent, type EventSchema, type Template } from "./api";
 import { ErrorNote, Field, Modal, useToast } from "./ui";
 
 /** A file attached to an email (template preview). */
@@ -94,7 +94,7 @@ function EmailPreview({ r }: { r: Rendered }) {
       ) : (
         <>
           <pre className="preview-frame" style={{ whiteSpace: "pre-wrap", padding: 14, margin: 0, overflow: "auto", font: "13px/1.55 ui-monospace, monospace" }} aria-label="Plain-text part">{r.text || "(empty)"}</pre>
-          <p className="xs muted" style={{ marginTop: 6 }}>Links in the plain-text part go straight to their pages (no click tracking). The unsubscribe link is added at the end when the text doesn't place {"{{.UnsubscribeURL}}"} itself.</p>
+          <p className="xs muted" style={{ marginTop: 6 }}>Links in the plain-text part go straight to their pages (no click tracking). The unsubscribe link is added at the end when the text doesn't place {"{{links.unsubscribe}}"} itself.</p>
         </>
       )}
       {r.attachments && r.attachments.length > 0 && (
@@ -110,14 +110,68 @@ function EmailPreview({ r }: { r: Rendered }) {
   );
 }
 
-// PreviewModal renders a template (saved or still being edited) for a chosen contact, on the server,
-// exactly as it would be sent.
-export function PreviewModal({ template, onClose }: { template: Partial<Template> & { channel: Channel }; onClose: () => void }) {
+/** The answer of GET /v1/templates/sample-event. */
+type SampleEvent = { source: "latest" | "schema" | "none"; at?: string; props: Record<string, unknown> };
+
+/**
+ * SampleEventFields: the trigger event a preview or test send uses for {{event.x}}: the contact's
+ * latest real event of that name, else the schema's example, editable as JSON. Empty: no event
+ * (as a broadcast).
+ */
+function SampleEventFields({ name, setName, contact, json, setJson }: { name: string; setName: (s: string) => void; contact: string; json: string; setJson: (s: string) => void }) {
+  const schemas = useQuery({ queryKey: ["event-schemas"], queryFn: () => api.get<{ schemas: EventSchema[] }>("/v1/events/schemas"), staleTime: 60_000, retry: false });
+  const sample = useQuery({
+    queryKey: ["sample-event", name, contact],
+    queryFn: () => api.get<SampleEvent>(`/v1/templates/sample-event?event=${encodeURIComponent(name)}${contact ? `&external_id=${encodeURIComponent(contact)}` : ""}`),
+    enabled: !!name, retry: false,
+  });
+  useEffect(() => {
+    if (sample.data) setJson(JSON.stringify(sample.data.props, null, 2));
+  }, [sample.data, setJson]);
+  const bad = json.trim() !== "" && parseEvent(json) === undefined;
+  const names = schemas.data?.schemas.map((x) => x.name) ?? [];
+  return (
+    <div className="sample-event">
+      <Field label="Trigger event" hint={!name ? "No event: {{event.…}} renders empty or its default, as in a broadcast." : sample.data?.source === "latest" ? `The contact's latest ${name} (${new Date(sample.data.at!).toLocaleString()}), personal properties left out.` : sample.data?.source === "schema" ? `No ${name} for this contact: an example from the event's schema.` : sample.data?.source === "none" ? `No ${name} for this contact and no schema: type the properties.` : undefined}>
+        <select className="select" value={name} onChange={(e) => setName(e.target.value)}>
+          <option value="">None</option>
+          {[...new Set([...names, ...(name ? [name] : [])])].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </Field>
+      {name && (
+        <Field label="Event properties (JSON)" hint={bad ? <span style={{ color: "var(--danger)" }}>Not a JSON object.</span> : "Edit to try other values."}>
+          <textarea className="textarea code-editor" style={{ minHeight: 110 }} value={json} onChange={(e) => setJson(e.target.value)} spellCheck={false} aria-label="Event properties" />
+        </Field>
+      )}
+      <ErrorNote error={sample.error} />
+    </div>
+  );
+}
+
+/** parseEvent reads the JSON object typed for the sample event (undefined when it isn't one). */
+export function parseEvent(json: string): Record<string, unknown> | null | undefined {
+  if (!json.trim()) return null;
+  try {
+    const v = JSON.parse(json);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// PreviewModal renders a template (saved or still being edited) for a chosen contact and sample
+// trigger event, on the server, exactly as it would be sent.
+export function PreviewModal({ template, event = "", onClose }: { template: Partial<Template> & { channel: Channel }; event?: string; onClose: () => void }) {
   const [ext, setExt] = useState("");
   const [asWho, setAsWho] = useState("");
+  const [evName, setEvName] = useState(event);
+  const [evJson, setEvJson] = useState("");
+  const ev = parseEvent(evJson);
   const q = useQuery({
-    queryKey: ["preview", asWho, template],
-    queryFn: () => api.post<Rendered & { contact: { external_id: string; email: string; phone?: string } }>("/v1/templates/preview", { template, external_id: asWho }),
+    queryKey: ["preview", asWho, template, evName && ev],
+    queryFn: () => api.post<Rendered & { contact: { external_id: string; email: string; phone?: string }; missing: string[]; skipped: boolean }>("/v1/templates/preview",
+      { template, external_id: asWho, event: evName && ev ? ev : undefined }),
+    enabled: ev !== undefined,
   });
   return (
     <Modal title={`Preview: ${template.name || CHANNEL_NAMES[template.channel]}`} onClose={onClose}>
@@ -125,6 +179,7 @@ export function PreviewModal({ template, onClose }: { template: Partial<Template
         <input className="input" placeholder="Contact's external ID (empty: sample contact)" value={ext} onChange={(e) => setExt(e.target.value)} aria-label="Preview as contact" />
         <button className="btn">Preview as contact</button>
       </form>
+      <SampleEventFields name={evName} setName={setEvName} contact={asWho} json={evJson} setJson={setEvJson} />
       <ErrorNote error={q.error} />
       {q.data && (
         <>
@@ -132,6 +187,11 @@ export function PreviewModal({ template, onClose }: { template: Partial<Template
             As {q.data.contact.external_id === "sample" ? "a sample contact (Asha from Pune)" : q.data.contact.external_id}
             {template.channel === "email" ? `, to ${q.data.contact.email || "no email"}` : q.data.contact.phone ? `, to ${q.data.contact.phone}` : ""}
           </p>
+          {q.data.missing?.length > 0 && (
+            <div className={`alert ${q.data.skipped ? "error" : "info"}`}>
+              No value for {q.data.missing.map((m) => `{{${m}}}`).join(", ")}{q.data.skipped ? ": this contact would get nothing (the template skips contacts with missing values)." : ": rendered empty. Add a default, or set the template to skip such contacts."}
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "center" }}><MessagePreview channel={template.channel} r={q.data} label="As it will be sent" /></div>
         </>
       )}
@@ -139,22 +199,27 @@ export function PreviewModal({ template, onClose }: { template: Partial<Template
   );
 }
 
-// TestSendModal sends the saved template to one contact through the channel's normal delivery path.
-export function TestSendModal({ template, onClose }: { template: Template; onClose: () => void }) {
+// TestSendModal sends the saved template to one contact through the channel's normal delivery path,
+// with a sample trigger event for {{event.x}}.
+export function TestSendModal({ template, event = "", onClose }: { template: Template; event?: string; onClose: () => void }) {
   const toast = useToast();
   const [ext, setExt] = useState("");
   const [fallback, setFallback] = useState("");
+  const [evName, setEvName] = useState(event);
+  const [evJson, setEvJson] = useState("");
+  const ev = parseEvent(evJson);
   const canFallback = template.channel === "whatsapp" || template.channel === "rcs";
   const sms = useQuery({ queryKey: ["templates", "sms"], queryFn: () => api.get<{ templates: Template[] }>("/v1/templates?channel=sms"), enabled: canFallback });
   const send = useMutation({
-    mutationFn: () => api.post("/v1/channels/test", { template_id: template.id, external_id: ext.trim(), fallback_template_id: Number(fallback) || 0 }),
+    mutationFn: () => api.post("/v1/channels/test", { template_id: template.id, external_id: ext.trim(), fallback_template_id: Number(fallback) || 0, event: evName && ev ? ev : undefined }),
     onSuccess: () => { toast({ text: "Test queued. Check the test inbox or the contact's device." }); onClose(); },
   });
   return (
-    <Modal title={`Send a test: ${template.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!ext.trim() || send.isPending} onClick={() => send.mutate()}>Send test</button></>}>
+    <Modal title={`Send a test: ${template.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!ext.trim() || send.isPending || ev === undefined} onClick={() => send.mutate()}>Send test</button></>}>
       <ErrorNote error={send.error} />
-      <p className="small muted" style={{ marginBottom: 14 }}>Sends the saved version to one contact through your {CHANNEL_NAMES[template.channel]} provider, personalized with their attributes.</p>
+      <p className="small muted" style={{ marginBottom: 14 }}>Sends the saved version to one contact through your {CHANNEL_NAMES[template.channel]} provider, personalized with their fields and the sample event.</p>
       <Field label="Contact's external ID"><input className="input" value={ext} onChange={(e) => setExt(e.target.value)} autoFocus /></Field>
+      <SampleEventFields name={evName} setName={setEvName} contact={ext.trim()} json={evJson} setJson={setEvJson} />
       {canFallback && (
         <Field label="SMS fallback (optional)" hint="Also tests the fallback: if this contact can't get the message, the SMS goes instead.">
           <select className="select" value={fallback} onChange={(e) => setFallback(e.target.value)}>
@@ -167,8 +232,9 @@ export function TestSendModal({ template, onClose }: { template: Template; onClo
   );
 }
 
-// TemplateActions are the "Preview" and "Send a test" buttons for a saved template id.
-export function TemplateActions({ templateId, size = "sm" }: { templateId?: number; size?: "sm" | "" }) {
+// TemplateActions are the "Preview" and "Send a test" buttons for a saved template id; event is the
+// journey's trigger event, offered as the sample.
+export function TemplateActions({ templateId, size = "sm", event }: { templateId?: number; size?: "sm" | ""; event?: string }) {
   const t = useQuery({ queryKey: ["template", String(templateId)], queryFn: () => api.get<Template>(`/v1/templates/${templateId}`), enabled: !!templateId });
   const [open, setOpen] = useState<"preview" | "test" | null>(null);
   if (!templateId) return null;
@@ -176,8 +242,8 @@ export function TemplateActions({ templateId, size = "sm" }: { templateId?: numb
     <div className="row" style={{ marginBottom: 12 }}>
       <button type="button" className={`btn ${size}`} disabled={!t.data} onClick={() => setOpen("preview")}>Preview</button>
       <button type="button" className={`btn ${size}`} disabled={!t.data} onClick={() => setOpen("test")}>Send a test</button>
-      {open === "preview" && t.data && <PreviewModal template={t.data} onClose={() => setOpen(null)} />}
-      {open === "test" && t.data && <TestSendModal template={t.data} onClose={() => setOpen(null)} />}
+      {open === "preview" && t.data && <PreviewModal template={t.data} event={event} onClose={() => setOpen(null)} />}
+      {open === "test" && t.data && <TestSendModal template={t.data} event={event} onClose={() => setOpen(null)} />}
     </div>
   );
 }

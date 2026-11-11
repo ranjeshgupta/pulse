@@ -49,6 +49,23 @@ func (s *Store) SetEnrollmentForm(ctx context.Context, enrollment int64, props m
 	return err
 }
 
+// SetEnrollmentTrigger records the properties of the event that started an enrollment (already
+// filtered and capped, see eventschema.MessageProps), for {{event.x}} in its messages.
+func (s *Store) SetEnrollmentTrigger(ctx context.Context, enrollment int64, props json.RawMessage) error {
+	_, err := s.db.Exec(ctx, `UPDATE journey_enrollments SET trigger = $2 WHERE id = $1`, enrollment, nullJSON(props))
+	return err
+}
+
+// EnrollmentTrigger returns the recorded trigger event properties (nil when there are none).
+func (s *Store) EnrollmentTrigger(ctx context.Context, enrollment int64) (json.RawMessage, error) {
+	var b []byte
+	err := s.db.QueryRow(ctx, `SELECT trigger FROM journey_enrollments WHERE id = $1`, enrollment).Scan(&b)
+	if errors.Is(err, pgx.ErrNoRows) || len(b) == 0 {
+		return nil, nil
+	}
+	return b, err
+}
+
 // EnrollmentForm returns the recorded form submission, or nil.
 func (s *Store) EnrollmentForm(ctx context.Context, enrollment int64) (map[string]any, error) {
 	var b []byte

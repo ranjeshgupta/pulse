@@ -233,7 +233,11 @@ verification for events: without it the calls fail with a 403 error (`PulseExcep
 ## In-app messages
 
 In-app campaigns (modal, banner, full screen) are created in **Campaigns → On-site & in-app → New →
-Mobile app**. The SDK fetches the person's campaigns (`POST /v1/web/inapp`) at start, after
+Mobile app**. Their title, message and buttons may use contact variables (`{{contact.first_name | default:"there"}}`);
+Pulse fills them per person when the SDK fetches them, but only for a verified identity: the workspace has an
+identity secret and the request's `user_hash` (HMAC-SHA256 of the user ID with that secret, computed by your server)
+matches. Anonymous, unverified or hash-less requests get the variables' defaults, so nobody can read another person's
+fields by sending their ID. The SDK fetches the person's campaigns (`POST /v1/web/inapp`) at start, after
 `identify` and `reset`, and on return to the foreground (at most every 15 minutes), and shows one
 when `track(name)` or `screen(name)` matches its trigger, after its delay, within its frequency
 (`once` per device, `session`, `daily`, `always`).

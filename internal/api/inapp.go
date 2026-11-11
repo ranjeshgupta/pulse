@@ -237,8 +237,15 @@ func (s *Server) webInApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	member := map[int64]bool{}
+	// Personalised text shows the contact's own data, so it needs a verified identity (identity
+	// secret + user hash); everyone else gets the variables' defaults, as an anonymous visitor.
+	verified := verifiedIdentity(t, strings.TrimSpace(req.ID), req.UserHash)
+	who := model.Contact{Attrs: map[string]any{}}
 	if id := strings.TrimSpace(req.ID); id != "" {
 		if c, err := s.Store.ContactByExternalID(r.Context(), t.ID, id); err == nil {
+			if verified {
+				who = c
+			}
 			for _, seg := range inapp.Segments(ms) {
 				if in, err := s.Members.IsMember(r.Context(), t.ID, seg, c.ID); err == nil && in {
 					member[seg] = true
@@ -261,7 +268,7 @@ func (s *Server) webInApp(w http.ResponseWriter, r *http.Request) {
 	for i, m := range out {
 		tg := m.Targeting
 		tg.SegmentIDs, tg.ExcludeSegmentIDs = nil, nil // the app doesn't need the workspace's segment ids
-		items[i] = item{ID: m.ID, Layout: m.Layout, Content: m.Content, Targeting: tg, EndAt: m.EndAt}
+		items[i] = item{ID: m.ID, Layout: m.Layout, Content: inapp.Personalize(m.Content, who), Targeting: tg, EndAt: m.EndAt}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"messages": items})

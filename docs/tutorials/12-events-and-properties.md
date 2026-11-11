@@ -331,5 +331,9 @@ values (text, numbers, one of a list) can be added, and not to fields Pulse keep
 - A way to refuse bad server events with Enforce
 - Segments, journeys and contact lists that use event properties
 
+Event properties also personalise messages: a journey started by `cart_abandoned` can say which
+product was left in the cart, in every message it sends (personal properties left out). See
+[Personalising messages](13-personalising-messages.md).
+
 **Next:** back to [Segments](03-segments.md) to combine property filters with list fields, date
 ranges and Exclude groups.

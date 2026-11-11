@@ -349,7 +349,7 @@ func PickWinner(ab *model.ABTest, counts map[string]model.MessageCounts) (string
 func (r *Runner) message(b model.Broadcast, run int64, contact uint32, template int64, variant string) model.Message {
 	return model.Message{ID: fmt.Sprintf("bc%d:%d:%d", b.ID, run, contact), TenantID: b.TenantID, ContactID: contact,
 		Channel: b.Channel, TemplateID: template, FallbackTemplateID: b.FallbackTemplateID,
-		BroadcastID: b.ID, Run: run, Variant: variant}
+		BroadcastID: b.ID, Run: run, Variant: variant, Campaign: b.Name}
 }
 
 func (r *Runner) publish(ctx context.Context, ms []model.Message) error {

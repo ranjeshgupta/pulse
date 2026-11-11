@@ -36,6 +36,7 @@ var special = map[string]need{
 	"POST /v1/templates/preview":                      {auth.AreaContent, auth.View},
 	"POST /v1/landing-pages/preview":                  {auth.AreaContent, auth.View},
 	"POST /v1/templates/text":                         {auth.AreaContent, auth.View},
+	"GET /v1/templates/sample-event":                  {auth.AreaContacts, auth.View}, // a contact's real event
 	"POST /v1/funnels/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/cohorts/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/reports/run":                            {auth.AreaReports, auth.View},

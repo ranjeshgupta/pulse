@@ -68,7 +68,9 @@ Under the template:
 
 2. Click **Send a test**, enter a **Contact's external ID** (here `docs-test-inbox`, a test contact
    with a test address) and click **Send test**. It goes through your real email provider,
-   personalised with that contact's data.
+   personalised with that contact's data. A broadcast isn't started by an event, so `{{event.…}}`
+   variables are empty (or their default) in broadcasts; `{{campaign.name}}` is the broadcast's name
+   ([tutorial 13](13-personalising-messages.md)).
 
    <img src="img/07-send-test.png" alt="Send a test: Weekend sale, contact's external ID docs-test-inbox" width="420">
 

@@ -4,7 +4,7 @@
 // insert-at-handle, delete with healing, tidy layout, step numbering and the server's validation
 // rules in words.
 import type { Edge, Node as FlowNode } from "@xyflow/react";
-import { CHANNEL_NAMES, type Channel, type JourneyGraph, type JourneyNode } from "./api";
+import { CHANNEL_NAMES, type Channel, type ChannelRule, type JourneyGraph, type JourneyNode } from "./api";
 
 export const TRIGGER_ID = "__trigger";
 
@@ -33,7 +33,7 @@ export const NODE_TYPES: TypeInfo[] = [
   { type: "send_rcs", label: "Send RCS", group: "action", shape: "next", hint: "Send a rich message, with an SMS fallback.", channel: "rcs" },
   { type: "send_push", label: "Send push", group: "action", shape: "next", hint: "Send a web or mobile push notification.", channel: "push" },
   { type: "send_inbox", label: "Send to app inbox", group: "action", shape: "next", hint: "Put a message in the contact's app inbox.", channel: "inbox" },
-  { type: "send_message", label: "Send marketing message", group: "action", shape: "next", hint: "Send on the first channel the contact can receive, in your order." },
+  { type: "send_message", label: "Send marketing message", group: "action", shape: "next", hint: "Choose the channel by rules (an Indian number gets SMS, otherwise WhatsApp), or the first the contact can receive." },
   { type: "notify_user", label: "Send email to user", group: "action", shape: "next", hint: "Email a teammate or the contact's owner about this contact." },
   { type: "show_focus", label: "Show focus item", group: "action", shape: "next", hint: "Show a popup, bar or slide-in on the contact's next page view." },
   { type: "push_dwc", label: "Push dynamic content", group: "action", shape: "next", hint: "Set this contact's content for a Dynamic Web Content slot." },
@@ -759,13 +759,7 @@ export function issues(g: JourneyGraph, opts: { journeyId?: number } = {}): Issu
         if (emails.some((e) => !EMAIL_RE.test(e))) add("check the email addresses.");
         break;
       }
-      case "send_message": {
-        const cs = n.channels ?? [];
-        if (cs.length === 0 || cs.length > 6) add("choose 1 to 6 channels.");
-        if (new Set(cs.map((c) => c.channel)).size !== cs.length) add("use each channel once.");
-        if (cs.some((c) => !c.template_id)) add("choose a template for every channel.");
-        break;
-      }
+      case "send_message": for (const p of channelRuleProblems(n.channels ?? [])) add(p); break;
       case "show_focus": if (!n.focus_id) add("choose the focus item to show."); break;
       case "push_integration": if (!n.integration_id) add("choose the CRM to push the contact to."); break;
       case "push_dwc":
@@ -882,4 +876,34 @@ export function listActions(j: { status: string; has_run?: boolean; archived_at?
 /** visibleJourneys hides archived journeys unless asked to show them. */
 export function visibleJourneys<T extends { archived_at?: string | null }>(js: T[], showArchived: boolean): T[] {
   return showArchived ? js : js.filter((j) => !j.archived_at);
+}
+
+// ---- send_message rules ----
+
+const RULE_OP_WORDS: Record<string, string> = { eq: "is", ne: "is not", contains: "contains", starts_with: "starts with", gt: ">", lt: "<", exists: "is set", not_exists: "is not set" };
+
+/** channelRuleProblems: what a "Send marketing message" step's rules still need (as the server checks). */
+export function channelRuleProblems(cs: ChannelRule[]): string[] {
+  const out: string[] = [];
+  if (cs.length === 0 || cs.length > 10) out.push("add 1 to 10 rules.");
+  const plain = cs.filter((c) => !c.when?.length).map((c) => c.channel);
+  if (new Set(plain).size !== plain.length) out.push("use each channel once in rules without conditions.");
+  if (cs.some((c) => !c.template_id)) out.push("choose a template for every rule.");
+  for (const c of cs) for (const w of c.when ?? []) {
+    if (!/^(contact|event)\.[A-Za-z0-9_]+(\[\])?(\.[A-Za-z0-9_]+(\[\])?){0,2}$/.test(w.prop)) { out.push(`conditions read contact.<field> or event.<property>, not “${w.prop || "(empty)"}”.`); break; }
+    if (!(w.op in RULE_OP_WORDS)) { out.push(`choose how to compare ${w.prop}.`); break; }
+    if (w.op !== "exists" && w.op !== "not_exists" && (w.value === undefined || w.value === "")) { out.push(`enter the value ${w.prop} is compared with.`); break; }
+  }
+  return [...new Set(out)];
+}
+
+/** rulesText describes the rules: "phone_country is IN → SMS; otherwise WhatsApp". */
+export function rulesText(cs: ChannelRule[], channelName: (c: string) => string): string {
+  if (!cs.length) return "Choose channels";
+  if (!cs.some((c) => c.when?.length)) return `Send by ${cs.map((c) => channelName(c.channel)).join(", then ")}`;
+  return cs.map((c, i) => {
+    if (!c.when?.length) return `${i ? "otherwise " : ""}${channelName(c.channel)}`;
+    const cond = c.when.map((w) => `${w.prop.replace(/^contact\./, "")} ${RULE_OP_WORDS[w.op] ?? w.op}${w.op === "exists" || w.op === "not_exists" ? "" : ` ${String(w.value ?? "")}`}`).join(" and ");
+    return `${cond} → ${channelName(c.channel)}`;
+  }).join("; ");
 }

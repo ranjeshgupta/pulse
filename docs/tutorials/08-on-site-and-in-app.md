@@ -164,7 +164,10 @@ SDK (see the developer docs).
    | **Full screen** | Takes over the whole screen |
 
 3. **Title** `Still thinking it over?` and **Message** `Your cart is saved. Finish your order today
-   and delivery is free.`
+   and delivery is free.` Title, message and button labels can use contact variables with the
+   **{ } Variable** button, e.g. `{{contact.first_name | default:"there"}}`. Only app users whose
+   identity is verified (identity secret and user hash) get their own value; everyone else gets the
+   default ([tutorial 13](13-personalising-messages.md#9-other-places-variables-work)).
 4. **Image address (optional)**: an `https://` link to a JPG, PNG or WebP.
 5. **Buttons (up to 2)**: each **Closes it** or **Opens a link**. A link can be a web page
    (`https://…`) or a deep link into your app (`acmeretail://cart`). Here: **Not now** (closes it)

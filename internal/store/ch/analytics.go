@@ -45,6 +45,26 @@ func (s *Store) ContactEvents(ctx context.Context, tenant int64, contact uint32,
 	return out, rows.Err()
 }
 
+// LatestEvent returns a contact's most recent event of a name (template previews).
+func (s *Store) LatestEvent(ctx context.Context, tenant int64, contact uint32, name string) (EventRow, bool, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT id, name, ts, props FROM events
+		WHERE tenant_id = ? AND contact_id = ? AND name = ?
+		ORDER BY ts DESC LIMIT 1`, uint64(tenant), contact, name)
+	if err != nil {
+		return EventRow{}, false, err
+	}
+	defer rows.Close()
+	var e EventRow
+	if !rows.Next() {
+		return e, false, rows.Err()
+	}
+	if err := rows.Scan(&e.ID, &e.Name, &e.Ts, &e.Props); err != nil {
+		return e, false, err
+	}
+	return e, true, nil
+}
+
 type DayCount struct {
 	Day   string `json:"day"`
 	Count uint64 `json:"count"`

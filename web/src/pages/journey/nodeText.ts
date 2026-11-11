@@ -2,7 +2,7 @@
 // "Submits form ‘Newsletter’ within 3 days?" or "Add to list ‘VIP’, remove from ‘Trial’".
 // Pure, so it is tested without a DOM.
 import { CHANNEL_NAMES, type Channel, type JourneyGraph, type JourneyNode } from "../../api";
-import { decisionText, formatWait, MAX_JUMPS, pathName, share, stepNumbers } from "../../journeyGraph";
+import { decisionText, formatWait, MAX_JUMPS, pathName, rulesText, share, stepNumbers } from "../../journeyGraph";
 import { describe, OP_LABELS, type AttrOp, type RefNames } from "../../segmentRules";
 import { parseDevice, parseOwner, parsePoints, parseStage, parseTags, POINT_OPS } from "./presets";
 
@@ -83,10 +83,7 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
       if (!n.template_id) return "Choose an email template";
       return `Email ${tpl(n.template_id)} to ${who.length > 2 ? `${who.slice(0, 2).join(", ")} +${who.length - 2}` : and(who) || "…"}`;
     }
-    case "send_message": {
-      const cs = (n.channels ?? []).map((c) => CHANNEL_NAMES[c.channel] ?? c.channel);
-      return cs.length ? `Send by ${cs.join(", then ")}` : "Choose channels";
-    }
+    case "send_message": return rulesText(n.channels ?? [], (c: string) => CHANNEL_NAMES[c as Channel] ?? c);
     case "show_focus": return n.focus_id ? `Show ${name(names.focus, n.focus_id, "focus item")} on their next page view` : "Choose a focus item";
     case "push_integration": return n.integration_id ? `Push to ${name(names.integrations, n.integration_id, "integration")}` : "Choose a CRM";
     case "push_dwc": return n.slot ? `Set ${q(names.slots?.[n.slot] ?? n.slot)} for ${n.days ?? 30} days` : "Choose a slot";

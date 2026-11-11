@@ -83,9 +83,16 @@ func main() {
 
 	if *ifExists != "" {
 		if _, code, _ := try("POST", "/v1/auth/login", map[string]any{"workspace": *ifExists, "email": *email, "password": *password}); code == http.StatusOK {
+			added := false
 			if eventData() {
 				fmt.Printf("workspace %s already exists: added event schemas and property-rich events\n", *ifExists)
-			} else {
+				added = true
+			}
+			if personalisation() {
+				fmt.Printf("workspace %s: added the personalised cart-rescue templates and journey\n", *ifExists)
+				added = true
+			}
+			if !added {
 				fmt.Printf("workspace %s already exists and %s can sign in: nothing to do\n", *ifExists, *email)
 			}
 			return
@@ -101,6 +108,7 @@ func main() {
 	time.Sleep(3 * time.Second) // let workers pick up the new segments and journeys
 	activity(c)
 	eventData()
+	personalisation()
 	time.Sleep(8 * time.Second) // let segments fill before broadcasts pick their audiences
 	broadcasts(c)
 	fmt.Printf("seeded %d contacts. Sign in at %s/login with workspace %v (credentials in deploy/dev-seed.md)\n", *contacts, *apiURL, slug)
@@ -457,5 +465,61 @@ func eventData() bool {
 		}
 	}
 	flush()
+	return true
+}
+
+// personalisation adds (once) templates written with the standard variables, from the contact and
+// from the cart_abandoned event, and an active "Cart rescue" journey whose first step picks the
+// channel by rule (an Indian number gets SMS, anyone else WhatsApp), then a few carts left now so
+// its step shows which channel each contact got. It reports whether it added anything.
+func personalisation() bool {
+	for _, t := range call("GET", "/v1/templates", nil)["templates"].([]any) {
+		if t.(map[string]any)["name"] == "Cart rescue email" {
+			return false
+		}
+	}
+	email := id(call("POST", "/v1/templates", map[string]any{"name": "Cart rescue email", "channel": "email", "missing_values": "empty",
+		"subject": `{{contact.first_name | default:"Hello"}}, your {{event.product_name | default:"cart"}} is waiting`,
+		"html": `<div style="font-family:Arial;padding:24px;color:#152238"><h1 style="font-size:22px">Still thinking it over, {{contact.first_name | default:"there"}}?</h1>` +
+			`<p>You left a <b>{{event.product_name}}</b> ({{event.product_category | lower}}) in your cart: {{event.cart_value | money:"INR"}}.</p>` +
+			`<p><a href="https://acme.example.com/cart?item={{event.product_code | urlencode}}" style="background:#2747d6;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Back to my cart</a></p>` +
+			`<p style="color:#5b6577;font-size:12px">{{campaign.name}} · <a href="{{links.preferences}}">Email preferences</a></p></div>`}))
+	sms := id(call("POST", "/v1/templates", map[string]any{"name": "Cart rescue SMS", "channel": "sms", "missing_values": "skip",
+		"content": map[string]any{"text": `Hi {{contact.first_name | default:"there"}}, your {{event.product_name | truncate:30}} is still in your cart. Finish your order: https://acme.example.com/cart`, "sender_id": "ACMERT", "track_links": true}}))
+	wa := id(call("POST", "/v1/templates", map[string]any{"name": "Cart rescue WhatsApp", "channel": "whatsapp",
+		"content": map[string]any{"template_name": "cart_reminder_v2", "language": "en",
+			"body_params":  []string{`{{contact.first_name | default:"there"}}`, "{{event.product_name}}", `{{event.cart_value | money:"INR"}}`},
+			"preview_text": "Hi {{1}}, your {{2}} ({{3}}) is still in your cart. Tap below to finish your order."}}))
+	j := call("POST", "/v1/journeys", map[string]any{"name": "Cart rescue", "graph": map[string]any{
+		"trigger": map[string]any{"type": "event", "event": "cart_abandoned", "reentry": "after_days", "days": 7},
+		"entry":   "s1",
+		"nodes": map[string]any{
+			"s1": map[string]any{"type": "send_message", "channels": []any{
+				map[string]any{"channel": "sms", "template_id": sms, "when": []any{map[string]any{"prop": "contact.phone_country", "op": "eq", "value": "IN"}}},
+				map[string]any{"channel": "whatsapp", "template_id": wa, "fallback_template_id": sms},
+			}, "next": "w1", "x": 300, "y": 160},
+			"w1": map[string]any{"type": "wait", "seconds": 3600, "next": "e1", "x": 300, "y": 300},
+			"e1": map[string]any{"type": "send_email", "template_id": email, "next": "x", "x": 300, "y": 440},
+			"x":  map[string]any{"type": "exit", "x": 300, "y": 580},
+		},
+	}})
+	call("POST", fmt.Sprintf("/v1/journeys/%v/activate", id(j)), nil)
+	time.Sleep(3 * time.Second) // the journey workers load it
+
+	// A few carts left right now: Indian numbers, and customers abroad.
+	phones := []string{"+919812300011", "+919812300012", "+919812300013", "+919812300014", "+447700900311", "+14155550312", "+971501230313"}
+	var evs []map[string]any
+	for i, ph := range phones {
+		ext := fmt.Sprintf("cust-%04d", 201+i)
+		evs = append(evs, map[string]any{"external_id": ext, "name": "identify", "attrs": map[string]any{"phone": ph}})
+	}
+	call("POST", "/v1/events", map[string]any{"events": evs})
+	time.Sleep(2 * time.Second) // phone_country is set before the carts arrive
+	evs = nil
+	for i := range phones {
+		evs = append(evs, map[string]any{"external_id": fmt.Sprintf("cust-%04d", 201+i), "name": "cart_abandoned", "props": map[string]any{
+			"product_code": "DEC-310", "product_name": "Brass table lamp", "product_category": "Lighting", "price": 3299, "cart_value": 3299 + 500*i}})
+	}
+	call("POST", "/v1/events", map[string]any{"events": evs})
 	return true
 }

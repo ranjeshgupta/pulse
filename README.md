@@ -62,7 +62,7 @@ Design notes:
   submitter); Content → Landing pages publishes pages at `/p/{workspace}/{page}` with embedded forms, a schedule, a
   script-free preview and views/visitors/submissions from the web SDK's `landing_page_viewed`.
 - **Rich text editor (done):** a CKEditor-style editor (TipTap) on every HTML field: email templates and landing pages
-  (a Rich text tab beside drag and drop and HTML), focus items and web content, with merge tags and a Source view.
+  (a Rich text tab beside drag and drop and HTML), focus items and web content, with variables and a Source view.
 - **Batch 7, analytics (done):** cohorts / retention (`POST /v1/cohorts/run`, saved under `/v1/cohorts`), revenue
   attribution (`/v1/revenue/settings`, `POST /v1/revenue/report`: last touch, first touch or linear over broadcasts,
   journeys and UTM campaigns; recipients' revenue in broadcast and journey reports), UTM capture in the web SDK
@@ -173,7 +173,16 @@ Design notes:
   - **Journeys:** event triggers with property conditions ("only when payment_method is upi").
   - **Data:** `events.product_code` / `product_category` columns in ClickHouse; tutorial
     [12, events and properties](docs/tutorials/12-events-and-properties.md).
-- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 12 written. Remaining gaps:
+- **M2, personalisation (done):** standard variables in every templated field: `{{contact.first_name}}` (any contact
+  field), `{{event.product_name}}` (the event that started the journey, carried to every message it sends, at most
+  16 KB and without personal properties), `{{campaign.name}}`, `{{links.unsubscribe}}`, with pipes for defaults and
+  formats (`default`, `upper`, `lower`, `title`, `date`, `money`, `number`, `truncate`, `urlencode`, `json`); the older
+  `{{.Attrs.x}}` keeps working. A `{ } Variable` picker on every field, warnings for unknown variables, a per-template
+  missing-value policy (leave empty, or skip the contact), preview and test send with a real contact and event
+  (`GET /v1/templates/sample-event`), and "Send marketing message" rules that choose the channel by condition
+  (`contact.phone_country = IN` → SMS, otherwise WhatsApp), with the choice in the step stats. Tutorial
+  [13, personalising messages](docs/tutorials/13-personalising-messages.md).
+- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 13 written. Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it
@@ -267,7 +276,7 @@ KEY=pk_...
 
 # 2. Template, segment, journey
 curl -s -X POST localhost:7080/v1/templates -H "Authorization: Bearer $KEY" \
-  -d '{"name":"welcome","subject":"Welcome {{.Attrs.first_name}}","html":"<p>Hi {{.Attrs.first_name}}</p>"}'
+  -d '{"name":"welcome","subject":"Welcome {{contact.first_name | default:\"friend\"}}","html":"<p>Hi {{contact.first_name}}</p>"}'
 curl -s -X POST localhost:7080/v1/segments -H "Authorization: Bearer $KEY" \
   -d '{"name":"Delhi buyers","rule":{"all":[{"attr":"city","op":"eq","value":"Delhi"},{"event":"purchase","op":"gte","count":1,"days":7}]}}'
 curl -s -X POST localhost:7080/v1/journeys -H "Authorization: Bearer $KEY" \

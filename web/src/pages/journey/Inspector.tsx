@@ -2,7 +2,7 @@
 // Start (trigger, re-entry, goal, schedule).
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { CHANNEL_NAMES, CHANNELS, type Channel, type JourneyGraph, type JourneyNode, type PropFilter, type Rule, type Segment, type SplitDecision, type SplitWinner, type Template } from "../../api";
+import { CHANNEL_NAMES, CHANNELS, type Channel, type ChannelRule, type JourneyGraph, type JourneyNode, type PropFilter, type Rule, type Segment, type SplitDecision, type SplitWinner, type Template } from "../../api";
 import {
   DEVICE_TYPES, DNC_CHANNELS, FORM_FIELD_OPS, groupOf, MAX_JUMPS, nodeChannel, OUTCOME_WORDS, OUTCOMES, outputs, sendSteps, share,
   SLOT_RE, STEP_GROUPS, stepLabel, TRIGGER_ID, upstream, winnerProblem, type Outcome,
@@ -12,6 +12,7 @@ import { TemplateActions } from "../../messagePreview";
 import { describeWindow, fromLocalInput, ScheduleFields, toLocalInput } from "../../schedule";
 import { filtersFromWhere, OP_LABELS, problems as ruleProblems, rootFromRule, toRule, whereFromFilters, type AttrOp, type Where } from "../../segmentRules";
 import { Field } from "../../ui";
+import { PersonalizeScopeProvider, TemplatedText, usePersonalizeScope, useVariables } from "../../VarPicker";
 import { GroupEditor, PropertyFilters } from "../SegmentBuilder";
 import type { Pickers } from "./data";
 import { JIcon } from "./icons";
@@ -48,7 +49,9 @@ export function Inspector({ graph, setGraph, win, setWin, selected, locked, deci
         </div>
       </div>
       {item && <p className="xs muted" style={{ margin: "0 0 12px" }}>{item.description}</p>}
-      <StepFields id={selected} n={n} setN={setN} graph={graph} pickers={pickers} templates={templates} decisions={decisions} journeyId={journeyId} numbers={numbers} canEditContacts={canEditContacts} />
+      <PersonalizeScopeProvider value={{ event: triggerEvent(graph) }}>
+        <StepFields id={selected} n={n} setN={setN} graph={graph} pickers={pickers} templates={templates} decisions={decisions} journeyId={journeyId} numbers={numbers} canEditContacts={canEditContacts} />
+      </PersonalizeScopeProvider>
       <div className="row" style={{ marginTop: 14 }}>
         <button type="button" className="btn danger sm" onClick={() => onDelete(selected)}>Remove step</button>
         {branching && <button type="button" className="btn ghost sm" onClick={() => onDeleteBranch(selected)}>Remove with the steps after it</button>}
@@ -213,7 +216,7 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
           <ListInput value={n.emails ?? []} placeholder="sales@example.com" onChange={(emails) => setN({ emails: emails.length ? emails : undefined })} />
         </Field>
       </>);
-    case "send_message": return <ChannelPriority n={n} setN={setN} templates={templates} />;
+    case "send_message": return <ChannelRules n={n} setN={setN} templates={templates} event={triggerEvent(graph)} />;
     case "show_focus":
       return (<>
         <Field label="Focus item"><PickSelect value={n.focus_id} items={L.focus} placeholder="Choose a focus item" onChange={(focus_id) => setN({ focus_id })} /></Field>
@@ -227,8 +230,8 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
     case "push_dwc":
       return (<>
         <SlotField value={n.slot ?? ""} slots={L.slots} onChange={(slot) => setN({ slot })} />
-        <Field label="Content (HTML)" hint="Replaces the slot's default for this contact. Up to 64 KB.">
-          <textarea className="textarea code" value={n.html ?? ""} onChange={(e) => setN({ html: e.target.value })} />
+        <Field label="Content (HTML)" hint="Replaces the slot's default for this contact. Up to 64 KB. Variables are filled when the step runs (values escaped).">
+          <TemplatedText className="textarea code" label="Content (HTML)" value={n.html ?? ""} onChange={(html) => setN({ html })} />
         </Field>
         <Field label="Keep it for">
           <div className="row"><input className="input" style={{ width: 90 }} type="number" min={1} max={365} value={n.days ?? 30} onChange={(e) => setN({ days: Math.trunc(Number(e.target.value)) || undefined })} /><span className="small muted">days</span></div>
@@ -288,8 +291,8 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
     case "webhook":
       return (<>
         <Field label="POST to" hint="Must be a public https:// address. Pulse sends the contact as JSON and retries briefly; a failure is recorded and the journey continues."><input className="input" value={n.url ?? ""} placeholder="https://api.example.com/hooks/pulse" onChange={(e) => setN({ url: e.target.value.trim() })} /></Field>
-        <Field label="Body (optional)" hint={'Leave empty to send {"contact": …}. Or write JSON using {{.Contact.ExternalID}}, {{.Attrs.city}}, {{json .Attrs}}.'}>
-          <textarea className="textarea code" value={n.body ?? ""} onChange={(e) => setN({ body: e.target.value || undefined })} />
+        <Field label="Body (optional)" hint={'Leave empty to send {"contact": …}. Or write JSON with variables; | json makes a value safe in JSON: {"name": {{contact.first_name | json}}, "cart": {{event.cart_id | json}}}. {{json .Attrs}} still works.'}>
+          <TemplatedText className="textarea code" label="Body" value={n.body ?? ""} onChange={(body) => setN({ body: body || undefined })} />
         </Field>
       </>);
     case "jump": {
@@ -393,7 +396,7 @@ function TemplatePick({ channel, label, templates, value, onChange }: { channel:
         {mine.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
     </Field>
-    <TemplateActions templateId={value} />
+    <TemplateActions templateId={value} event={usePersonalizeScope().event} />
     {mine.length === 0 && <Note>No {CHANNEL_NAMES[channel]} templates yet. <Link to={`/templates/new?channel=${channel}`}>Create one</Link></Note>}
   </>);
 }
@@ -407,34 +410,100 @@ function SlotField({ value, slots, onChange }: { value: string; slots: { slot: s
   );
 }
 
-// ChannelPriority edits a "Send marketing message": channels in order, each with its template.
-function ChannelPriority({ n, setN, templates }: { n: JourneyNode; setN: SetN; templates: Template[] }) {
+// ChannelRules edits a "Send marketing message": rules in order, each "when <conditions> → channel and
+// template". The first rule whose conditions match and whose channel the contact can receive sends;
+// a rule without conditions always matches (put it last as "Otherwise").
+function ChannelRules({ n, setN, templates, event }: { n: JourneyNode; setN: SetN; templates: Template[]; event?: string }) {
   const cs = n.channels ?? [];
-  const set = (next: typeof cs) => setN({ channels: next });
-  const unused = CHANNELS.filter((c) => !cs.some((x) => x.channel === c));
+  const set = (next: ChannelRule[]) => setN({ channels: next });
+  const setAt = (i: number, patch: Partial<ChannelRule>) => set(cs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const move = (i: number, d: -1 | 1) => { const c = [...cs]; [c[i], c[i + d]] = [c[i + d], c[i]]; set(c); };
+  const vars = useVariables();
+  const paths = [...vars.contact.map((v) => v.var), ...(vars.event ?? []).map((v) => v.var.replace(/\.0\./, "[]."))].filter((p, i, a) => a.indexOf(p) === i);
   return (
     <div className="field">
-      <span>Try these channels in order</span>
-      <Note>Sends on the first channel the contact can receive and has agreed to; the others are skipped.</Note>
-      <ol className="j-channels">
+      <span>Send on the first rule that matches</span>
+      <Note>Rules are checked in order. A rule applies when its conditions match and the contact can receive the channel (address, consent); otherwise the next rule is tried. A rule without conditions always applies.</Note>
+      <ol className="j-rules">
         {cs.map((c, i) => (
-          <li key={c.channel}>
-            <span className={`chan chan-${c.channel}`} style={{ minWidth: 72 }}>{CHANNEL_NAMES[c.channel]}</span>
-            <select className="select" aria-label={`${CHANNEL_NAMES[c.channel]} template`} value={c.template_id ?? ""} onChange={(e) => set(cs.map((x, j) => (j === i ? { ...x, template_id: Number(e.target.value) || undefined } : x)))}>
+          <li key={i} className="j-rule">
+            <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
+              <strong className="small">{c.when?.length ? `Rule ${i + 1}: when` : i === cs.length - 1 && i > 0 ? "Otherwise" : `Rule ${i + 1}: always`}</strong>
+              <span className="row" style={{ gap: 2, flexWrap: "nowrap" }}>
+                <button type="button" className="btn ghost sm" aria-label={`Move rule ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+                <button type="button" className="btn ghost sm" aria-label={`Move rule ${i + 1} down`} disabled={i === cs.length - 1} onClick={() => move(i, 1)}>↓</button>
+                <button type="button" className="btn ghost sm" aria-label={`Remove rule ${i + 1}`} disabled={cs.length === 1} onClick={() => set(cs.filter((_, j) => j !== i))}>×</button>
+              </span>
+            </div>
+            <RuleConditions when={c.when ?? []} paths={paths} onChange={(when) => setAt(i, { when: when.length ? when : undefined })} />
+            <div className="j-cond-line j-send">
+              <span className="small">send</span>
+              <select className="select" aria-label={`Rule ${i + 1} channel`} value={c.channel} onChange={(e) => setAt(i, { channel: e.target.value as Channel, template_id: undefined, fallback_template_id: undefined })}>
+                {CHANNELS.map((ch) => <option key={ch} value={ch}>{CHANNEL_NAMES[ch]}</option>)}
+              </select>
+            </div>
+            <select className="select j-full" aria-label={`Rule ${i + 1} template`} value={c.template_id ?? ""} onChange={(e) => setAt(i, { template_id: Number(e.target.value) || undefined })}>
               <option value="">Choose a template</option>
               {templates.filter((t) => t.channel === c.channel).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-            <button type="button" className="btn ghost sm" aria-label={`Move ${CHANNEL_NAMES[c.channel]} up`} disabled={i === 0} onClick={() => set([...cs.slice(0, i - 1), cs[i], cs[i - 1], ...cs.slice(i + 1)])}>↑</button>
-            <button type="button" className="btn ghost sm" aria-label={`Remove ${CHANNEL_NAMES[c.channel]}`} disabled={cs.length === 1} onClick={() => set(cs.filter((_, j) => j !== i))}>×</button>
+            {(c.channel === "whatsapp" || c.channel === "rcs") && (
+              <label className="j-fallback">
+                <span className="xs muted">SMS if it can't be delivered</span>
+                <select className="select j-full" aria-label={`Rule ${i + 1} SMS fallback`} value={c.fallback_template_id ?? ""} onChange={(e) => setAt(i, { fallback_template_id: Number(e.target.value) || undefined })}>
+                  <option value="">No fallback</option>
+                  {templates.filter((t) => t.channel === "sms").map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+            )}
+            {c.template_id && <TemplateActions templateId={c.template_id} event={event} />}
           </li>
         ))}
       </ol>
-      {unused.length > 0 && cs.length < 6 && (
-        <select className="select inline" value="" aria-label="Add a channel" onChange={(e) => e.target.value && set([...cs, { channel: e.target.value as Channel }])}>
-          <option value="">Add a channel…</option>
-          {unused.map((c) => <option key={c} value={c}>{CHANNEL_NAMES[c]}</option>)}
-        </select>
+      {cs.length < 10 && (
+        <div className="row">
+          <button type="button" className="btn sm" onClick={() => set([...cs, { channel: "sms", when: [{ prop: "contact.phone_country", op: "eq", value: "IN" }] }])}>+ Rule with a condition</button>
+          <button type="button" className="btn sm ghost" onClick={() => set([...cs, { channel: "whatsapp" }])}>+ Otherwise</button>
+        </div>
       )}
+      <Note>Nobody matches: the contact goes on without a message, recorded as <code>message_skipped</code> with the reason. Step stats show which channel each contact got.</Note>
+    </div>
+  );
+}
+
+const RULE_OPS: { op: string; label: string; needs: boolean }[] = [
+  { op: "eq", label: "is", needs: true }, { op: "ne", label: "is not", needs: true },
+  { op: "contains", label: "contains", needs: true }, { op: "starts_with", label: "starts with", needs: true },
+  { op: "gt", label: "is more than", needs: true }, { op: "lt", label: "is less than", needs: true },
+  { op: "exists", label: "is set", needs: false }, { op: "not_exists", label: "is not set", needs: false },
+];
+
+// RuleConditions edits a rule's conditions on contact.<field> and event.<property> (all must match).
+function RuleConditions({ when, paths, onChange }: { when: PropFilter[]; paths: string[]; onChange: (w: PropFilter[]) => void }) {
+  const list = `rule-paths-${paths.length}`;
+  const setAt = (i: number, patch: Partial<PropFilter>) => onChange(when.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="j-rule-when">
+      <datalist id={list}>{paths.map((p) => <option key={p} value={p} />)}</datalist>
+      {when.map((w, i) => {
+        const op = RULE_OPS.find((o) => o.op === w.op) ?? RULE_OPS[0];
+        return (
+          <div className="j-cond" key={i}>
+            {i > 0 && <span className="xs muted j-cond-and">and</span>}
+            <div className="j-cond-line">
+              <input className="input" list={list} value={w.prop} placeholder="contact.phone_country" aria-label="Field or property" onChange={(e) => setAt(i, { prop: e.target.value.trim() })} />
+              <button type="button" className="btn ghost sm" aria-label="Remove condition" onClick={() => onChange(when.filter((_, j) => j !== i))}>×</button>
+            </div>
+            <div className="j-cond-line">
+              <select className="select" value={w.op} aria-label="Comparison" onChange={(e) => setAt(i, { op: e.target.value, value: RULE_OPS.find((o) => o.op === e.target.value)?.needs ? w.value ?? "" : undefined })}>
+                {RULE_OPS.map((o) => <option key={o.op} value={o.op}>{o.label}</option>)}
+              </select>
+              {op.needs && <input className="input" value={String(w.value ?? "")} aria-label="Value" placeholder="IN"
+                onChange={(e) => setAt(i, { value: (w.op === "gt" || w.op === "lt") && e.target.value !== "" && !Number.isNaN(Number(e.target.value)) ? Number(e.target.value) : e.target.value })} />}
+            </div>
+          </div>
+        );
+      })}
+      {when.length < 5 && <button type="button" className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => onChange([...when, { prop: "contact.phone_country", op: "eq", value: "" }])}>+ Condition</button>}
     </div>
   );
 }
@@ -825,10 +894,16 @@ function AttrFields({ attrs, onChange }: { attrs: Record<string, unknown>; onCha
       ))}
       <div><button type="button" className="btn sm" onClick={() => onChange({ ...attrs, [`field_${rows.length + 1}`]: "" })}>Add field</button></div>
       <small>
-        Values can use the contact's data: <code>{"{contactfield=first_name}"}</code> or <code>{"{{.Attrs.first_name}}"}</code>.
+        Values can use variables: <code>{"{{contact.first_name}}"}</code>, the trigger event's <code>{"{{event.product_name}}"}</code> (also <code>{"{contactfield=first_name}"}</code> and <code>{"{{.Attrs.first_name}}"}</code>).
         A date: <code>now</code>, <code>now+3hours</code>, <code>now-2days</code>, <code>now+1week</code>, <code>now+1month</code> (minutes, hours, days, weeks, months, years).
         Consent, tags, points, stage, owner and company have their own steps.
       </small>
     </div>
   );
+}
+
+/** triggerEvent: the event that starts the journey (its properties are {{event.x}} in messages). */
+function triggerEvent(g: JourneyGraph): string | undefined {
+  const t = g.trigger;
+  return t.type === "event" ? t.event || undefined : t.type === "form_submitted" ? "form_submitted" : undefined;
 }

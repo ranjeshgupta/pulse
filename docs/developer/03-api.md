@@ -560,22 +560,38 @@ membership with `{"segment": 21, "op": "in"}`, and `GET /v1/lists` lists only th
 ## Templates
 
 A template belongs to one channel: `email` (default), `sms`, `whatsapp`, `rcs`, `push` or `inbox`.
-Content uses Go `text/template` with the contact: `{{.Attrs.first_name}}`,
-`{{.Contact.ExternalID}}`, `{{.Contact.Email}}`, and in emails `{{.UnsubscribeURL}}` and
-`{{.PreferencesURL}}` (an unsubscribe footer is added when the template doesn't place the link).
-Missing values render as empty text.
+Every sent field takes **variables**, filled per contact (`internal/personalize`):
+
+| Variable | Is |
+|---|---|
+| `{{contact.x}}` | A contact field: `email`, `external_id`, or any attribute (`first_name`, `phone_country`, list fields joined with ", "; dotted paths into objects) |
+| `{{event.x}}` | A property of the event (or form submission) that started the journey: `event.product_name`, `event.items.0.name` (one item), `event.items[].name` (every item, joined). Empty in broadcasts |
+| `{{campaign.x}}` | `name`, `id`, `type` (`journey`, `broadcast`, `test`), `step`, `channel`, `template` |
+| `{{links.x}}` | Email only: `unsubscribe`, `preferences` (an unsubscribe footer is added when the template doesn't place the link) |
+
+Pipes format a value, left to right: `default:"there"`, `upper`, `lower`, `title`, `date:"2 Jan 2006"` (Go layout,
+the contact's time zone), `money:"INR"` (the default currency), `number` / `number:2`, `truncate:40`, `urlencode`,
+`json` — e.g. `{{contact.first_name | default:"there" | title}}`. Saving refuses an unknown pipe or `campaign.*` /
+`links.*` key (400, naming it). HTML is escaped for where each value lands, and links stay click-tracked. The older Go
+template syntax (`{{.Attrs.first_name}}`, `{{.Contact.Email}}`, `{{.UnsubscribeURL}}`, `{{.PreferencesURL}}`, `{{if}}`)
+keeps working, also mixed with variables.
+
+`"missing_values"` decides what happens when a variable has no value and no default: `"empty"` (the default) renders
+it empty; `"skip"` sends nothing to that contact and records `<channel>_failed` with
+`"reason": "skipped: no value for event.product_name"` and `"skipped": "missing_value"`. The event properties a journey
+keeps are at most 16 KB and never include properties the event's schema marks `personal`.
 
 ```bash
 # Email: subject and html required; content.text is the plain-text part (generated when empty)
 curl -s -X POST $PULSE/v1/templates -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
-  "name": "Welcome", "channel": "email", "subject": "Welcome, {{.Attrs.first_name}}",
-  "html": "<p>Hi {{.Attrs.first_name}}, thanks for joining.</p><p><a href=\"https://shop.example.com\">Shop now</a></p>"}'
+  "name": "Welcome", "channel": "email", "subject": "Welcome, {{contact.first_name | default:\"friend\"}}",
+  "html": "<p>Hi {{contact.first_name}}, thanks for joining.</p><p><a href=\"https://shop.example.com\">Shop now</a></p>"}'
 # 201 {"id":31}
 
-# SMS: content.text (up to 1,600 characters); track_links shortens and tracks links
+# SMS: content.text (up to 1,600 characters); track_links shortens and tracks links; skip contacts without the product
 curl -s -X POST $PULSE/v1/templates -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
-  "name": "Cart reminder", "channel": "sms",
-  "content": {"text": "Hi {{.Attrs.first_name}}, your cart is waiting: https://shop.example.com/cart", "track_links": true}}'
+  "name": "Cart reminder", "channel": "sms", "missing_values": "skip",
+  "content": {"text": "Hi {{contact.first_name | default:\"there\"}}, your {{event.product_name}} is waiting: https://shop.example.com/cart", "track_links": true}}'
 ```
 
 What `content` takes per channel is in `channel.Content` (`internal/channel/channel.go`): WhatsApp
@@ -586,13 +602,18 @@ inbox `title`, `body`, `image_url`, `url`, `data` (inbox also `expires_days`, `c
 Try a template before using it:
 
 ```bash
-# Render a template body (saved or not) for a real contact; omit external_id for a sample contact
+# Render a template body (saved or not) for a real contact (omit external_id for a sample contact),
+# with sample trigger event properties (omit event for none, as in a broadcast)
 curl -s -X POST $PULSE/v1/templates/preview -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"template":{"channel":"email","subject":"Welcome, {{.Attrs.first_name}}","html":"<p>Hi {{.Attrs.first_name}}</p>"},"external_id":"cust-1001"}'
-# {"subject":"Welcome, Asha","html":"<p>Hi Asha</p>",…,"contact":{"external_id":"cust-1001",…}}
-# Send it to that contact now, through the channel's provider (202)
+  -d '{"template":{"channel":"email","subject":"{{event.product_name}} is waiting","html":"<p>Hi {{contact.first_name}}</p>"},
+       "external_id":"cust-1001","event":{"product_name":"Brass table lamp"}}'
+# {"subject":"Brass table lamp is waiting","html":"<p>Hi Asha</p>",…,"missing":[],"skipped":false,"contact":{…}}
+# A sample event: the contact's latest of that name (personal properties removed), else the schema's example
+curl -s "$PULSE/v1/templates/sample-event?event=cart_abandoned&external_id=cust-1001" -H "Authorization: Bearer $KEY"
+# {"source":"latest","at":"2026-11-11T09:30:00Z","props":{"product_name":"Brass table lamp",…}}   (or "schema", "none")
+# Send it to that contact now, through the channel's provider (202), with the sample event
 curl -s -X POST $PULSE/v1/channels/test -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"template_id":31,"external_id":"cust-1001"}'
+  -d '{"template_id":31,"external_id":"cust-1001","event":{"product_name":"Brass table lamp"}}'
 ```
 
 Locally every email lands in Mailpit (http://localhost:18025), and the seeded sandbox providers put
@@ -661,12 +682,12 @@ The step types (each one's fields are in `journey.Node`, `internal/journey/graph
 
 | Kind | Types |
 |---|---|
-| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template), `send_message` (`channels`: the first the contact can receive) |
+| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`) |
 | Wait | `wait` (`seconds`, up to 365 days), `wait_until` (`until`, or `time_of_day` + `timezone`) |
 | Decision (wait for something, then `yes` / `no`) | `wait_for_event` (`event`, `seconds`), `message_decision` (`step`, `outcome`: opened, clicked, delivered, read, replied; `seconds` ≥ 60; optional `url`), `on_form`, `on_asset`, `on_page`, `on_device`, `on_dwc` |
 | Condition (checked now, `yes` / `no`) | `condition` (`segment_id`), `check` (`rule`: any segment rule), `if_journey`, `if_form_field`, `if_notification`, `if_valid_email`, `if_dnc`, `if_before`, `if_visited` |
 | Split | `split` (`variants`: 2-5 `{weight, next, label}`; optional `winner` for an automatic A/B winner) |
-| Action | `update_attr` (`attrs`), `update_tags`, `adjust_points`, `update_list`, `change_stage`, `webhook` (`url`, `body`), `notify_user`, `show_focus`, `push_dwc`, `update_owner`, `update_company`, `add_company`, `company_points`, `change_journey`, `dnc_add`, `dnc_remove`, `push_integration` |
+| Action | `update_attr` (`attrs`), `update_tags`, `adjust_points`, `update_list`, `change_stage`, `webhook` (`url`, `body`: a JSON template with variables, e.g. `{"cart": {{event.cart_id | json}}}`), `notify_user`, `show_focus`, `push_dwc`, `update_owner`, `update_company`, `add_company`, `company_points`, `change_journey`, `dnc_add`, `dnc_remove`, `push_integration` |
 | End | `exit`, `jump` (`target`), `delete_contact` (`confirm: "DELETE"`) |
 
 `PUT /v1/journeys/{id}` replaces name, graph and schedule; it answers 409 while the journey is active,
@@ -932,6 +953,7 @@ the path, a signature, or nothing).
 | `DELETE` | `/v1/assets/{id}` | Delete a file | content edit |
 | `GET` | `/v1/assets/{id}/file` | Download a file from the app (not counted) | content view |
 | `POST` | `/v1/templates/preview` | Render a template, saved or not, for a contact or a sample one | content view |
+| `GET` | `/v1/templates/sample-event` | Sample trigger event properties for previews (`event`, optional `external_id`): the contact's latest, else the schema's example | contacts view |
 | `GET` | `/v1/forms` | List forms | content view |
 | `POST` | `/v1/forms` | Create a form; returns its `id` | content edit |
 | `GET` | `/v1/forms/{id}` | A form (with `public_key` for `/f/{key}` and the SDK) | content view |
@@ -1007,7 +1029,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/channels/providers` | Add a provider (`channel`, `provider`, `name`, `config`, `secrets`, `is_default`) | channels edit + settings edit |
 | `PUT` | `/v1/channels/providers/{id}` | Change a provider (omitted secrets are kept) | channels edit + settings edit |
 | `DELETE` | `/v1/channels/providers/{id}` | Remove a provider | channels edit + settings edit |
-| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id`); 202 | content edit |
+| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id`, optional `event` properties for `{{event.x}}`); 202 | content edit |
 | `GET` | `/v1/sandbox/messages` | Messages the sandbox providers recorded (test inbox) | content view |
 | `POST` | `/v1/sandbox/receipts` | Simulate a delivery report for a sandbox message | content edit |
 | `POST` | `/v1/sandbox/inbound` | Simulate a reply from a phone number (e.g. STOP) | content edit |

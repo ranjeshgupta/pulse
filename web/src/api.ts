@@ -210,7 +210,8 @@ export interface ChannelContent {
   /** email: asset ids attached to every message (10 at most, 10 MB together). */
   attachments?: number[];
 }
-export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; updated_at: string }
+/** missing_values: when a variable has no value and no default, render it empty (default) or skip the contact. */
+export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; missing_values?: "empty" | "skip"; updated_at: string }
 
 export interface DeliveryRules {
   caps: Partial<Record<Channel, { max: number; hours: number }>>;
@@ -220,6 +221,9 @@ export interface DeliveryRules {
   /** Reply-To address on journey emails, so a "Replies to email" decision can see replies (its domain's inbound parse posts to the Reply webhook). */
   reply_to?: string;
 }
+
+/** A send_message rule: conditions on contact.* and event.* (segment property filters), a channel and its template. */
+export interface ChannelRule { channel: Channel; template_id?: number; fallback_template_id?: number; when?: PropFilter[] }
 
 export interface JourneyNode {
   type: string; next?: string; seconds?: number; segment_id?: number; yes?: string; no?: string;
@@ -262,8 +266,9 @@ export interface JourneyNode {
   reason?: string;
   /** notify_user: who gets the internal email (template_id is an email template). */
   user_ids?: number[]; to_owner?: boolean; emails?: string[];
-  /** send_message: channels in priority order; the first the contact can receive is used. */
-  channels?: { channel: Channel; template_id?: number }[];
+  /** send_message: rules in order; the first whose conditions (when) match and whose channel the contact can
+   * receive sends. A rule without conditions always matches ("otherwise"). */
+  channels?: ChannelRule[];
   /** show_focus. */
   focus_id?: number;
   /** update_owner: 0 = unassign. */

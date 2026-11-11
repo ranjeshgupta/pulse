@@ -377,11 +377,11 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
 | **Send email**, **Send SMS**, **Send push**, **Send to app inbox** | Send a template on that channel |
 | **Send WhatsApp**, **Send RCS** | Send a template, with an optional SMS if it can't be delivered |
 | **Send email to user** | Email a teammate, the contact's owner or other addresses about this contact (not a marketing email) |
-| **Send marketing message** | Send on the first channel, in your order, that the contact can receive and has agreed to |
-| **Send a webhook** | POST the contact as JSON to a public https:// address |
+| **Send marketing message** | Choose the channel by rules, e.g. an Indian number gets SMS, otherwise WhatsApp ([tutorial 13](13-personalising-messages.md#8-choose-the-channel-by-rule)); without conditions, send on the first channel in your order that the contact can receive and has agreed to |
+| **Send a webhook** | POST the contact as JSON to a public https:// address, or your own JSON body with variables (`{{contact.x \| json}}`) |
 | **Show focus item** | Show a pop-up, bar or slide-in on the contact's next page view (tutorial 8) |
 | **Push dynamic content** | Set this contact's content for a dynamic web content slot, for some days |
-| **Update contact** | Set contact fields (values can use the contact's data, or dates like `now+3days`) |
+| **Update contact** | Set contact fields (values can use variables such as `{{contact.city}}` or the trigger event's `{{event.product_name}}`, or dates like `now+3days`) |
 | **Update contact owner** | Assign the contact to a teammate, or unassign (needs Contacts: Edit) |
 | **Update company** | Set fields on the contact's company (needs Contacts: Edit) |
 | **Add to company**, **Update contact's primary company** | Link the contact to a company; a contact has one (needs Contacts: Edit) |

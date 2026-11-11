@@ -5,14 +5,12 @@ package journey
 // it once.
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"pulse/internal/attr"
@@ -20,6 +18,8 @@ import (
 	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/onsite"
+	"pulse/internal/personalize"
 	"pulse/internal/profile"
 	"pulse/internal/segment"
 	"pulse/internal/store/pg"
@@ -222,15 +222,31 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 			return "", false, err
 		}
 		if len(to) > 0 {
-			if err := x.Sender.Send(ctx, model.Message{ID: StepKey(*en, id), TenantID: en.TenantID, ContactID: en.ContactID,
-				Channel: channel.Email, TemplateID: n.TemplateID, JourneyID: en.JourneyID, To: to}); err != nil {
+			m, err := x.message(ctx, g, *en, id, channel.Email, n.TemplateID)
+			if err != nil {
+				return "", false, err
+			}
+			m.To = to
+			if err := x.Sender.Send(ctx, m); err != nil {
 				return "", false, err
 			}
 		}
 		return n.Next, false, nil
 
 	case NodeSendMessage:
+		var ev map[string]any
+		if HasConditions(n.Channels) {
+			var err error
+			if ev, err = x.triggerProps(ctx, g, *en); err != nil {
+				return "", false, err
+			}
+		}
+		matched := 0
 		for _, cm := range n.Channels {
+			if !cm.Matches(*c, ev) {
+				continue
+			}
+			matched++
 			ok, err := x.reachable(ctx, *c, cm.Channel)
 			if err != nil {
 				return "", false, err
@@ -238,11 +254,22 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 			if !ok {
 				continue
 			}
-			if err := x.Sender.Send(ctx, model.Message{ID: StepKey(*en, id), TenantID: en.TenantID, ContactID: en.ContactID,
-				Channel: cm.Channel, TemplateID: cm.TemplateID, JourneyID: en.JourneyID}); err != nil {
+			m, err := x.message(ctx, g, *en, id, cm.Channel, cm.TemplateID)
+			if err != nil {
 				return "", false, err
 			}
+			m.FallbackTemplateID = cm.FallbackTemplateID
+			if err := x.Sender.Send(ctx, m); err != nil {
+				return "", false, err
+			}
+			x.count(ctx, *en, id, ChannelOutput(cm.Channel))
 			return n.Next, false, nil
+		}
+		x.count(ctx, *en, id, ChannelOutput(""))
+		if matched == 0 {
+			// No rule applied to this contact (and no "otherwise"): record why for the report.
+			return n.Next, false, x.publish(ctx, *en, id, c, 0, EventMessageSkipped,
+				map[string]any{"channels": len(n.Channels), "reason": "no channel rule matched the contact"})
 		}
 		// Nobody to reach on any channel: record it so the report can show why.
 		return n.Next, false, x.publish(ctx, *en, id, c, 0, "message_unreachable", map[string]any{"channels": len(n.Channels)})
@@ -261,7 +288,25 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 		if days == 0 {
 			days = 30
 		}
-		return n.Next, false, x.Onsite.PushDWC(ctx, en.TenantID, en.ContactID, n.Slot, n.HTML, time.Duration(days)*24*time.Hour)
+		html := n.HTML
+		if strings.Contains(html, "{{") {
+			ev, err := x.triggerProps(ctx, g, *en)
+			if err != nil {
+				return "", false, err
+			}
+			r := personalize.New(personalize.Vars{Contact: *c, Event: ev,
+				Campaign: personalize.Campaign{ID: en.JourneyID, Name: g.Name, Type: "journey", Step: id, Channel: "dwc"}})
+			out, err := r.HTML("html", html, webhookData{Contact: *c, Attrs: c.Attrs})
+			// The page asks for it by the visitor's ID: the contact's data is shown only to a
+			// verified identity, so an anonymous version (defaults) is kept beside it.
+			anon := model.Contact{Attrs: map[string]any{}}
+			ar := personalize.New(personalize.Vars{Campaign: personalize.Campaign{ID: en.JourneyID, Name: g.Name, Type: "journey", Step: id, Channel: "dwc"}})
+			aout, aerr := ar.HTML("html", html, webhookData{Contact: anon, Attrs: anon.Attrs})
+			if err == nil && aerr == nil {
+				html = onsite.PersonalDWC(out, aout)
+			}
+		}
+		return n.Next, false, x.Onsite.PushDWC(ctx, en.TenantID, en.ContactID, n.Slot, html, time.Duration(days)*24*time.Hour)
 
 	case NodeUpdateOwner:
 		props := map[string]any{"owner_id": 0, "source": "journey"}
@@ -520,10 +565,16 @@ func (x *Executor) fanOutCompany(ctx context.Context, en model.Enrollment, id st
 	}
 }
 
-// ResolveAttrs fills an update step's values for this contact: {contactfield=key} and Go template
-// fields ({{.Attrs.key}}) take the contact's values, and "now", "now+3hours", "now-2days" (minutes,
-// hours, days, weeks, months, years) become that time (RFC 3339, UTC).
+// ResolveAttrs fills an update step's values for this contact: {contactfield=key}, the standard
+// variables ({{contact.city}}) and Go template fields ({{.Attrs.key}}) take the contact's values, and
+// "now", "now+3hours", "now-2days" (minutes, hours, days, weeks, months, years) become that time
+// (RFC 3339, UTC).
 func ResolveAttrs(attrs map[string]any, c model.Contact, now time.Time) map[string]any {
+	return ResolveAttrsWith(attrs, c, nil, now)
+}
+
+// ResolveAttrsWith is ResolveAttrs with the journey's trigger event for {{event.x}}.
+func ResolveAttrsWith(attrs map[string]any, c model.Contact, ev map[string]any, now time.Time) map[string]any {
 	out := make(map[string]any, len(attrs))
 	field := func(k string) string {
 		switch k {
@@ -548,11 +599,9 @@ func ResolveAttrs(attrs map[string]any, c model.Contact, now time.Time) map[stri
 		}
 		s = fieldVarRe.ReplaceAllStringFunc(s, func(m string) string { return field(fieldVarRe.FindStringSubmatch(m)[1]) })
 		if strings.Contains(s, "{{") {
-			if tpl, err := template.New(k).Option("missingkey=zero").Parse(s); err == nil {
-				var b bytes.Buffer
-				if tpl.Execute(&b, webhookData{Contact: c, Attrs: c.Attrs}) == nil {
-					s = strings.ReplaceAll(b.String(), "<no value>", "")
-				}
+			r := personalize.New(personalize.Vars{Contact: c, Event: ev})
+			if res, err := r.Text(k, s, webhookData{Contact: c, Attrs: c.Attrs}); err == nil {
+				s = res
 			}
 		}
 		out[k] = s

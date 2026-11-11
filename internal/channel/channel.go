@@ -7,11 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	htmltemplate "html/template"
 	"strings"
-	texttemplate "text/template"
 
 	"pulse/internal/model"
+	"pulse/internal/personalize"
 )
 
 const (
@@ -46,8 +45,9 @@ func Valid(ch string) bool {
 // FallsBackToSMS reports whether a channel supports an SMS fallback template.
 func FallsBackToSMS(ch string) bool { return ch == WhatsApp || ch == RCS }
 
-// Content is a template's channel-specific body. Every string may use Go template syntax over
-// {{.Contact.Email}}, {{.Attrs.first_name}} and so on.
+// Content is a template's channel-specific body. Every string may use the standard variables
+// ({{contact.first_name | default:"there"}}, {{event.product}}, see package personalize) and the
+// older Go template syntax ({{.Contact.Email}}, {{.Attrs.first_name}}).
 type Content struct {
 	// sms; Text is also rcs, and email's plain-text part (generated from the HTML when empty)
 	Text     string `json:"text,omitempty"`
@@ -171,6 +171,9 @@ func Validate(t model.Template) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("%s template needs %s", t.Channel, strings.Join(missing, ", "))
 	}
+	if t.MissingValues != "" && t.MissingValues != MissingEmpty && t.MissingValues != MissingSkip {
+		return errors.New(`missing_values must be "empty" or "skip"`)
+	}
 	// Every field must parse, so authors find mistakes on save rather than at send time.
 	_, err = Render(t, model.Contact{Attrs: map[string]any{}})
 	return err
@@ -186,8 +189,18 @@ type Rendered struct {
 	Content Content
 	// TextGenerated: the email's plain-text part (Content.Text) was generated from the HTML.
 	TextGenerated bool
+	// Missing lists the standard variables (contact.first_name, event.product…) that had no value
+	// and no default, for the template's missing-value policy.
+	Missing []string
 }
 
+// Missing-value policies (model.Template.MissingValues).
+const (
+	MissingEmpty = "empty" // render the variable empty (the default)
+	MissingSkip  = "skip"  // send nothing to that contact; the outcome records why
+)
+
+// data is what the older syntax reads: {{.Attrs.first_name}}, {{.Contact.Email}}, {{.UnsubscribeURL}}.
 type data struct {
 	Contact        model.Contact
 	Attrs          map[string]any
@@ -201,46 +214,65 @@ type Links struct {
 	Preferences string
 }
 
+// Vars is the personalisation context of one message besides the contact.
+type Vars struct {
+	Event    map[string]any // the properties of the event that started the journey
+	Campaign personalize.Campaign
+	Links    Links
+}
+
 // Render fills every field of the template for one contact. HTML is auto-escaped; plain-text fields
 // are not (they are never interpreted as markup by the channel).
 func Render(t model.Template, contact model.Contact) (Rendered, error) {
-	return RenderFor(t, contact, Links{})
+	return RenderWith(t, contact, Vars{})
 }
 
 // RenderFor renders with the message's unsubscribe and preference links available to the template.
 func RenderFor(t model.Template, contact model.Contact, links Links) (Rendered, error) {
-	d := data{Contact: contact, Attrs: contact.Attrs, UnsubscribeURL: links.Unsubscribe, PreferencesURL: links.Preferences}
+	return RenderWith(t, contact, Vars{Links: links})
+}
+
+// RenderWith renders with the full personalisation context: {{contact.x}}, {{event.x}},
+// {{campaign.x}} and {{links.x}}, and the older {{.Attrs.x}} syntax.
+func RenderWith(t model.Template, contact model.Contact, v Vars) (Rendered, error) {
+	d := data{Contact: contact, Attrs: contact.Attrs, UnsubscribeURL: v.Links.Unsubscribe, PreferencesURL: v.Links.Preferences}
+	links := map[string]string{}
+	if v.Links.Unsubscribe != "" {
+		links["unsubscribe"] = v.Links.Unsubscribe
+	}
+	if v.Links.Preferences != "" {
+		links["preferences"] = v.Links.Preferences
+	}
+	camp := v.Campaign
+	if camp.Channel == "" {
+		camp.Channel = t.Channel
+	}
+	if camp.Template == "" {
+		camp.Template = t.Name
+	}
+	r := personalize.New(personalize.Vars{Contact: contact, Event: v.Event, Campaign: camp, Links: links})
 	var firstErr error
 	text := func(field, s string) string {
 		if s == "" || firstErr != nil {
 			return s
 		}
-		tpl, err := texttemplate.New(field).Option("missingkey=zero").Parse(s)
+		out, err := r.Text(field, s, d)
 		if err != nil {
 			firstErr = fmt.Errorf("%s: %w", field, err)
 			return ""
 		}
-		var b bytes.Buffer
-		if err := tpl.Execute(&b, d); err != nil {
-			firstErr = fmt.Errorf("%s: %w", field, err)
-			return ""
-		}
-		return strings.ReplaceAll(b.String(), "<no value>", "")
+		return out
 	}
 
 	var out Rendered
 	// Subjects become mail headers: strip CR/LF so attribute values cannot inject headers.
 	out.Subject = strings.NewReplacer("\r", " ", "\n", " ").Replace(text("subject", t.Subject))
 	if t.HTML != "" {
-		tpl, err := htmltemplate.New("html").Option("missingkey=zero").Parse(t.HTML)
+		h, err := r.HTML("html", t.HTML, d)
 		if err != nil {
 			return out, fmt.Errorf("html: %w", err)
 		}
-		var b bytes.Buffer
-		if err := tpl.Execute(&b, d); err != nil {
-			return out, fmt.Errorf("html: %w", err)
-		}
-		out.HTML = strings.ReplaceAll(b.String(), "&lt;no value&gt;", "")
+		out.HTML = h
 	}
 	c, err := ParseContent(t.Content)
 	if err != nil {
@@ -261,12 +293,13 @@ func RenderFor(t model.Template, contact model.Contact, links Links) (Rendered, 
 	}
 	c.Title, c.Body = text("title", c.Title), text("body", c.Body)
 	c.ImageURL, c.URL = text("image_url", c.ImageURL), text("url", c.URL)
-	for k, v := range c.Data {
-		c.Data[k] = text("data."+k, v)
+	for k, val := range c.Data {
+		c.Data[k] = text("data."+k, val)
 	}
 	if (t.Channel == Email || t.Channel == "") && strings.TrimSpace(c.Text) == "" && out.HTML != "" {
 		c.Text, out.TextGenerated = TextFromHTML(out.HTML), true
 	}
 	out.Content = c
+	out.Missing = r.Missing()
 	return out, firstErr
 }

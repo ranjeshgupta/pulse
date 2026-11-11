@@ -4,6 +4,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Segment } from "../api";
 import { nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { PersonalizeScopeProvider, TemplatedInput, TemplatedText } from "../VarPicker";
+import { fillSample, SAMPLE_CONTACT } from "../personalize";
 import "./inapp.css";
 
 // ---- API shapes (mirror model.InAppMessage) ----
@@ -158,8 +160,10 @@ export function InAppEdit() {
           </div>
 
           <h3 style={{ margin: "6px 0 12px" }}>Message</h3>
-          <Field label="Title"><input className="input" value={c.title} onChange={(e) => setC({ title: e.target.value })} placeholder="20% off your first order" /></Field>
-          <Field label="Message"><textarea className="textarea" value={c.body} onChange={(e) => setC({ body: e.target.value })} placeholder="Use code WELCOME20 at checkout." /></Field>
+          <PersonalizeScopeProvider value={{ channel: "inapp" }}>
+          <Field label="Title" hint="Contact variables are filled for signed-in app users; anonymous visitors get the default."><TemplatedInput label="Title" value={c.title} onChange={(title) => setC({ title })} placeholder={'Hi {{contact.first_name | default:"there"}}, 20% off'} /></Field>
+          <Field label="Message"><TemplatedText label="Message" value={c.body} onChange={(body) => setC({ body })} placeholder="Use code WELCOME20 at checkout." /></Field>
+          </PersonalizeScopeProvider>
           <Field label="Image address (optional)" hint="A secure https:// link to a JPG, PNG or WebP.">
             <input className="input" value={c.image_url ?? ""} onChange={(e) => setC({ image_url: e.target.value })} placeholder="https://" />
           </Field>
@@ -169,7 +173,7 @@ export function InAppEdit() {
             <div className="ia-buttons">
               {buttons.map((b, i) => (
                 <div className="ia-button-row" key={i}>
-                  <input className="input" value={b.text} onChange={(e) => setButton(i, { text: e.target.value })} placeholder="Label" aria-label={`Button ${i + 1} label`} />
+                  <TemplatedInput value={b.text} onChange={(text) => setButton(i, { text })} placeholder="Label" aria-label={`Button ${i + 1} label`} />
                   <select className="select" value={b.action} onChange={(e) => setButton(i, { action: e.target.value as InAppButton["action"] })} aria-label={`Button ${i + 1} action`}>
                     <option value="url">Opens a link</option>
                     <option value="dismiss">Closes it</option>
@@ -291,7 +295,9 @@ function TryIt({ id }: { id: number }) {
 }
 
 function PhonePreview({ m }: { m: InAppMessage }) {
-  const c = m.content;
+  // Variables shown with a sample contact (Asha), as an identified app user would see them.
+  const fill = (x: string) => fillSample(x, { contact: SAMPLE_CONTACT });
+  const c = { ...m.content, title: fill(m.content.title), body: fill(m.content.body), buttons: m.content.buttons?.map((b) => ({ ...b, text: fill(b.text) })) };
   const vars = { "--ia-bg": c.background || "#ffffff", "--ia-fg": c.text_color || "#152238", "--ia-btn": c.button_color || "#2747d6" } as React.CSSProperties;
   const buttons = (c.buttons ?? []).filter((b) => b.text.trim());
   const btns = buttons.length > 0 && (

@@ -102,7 +102,10 @@ type Template struct {
 	Content  json.RawMessage `json:"content"` // other channels, see channel.Content
 	Builder  json.RawMessage `json:"builder,omitempty"`
 	// Transactional templates (OTPs, receipts, password resets) skip frequency caps and quiet hours.
-	Transactional bool      `json:"transactional"`
+	Transactional bool `json:"transactional"`
+	// MissingValues is what happens when a variable ({{contact.first_name}}) has no value and no
+	// default: "empty" (the default) renders it empty, "skip" sends nothing to that contact.
+	MissingValues string    `json:"missing_values,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
@@ -163,6 +166,12 @@ type Message struct {
 	// (their timezone or geo_timezone attribute, else LocalZone: the zone the broadcast was set in).
 	LocalAt   string `json:"local_at,omitempty"`
 	LocalZone string `json:"local_zone,omitempty"`
+	// Personalisation context: Event holds the properties of the event that started the journey
+	// (personal properties removed, at most 16 KB) for {{event.x}}; Campaign is the journey's or
+	// broadcast's name and Step the journey step, for {{campaign.name}} and {{campaign.step}}.
+	Event    json.RawMessage `json:"event,omitempty"`
+	Campaign string          `json:"campaign,omitempty"`
+	Step     string          `json:"step,omitempty"`
 }
 
 // Provider is a configured delivery provider of a workspace. Secrets are write-only.

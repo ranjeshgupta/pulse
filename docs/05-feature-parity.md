@@ -79,7 +79,7 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Quiet hours / DND, send in contact's time zone | ⬜ | ✅ | ✅ messages are held and sent when quiet hours end, in the contact's zone | |
 | Per-step stats | ✅ | ✅ | ✅ live: entered, Yes / No, per split path (Redis counters), contacts at the step now, sends and opens per step | |
 | Every Mautic campaign decision, action and condition | ✅ | 🟡 | ✅ batch 7b, see [Campaign builder](#campaign-builder-batch-7b) | |
-| Multi-channel message with fallback (first reachable channel) | ✅ marketing messages | ✅ | ✅ `send_message`: ordered channel → template list | |
+| Multi-channel message with fallback (first reachable channel) | ✅ marketing messages | ✅ | ✅ `send_message`: ordered rules, each channel → template, optionally with conditions on the contact and trigger event (Indian number → SMS, otherwise WhatsApp); the choice shows in step stats | |
 | Jump to step (loops) | ✅ | ⬜ | ✅ `jump`, capped at 25 jumps per enrollment | |
 
 ## Broadcasts (one-time and recurring campaigns)
@@ -97,11 +97,12 @@ approximate is listed once under [Known gaps](#known-gaps).
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
-| Email: drag-and-drop builder, HTML, personalization | ✅ | ✅ | ✅ GrapesJS builder, TipTap rich text editor (also on landing pages, focus items, web content), HTML; merge-tag menu | |
+| Email: drag-and-drop builder, HTML, personalization | ✅ | ✅ | ✅ GrapesJS builder, TipTap rich text editor (also on landing pages, focus items, web content), HTML; variables `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}` with defaults and formats, a picker on every templated field (M2) | |
+| Personalisation from the triggering event (Liquid-style variables, defaults, formats) | 🟡 tokens, no event data | ✅ | ✅ the trigger event's properties travel with every message of the journey (personal properties removed, 16 KB); pipes `default`, `date`, `money`, `number`, `truncate`…; missing-value policy per template; preview and test with a real contact's event (M2) | |
 | Preview (with a real contact's data) and send a test, every channel | ✅ | ✅ | ✅ Phase 2 | |
 | Provider connection test, per provider | 🟡 | ✅ | ✅ Phase 2 | |
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
-| Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{.UnsubscribeURL}}`, RFC 8058 one-click, confirm page | |
+| Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{links.unsubscribe}}` (`{{.UnsubscribeURL}}`), RFC 8058 one-click, confirm page | |
 | Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe; an IMAP bounce mailbox read every 5 minutes for DSN (RFC 3464) and ARF (RFC 5965) reports | Non-standard plain-text bounces aren't read; one mailbox per workspace |
 | Plain-text part, attachments | ✅ | 🟡 | ✅ every email is multipart/alternative: the template's own text or one generated from the HTML (links as "text (url)", direct, plus the unsubscribe link); up to 10 asset attachments (10 MB together) in multipart/mixed; the custom gateway gets signed 7-day download links; preview shows the text part and the files | P2 |
 | SMS (Twilio, MSG91) | ✅ | ✅ | ✅ adapters, not tried on live accounts | |
@@ -327,9 +328,9 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | Send a webhook | Send a webhook | `webhook` | |
 | Send email | Send email | `send_email` | also SMS, WhatsApp, RCS, push, app inbox steps |
 | Send email to user | Send email to user | `notify_user` | users, the contact's owner and/or fixed addresses; the template rendered with the contact's data; not consent-gated, not tracked |
-| Send marketing message | Send marketing message | `send_message` channels in order | approximate: Mautic's "marketing message" is a saved object; Pulse keeps the ordered channel → template list on the step and sends on the first channel the contact can receive and has consented to (address, consent, bounce, push device) |
+| Send marketing message | Send marketing message | `send_message` channels in order | approximate: Mautic's "marketing message" is a saved object; Pulse keeps the ordered channel → template list on the step and sends on the first channel the contact can receive and has consented to (address, consent, bounce, push device). Rules may also carry conditions on `contact.*` / `event.*` (M2: Indian number → SMS, otherwise WhatsApp). |
 | Show Focus Item | Show focus item | `show_focus` | shown to this contact on their next page view, once (even a draft item: journey-only) |
-| Update contact | Update contact | `update_attr` | values may use `{contactfield=x}`, `{{.Attrs.x}}`, `now`, `now+3hours`, `now-2days` … |
+| Update contact | Update contact | `update_attr` | values may use `{contactfield=x}`, `{{contact.x}}`, the trigger event's `{{event.x}}`, `{{.Attrs.x}}`, `now`, `now+3hours`, `now-2days` … |
 | Update contact owner | Update contact owner | `update_owner` | `owner_changed`; 0 unassigns; needs contacts edit access |
 | **Conditions** | | | Yes / No right now |
 | Contact campaigns | Contact campaigns | `if_journey` active / completed / entered | |

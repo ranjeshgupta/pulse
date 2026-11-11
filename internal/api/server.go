@@ -209,6 +209,7 @@ func (s *Server) Handler() http.Handler {
 	s.integrationRoutes(mux)
 	s.contactDataRoutes(mux)
 	s.eventRoutes(mux)
+	s.personalizeRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)

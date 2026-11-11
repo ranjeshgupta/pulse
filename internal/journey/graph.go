@@ -193,6 +193,8 @@ type Graph struct {
 	Goal    *Goal           `json:"goal,omitempty"`
 	Entry   string          `json:"entry"`
 	Nodes   map[string]Node `json:"nodes"`
+	// Name is the journey's name ({{campaign.name}} in its messages), set by the engine.
+	Name string `json:"-"`
 }
 
 func ParseGraph(b []byte) (Graph, error) {
@@ -383,6 +385,9 @@ func (g Graph) Validate() error {
 			u, err := url.Parse(n.URL)
 			if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 				return fmt.Errorf("webhook %q needs an http(s) URL", id)
+			}
+			if err := checkBody(n.Body); err != nil {
+				return fmt.Errorf("webhook %q body: %w", id, err)
 			}
 		case NodeExit:
 		default:

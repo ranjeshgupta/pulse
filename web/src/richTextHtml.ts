@@ -31,7 +31,7 @@ export function templateTags(s: string): string[] {
 
 /**
  * normalizeLink checks a URL typed into the link dialog. It returns the URL to use, or a problem.
- * Template tags ({{.UnsubscribeURL}}), mailto:, tel:, #anchors and /paths are kept as typed; a bare
+ * Template tags ({{links.unsubscribe}}, {{.UnsubscribeURL}}), mailto:, tel:, #anchors and /paths are kept as typed; a bare
  * domain ("example.com/offer") gets https://.
  */
 export function normalizeLink(input: string): { url: string } | { problem: string } {
@@ -47,29 +47,29 @@ export function normalizeLink(input: string): { url: string } | { problem: strin
 
 export type MergeTag = { label: string; tag: string };
 
-/** Contact fields every template can use, before the workspace's own attributes. */
+/** Contact fields every template can use, before the workspace's own fields (standard variables). */
 export const COMMON_TAGS: MergeTag[] = [
-  { label: "First name", tag: "{{.Attrs.first_name}}" },
-  { label: "Last name", tag: "{{.Attrs.last_name}}" },
-  { label: "City", tag: "{{.Attrs.city}}" },
-  { label: "Email address", tag: "{{.Contact.Email}}" },
-  { label: "External ID", tag: "{{.Contact.ExternalID}}" },
+  { label: "First name", tag: '{{contact.first_name | default:"there"}}' },
+  { label: "Last name", tag: "{{contact.last_name}}" },
+  { label: "City", tag: "{{contact.city}}" },
+  { label: "Email address", tag: "{{contact.email}}" },
+  { label: "External ID", tag: "{{contact.external_id}}" },
 ];
 
 /** Email-only links: the unsubscribe link and the preference center. */
 export const EMAIL_LINK_TAGS: MergeTag[] = [
-  { label: "Unsubscribe link", tag: "{{.UnsubscribeURL}}" },
-  { label: "Preference center link", tag: "{{.PreferencesURL}}" },
+  { label: "Unsubscribe link", tag: "{{links.unsubscribe}}" },
+  { label: "Preference center link", tag: "{{links.preferences}}" },
 ];
 
-/** attrTag is the merge tag for a contact attribute key. Keys that aren't Go identifiers use index. */
+/** attrTag is the variable for a contact field. Keys that aren't plain names use the older index syntax. */
 export function attrTag(key: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? `{{.Attrs.${key}}}` : `{{index .Attrs ${JSON.stringify(key)}}}`;
+  return /^[A-Za-z0-9_]+$/.test(key) ? `{{contact.${key}}}` : `{{index .Attrs ${JSON.stringify(key)}}}`;
 }
 
-/** mergeTags: the common tags, then the workspace's attributes not already listed. */
+/** mergeTags: the common tags, then the workspace's fields not already listed. */
 export function mergeTags(attrs: { key: string; label?: string }[]): MergeTag[] {
-  const seen = new Set(COMMON_TAGS.map((t) => t.tag));
+  const seen = new Set(COMMON_TAGS.map((t) => t.tag.replace(/\s*\|.*\}\}$/, "}}")));
   const extra = attrs
     .map((a) => ({ label: a.label || a.key, tag: attrTag(a.key) }))
     .filter((t) => !seen.has(t.tag) && (seen.add(t.tag), true));

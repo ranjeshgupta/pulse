@@ -33,3 +33,13 @@ func TestPushes(t *testing.T) {
 		t.Errorf("other contact: %v", got)
 	}
 }
+
+func TestPersonalDWC(t *testing.T) {
+	stored := PersonalDWC("<p>Hi Asha</p>", "<p>Hi there</p>")
+	if ResolveDWC(stored, true) != "<p>Hi Asha</p>" || ResolveDWC(stored, false) != "<p>Hi there</p>" {
+		t.Error("personal content must go only to a verified identity")
+	}
+	if ResolveDWC("<b>plain</b>", false) != "<b>plain</b>" {
+		t.Error("plain content is shown as it is")
+	}
+}

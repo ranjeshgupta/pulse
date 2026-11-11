@@ -267,6 +267,7 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 	if !webIdentityOK(t, req.ExternalID, req.UserHash) {
 		req.ExternalID = "" // unverified: decide as for an anonymous visitor, never reveal someone's segments
 	}
+	verified := verifiedIdentity(t, strings.TrimSpace(req.ExternalID), req.UserHash)
 	if len(req.Slots) > 50 {
 		writeErr(w, http.StatusBadRequest, "at most 50 slots per request")
 		return
@@ -290,7 +291,7 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	d := onsite.Decide(set.items, set.slots, req.Slots, req.URL, s.now(), func(id int64) bool { return member[id] })
 	if known != nil {
-		s.journeyOnsite(r.Context(), t.ID, *known, req.URL, req.Slots, &d)
+		s.journeyOnsite(r.Context(), t.ID, *known, req.URL, req.Slots, verified, &d)
 	}
 	writeJSON(w, http.StatusOK, d)
 }
@@ -299,7 +300,9 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 // item" steps (shown on this page view, once), content pushed into slots by "push dynamic content"
 // steps (it wins over the slot's own content), and dwc_requested for every requested slot, which
 // "requests dynamic content" decisions wait for.
-func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contact, pageURL string, slots []string, d *onsite.Decision) {
+// Content a step personalised with the contact's data is shown only to a verified identity
+// (verified); other visitors get its anonymous version (the variables' defaults).
+func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contact, pageURL string, slots []string, verified bool, d *onsite.Decision) {
 	if s.RDB == nil {
 		return
 	}
@@ -332,7 +335,7 @@ func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contac
 	}
 	if pushed, err := p.DWC(ctx, tenant, c.ID, wanted); err == nil {
 		for k, v := range pushed {
-			d.Content[k] = v
+			d.Content[k] = onsite.ResolveDWC(v, verified)
 		}
 	} else {
 		s.Log.Error("journey dynamic content", "err", err)

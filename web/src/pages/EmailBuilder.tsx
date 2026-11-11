@@ -14,7 +14,7 @@ const STARTER = `
 <table style="width:100%;background:#f4f6f8;padding:24px 0;font-family:Arial,sans-serif">
   <tr><td align="center">
     <table style="width:600px;background:#ffffff;border-radius:8px;padding:32px">
-      <tr><td><h1 style="margin:0 0 12px;font-size:24px;color:#152238">Hi {{.Attrs.first_name}},</h1>
+      <tr><td><h1 style="margin:0 0 12px;font-size:24px;color:#152238">Hi {{contact.first_name | default:"there"}},</h1>
       <p style="font-size:15px;line-height:1.6;color:#3a4a66">Write your message here. Drag blocks from the right to add images, buttons and columns.</p>
       <a href="https://example.com" style="display:inline-block;margin-top:12px;background:#2747d6;color:#fff;padding:10px 18px;border-radius:5px;text-decoration:none">Call to action</a>
       </td></tr>

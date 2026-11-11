@@ -40,7 +40,7 @@ link for each message.
 
 **The unsubscribe page.** Every email gets an unsubscribe link: in the footer Pulse adds
 (*You're receiving this because you subscribed. Unsubscribe*), or wherever you place
-`{{.UnsubscribeURL}}` in the template. It opens:
+`{{links.unsubscribe}}` (or the older `{{.UnsubscribeURL}}`) in the template. It opens:
 
 <img src="img/11-unsubscribe-page.png" alt="Unsubscribe from Acme Retail? with the buttons Unsubscribe from emails and Stop all messages, and the link Choose what you get instead" width="360">
 
@@ -61,7 +61,7 @@ switch, then **Save preferences**, or **Unsubscribe from everything**:
 
 Ways to send contacts there:
 
-- `{{.PreferencesURL}}` in an email template (for example "Manage your preferences" in the footer).
+- `{{links.preferences}}` (or the older `{{.PreferencesURL}}`) in an email template (for example "Manage your preferences" in the footer).
 - The **Choose what you get instead** link on the unsubscribe page.
 - A personal link from the API, e.g. for your account page or an SMS:
   `GET /v1/contacts/{external_id}/preferences-link` with your server API key returns `{"url": …}`.

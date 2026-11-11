@@ -10,11 +10,11 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"text/template"
 	"time"
 
 	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/personalize"
 	"pulse/internal/profile"
 	"pulse/internal/segment"
 )
@@ -181,7 +181,11 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			if err != nil {
 				return err
 			}
-			attrs := ResolveAttrs(n.Attrs, c, x.Now())
+			ev, err := x.triggerProps(ctx, g, en)
+			if err != nil {
+				return err
+			}
+			attrs := ResolveAttrsWith(n.Attrs, c, ev, x.Now())
 			if err := x.Events.PublishEvent(ctx, event.Event{
 				ID: "jattr:" + StepKey(en, id), TenantID: en.TenantID, ExternalID: c.ExternalID,
 				Name: event.Identify, Ts: x.Now().UTC(), Attrs: attrs,
@@ -216,22 +220,18 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			if err != nil {
 				return err
 			}
-			if err := x.webhook(ctx, n, en, id, c); err != nil {
+			if err := x.webhook(ctx, g, n, en, id, c); err != nil {
 				return err
 			}
 			id = n.Next
 
 		case NodeSendEmail, NodeSendSMS, NodeSendWhatsApp, NodeSendRCS, NodeSendPush, NodeSendInbox:
-			err := x.Sender.Send(ctx, model.Message{
-				ID:                 StepKey(en, id),
-				TenantID:           en.TenantID,
-				ContactID:          en.ContactID,
-				Channel:            SendChannel(n.Type),
-				TemplateID:         n.TemplateID,
-				FallbackTemplateID: n.FallbackTemplateID,
-				JourneyID:          en.JourneyID,
-			})
+			m, err := x.message(ctx, g, en, id, SendChannel(n.Type), n.TemplateID)
 			if err != nil {
+				return err
+			}
+			m.FallbackTemplateID = n.FallbackTemplateID
+			if err := x.Sender.Send(ctx, m); err != nil {
 				return err
 			}
 			id = n.Next
@@ -314,9 +314,62 @@ type webhookData struct {
 	Step         string
 }
 
+// jsonFunc is {{json .Attrs}} in webhook bodies.
+var jsonFunc = map[string]any{"json": func(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}}
+
+// checkBody checks a webhook body's variables and pipes. (Go template mistakes surface when the step
+// runs, as before, so a journey saved earlier never stops loading.)
+func checkBody(body string) error {
+	_, _, err := personalize.Translate(body, false)
+	return err
+}
+
+// TriggerReader reads the event an enrollment started with (pg.Store).
+type TriggerReader interface {
+	EnrollmentTrigger(ctx context.Context, enrollment int64) (json.RawMessage, error)
+}
+
+// trigger returns the properties of the event that started the enrollment (for {{event.x}}), or
+// nil: journeys started by a segment have none, nor do contacts added by another journey.
+func (x *Executor) trigger(ctx context.Context, g Graph, en model.Enrollment) (json.RawMessage, error) {
+	if g.Trigger.Type != TriggerEvent && g.Trigger.Type != TriggerFormSubmitted {
+		return nil, nil
+	}
+	tr, ok := x.Store.(TriggerReader)
+	if !ok {
+		return nil, nil
+	}
+	return tr.EnrollmentTrigger(ctx, en.ID)
+}
+
+// triggerProps is trigger, decoded.
+func (x *Executor) triggerProps(ctx context.Context, g Graph, en model.Enrollment) (map[string]any, error) {
+	raw, err := x.trigger(ctx, g, en)
+	if err != nil || len(raw) == 0 {
+		return nil, err
+	}
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	return m, nil
+}
+
+// message is a send step's message, carrying the journey's personalisation context: the trigger
+// event ({{event.x}}), the journey's name and the step.
+func (x *Executor) message(ctx context.Context, g Graph, en model.Enrollment, step, ch string, template int64) (model.Message, error) {
+	ev, err := x.trigger(ctx, g, en)
+	if err != nil {
+		return model.Message{}, fmt.Errorf("load trigger event: %w", err)
+	}
+	return model.Message{ID: StepKey(en, step), TenantID: en.TenantID, ContactID: en.ContactID, Channel: ch,
+		TemplateID: template, JourneyID: en.JourneyID, Event: ev, Campaign: g.Name, Step: step}, nil
+}
+
 // webhook calls the step's URL. It retries briefly, then records webhook_failed and lets the
 // journey continue: one slow endpoint must never stall everyone behind it.
-func (x *Executor) webhook(ctx context.Context, n Node, en model.Enrollment, step string, c model.Contact) error {
+func (x *Executor) webhook(ctx context.Context, g Graph, n Node, en model.Enrollment, step string, c model.Contact) error {
 	var body []byte
 	if n.Body == "" {
 		body, _ = json.Marshal(map[string]any{
@@ -324,18 +377,18 @@ func (x *Executor) webhook(ctx context.Context, n Node, en model.Enrollment, ste
 			"journey_id": en.JourneyID, "enrollment_id": en.ID, "step": step,
 		})
 	} else {
-		tpl, err := template.New("body").Option("missingkey=zero").Funcs(template.FuncMap{"json": func(v any) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		}}).Parse(n.Body)
+		ev, err := x.triggerProps(ctx, g, en)
+		if err != nil {
+			return err
+		}
+		r := personalize.New(personalize.Vars{Contact: c, Event: ev,
+			Campaign: personalize.Campaign{ID: en.JourneyID, Name: g.Name, Type: "journey", Step: step, Channel: "webhook"}})
+		r.Extra = jsonFunc
+		out, err := r.Text("body", n.Body, webhookData{c, c.Attrs, en.JourneyID, en.ID, step})
 		if err != nil {
 			return fmt.Errorf("webhook body: %w", err)
 		}
-		var b bytes.Buffer
-		if err := tpl.Execute(&b, webhookData{c, c.Attrs, en.JourneyID, en.ID, step}); err != nil {
-			return fmt.Errorf("webhook body: %w", err)
-		}
-		body = b.Bytes()
+		body = []byte(out)
 	}
 	var last string
 	for attempt := 0; attempt < 3; attempt++ {

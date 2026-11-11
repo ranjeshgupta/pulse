@@ -17,6 +17,7 @@ import (
 
 	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/personalize"
 	"pulse/internal/schedule"
 )
 
@@ -51,6 +52,16 @@ func Validate(m model.InAppMessage) error {
 			errs = append(errs, fmt.Errorf("button %d: action must be url or dismiss", i+1))
 		}
 	}
+	for _, f := range []struct{ name, v string }{{"title", c.Title}, {"message", c.Body}} {
+		if err := personalize.Check(f.name, f.v, false); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", f.name, err))
+		}
+	}
+	for i, b := range c.Buttons {
+		if err := personalize.Check("button", b.Text+b.Value, false); err != nil {
+			errs = append(errs, fmt.Errorf("button %d: %w", i+1, err))
+		}
+	}
 	if c.ImageURL != "" && !strings.HasPrefix(c.ImageURL, "https://") {
 		errs = append(errs, errors.New("the image must be an https URL"))
 	}
@@ -83,6 +94,34 @@ func Validate(m model.InAppMessage) error {
 	}
 	errs = append(errs, (schedule.Window{Start: m.StartAt, End: m.EndAt}).Validate())
 	return errors.Join(errs...)
+}
+
+// Personalize fills a campaign's text for one contact: {{contact.first_name | default:"there"}}
+// (and the older {{.Attrs.first_name}}) in the title, message and buttons. Anonymous visitors get
+// the defaults. A field that doesn't render is shown as written.
+func Personalize(c model.InAppContent, contact model.Contact) model.InAppContent {
+	r := personalize.New(personalize.Vars{Contact: contact, Campaign: personalize.Campaign{Type: "inapp", Channel: "inapp"}})
+	dot := map[string]any{"Contact": contact, "Attrs": contact.Attrs}
+	fill := func(s string) string {
+		if !strings.Contains(s, "{{") {
+			return s
+		}
+		out, err := r.Text("inapp", s, dot)
+		if err != nil {
+			return s
+		}
+		return out
+	}
+	c.Title, c.Body = fill(c.Title), fill(c.Body)
+	bs := make([]model.InAppButton, len(c.Buttons))
+	for i, b := range c.Buttons {
+		b.Text, b.Value = fill(b.Text), fill(b.Value)
+		bs[i] = b
+	}
+	if c.Buttons != nil {
+		c.Buttons = bs
+	}
+	return c
 }
 
 // safeURL allows https links and app deep links (scheme://...), never javascript: or data:.

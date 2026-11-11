@@ -411,6 +411,7 @@ func runJourneys(ctx context.Context, d *deps) error {
 		Stats:        journey.RedisStepStats{RDB: rdb},
 		Integrations: ints,
 	}, d.log)
+	eng.Schemas = eventschema.NewCache(pgs, rdb, d.log) // personal properties stay out of messages
 	if err := eng.Refresh(ctx); err != nil {
 		return err
 	}
