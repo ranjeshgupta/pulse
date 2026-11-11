@@ -2,7 +2,7 @@
 
 Pulse is a multi-tenant, real-time marketing automation platform written in Go on Kafka, ClickHouse, Postgres and Redis.
 The design targets 10–100M contacts and 10k–100k events/sec. This document covers the overall design and the
-Phase 1 contracts that the code in this repository implements.
+contracts the code in this repository implements, from Phase 1 through batch 9.
 
 ## Pipeline
 
@@ -21,10 +21,10 @@ Phase 1 contracts that the code in this repository implements.
                                                        │
                                                     journeys  enroll, run nodes, durable Postgres timers
                                                        ▼
-                                               [messages.email]
+                                          [messages.<channel>]  (broadcasts send here too)
                                                        │
-                                                   dispatch  rate limit, idempotency, render, SMTP / SES
-                                                       └──► email_sent event back into [events.raw]
+                                                   dispatch  rate limit, idempotency, render, SMTP / providers
+                                                       └──► <channel>_sent / _failed events back into [events.raw]
 ```
 
 All roles ship in one binary, `pulse <role>`. Each role is a separate deployment that scales on its own Kafka consumer group,
@@ -34,20 +34,22 @@ and `pulse all` runs every role in one process for local development.
 
 | Topic | Key | Producer → consumer | Payload |
 |---|---|---|---|
-| `events.raw` | `tenant:external_id` | ingest, dispatch, integrations → profile | `event.Event` without `contact_id` |
+| `events.raw` | `tenant:external_id` | api (ingest, forms, tracking), journeys (incl. imports), dispatch, integrations → profile | `event.Event` without `contact_id` |
 | `events.enriched` | `tenant:contact_id` | profile → chsink, segments, journeys, webhooks, integrations | `event.Event` with `contact_id` and the merged `attrs` snapshot |
-| `segment.membership` | `tenant:contact_id` | segments → journeys, chsink, webhooks, integrations | `segment.Change{tenant, segment, contact, entered, source}` |
-| `messages.email` | `tenant:contact_id` | journeys → dispatch | `message.Email{id, tenant, contact, template, ...}` |
+| `segment.membership` | `tenant:contact_id` | segments → journeys, chsink, webhooks, integrations, segments (segments that depend on other segments) | `segment.Change{tenant, segment, contact, entered, source}` |
+| `messages.<channel>` (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`) | `tenant:contact_id` | journeys (and broadcasts), api test sends, dispatch (SMS fallback, held messages) → dispatch | `model.Message{id, tenant, contact, channel, template, ...}` |
+| `delivery.receipts` | `tenant:provider message id` | api (provider webhooks) → dispatch | delivery receipts (delivered, read, failed) |
 
 Each key keeps one contact's events in order on a single partition. That ordering is what lets the streaming segment path work without locks.
 
 ## Identity and tenancy
 
-- `tenants(id, name, api_key_hash)`. Every API call resolves a tenant from `Authorization: Bearer <api key>`.
+- `tenants(id, name, slug, api_key_hash, site_key, …)`. Every API call resolves a tenant from `Authorization: Bearer <api key>`,
+  a signed-in user's session cookie, or (browser and app SDK routes under `/v1/web/`) the public site key.
 - `contacts(tenant_id, id, external_id, email, attrs jsonb)`. `id` is **dense per tenant** (1, 2, 3…), allocated from
   `tenant_counters` with `UPDATE … RETURNING`. Dense ids let a segment be a Redis bitmap: 100M contacts = 12.5 MB per segment.
 - `tenant_id` is the first column of every Postgres primary key, every ClickHouse `ORDER BY` and every Redis key.
-  Repository functions always take `tenantID`. Postgres Row-Level Security is planned for Phase 6.
+  Repository functions always take `tenantID`. Postgres Row-Level Security is not enabled (see Known gaps in the parity doc).
 
 ## Profiles and reserved attributes
 
@@ -138,7 +140,7 @@ Segments are a JSON AST:
 1. Run `ToSQL` in ClickHouse to get a set of ids. Build the bitmap bytes in Go, in Redis bit order (bit 0 = MSB of byte 0).
 2. XOR it with the current bitmap to get entered and exited contacts. Write it back atomically (`SET tmp` + `RENAME`), then publish the diffs
    with `source=backfill` or `source=sweep`.
-3. Segments that contain event windows are swept every `SWEEP_INTERVAL` (default 5 minutes), so "within N days" membership decays
+3. Segments that contain event windows are swept every `PULSE_SWEEP_INTERVAL` (default 5 minutes), so "within N days" membership decays
    without a rescan in the event path.
 
 Known Phase 1 limitation: an event that arrives for a contact while a backfill of the same segment is running can be overwritten by the
@@ -212,7 +214,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   `push_dwc` sets `odwc:{tenant}:{contact}` slot → HTML for N days (default 30); the decide API returns it for that slot
   instead of the slot's own content. The decide API also records `dwc_requested {slot, url}` for each requested slot of a
   known contact, which `on_dwc` decisions wait for.
-- **Inbound replies** (`internal/replies`). Set Settings → Channels → Delivery → "Reply tracking address" (`reply_to`, e.g.
+- **Inbound replies** (`internal/replies`). Set Settings → Channels → Delivery rules → "Reply tracking address" (`reply_to`, e.g.
   `replies@inbound.example.com`; point that domain's MX at the email provider's inbound parse). Every tracked email then
   gets `Reply-To: replies+r<code>@inbound.example.com`: a random 16-character lower-case code stored in Redis
   (`rtok:<code>`, 30 days) with the message's tracking token. The provider posts replies to the workspace's
@@ -248,7 +250,9 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 ## Contact views and imports (batch 9)
 - **Views.** `GET /v1/contacts?q=&after=&limit=` (contacts view) parses `q` (`internal/api/contactview.go`): `key:value`
   filters (`is:`, `segment:` / `list:`, `tag:`, `stage:`, `company:`, `owner:`, `points:`, `email:`, `name:`) become one
-  `all` segment rule, resolved against the workspace's segments and users; other words are free text. Without either,
+  `all` segment rule, resolved against the workspace's segments and users; other words are free text. `owner:` with a
+  teammate's name, email or id needs view access to settings (the team list); without it only `owner:me` and
+  `owner:none` work, and other values answer 400. Without either,
   contacts page through Postgres by primary key. Otherwise ClickHouse (`store/ch/contactview.go`) selects ids from
   `contacts FINAL` with `segment.WhereSQL` (the condition `ToSQL` uses, so a view matches a segment with the same rule)
   and a case-insensitive `positionCaseInsensitiveUTF8` over external ID, email, name, first/last name and phone,
@@ -264,13 +268,14 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   columns with an empty heading. `POST /v1/contacts/import` (synchronous, 200 MB) stays for API clients.
 
 ## Dispatch
-- Per-tenant token bucket in Redis (`EMAIL_RATE_PER_SEC`).
+- Per-tenant, per-channel token bucket in Redis (messages/second: email 200, set by `PULSE_EMAIL_RATE`; SMS 100, WhatsApp 80,
+  RCS 50, push 500, inbox 2,000).
 - **SMS bounces.** A provider error for the number itself (`providers.BadNumber`: Twilio 21211/21214/21612/21614, or
   an unreachable recipient, e.g. the sandbox's unreachable suffix) or a failed receipt marked unreachable (Twilio
   30003/30005/30006) records `sms_failed {bounce: true}` with `attrs.sms_bounced = true`; later SMS are
   `sms_suppressed` until the number changes. A contact without a valid number is a plain failure, not a bounce.
-- **SMS / RCS click tracking.** With `content.track_links` on the template (Templates → SMS or RCS, "Track link
-  clicks"), the dispatcher replaces each http(s) link in the rendered text (and RCS `url` suggestions) with
+- **SMS / RCS click tracking.** With `content.track_links` on the template (Content → Message templates, an SMS or RCS
+  template, "Track link clicks"), the dispatcher replaces each http(s) link in the rendered text (and RCS `url` suggestions) with
   `{PULSE_PUBLIC_URL}/t/s/{code}`: 10 random base62 characters naming the message plus one naming the link (about 40
   characters in all; trailing punctuation stays outside the link). The message's tracking token and destinations are one
   Redis key per message (`slink:{code}`, 30 days). `GET /t/s/{code}` records `<channel>_clicked {url, message_id,
@@ -278,8 +283,11 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   404. WhatsApp is not covered: business-started WhatsApp messages are pre-approved templates whose button URLs live at
   Meta, so Pulse can't rewrite them.
 - Templates use Go `html/template` and `text/template` over `{contact, attrs}`.
-- Providers sit behind the `channel.Sender` interface: SMTP in Phase 1, then SES, Twilio, Gupshup, MSG91, Google RBM, FCM/APNs and VAPID.
-- Every send emits an `email_sent` or `email_failed` event back into `events.raw`, so journeys and segments can react to delivery.
+- Providers (`internal/providers`): SMTP (any relay, SES included), Twilio and MSG91 (SMS), Meta WhatsApp Cloud API, Google RBM
+  (RCS), FCM, standard web push (VAPID), the sandbox, and the custom HTTP gateway for any channel. iOS push goes through FCM
+  (no direct APNs).
+- Every send emits a `<channel>_sent` or `<channel>_failed` event (plus `_suppressed`, `_capped`, `_deferred`, `_fallback`)
+  back into `events.raw`, so journeys and segments can react to delivery.
 
 ## Content: emails, assets and landing pages
 
@@ -325,9 +333,14 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 | `/t/*`, `/u/*` | email tracking and unsubscribe (sealed tokens); `POST /t/p/{token}` push clicks / dismissals | |
 
 ## ClickHouse tables
-- `events`: `MergeTree PARTITION BY toYYYYMM(ts) ORDER BY (tenant_id, name, contact_id, ts)`. Event-window segment queries hit only the
-  key range for (tenant, event name).
+- `events`: `ReplacingMergeTree PARTITION BY toYYYYMM(ts) ORDER BY (tenant_id, name, contact_id, ts, id)` (redelivered rows
+  collapse). Event-window segment queries hit only the key range for (tenant, event name).
 - `contacts`: `ReplacingMergeTree(version) ORDER BY (tenant_id, id)` with `attrs Map(String, String)`. Queried with `FINAL`.
+- `segment_members`: current membership mirrored from `segment.membership` ("in segment" rules and static segments in SQL).
+- `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv2`)
+  from `events`, for reports.
+
+Migrations: `migrations/postgres/001`–`018` and `migrations/clickhouse/001`–`004`, applied by `pulse migrate` (and `pulse all`).
 
 ## Public pages and origins
 - Landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`) are workspace-authored. With `PULSE_PAGES_URL` set they are

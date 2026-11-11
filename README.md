@@ -35,7 +35,7 @@ and journeys within seconds, not on a 15-minute cron.
   SDKs list and update it (`GET/POST /v1/web/inbox`, `Pulse.inbox`), reads and clicks count in reports.
   A signed-in user's inbox always needs their user hash (identity verification); anonymous visitors' doesn't.
 - **In-app campaigns (done):** `/v1/inapp` to manage them (with `GET /v1/inapp/check` and `POST /v1/inapp/{id}/test`),
-  `POST /v1/web/inapp` for the app SDK (android, ios); the Flutter SDK renders modal, banner and full-screen messages.
+  `POST /v1/web/inapp` for the app SDKs; the Flutter, Android and iOS SDKs render modal, banner and full-screen messages.
   Segment targeting counts for signed-in users only with their user hash. (On-site focus items follow the workspace's
   identity-verification setting instead.)
 - **Batch 5 (done):** GeoIP and the anonymous-tracking switch, retention cleanup (Settings → Data & privacy), journeys
@@ -111,7 +111,7 @@ and journeys within seconds, not on a 15-minute cron.
   - **Bounce mailbox:** Settings → Channels → Bounce mailbox (IMAP, TLS or STARTTLS, password sealed and shown masked) is read
     every 5 minutes for delivery status notifications (RFC 3464) and feedback-loop complaints (RFC 5965 / ARF), handled
     like bounce webhooks; read messages are flagged `\Seen`.
-  - **Push click tracking:** every push carries `data.pulse_track`; the web SDK's service worker and the app SDKs
+  - **Push click tracking:** every push carries `data.pulse_track`; the web SDK's service worker and the Android and iOS SDKs
     post clicks and dismissals there (`POST /t/p/{token}?a=clicked|dismissed`), recorded as `push_clicked` /
     `push_dismissed`; reports count clicks and a message decision can wait for "clicked" on push.
   - **Forms:** file upload fields (types checked against the content, size limits, kept as private assets, downloaded
@@ -122,8 +122,8 @@ and journeys within seconds, not on a 15-minute cron.
 - **Batch 9, contact views and navigation (done):**
   - **Contact views:** the Contacts search box takes filters as removable chips with suggestions as you type:
     `is:anonymous`, `is:identified`, `is:unsubscribed`, `is:bounced`, `is:dnc`, `segment:<name or id>` (`list:` too),
-    `tag:`, `stage:`, `company:`, `owner:` (`me`, `none`, a teammate), `points:>N` / `<N` / `=N`, `email:`, `name:`,
-    and free text, ANDed. Filters compile to a segment rule (`internal/api/contactview.go`) and run in ClickHouse with
+    `tag:`, `stage:`, `company:`, `owner:` (`me`, `none`, or a teammate for users with settings view access), `points:>N` /
+    `<N` / `=N`, `email:`, `name:`, and free text, ANDed. Filters compile to a segment rule (`internal/api/contactview.go`) and run in ClickHouse with
     the segment compiler, keyset-paged, with a count that is exact up to 10,000 and approximate above. "Save as segment"
     stores that rule as a dynamic segment; "View contacts" on every segment opens `segment:<id>`; a column chooser; and
     "Export CSV" of the view with its columns (`GET /v1/contacts/export?q=&columns=`, contacts edit access).
@@ -134,7 +134,8 @@ and journeys within seconds, not on a 15-minute cron.
     in-app" list (Website or Mobile app first); imports are one flow under Contacts (upload, map columns, static
     segment, review, background run, one history). Old addresses redirect. Decisions:
     [docs/05-feature-parity.md](docs/05-feature-parity.md#navigation-batch-9).
-- **Next:** step-by-step tutorials with the product owner.
+- **Next:** step-by-step tutorials with the product owner. Remaining gaps:
+  [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it
 
@@ -171,10 +172,26 @@ web SDK) can be set but keep their first value. Change them through their own AP
 with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`). Name your own fields differently, e.g.
 `team_size` rather than `company_size`.
 
-## Security settings for production
+## Settings
+
+Every setting is a `PULSE_*` environment variable (`internal/config/config.go`). The defaults suit `pulse all` on the
+host against the dev compose stack's published ports; `deploy/docker-compose.yml` sets the in-network addresses.
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `PULSE_HTTP_ADDR` | `:7070` | Address the `api` role listens on |
+| `PULSE_PG_DSN` | `postgres://pulse:pulse@localhost:55432/pulse?sslmode=disable` | Postgres connection string |
+| `PULSE_CH_ADDR`, `PULSE_CH_DB`, `PULSE_CH_USER`, `PULSE_CH_PASSWORD` | `localhost:19000`, `pulse`, `pulse`, `pulse` | ClickHouse native protocol address, database and credentials |
+| `PULSE_REDIS_ADDR` | `localhost:16379` | Redis address |
+| `PULSE_KAFKA_BROKERS` | `localhost:19092` | Kafka brokers, comma-separated |
+| `PULSE_KAFKA_PARTITIONS` | `12` | Partitions per topic when `migrate` creates the topics (caps each role's parallelism) |
+| `PULSE_SMTP_ADDR` | `localhost:11025` | SMTP relay used when a workspace has no email provider of its own |
+| `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | Default email sender |
+| `PULSE_ADMIN_TOKEN` | none | Platform operator token for `POST /v1/tenants`; unset turns that route off |
+| `PULSE_ALLOW_SIGNUP` | `true` | Anyone may create a workspace at `/signup`; `false` turns signup off |
+| `PULSE_PUBLIC_URL` | `http://localhost:7080` | Where browsers reach Pulse: SSO redirects, Secure cookies, tracking, unsubscribe and webhook URLs |
+| `PULSE_SWEEP_INTERVAL` | `5m` | How often segments with event windows or relative dates are re-checked |
+| `PULSE_EMAIL_RATE` | `200` | Emails per second per workspace (other channels have fixed rates, see the architecture doc) |
 | `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links, webhook secrets and download links (form-gated assets, attachment links for the custom gateway need it) |
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
@@ -184,7 +201,9 @@ with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often retention cleanup runs |
 | `PULSE_PAGES_URL` | none | A separate origin for landing pages, asset downloads and hosted forms, e.g. `https://pages.example.com`. **Set it in production**: workspace-authored pages then never share an origin or cookies with the app (no lookalike login pages on the app's domain); those paths redirect there, and that host serves nothing else |
 
-The dev compose file turns the two `ALLOW_PRIVATE` switches on for the local Keycloak and the e2e webhook receivers.
+In production set at least `PULSE_SECRET_KEY`, `PULSE_PUBLIC_URL` (https) and `PULSE_PAGES_URL`, and consider
+`PULSE_ALLOW_SIGNUP=false` (with `PULSE_ADMIN_TOKEN` to create workspaces through the API). The dev compose file turns the two `ALLOW_PRIVATE` switches on for the local Keycloak
+and the e2e webhook receivers.
 
 ## API walkthrough
 
@@ -215,10 +234,11 @@ curl -s localhost:7080/v1/contacts/u1 -H "Authorization: Bearer $KEY"   # profil
 ```
 cmd/pulse/          one binary, one role per argument (migrate, api, profile, chsink, segments, journeys, dispatch,
                     webhooks, integrations, all)
+cmd/seed/           demo workspace for `make seed`; cmd/loadgen/: the load generator for `make load`
 internal/segment/   rule AST, Go evaluator, ClickHouse SQL compiler, Redis bitmaps and day counters
 internal/segengine/ streaming membership, backfill, sweep
 internal/journey/   graph validation, executor, triggers and durable timers
-internal/dispatch/  email: idempotency, token bucket, templates, SMTP
+internal/dispatch/  every channel: idempotency, token buckets, consent, caps, quiet hours, fallback, providers
 internal/profile/   identity resolution, attribute merge
 internal/chsink/    events.enriched -> ClickHouse
 internal/integrations/ CRM, Shopify, REST hook and ad audience connectors; audience sync
@@ -231,6 +251,8 @@ test/e2e/           end-to-end tests against the running stack
 ```
 
 ## Known Phase 1 limits
+
+The full list of remaining gaps is in [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 - Journeys don't exit contacts when they leave the trigger segment (use a condition, a goal or "Change campaigns").
 - A backfill that runs while live events arrive for the same segment can overwrite a fresh streaming

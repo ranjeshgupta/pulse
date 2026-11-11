@@ -256,7 +256,8 @@ throw: `list` returns an empty page and the actions return 0 / false, with a log
 
 ## In-app messages
 
-In-app campaigns (modal, banner or full screen) are created in Pulse. The SDK fetches the current
+In-app campaigns (modal, banner or full screen) are created in Pulse (Campaigns → On-site & in-app →
+New → Mobile app). The SDK fetches the current
 person's campaigns at `start`, after `identify`, `reset` and `optIn`, and when the app returns to the
 foreground (at most every 15 minutes). When the app calls `track(name)` or `screen(name)`, the first
 campaign whose `trigger_event` is `name` (and, for `screen_view`, whose `screen` matches when set) and

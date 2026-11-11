@@ -69,8 +69,8 @@ const FIXED: Omit<CatalogItem, "icon">[] = [
   { id: "email_clicked_specific", group: "messages", label: "Clicked a link in a specific email", hint: "Any link in that email", make: () => ev("email_clicked", 30, pick("template_id")), keywords: "click" },
   { id: "sms_clicked_any", group: "messages", label: "Clicked any link from any text message", hint: "SMS links with link tracking on", make: () => ev("sms_clicked"), keywords: "click sms text" },
   {
-    id: "clicked_any_channel", group: "messages", label: "Clicked any link from any channel", hint: "Email, SMS, RCS, app inbox or in-app", nests: true, keywords: "click",
-    make: () => newGroup("any", ["email_clicked", "sms_clicked", "rcs_clicked", "inbox_clicked", "inapp_clicked"].map((e) => ev(e))),
+    id: "clicked_any_channel", group: "messages", label: "Clicked any link from any channel", hint: "Email, SMS, RCS, push, app inbox or in-app", nests: true, keywords: "click",
+    make: () => newGroup("any", ["email_clicked", "sms_clicked", "rcs_clicked", "push_clicked", "inbox_clicked", "inapp_clicked"].map((e) => ev(e))),
   },
   { id: "email_sent_any", group: "messages", label: "Sent any email", hint: "Was sent at least one email", make: () => ev("email_sent") },
   { id: "email_sent_specific", group: "messages", label: "Was sent a specific email", hint: "The email of a template", make: () => ev("email_sent", 30, pick("template_id")) },

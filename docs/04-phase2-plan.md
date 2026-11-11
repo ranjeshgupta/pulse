@@ -1,5 +1,9 @@
 # Phase 2: web app, sign-in, channels, on-site
 
+**Historical plan, kept as written.** Phase 2 is built, and so is everything listed below under "Not in this slice"
+(forms, landing pages, points, stages, A/B splits, CRM and Zapier integrations, custom roles, and the web, Flutter, Android
+and iOS SDKs). Current features: [README](../README.md); remaining gaps: [05-feature-parity.md](05-feature-parity.md#known-gaps).
+
 Scope as agreed: user accounts plus SSO (Keycloak or any OIDC provider), a React + TypeScript + Vite app (segment builder,
 journey canvas, template editors, contacts, dashboard), and the WebEngage/Mautic channels: SMS, WhatsApp with SMS fallback,
 RCS with SMS fallback, FCM push, focus items and Dynamic Web Content (DWC). The JS SDK comes in the next slice.
@@ -16,7 +20,8 @@ RCS with SMS fallback, FCM push, focus items and Dynamic Web Content (DWC). The 
    encrypted with AES-256-GCM. One dispatcher per channel topic (`messages.sms|whatsapp|rcs|push`).
    - **Fallback:** if WhatsApp or RCS can't reach the contact (provider says unreachable, the number isn't capable, or a
      failed delivery receipt arrives), the SMS fallback template is sent instead, exactly once.
-   - **Journey nodes:** `send_sms`, `send_whatsapp`, `send_rcs` and `send_push`, the last two with optional `fallback_sms_template_id`.
+   - **Journey nodes:** `send_sms`, `send_whatsapp`, `send_rcs` and `send_push`; `send_whatsapp` and `send_rcs` take an optional
+     `fallback_template_id` (an SMS template).
    - **Sandbox provider:** records every message in a test inbox shown in the UI, so every channel and fallback path can be exercised
      without real accounts.
 5. **Provider adapters:** Twilio and MSG91 (SMS), Meta WhatsApp Cloud API, Google RCS Business Messaging, FCM HTTP v1. Each is tested

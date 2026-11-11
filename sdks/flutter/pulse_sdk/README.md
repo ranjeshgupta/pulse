@@ -336,7 +336,8 @@ Scaffold(
 
 ## In-app messages
 
-In-app campaigns (modal, banner or full screen) are created in Pulse and shown by the SDK when a
+In-app campaigns (modal, banner or full screen) are created in Pulse (Campaigns → On-site & in-app →
+New → Mobile app) and shown by the SDK when a
 trigger event happens in the app. The SDK fetches the current person's campaigns at `init`, after
 `identify` and `reset`, and when the app resumes (at most every 15 minutes), and keeps them in memory.
 A signed-in user without a valid user hash gets the campaigns of an anonymous visitor (no segment
@@ -385,7 +386,7 @@ button, the back button or a tap outside closes it.
 
 The SDK records, through the normal event queue: `inapp_shown` `{inapp_id}`, `inapp_clicked`
 `{inapp_id, button, url}` and `inapp_dismissed` `{inapp_id}` (a banner that times out records no
-dismissal). These are the numbers in the campaign list in Pulse.
+dismissal). These are the shown and click numbers in Pulse's On-site & in-app list.
 
 `Pulse.instance.inApp.campaigns` lists the cached campaigns and `inApp.refresh()` fetches them now.
 Turn the feature off with `PulseConfig(inAppMessages: false)`.

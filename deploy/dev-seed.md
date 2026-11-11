@@ -9,7 +9,7 @@ Test values for the local Docker stack only. Never reuse them anywhere real.
 | Keycloak admin console | http://localhost:8180/admin | `admin` / `admin` |
 | Platform admin token (`POST /v1/tenants`) | | `dev-admin-token` |
 
-To try SSO against the dev Keycloak, use these values on Sign-in & keys in the demo workspace:
+To try SSO against the dev Keycloak, use these values in Settings → Sign-in & keys → Single sign-on (OIDC) in the demo workspace:
 
 - Issuer URL: `http://localhost:8180/realms/pulse`
 - Discovery URL: `http://keycloak:8180/realms/pulse`

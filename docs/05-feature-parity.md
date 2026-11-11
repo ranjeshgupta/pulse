@@ -2,7 +2,8 @@
 
 Sources: the Mautic 7.2.2 install in `../mautic` (its bundles, plugins and console commands) and WebEngage's product surface.
 Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** blocks real-world use (compliance, tracking),
-**P1** core marketer workflow, **P2** advanced or nice to have.
+**P1** core marketer workflow, **P2** advanced or nice to have. Everything planned is built; what is still missing or
+approximate is listed once under [Known gaps](#known-gaps).
 
 ## Contacts and data
 
@@ -51,7 +52,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 |---|---|---|---|---|
 | Visual canvas | ✅ | ✅ | ✅ "+" on every path opens Action · Decision · Condition · Wait · Split, then a searchable list (disabled items say why); drag-and-drop palette; Yes/No colours and labels, step numbers, Tidy up, zoom to fit, minimap, undo/redo, per-step counts. See [Campaign builder](#campaign-builder-batch-7b) | |
 | Triggers: segment entry, event | ✅ | ✅ | ✅ | |
-| Schedule: start required, end optional (empty = runs forever) | ✅ | ✅ | ✅ this change | |
+| Schedule: start required, end optional (empty = runs forever) | ✅ | ✅ | ✅ Phase 2 | |
 | Wait for a duration | ✅ | ✅ | ✅ durable timers | |
 | Wait until a date/time, or until an event (with timeout) | ✅ | ✅ | ✅ date, next time of day in the contact's zone, wait for event with timeout | |
 | Condition: in segment | ✅ | ✅ | ✅ | |
@@ -75,8 +76,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
-| Send to a segment on any channel | ✅ email/SMS | ✅ | ✅ this change | |
-| Schedule: start required, optional end, repeat daily/weekly/monthly | 🟡 | ✅ | ✅ this change | |
+| Send to a segment on any channel | ✅ email/SMS | ✅ | ✅ Phase 2 | |
+| Schedule: start required, optional end, repeat daily/weekly/monthly | 🟡 | ✅ | ✅ Phase 2 | |
 | A/B test with winner selection | ✅ | ✅ | ✅ 2-5 variants, test group %, winner by open or click rate after a wait, or by hand; plain splits | |
 | Conversion goal per broadcast | 🟡 | ✅ | ✅ recipients who do an event within N days | |
 
@@ -85,8 +86,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
 | Email: drag-and-drop builder, HTML, personalization | ✅ | ✅ | ✅ GrapesJS builder, TipTap rich text editor (also on landing pages, focus items, web content), HTML; merge-tag menu | |
-| Preview (with a real contact's data) and send a test, every channel | ✅ | ✅ | ✅ this change | |
-| Provider connection test, per provider | 🟡 | ✅ | ✅ this change | |
+| Preview (with a real contact's data) and send a test, every channel | ✅ | ✅ | ✅ Phase 2 | |
+| Provider connection test, per provider | 🟡 | ✅ | ✅ Phase 2 | |
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
 | Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{.UnsubscribeURL}}`, RFC 8058 one-click, confirm page | |
 | Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe; an IMAP bounce mailbox read every 5 minutes for DSN (RFC 3464) and ARF (RFC 5965) reports | Non-standard plain-text bounces aren't read; one mailbox per workspace |
@@ -97,7 +98,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Mobile push (FCM) | ✅ | ✅ | ✅ adapter; tokens from the Flutter, Android and iOS SDKs; taps tracked by the native SDKs (`push_clicked`, "clicked" journey decision) | iOS via FCM tokens (no direct APNs); dismissals only where the OS reports them |
 | Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work; clicks and dismissals reported by the service worker (`push_clicked` / `push_dismissed`) | Browsers report dismissals unevenly; FCM web tokens (Firebase's own worker) aren't tracked |
 | App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
-| In-app messages (modal, banner, full screen) | ⬜ | ✅ | ✅ campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; editor with phone preview, "see what a contact gets" and test send; rendered by the Flutter SDK; shown/clicked/dismissed stats | |
+| In-app messages (modal, banner, full screen) | ⬜ | ✅ | ✅ campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; editor with phone preview, "see what a contact gets" and test send; rendered by the Flutter, Android and iOS SDKs; shown/clicked/dismissed stats | |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
 | Facebook / Google audience sync | 🟡 | ✅ | ✅ a segment linked to a Facebook Custom Audience or Google Ads Customer Match list (existing or created by Pulse); SHA-256 of normalised email and E.164 phone in batches; streamed entries/exits, consent and address changes; daily full reconcile; contacts unsubscribed from everything never uploaded; status, counts and errors per link | Google consent signals (EEA), list size from the platform: see [Integrations](#integrations-batch-8a) |
 
@@ -107,8 +108,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 |---|---|---|---|---|
 | Focus items: pop-up, bar, slide-in; segment and page targeting; triggers; frequency | ✅ | ✅ | ✅ | |
 | Dynamic Web Content: per-segment variants | ✅ | ✅ | ✅ | |
-| Schedule on-site content (start, optional end) | 🟡 | ✅ | ✅ this change | |
-| "See what a contact would see" check | 🟡 | 🟡 | ✅ this change | |
+| Schedule on-site content (start, optional end) | 🟡 | ✅ | ✅ Phase 2 | |
+| "See what a contact would see" check | 🟡 | 🟡 | ✅ Phase 2 | |
 | Rendering on websites (JS SDK) | ✅ | ✅ | ✅ `/sdk/pulse.js` (3 KB gzipped): focus items with all triggers and frequency caps, content slots | |
 | Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; static segments, tags, consent opt-in; honeypot, fill time, rate limit; submissions log; file uploads (types checked against content, size limits, private downloads) and multi-page forms (page breaks, per-page checks, progress bar) | Files uploaded on a page with errors must be chosen again; no-script browsers see all pages at once |
 | Landing pages | ✅ | ⬜ | ✅ `/p/{workspace}/{page}`, drag-and-drop, rich text or HTML, title and meta description, embedded forms (`{form:KEY}`), draft/published with a schedule; nonce CSP (only the Pulse SDK runs, scripts and handlers stripped), frameable; `landing_page_viewed` via the web SDK; views, unique visitors, form submissions; script-free preview | P2 |
@@ -140,6 +141,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | ✅ web SDK (track, identify, page views, on-site, forms, web push); Flutter SDK (`sdks/flutter/pulse_sdk`); native Kotlin (`sdks/android`) and Swift (`sdks/ios`) SDKs | Native cores unit-tested in Docker; the Android module compiled and linted, never run on a device; the iOS UIKit code not yet compiled (no Xcode here) |
 
 ## Order to close the gaps
+
+The build order as it happened; every step below is done.
 
 1. **P0, done:** consent and unsubscribe, email open and click tracking with unsubscribe links, CSV import and export,
    and the JS SDK (track, identify, on-site rendering, push tokens).
@@ -196,18 +199,19 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      - ✅ **Batch 8b (done 2026-11-11):** native Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push
        click tracking, form file uploads and multi-page forms, audit log export. See [Batch 8b](#batch-8b).
 
-9. **After batch 8 (requested 2026-11-11), in this order:**
-   - ✅ **Batch 9, contact views and one clear navigation (done 2026-11-12):** Contacts search filters as chips with
+8. **After batch 8 (requested 2026-11-11), in this order:**
+   - ✅ **Batch 9, contact views and one clear navigation (done 2026-11-11):** Contacts search filters as chips with
      suggestions, compiled to segment rules ([Contact views](#contact-views-batch-9)); "View contacts" on every segment;
      save a view as a segment; columns and CSV export of a view. One Segments page (Dynamic and Static), one "On-site &
      in-app" area, one Import flow under Contacts, and a navigation review ([Navigation](#navigation-batch-9)).
-   - **Then:** update every doc to match the final app, and write step-by-step tutorials with the product owner.
+   - ✅ **Docs checked against the code** after batch 9.
+   - **Next:** step-by-step tutorials with the product owner.
 
 ## Contact views (batch 9)
 
 **What it is.** Contacts has one search box. Words of the form `key:value` become removable chips; the rest is free
 text. Suggestions appear as you type (`is:` lists its options, `segment:` the segments, `tag:` the tags in use, `stage:`,
-`company:` and `owner:` theirs); Enter or a space after a finished filter makes the chip, Backspace in an empty box
+`company:` and `owner:` theirs; teammates are suggested only to users who can view settings); Enter or a space after a finished filter makes the chip, Backspace in an empty box
 removes the last one. The view lives in the address (`/contacts?q=…`), so it can be bookmarked; typing waits 300 ms
 before asking the server. Above the table: the count, **Save as segment**, **Columns** (built-in fields and every
 defined contact field, remembered per browser) and **Export CSV** (the view with the columns shown; contacts edit
@@ -222,7 +226,7 @@ access, like every export). Every segment's row and page has **View contacts**, 
 | `segment:<name or id>`, `list:` | in a dynamic or static segment (`list:` is the old name) | `{"segment": id, "op": "in"}` |
 | `tag:<tag>` | has the tag | `{"tag": …, "op": "has"}` |
 | `stage:<stage>`, `company:<name or id>` | in the stage, at the company | `stage` eq / `company_name` eq (an id: `company_id` eq) |
-| `owner:me`, `owner:none`, `owner:<name, email or id>` | owned by | `owner_id` eq / not set |
+| `owner:me`, `owner:none`, `owner:<name, email or id>` | owned by (a teammate's name, email or id needs view access to settings, like the team list; without it other values answer 400) | `owner_id` eq / not set |
 | `points:>N`, `>=`, `<`, `<=`, `=N` | points compared | `points` gt … ; when 0 passes (`<10`), contacts without points are included |
 | `email:<text>`, `name:<text>` | contains (`name` checks name, first_name and last_name) | `contains`, tried as typed, in lower case and capitalised |
 | free text | quick find | not part of the rule: case-insensitive match on external ID, email, name, first/last name and phone |
@@ -264,7 +268,7 @@ redirect (`/lists`, `/lists/:id`, `/imports`, `/focus-items(/:id)`, `/web-conten
 
 ## Campaign builder (batch 7b)
 
-**What it is.** Journeys → a journey. Every outgoing path (an edge, or a free Yes / No / split handle) has a "+". It opens
+**What it is.** Campaigns → Journeys → a journey. Every outgoing path (an edge, or a free Yes / No / split handle) has a "+". It opens
 "Add a step": first **Action** (do something), **Decision** (wait for the contact to do something: Yes if they do within
 the time limit, No if not), **Condition** (check something now: Yes or No), **Wait** or **Split** (A/B or percentage), then
 a searchable list of that kind's steps with a description each. Steps that can't go there are greyed with the reason
@@ -285,7 +289,7 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | **Decisions** | | | all take a time limit (1 minute to 365 days); Yes when it happens, No at the limit |
 | Opens email | Opens email | `message_decision` outcome `opened` | needs a Send email step above it (validated) |
 | Clicks email | Clicks email | `message_decision` outcome `clicked`, optional `url` (link contains) | any link or a specific URL |
-| Replies to email | Replies to email | `message_decision` outcome `replied` | needs reply tracking: Settings → Channels → Delivery "Reply tracking address" and the provider's inbound webhook (see architecture, "Inbound replies") |
+| Replies to email | Replies to email | `message_decision` outcome `replied` | needs reply tracking: Settings → Channels → Delivery rules → "Reply tracking address" and the provider's inbound webhook (see architecture, "Inbound replies") |
 | Downloads asset | Downloads asset | `on_asset`, optional `asset_id` | gated downloads by known contacts (`asset_downloaded`) |
 | Submits form | Submits form | `on_form`, optional `form_id` | the submission is kept on the enrollment for "Form field value" |
 | Visits a page | Visits a page | `on_page`: `url` contains, or a landing page `page_id` | web SDK `page_view` / `landing_page_viewed` |
@@ -340,7 +344,7 @@ visit uses web page views (not app screens); per-step counts are best effort (a 
 
 ## Segment builder (batch 7b)
 
-**What it is.** Segments → New segment. The rule is a set of nested boxes: the top one reads "Contacts who match
+**What it is.** Audience → Segments → New segment → Dynamic. The rule is a set of nested boxes: the top one reads "Contacts who match
 [ALL ▾ / ANY] of the following:", every nested box "Match [ALL ▾ / ANY] of the following" with its own "+ Add filter",
 "+ Add group" and "Remove group", an indent and coloured border (ALL dark, ANY violet), and the joining word (AND / OR)
 shown between its rows. Groups nest as deep as the backend allows (7 group levels; the filters take the 8th); "+ Add
@@ -396,7 +400,7 @@ Every filter in Mautic's list maps to a picker entry. "Approximate" says how Pul
 | Unsubscribed Manual - Email / SMS | Unsubscribed manually: email / SMS (Consent) | group: `optout_<ch>` is yes AND `unsubscribed` where channel and `method = manual` in 365 days | approximate: the manual unsubscribe must be within a year |
 | Every custom field | listed by name with its type (Contact / Company / Consent) | attribute rule | from attribute definitions and keys seen on contacts |
 | Company Name (primary company) and company fields | Company, Company name, every `company_*` key, Other company field (Company) | `company_id`, `company_name`, `company_*` | |
-| Clicked any link from any channel | Clicked any link from any channel (Behaviour: messages) | ANY group of `email_clicked`, `sms_clicked`, `rcs_clicked`, `inbox_clicked`, `inapp_clicked` ≥ 1 | exact for "at least once"; push clicks aren't tracked yet |
+| Clicked any link from any channel | Clicked any link from any channel (Behaviour: messages) | ANY group of `email_clicked`, `sms_clicked`, `rcs_clicked`, `push_clicked`, `inbox_clicked`, `inapp_clicked` ≥ 1 | exact for "at least once" |
 | Clicked any link from any email (+ date) | Clicked any link from any email | `email_clicked` count in N days | approximate: "in the last N days" instead of a date comparison |
 | Clicked any link from any text message (+ date) | Clicked any link from any text message | `sms_clicked` count in N days | needs "Track link clicks" on the SMS template; same date note |
 | Downloaded a specific asset | Downloaded a specific asset (Behaviour: forms & assets) | `asset_downloaded` where `asset_id` | form-gated downloads by known contacts (open downloads are anonymous) |
@@ -465,3 +469,32 @@ in the audience now, added, removed, left out (no consent or nothing to match) a
 | Multi-page forms | `page_break` fields with page titles (up to 10 pages), Next / Back with per-page checks and a progress bar on the hosted page, gated asset pages and web SDK embeds; preview in the builder and the landing page preview | Without scripts the hosted page shows every page at once; server checks happen on submit (the page with the first error opens) |
 | Audit log export | CSV (formula-safe) or JSON, filters for person, object type and date range, streamed in pages of 1,000; buttons on the Audit log page | |
 
+
+## Known gaps
+
+Everything above is built. What is still missing or only approximate, in one place:
+
+- **Not checked against live accounts:** the provider adapters (Twilio, MSG91, Meta WhatsApp, Google RBM, FCM) and the
+  connectors (HubSpot, Salesforce, Shopify, Facebook, Google Ads) are tested against `httptest` mocks only.
+- **SDKs:** the Android module was compiled and linted but never run on a device; the iOS UIKit / UserNotifications code
+  has never been compiled (no Xcode here); neither native SDK was tested against a running server. The Flutter SDK doesn't
+  report push taps. iOS push goes through FCM tokens (no direct APNs).
+- **Journeys:** contacts don't leave a journey when they leave its trigger segment (use a condition, a goal or "Change
+  campaigns"); a message decision can't watch a "Send marketing message" step; per-step counts are best effort.
+- **Segments:** behaviour windows are the last 1-365 days (no absolute date range, no "ever"); no "currently in a
+  journey" rule, point groups or regexp operator; a backfill racing live events for the same segment can be overwritten
+  until the next sweep.
+- **Tracking:** WhatsApp button links aren't click-tracked; RCS replies are matched to the latest RCS message of the last
+  7 days.
+- **Integrations:** no published Zapier / Make app; no OAuth app installs (HubSpot private app tokens, Salesforce client
+  credentials, Shopify webhooks added by hand); HubSpot companies, deals and deletions aren't synced; Shopify consent,
+  refunds and fulfilments aren't used; Google Ads EEA consent signals aren't sent and partial failures aren't read back.
+- **Bounce mailbox:** one per workspace, password sign-in only (no XOAUTH2), non-standard plain-text bounces and VERP
+  addresses aren't read.
+- **Forms:** uploaded files aren't virus-scanned and show only in the form's submissions, not on the contact.
+- **Platform:** Postgres Row-Level Security isn't enabled (tenant isolation is enforced in every query and tested at the
+  API level).
+- **Scale:** Redis is single-threaded and the per-poll barrier waits for the slowest partition; bulk imports still go
+  through the real-time pipeline; analytics reports and filtered contact views weren't load-tested and will want rollups
+  at billions of events ([load test](03-load-test.md), [architecture](02-architecture.md#at-scale-needs-pre-aggregation)).
+- **Docs:** step-by-step tutorials aren't written yet.

@@ -56,12 +56,14 @@ waited about 45 s for a session timeout. Restart now takes 3.9 s.
 - **One process, one machine:** every role and store shares 12 cores here. Running roles as separate deployments
   (each its own consumer group, scaled to the partition count) is the path to 100k ev/s. Partition count (12) caps
   parallelism per role, so raise it for production.
-- **Burst creation:** p95 rises to about 2 s while hundreds of thousands of contacts are created at once (bulk imports). A
-  dedicated import path (CSV → COPY) would keep that out of the real-time pipeline.
+- **Burst creation:** p95 rises to about 2 s while hundreds of thousands of contacts are created at once (bulk imports).
+  Imports now run in the background (batch 4) but still publish every row through `events.raw`. A dedicated import path
+  (CSV → COPY) would keep that out of the real-time pipeline.
 
 ## Analytics queries
 
-Batch 7's reports (cohorts, attribution, custom reports, funnel breakdowns) were not load-tested yet. They are bounded
+Batch 7's reports (cohorts, attribution, custom reports, funnel breakdowns) and batch 9's filtered contact views were
+not load-tested yet. They are bounded
 (a year, named events, `LIMIT 100`), but cohorts by first seen, attribution and attribute breakdowns will want the
 rollups listed in the architecture doc ("At scale") once a tenant has billions of events.
 

@@ -4,6 +4,9 @@ Findings from the local installs in `../mautic` and `../listmonk` (inspected Nov
 plus WebEngage as a feature reference. The goal is to explain *why* Mautic is slow and Listmonk is fast,
 so Pulse keeps Mautic's features without its batch architecture.
 
+This is the review written before Pulse was built, kept as background. What Pulse does today is in the
+[README](../README.md) and [05-feature-parity.md](05-feature-parity.md).
+
 ## Summary
 
 | | Mautic 7.2.2 | Listmonk 6.2.0 | WebEngage (SaaS) |
