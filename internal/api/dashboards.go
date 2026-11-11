@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"pulse/internal/analytics"
+	"pulse/internal/auth"
 	"pulse/internal/event"
 	"pulse/internal/eventschema"
 	"pulse/internal/live"
@@ -43,7 +44,7 @@ const (
 
 func (s *Server) dashboardRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/analytics/users", s.tenant(s.usersDashboard))
-	mux.HandleFunc("GET /v1/analytics/campaigns", s.tenant(s.campaignsDashboard))
+	mux.HandleFunc("GET /v1/analytics/campaigns", s.authed(s.campaignsDashboard))
 	mux.HandleFunc("GET /v1/analytics/products", s.tenant(s.productsDashboard))
 	mux.HandleFunc("GET /v1/live/events", s.tenant(s.liveEvents))
 }
@@ -166,7 +167,11 @@ type CampaignDashRow struct {
 	Buyers  uint64              `json:"buyers"`
 }
 
-func (s *Server) campaignsDashboard(w http.ResponseWriter, r *http.Request, tenant int64) {
+// Campaigns are listed only to roles that may view them (broadcasts, journeys), as on the hub; the
+// workspace-wide totals by reason stay for everyone with reports view.
+func (s *Server) campaignsDashboard(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
+	canB, canJ := p.Perms.Allows(auth.AreaBroadcasts, auth.View), p.Perms.Allows(auth.AreaJourneys, auth.View)
 	da, ok := s.dashboards(w)
 	if !ok {
 		return
@@ -178,7 +183,7 @@ func (s *Server) campaignsDashboard(w http.ResponseWriter, r *http.Request, tena
 	}
 	q := r.URL.Query()
 	f := CampaignFilter{Category: q.Get("category"), Channel: q.Get("channel"), Tag: q.Get("tag"), Q: q.Get("q")}
-	key := "camp:" + from.Format(time.DateOnly) + ":" + to.Format(time.DateOnly) + ":" + f.Category + ":" + f.Channel + ":" + f.Tag + ":" + f.Q
+	key := "camp:" + strconv.FormatBool(canB) + strconv.FormatBool(canJ) + ":" + from.Format(time.DateOnly) + ":" + to.Format(time.DateOnly) + ":" + f.Category + ":" + f.Channel + ":" + f.Tag + ":" + f.Q
 	s.cachedJSON(w, r, tenant, key, func(ctx context.Context) (any, error) {
 		rs := analytics.DefaultRevenue()
 		if is, ok := s.Store.(InsightsStore); ok {
@@ -195,7 +200,7 @@ func (s *Server) campaignsDashboard(w http.ResponseWriter, r *http.Request, tena
 		if err != nil {
 			return nil, err
 		}
-		rows, err := s.campaignRows(ctx, tenant, true, true)
+		rows, err := s.campaignRows(ctx, tenant, canB, canJ)
 		if err != nil {
 			return nil, err
 		}

@@ -136,9 +136,10 @@ func TestEmailWebhookLinksAndVerifies(t *testing.T) {
 		"X-Twilio-Email-Event-Webhook-Timestamp": ts}); code != 200 {
 		t.Errorf("signed: %d", code)
 	}
-	// Other formats aren't affected by the SendGrid key; basic auth then guards them.
-	if code := post("tok-1", `{"RecordType":"SpamComplaint","Email":"ann@x.co"}`, nil); code != 200 {
-		t.Errorf("postmark: %d", code)
+	// Once any key is saved the workspace is verified: a format with no check of its own (Postmark)
+	// is refused until basic auth guards it.
+	if code := post("tok-1", `{"RecordType":"SpamComplaint","Email":"ann@x.co"}`, nil); code != 401 {
+		t.Errorf("postmark with only a SendGrid key: %d, want 401", code)
 	}
 	do(t, h, "PUT", "/v1/settings/bounces/signing", "key-1", `{"basic_user":"pm","basic_password":"long-enough-pass"}`)
 	if code := post("tok-1", `{"RecordType":"SpamComplaint","Email":"ann@x.co"}`, nil); code != 401 {

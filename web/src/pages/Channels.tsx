@@ -336,10 +336,15 @@ interface SigningStatus { sendgrid: boolean; mailgun: boolean; ses: boolean; bas
 interface BounceSettings { url: string; formats: string[]; reply_url?: string; signing?: SigningStatus; linking?: boolean }
 type SigningKey = "sendgrid" | "mailgun" | "basic";
 
-function Checked({ on, basic }: { on: boolean; basic?: boolean }) {
-  return on
-    ? <span className="badge ok">{basic ? "Password checked" : "Signature checked"}</span>
-    : <span className="badge warn" title="Anyone who knows the URL can post reports">URL secret only</span>;
+// Checked shows how a format's posts are checked. Once any key is saved the workspace is verified:
+// a format without its own key then needs the basic auth password, or its posts are refused.
+function Checked({ on, basic, signing }: { on: boolean; basic?: boolean; signing: SigningStatus }) {
+  if (on) return <span className="badge ok">{basic ? "Password checked" : "Signature checked"}</span>;
+  if (signing.basic) return <span className="badge ok">Password checked</span>;
+  if (signing.sendgrid || signing.mailgun) {
+    return <span className="badge bad" title="Another service's key is saved, so unchecked posts are refused. Save its key, or a basic auth password.">Refused</span>;
+  }
+  return <span className="badge warn" title="Anyone who knows the URL can post reports">URL secret only</span>;
 }
 
 // BounceSigning sets the keys each email service's webhook posts are checked with. Secrets are
@@ -383,7 +388,7 @@ function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }
     <div style={{ marginTop: 18 }}>
       <h4 className="small" style={{ marginBottom: 6 }}>Webhook signatures</h4>
       <p className="small muted" style={{ marginBottom: 12 }}>
-        Without a key, anyone who learns the URL can report bounces. Once a key is saved, posts in that format without a valid signature are refused. Saved keys are never shown again; leave a field empty to keep what's saved.
+        Without a key, anyone who learns the URL can report bounces. Once any key is saved, every post must pass a check: its service's signature, or the basic auth password for services without one; anything else is refused. Saved keys are never shown again; leave a field empty to keep what's saved.
       </p>
       <form onSubmit={(e) => { e.preventDefault(); if (anything && !basicProblem) save.mutate(); }}>
         <div className="table-scroll">
@@ -392,7 +397,7 @@ function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }
             <tbody>
               <tr>
                 <td>SendGrid</td>
-                <td><Checked on={signing.sendgrid} /></td>
+                <td><Checked on={signing.sendgrid} signing={signing} /></td>
                 <td>
                   <Field label="Signed Event Webhook verification key" hint="The base64 public key SendGrid shows when you turn on the signed Event Webhook.">
                     <textarea className="textarea" rows={2} value={sendgrid} onChange={(e) => setSendgrid(e.target.value)} placeholder={signing.sendgrid ? "Saved. Paste a new key to replace it" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE…"} spellCheck={false} autoComplete="off" />
@@ -402,7 +407,7 @@ function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }
               </tr>
               <tr>
                 <td>Mailgun</td>
-                <td><Checked on={signing.mailgun} /></td>
+                <td><Checked on={signing.mailgun} signing={signing} /></td>
                 <td>
                   <Field label="HTTP webhook signing key" hint="Mailgun → Sending → Webhooks. Each signature is accepted once.">
                     <input className="input" type="password" value={mailgun} onChange={(e) => setMailgun(e.target.value)} placeholder={signing.mailgun ? "Saved. Enter a new key to replace it" : ""} autoComplete="new-password" />
@@ -412,13 +417,13 @@ function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }
               </tr>
               <tr>
                 <td>Amazon SES</td>
-                <td><Checked on={signing.ses} /></td>
+                <td><Checked on={signing.ses} signing={signing} /></td>
                 <td className="small muted">Through SNS: every notification's SNS signature is checked. Nothing to set.</td>
                 <td />
               </tr>
               <tr>
                 <td>Postmark, SparkPost and other posts</td>
-                <td><Checked on={signing.basic} basic /></td>
+                <td><Checked on={signing.basic} basic signing={signing} /></td>
                 <td>
                   <div className="grid-2">
                     <Field label="Basic auth user"><input className="input" value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" /></Field>

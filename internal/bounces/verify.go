@@ -13,7 +13,10 @@ package bounces
 //   - Postmark, SparkPost, generic posts and SES without SNS: HTTP basic auth with the saved
 //     user name and password (both services put credentials in the webhook URL).
 //
-// Once a scheme's key is saved, a body of that format that doesn't pass it is refused.
+// Once a scheme's key is saved, a body of that format that doesn't pass it is refused. And once any
+// key is saved, the workspace is verified: a body must pass a saved check (its own scheme, or basic
+// auth), so whoever holds the URL can't pick a format nothing checks. With nothing saved, the
+// secret URL alone is accepted, as before (the settings page says "URL secret only").
 
 import (
 	"crypto"
@@ -102,11 +105,14 @@ func Verify(format string, h http.Header, body []byte, k Keys, certs CertFetcher
 	case FormatSES:
 		return VerifySNS(body, certs)
 	}
-	if k.BasicPassword != "" && !basicOK {
-		switch format {
-		case FormatPostmark, FormatSparkPost, FormatGeneric, FormatSESDirect:
+	if k.BasicPassword != "" {
+		if !basicOK {
 			return ErrSignature
 		}
+		return nil
+	}
+	if k.SendGridKey != "" || k.MailgunKey != "" {
+		return ErrSignature // a key is saved, and nothing proves this body
 	}
 	return nil
 }

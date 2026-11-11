@@ -16,6 +16,7 @@ import (
 
 	"pulse/internal/analytics"
 	"pulse/internal/attr"
+	"pulse/internal/auth"
 	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
@@ -36,7 +37,7 @@ type ContactAnalytics interface {
 
 func (s *Server) contactPageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/contacts/{external_id}/profile", s.tenant(s.contactProfile))
-	mux.HandleFunc("GET /v1/contacts/{external_id}/messages", s.tenant(s.contactMessages))
+	mux.HandleFunc("GET /v1/contacts/{external_id}/messages", s.authed(s.contactMessages))
 }
 
 func (s *Server) contactAnalytics(w http.ResponseWriter) (ContactAnalytics, bool) {
@@ -213,7 +214,8 @@ func shortToken(t string) string {
 
 // contactMessages: GET /v1/contacts/{external_id}/messages?before=&limit= — every message sent (or
 // not) to the contact, newest first, with its outcome, reason, campaign and engagement.
-func (s *Server) contactMessages(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) contactMessages(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	ca, ok := s.contactAnalytics(w)
 	if !ok {
 		return
@@ -234,7 +236,7 @@ func (s *Server) contactMessages(w http.ResponseWriter, r *http.Request, tenant 
 		s.fail(w, err)
 		return
 	}
-	names := s.campaignNames(ctx, tenant, msgs)
+	names := s.campaignNames(ctx, tenant, msgs, p.Perms.Allows(auth.AreaBroadcasts, auth.View), p.Perms.Allows(auth.AreaJourneys, auth.View))
 	type row struct {
 		ch.ContactMessage
 		Campaign string `json:"campaign,omitempty"`
@@ -246,20 +248,20 @@ func (s *Server) contactMessages(w http.ResponseWriter, r *http.Request, tenant 
 	writeJSON(w, http.StatusOK, map[string]any{"messages": out})
 }
 
-// campaignNames names the broadcasts and journeys of a contact's messages.
-func (s *Server) campaignNames(ctx context.Context, tenant int64, msgs []ch.ContactMessage) map[string]string {
+// campaignNames names the broadcasts and journeys of a contact's messages, those the caller may view.
+func (s *Server) campaignNames(ctx context.Context, tenant int64, msgs []ch.ContactMessage, canB, canJ bool) map[string]string {
 	out := map[string]string{}
 	need := func(src string) bool {
 		return slices.ContainsFunc(msgs, func(m ch.ContactMessage) bool { return m.Source == src })
 	}
-	if need("broadcast") {
+	if canB && need("broadcast") {
 		if bs, err := s.bcStore().ListBroadcasts(ctx, tenant); err == nil {
 			for _, b := range bs {
 				out["broadcast:"+strconv.FormatInt(b.ID, 10)] = b.Name
 			}
 		}
 	}
-	if need("journey") {
+	if canJ && need("journey") {
 		if js, err := s.uiStore().ListJourneys(ctx, tenant); err == nil {
 			for _, j := range js {
 				out["journey:"+strconv.FormatInt(j.ID, 10)] = j.Name

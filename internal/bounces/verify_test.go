@@ -132,3 +132,20 @@ func TestVerifySNS(t *testing.T) {
 		t.Error("a certificate outside SNS was fetched")
 	}
 }
+
+// Once any key is saved, a format with no saved check of its own is refused unless basic auth passes.
+func TestVerifyFailsClosed(t *testing.T) {
+	sgOnly := Keys{SendGridKey: "anything"}
+	for _, f := range []string{FormatPostmark, FormatSparkPost, FormatGeneric, FormatSESDirect, FormatMailgun} {
+		if err := Verify(f, http.Header{}, []byte(`{}`), sgOnly, nil, time.Now()); !errors.Is(err, ErrSignature) {
+			t.Errorf("%s accepted with only a SendGrid key saved", f)
+		}
+	}
+	basic := Keys{BasicUser: "pulse", BasicPassword: "a-long-password"}
+	if err := Verify(FormatSendGrid, http.Header{}, []byte(`[]`), basic, nil, time.Now()); !errors.Is(err, ErrSignature) {
+		t.Error("SendGrid without its key or basic auth accepted")
+	}
+	if err := Verify(FormatGeneric, http.Header{}, []byte(`{}`), Keys{}, nil, time.Now()); err != nil {
+		t.Errorf("nothing saved: %v", err)
+	}
+}

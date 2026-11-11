@@ -299,6 +299,9 @@ From M4 on, docs and screenshots are updated in one pass after M6 (owner's decis
 Each milestone adds what it needs here.
 
 **M4:**
+- Webhook verification fails closed once any key is saved (a format with no check of its own needs
+  basic auth, else it's refused; the settings page shows "Refused"); the Campaigns dashboard and the
+  contact page's message list show campaign names only to roles that may view broadcasts / journeys.
 - README: M4 features; SMTP "Sending service" setting.
 - docs/02-architecture.md: message references and linking, webhook verification, reason codes,
   ClickHouse `message_events.reason_code`, `message_events_mv3`, `active_users_daily`, `first_active`,
