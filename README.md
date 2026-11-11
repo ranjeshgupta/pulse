@@ -134,7 +134,7 @@ and journeys within seconds, not on a 15-minute cron.
     in-app" list (Website or Mobile app first); imports are one flow under Contacts (upload, map columns, static
     segment, review, background run, one history). Old addresses redirect. Decisions:
     [docs/05-feature-parity.md](docs/05-feature-parity.md#navigation-batch-9).
-- **Next:** step-by-step tutorials with the product owner. Remaining gaps:
+- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step (1 of 11 written so far). Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it

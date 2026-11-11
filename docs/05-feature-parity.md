@@ -205,7 +205,7 @@ The build order as it happened; every step below is done.
      save a view as a segment; columns and CSV export of a view. One Segments page (Dynamic and Static), one "On-site &
      in-app" area, one Import flow under Contacts, and a navigation review ([Navigation](#navigation-batch-9)).
    - ✅ **Docs checked against the code** after batch 9.
-   - **Next:** step-by-step tutorials with the product owner.
+   - **In progress:** step-by-step tutorials with the product owner ([docs/tutorials](tutorials/README.md); 1 of 11 written).
 
 ## Contact views (batch 9)
 
@@ -497,4 +497,4 @@ Everything above is built. What is still missing or only approximate, in one pla
 - **Scale:** Redis is single-threaded and the per-poll barrier waits for the slowest partition; bulk imports still go
   through the real-time pipeline; analytics reports and filtered contact views weren't load-tested and will want rollups
   at billions of events ([load test](03-load-test.md), [architecture](02-architecture.md#at-scale-needs-pre-aggregation)).
-- **Docs:** step-by-step tutorials aren't written yet.
+- **Docs:** tutorials 2-11 aren't written yet ([docs/tutorials](tutorials/README.md)).

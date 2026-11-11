@@ -100,12 +100,13 @@ func (s *Store) DeleteJourney(ctx context.Context, tenant, id int64) error {
 	return nil
 }
 
-// ListContacts lists contacts newest first, through the primary key. afterID pages through them
+// ListContacts lists contacts newest first, through the primary key, leaving out visitors merged into
+// another contact (as filtered views do). afterID pages through them
 // (pass the last id of the previous page). Filtered views run in ClickHouse (see api/contactview.go).
 func (s *Store) ListContacts(ctx context.Context, tenant int64, afterID uint32, limit int) ([]model.Contact, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT `+contactCols+` FROM contacts
-		WHERE tenant_id = $1 AND ($2 = 0 OR id < $2)
+		WHERE tenant_id = $1 AND ($2 = 0 OR id < $2) AND NOT attrs ? 'merged_into'
 		ORDER BY id DESC LIMIT $3`, tenant, int64(afterID), limit)
 	if err != nil {
 		return nil, err
@@ -124,7 +125,7 @@ type Counts struct {
 func (s *Store) Counts(ctx context.Context, tenant int64) (Counts, error) {
 	var c Counts
 	err := s.db.QueryRow(ctx, `
-		SELECT (SELECT count(*) FROM contacts WHERE tenant_id = $1),
+		SELECT (SELECT count(*) FROM contacts WHERE tenant_id = $1 AND NOT attrs ? 'merged_into'),
 		       (SELECT count(*) FROM segments WHERE tenant_id = $1),
 		       (SELECT count(*) FROM journeys WHERE tenant_id = $1 AND status = 'active'),
 		       (SELECT count(*) FROM templates WHERE tenant_id = $1)`, tenant).

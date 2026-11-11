@@ -253,7 +253,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   `all` segment rule, resolved against the workspace's segments and users; other words are free text. `owner:` with a
   teammate's name, email or id needs view access to settings (the team list); without it only `owner:me` and
   `owner:none` work, and other values answer 400. Without either,
-  contacts page through Postgres by primary key. Otherwise ClickHouse (`store/ch/contactview.go`) selects ids from
+  contacts page through Postgres by primary key, leaving out visitors merged into another contact (`merged_into`), as
+  filtered views and the Overview count do. Otherwise ClickHouse (`store/ch/contactview.go`) selects ids from
   `contacts FINAL` with `segment.WhereSQL` (the condition `ToSQL` uses, so a view matches a segment with the same rule)
   and a case-insensitive `positionCaseInsensitiveUTF8` over external ID, email, name, first/last name and phone,
   `ORDER BY id DESC LIMIT n` below the `after` id; the page's contacts then load from Postgres by id. The first page adds
