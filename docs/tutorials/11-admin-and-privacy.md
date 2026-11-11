@@ -1,0 +1,271 @@
+# Tutorial 11: Admin and privacy
+
+In about 25 minutes you will see how Pulse keeps track of what each contact agreed to, give contacts
+their own unsubscribe and preference pages, decide what Pulse records and for how long, answer a
+request to see or erase someone's data, check who changed what, and set up single sign-on for your
+team.
+
+**You need:** an admin account. Most pages here are under **Settings**, and several (Sign-in & keys,
+Audit log, Webhooks) need the full **Admin** role, not just settings access.
+
+---
+
+## 1. What each contact agreed to
+
+Pulse keeps consent per channel: **Email**, **SMS**, **WhatsApp**, **RCS**, **Push** and **App
+inbox**, plus "everything". Every send checks it first; a message to someone who opted out is not
+sent and counts as *suppressed* in reports.
+
+To see or change it for one person, open the contact (**Contacts**, click the row) and find
+**Messages they agreed to**:
+
+<img src="img/11-consent.png" alt="Messages they agreed to: every channel Subscribed, with an Unsubscribe button each and Unsubscribe from everything" width="420">
+
+- **Unsubscribe** / **Subscribe** changes one channel.
+- **Unsubscribe from everything** (it asks you to confirm) stops every channel. Subscribing to one
+  channel again lifts it.
+
+Each change is recorded as an `unsubscribed` or `resubscribed` event in the contact's **Activity**,
+so you can always see when and how consent changed. Changing consent needs **Contacts: Edit**. To
+list everyone who opted out, filter **Contacts** with `is:unsubscribed` (or `is:dnc` for
+unsubscribed or bounced), as in [tutorial 2](02-contacts.md#7-filter-your-contacts).
+
+How contacts opt out on each channel (unsubscribe links, SMS and WhatsApp reply keywords such as
+STOP, bounces and complaints) is in [tutorial 4](04-channels.md#6-how-unsubscribes-work-on-each-channel).
+
+## 2. Unsubscribe links and the preference center
+
+Contacts change their own consent on two public pages. You don't build them: Pulse makes a personal
+link for each message.
+
+**The unsubscribe page.** Every email gets an unsubscribe link: in the footer Pulse adds
+(*You're receiving this because you subscribed. Unsubscribe*), or wherever you place
+`{{.UnsubscribeURL}}` in the template. It opens:
+
+<img src="img/11-unsubscribe-page.png" alt="Unsubscribe from Acme Retail? with the buttons Unsubscribe from emails and Stop all messages, and the link Choose what you get instead" width="360">
+
+- **Unsubscribe from emails**: email only.
+- **Stop all messages (SMS, WhatsApp, push too)**: everything.
+- After either, **Subscribe again** undoes it.
+- **Choose what you get instead** opens the preference center.
+
+**One-click unsubscribe.** Every email also carries the `List-Unsubscribe` and
+`List-Unsubscribe-Post` headers (RFC 8058), so Gmail, Yahoo and other mail apps show their own
+**Unsubscribe** button; it unsubscribes from email without opening any page. Nothing to set up.
+
+**The preference center** lists the channels Pulse can reach the contact on (email if it has an
+address, SMS / WhatsApp / RCS if it has a phone number, push if it has a device), each with a
+switch, then **Save preferences**, or **Unsubscribe from everything**:
+
+<img src="img/11-preference-center.png" alt="Your preferences: Email, SMS, WhatsApp and RCS ticked, with Save preferences and Unsubscribe from everything" width="400">
+
+Ways to send contacts there:
+
+- `{{.PreferencesURL}}` in an email template (for example "Manage your preferences" in the footer).
+- The **Choose what you get instead** link on the unsubscribe page.
+- A personal link from the API, e.g. for your account page or an SMS:
+  `GET /v1/contacts/{external_id}/preferences-link` with your server API key returns `{"url": …}`.
+  Anyone holding it can change that contact's subscriptions, so send it only to them.
+
+**Subscription lists.** To let contacts join or leave a static segment there (say "Monthly
+newsletter"), open the static segment and, under **Preference center**, tick **Let contacts join or
+leave this segment from their preference center**, add **What subscribers get**, and **Save**. It
+then appears under *What you get* (see [tutorial 3](03-segments.md#5-static-segments)).
+
+## 3. Consent in journeys
+
+Journeys can change consent too: **Add Do Not Contact** (for a channel or all) and **Remove Do Not
+Contact**, and the condition **Marked as Do Not Contact** checks it. **Remove Do Not Contact** needs
+**Contacts: Edit** as well as journey access. See [tutorial 6](06-journeys.md#every-step-at-a-glance).
+
+## 4. Data & privacy: tracking and retention
+
+Go to **Settings → Data & privacy** (under *Contact data*).
+
+![Data & privacy: the Tracking switches, and Keep data for with anonymous visitors 0, events 0 and audit log 365](img/11-data-privacy.png)
+
+**Tracking**
+
+- **Track anonymous visitors** (on by default): page views and events from visitors who haven't
+  signed in are recorded and join their profile when they identify or fill a form. Off: only
+  signed-in visitors are recorded.
+- **Locate visitors by IP address** (on by default): sets `geo_country`, `geo_region`, `geo_city`
+  and `geo_timezone`. Quiet hours use that time zone when a contact has none. It needs a MaxMind
+  GeoIP database on the server (`PULSE_GEOIP_DB`); until your operator adds one, the page says so and
+  nothing is located (as in the picture).
+
+**Keep data for** (0 keeps it forever):
+
+| Setting | Deletes | Shortest |
+|---|---|---|
+| **Anonymous visitors (days idle)** | Visitors who never signed in, with their events, after this many days without activity | 7 days |
+| **Events (days)** | Events older than this. Profiles, segments and reports of recent activity stay | 30 days |
+| **Audit log (days)** | Audit entries older than this (365 by default) | 30 days |
+
+The longest is 3,650 days. Click **Save** (*Saved. Cleanup runs every hour.*). The cleanup runs
+hourly for every workspace; expired app inbox messages and old webhook delivery records are always
+removed too. Only admins can change these settings; others can see them.
+
+> Deleted anonymous visitors drop out of dynamic segments at their next refresh. Deleting events
+> can't be undone: reports and funnels then start from the oldest event kept.
+
+## 5. A person's data: see it, export it, erase it
+
+When someone asks what you hold about them, or asks to be forgotten:
+
+**See it.** Open the contact: the profile shows their attributes, segments, consent, tags and points,
+and the **Activity** list of their events.
+
+**Export it.** In **Contacts**, search for their email (or `external_id`), pick the **Columns** you
+want, and click **Export CSV**: the file has that contact's profile fields
+([tutorial 2](02-contacts.md#9-choose-columns-and-export)). Exporting needs **Contacts: Edit**. There
+is no one-click "everything about this person" file yet: copy their **Activity** from the profile if
+you need their events too.
+
+**Erase it.** Pulse has no "Delete contact" button on the profile; contacts are deleted by a journey
+step, so you can make erasure a repeatable process:
+
+1. Create a journey whose trigger is an event, e.g. `erasure_requested`.
+2. Add **Action → Delete contact**. It warns *Permanently deletes the contact and all their data.
+   This can't be undone.* Type `DELETE` in **Type DELETE to confirm**.
+
+   <img src="img/11-delete-step.png" alt="The Delete contact step: the warning and DELETE typed in the confirmation box" width="330">
+
+3. Save and activate the journey. Setting up or activating this step needs **Contacts: Edit**.
+4. When a request comes in, send the event for that person from your server:
+
+   ```bash
+   curl -s -X POST http://localhost:7080/v1/events \
+     -H "Authorization: Bearer pk_…" \
+     -d '{"events":[{"external_id":"cust-0001","name":"erasure_requested"}]}'
+   ```
+
+The contact, their events and their journey history are deleted. Static segments may keep the
+ID until they next change, but it no longer matches anyone. Audience uploads to Facebook or Google
+aren't recalled automatically: if the person was in a linked segment, remove them in the ad platform
+too.
+
+## 6. The audit log
+
+**Settings → Audit log** lists every change made in the app or through the API, and every sign-in,
+newest first. Only admins can see it.
+
+![Audit log: filters, Export CSV and Export JSON highlighted, and the latest changes](img/11-audit-log.png)
+
+- Each row shows **When**, **Who**, **What** (e.g. *Created a template*, *Changed single sign-on*),
+  the **Object** (a link when it can be opened) and the **Outcome**: **Done**, **Failed** or
+  **Refused** (not allowed).
+- Narrow it down with **Everyone** / a person, **Everything** / an object type (**Sign-ins**,
+  **Journeys**, **Settings**, **Team**, **Roles**…), and **From** / **To** dates. **Clear filters**
+  resets them. **Load older** fetches more.
+- Click a row to see the request: time, request, response, IP address and the body that was sent.
+  Passwords, keys and secrets in it are redacted.
+
+  ![An opened audit entry: Sent a test message, its request, response, IP address and body](img/11-audit-detail.png)
+
+- **Export CSV** or **Export JSON** downloads every entry that matches the current filters (not only
+  the ones on screen). Use it for a security review or to keep records longer than the retention
+  setting.
+
+## 7. Single sign-on (OIDC)
+
+With single sign-on your team signs in through your identity provider (Keycloak, Microsoft Entra
+ID, Google Workspace, Okta or any OpenID Connect provider) instead of Pulse passwords.
+
+**At your provider**, register Pulse as an OpenID Connect client (confidential, authorization code
+flow) with the redirect URI shown on the page: `http://localhost:7080/v1/auth/sso/callback` (your
+Pulse address + `/v1/auth/sso/callback`). Note the issuer URL, client ID and client secret.
+
+**In Pulse**, go to **Settings → Sign-in & keys → Single sign-on (OIDC)** and fill in:
+
+| Field | Example (the local Keycloak from [deploy/dev-seed.md](../../deploy/dev-seed.md)) |
+|---|---|
+| **Issuer URL** | `http://localhost:8180/realms/pulse` |
+| **Discovery URL (optional)** | `http://keycloak:8180/realms/pulse`: only when Pulse reaches the provider at another address than browsers do (here, inside Docker) |
+| **Client ID** | `pulse-app` |
+| **Client secret** | the client's secret (stored encrypted; leave empty later to keep it) |
+
+Then:
+
+- **Give anyone your provider signs in access to this workspace**: on, anyone who can sign in at
+  your provider gets an account here with **Their role** (Editor by default). Off, only teammates
+  you added on **Settings → Team** can sign in.
+- **Allow signing in with SSO** turns it on. Click **Save sign-on settings**; the badge says **On**.
+
+![Single sign-on (OIDC) filled in with the local Keycloak values, Allow signing in with SSO ticked, Save highlighted](img/11-sso.png)
+
+**Signing in.** On the sign-in page teammates type the **Workspace ID** and click **Sign in with
+SSO**; Pulse sends them to your provider and back.
+
+<img src="img/11-login-sso.png" alt="The Pulse sign-in page with the workspace ID filled in and Sign in with SSO highlighted" width="380"> <img src="img/11-keycloak.png" alt="The Keycloak sign-in page Pulse sends them to" width="380">
+
+- Pulse matches people by their verified email address. If the provider doesn't share one, or the
+  person isn't a teammate and access isn't given to everyone, the sign-in page says why.
+- **Settings → Team** shows how each teammate signs in (**Password**, **SSO**, or **Password or
+  SSO**). A teammate added without a password can only use SSO.
+- To turn it off, untick **Allow signing in with SSO** and save. Pulse keeps the settings for next
+  time; teammates with a password can still use it.
+
+Every change here is in the audit log as *Changed single sign-on*.
+
+## 8. Identity verification
+
+Your website's site key (`sk_…`) is public, so anyone could call `Pulse.identify()` with someone
+else's user ID and read or pollute their profile. Identity verification stops that.
+
+![Identity verification: the hidden signing secret with Show secret, Require verified identity for web events, and Replace secret](img/11-identity.png)
+
+1. On **Settings → Sign-in & keys → Identity verification** click **Show secret** and put it in your
+   server's configuration (never in a web page).
+2. When a user signs in to your site, your server computes the user's hash:
+   `userHash = hex(HMAC-SHA256(secret, user ID))`, e.g. in Node.js
+   `crypto.createHmac("sha256", secret).update(userId).digest("hex")`.
+3. Your page passes it: `Pulse.identify(userId, { email, name }, { userHash })`.
+4. When your site sends the hash for everyone, tick **Require verified identity for web events**
+   (Pulse asks you to confirm). From then on, web events for a user ID without a valid hash are
+   refused. Anonymous visitors aren't affected.
+
+**Replace secret** makes a new one; hashes made with the old one stop working at once, so update
+your server first.
+
+## 9. Replace the server API key
+
+The server API key (`pk_…`) lets your servers send events and manage data; it acts as an admin.
+Replace it if it leaks or someone who knew it leaves:
+
+![Keys: workspace ID, site key, Server API key hidden, and Replace API key highlighted](img/11-keys.png)
+
+1. **Settings → Sign-in & keys → Keys → Replace API key**. Pulse asks you to confirm.
+2. The new key is shown **only now**. Copy it.
+3. The old key stops working right away (within a minute if you run several Pulse servers), so put the
+   new one on your servers straight away.
+
+Zapier / Make connectors have their own keys, rotated on their integration page
+([tutorial 9](09-integrations.md#7-connect-zapier-or-make)); webhooks have their own signing secrets.
+
+## 10. Roles, a recap
+
+Who can do what is set on **Settings → Team** and **Settings → Roles**
+([tutorial 1](01-getting-started.md#4-add-your-teammates)). For the pages in this tutorial:
+
+| Page or action | Needs |
+|---|---|
+| Change a contact's consent, export contacts, the **Delete contact** and **Remove Do Not Contact** journey steps | **Contacts: Edit** |
+| See **Data & privacy** | **Settings: View** (changing it: Admin) |
+| **Sign-in & keys**, **Audit log**, **Webhooks** | The full **Admin** role |
+| **Integrations** | Seen with **Settings: View**; connected and changed by admins |
+| Revenue settings | **Settings: Edit** |
+
+Nobody can give a teammate (or SSO newcomers, through **Their role**) a role with more access than
+they have themselves.
+
+## What you have now
+
+- Per-channel consent, with unsubscribe and preference pages your contacts use themselves
+- Retention rules that clean up anonymous visitors, old events and old audit entries
+- A repeatable way to export or erase one person's data
+- An audit trail you can filter and export
+- Single sign-on, identity verification and a fresh API key
+
+That's the end of the tutorials. For installing, configuring and integrating Pulse, see the
+[developer docs](../developer/README.md).
