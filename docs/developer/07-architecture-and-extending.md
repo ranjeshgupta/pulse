@@ -41,7 +41,8 @@ provider webhooks ─► api ─► [delivery.receipts] ─► dispatch ─► <
    runs `segment.Eval` for this contact, flips the Redis bitmap bit and publishes
    `segment.membership` (entered / exited). New or edited segments are backfilled from ClickHouse
    with `segment.ToSQL`; windowed segments are swept every `PULSE_SWEEP_INTERVAL`.
-5. **`journeys`** (`internal/journey`): enrolls contacts on `segment_entered` or event triggers,
+5. **`journeys`** (`internal/journey`): enrolls contacts on `segment_entered`, event or form triggers (the index of
+   active journeys reloads at once when the API announces a change, see `internal/journey/changes.go`),
    walks the graph (`Executor.Run`), parks waits and decisions on durable Postgres timers, and
    publishes messages to `messages.<channel>`. The same role runs scheduled broadcasts
    (`internal/broadcast`), background imports, retention cleanup and A/B winner picks.
@@ -65,7 +66,13 @@ every derived event carries a deterministic ID (`msg:<message>:<channel>_sent`,
 | `RunPartitionBatches` (profile, segments, webhooks, integrations) | 4 tries of the batch, then record by record, then the DLQ |
 | `RunBatch` (chsink) | Retried forever with backoff up to 10 s (ClickHouse being down must not lose events) |
 
-Nothing replays a `.dlq` topic automatically; watch them.
+These quick tries are for records a handler can't process at all. Slow failures are handled
+inside the role so they don't block the partition: `dispatch` parks a message whose provider failed
+temporarily in Redis and retries it for about two hours before recording `<channel>_failed`
+(`internal/dispatch/retry.go`); `webhooks` does the same for outbound webhooks. Nothing replays a
+`.dlq` topic automatically: watch them, fix the cause, then run `pulse replay-dlq <topic>`
+(`kafka.Replay`; `--dry-run` lists the records, `--limit N`), see
+[installation](01-installation.md#dead-letter-topics-and-replaying-them).
 
 ### Where state lives
 
@@ -73,7 +80,7 @@ Nothing replays a `.dlq` topic automatically; watch them.
 |---|---|---|
 | Postgres | Workspaces, users, sessions, contacts and attributes, segments, journeys, enrollments and timers, templates, broadcasts, providers (sealed), webhooks, forms, assets, imports, settings, audit log | `internal/store/pg` |
 | ClickHouse | Every event, contact snapshots, segment membership history, message outcomes (materialised views), everything reports read | `internal/store/ch` |
-| Redis | Segment bitmaps, event day counters, send idempotency and rate limits, webhook retry queue, sign-in throttling, on-site pushes, reply codes | used directly (`go-redis`) |
+| Redis | Segment bitmaps, event day counters, send idempotency and rate limits, message retry and quiet-hours queues, webhook retry queue, sign-in throttling, on-site pushes, reply codes | used directly (`go-redis`) |
 | Kafka | Events and messages in flight | `internal/kafka` |
 
 Tenancy: `tenant_id` leads every Postgres key, ClickHouse `ORDER BY` and Redis key, and every
@@ -91,7 +98,7 @@ store function takes the tenant ([architecture, identity and tenancy](../02-arch
 | `internal/api` | HTTP: routing (`server.go`), permissions (`perms.go`), one file per area. Handlers depend on narrow store interfaces |
 | `internal/auth` | Passwords (argon2id), tokens, the AES-GCM `Box` that seals secrets, roles and permissions |
 | `internal/event` | The event envelope, reserved names, topic names |
-| `internal/kafka` | Producer, consumer loops, DLQ, topic creation |
+| `internal/kafka` | Producer, consumer loops, DLQ and its replay, topic creation |
 | `internal/profile` | Identity resolution and the profile fold |
 | `internal/segment` | Segment rule AST, the two compilers (`Eval`, `ToSQL`), bitmaps, counters, funnels |
 | `internal/segengine` | Keeps membership current: streaming, backfill, sweeps, dependent segments |
@@ -154,8 +161,8 @@ adapter needs no UI code.
    | `Unreachable(reason)` | Recipient not on this channel: WhatsApp/RCS fall back to SMS; push tokens are deleted |
    | `BadNumber(reason)` | Permanent, and the SMS number is marked `sms_bounced` |
    | `Permanent(reason)` | Records `<channel>_failed`; no retry |
-   | `StatusError(name, code, body)` | 429 and 5xx stay transient, other codes become permanent |
-   | any other error | Transient: the record is retried (then the DLQ) |
+   | `StatusError(name, code, body, header)` | 429 and 5xx stay transient (carrying the response's `Retry-After`, if any), other codes become permanent |
+   | any other error | Transient: the message is retried later, for about two hours (30 s up to 1 h apart, at least the `Retry-After`), then `<channel>_failed` |
 
    Use `d.HTTP` for fixed vendor hosts. For a URL an admin types in, use
    `safehttp.Client(timeout, d.AllowPrivate)` as the custom gateway does (`gateway.go`), so it can't
@@ -266,7 +273,7 @@ advisory lock.
 - A materialised view's query can't be changed in place: create a new one (`…_mv2`) and drop the old,
   as `004_message_events_v2.sql` does.
 
-New **Kafka topics** are created in `runMigrate` (`cmd/pulse/main.go`) with their `.dlq` twins.
+New **Kafka topics** go in `pipelineTopics` (`cmd/pulse/main.go`): `runMigrate` creates them with their `.dlq` twins, and `replay-dlq` accepts them.
 
 Check a migration against a fresh database: `docker compose -f deploy/docker-compose.yml down -v`
 (local only, it deletes everything), `make up`, then `make e2e`.

@@ -13,6 +13,7 @@ import { JOURNEY_CATALOG, catalogItem, reasonAt, searchItems, type CatalogCtx, t
 import {
   addStep, connect, defaultInsertPoint, deleteStep, disconnect, emptyGraph, groupOf, insertStep, issues as graphIssues, overlapping, moveNode, nodeChannel,
   removeBranch, share, STEP_GROUPS, stepLabel, stepNumbers, tidy, toFlow, TRIGGER_ID, wouldCycle, type EdgeData, type FlowData, type InsertAt,
+  listActions, visibleJourneys, type ListAction,
 } from "../journeyGraph";
 import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { describeWindow, nowISO, scheduleProblem } from "../schedule";
@@ -27,7 +28,28 @@ import "./journeys.css";
 
 export function JourneyList() {
   const q = useQuery({ queryKey: ["journeys"], queryFn: () => api.get<{ journeys: Journey[] }>("/v1/journeys"), refetchInterval: 4000 });
-  const js = q.data?.journeys ?? [];
+  const qc = useQueryClient();
+  const toast = useToast();
+  const canEdit = useCan("journeys", "edit");
+  const canPublish = useCan("journeys", "publish");
+  const [showArchived, setShowArchived] = useState(false);
+  const all = q.data?.journeys ?? [];
+  const archivedCount = all.filter((j) => j.archived_at).length;
+  const js = visibleJourneys(all, showArchived);
+  const act = useMutation({
+    mutationFn: ({ j, action }: { j: Journey; action: ListAction }) => action === "delete"
+      ? api.del(`/v1/journeys/${j.id}`) : api.post(`/v1/journeys/${j.id}/${action === "archive" ? "archive" : "unarchive"}`),
+    onSuccess: (_, { j, action }) => {
+      qc.invalidateQueries({ queryKey: ["journeys"] });
+      qc.invalidateQueries({ queryKey: ["journey", String(j.id)] });
+      toast({ text: action === "delete" ? `Deleted ${j.name}` : action === "archive" ? `Archived ${j.name}` : `Restored ${j.name}` });
+    },
+  });
+  const run = (j: Journey, action: ListAction) => {
+    const ask = action === "delete" ? `Delete "${j.name}"? This can't be undone.`
+      : action === "archive" ? `Archive "${j.name}"? It's hidden from this list; its history and reports are kept, and you can restore it.` : null;
+    if (!ask || confirm(ask)) act.mutate({ j, action });
+  };
   const sum = (f: (st: Record<string, number>) => number) => js.reduce((a, j) => a + f(j.stats?.status ?? {}), 0);
   const entered = (st: Record<string, number>) => Object.values(st).reduce((a, b) => a + b, 0);
   const inProgress = (st: Record<string, number>) => (st.active ?? 0) + (st.waiting ?? 0);
@@ -38,33 +60,45 @@ export function JourneyList() {
         intro="A journey starts when a contact enters a segment or does something, then waits, checks and sends across channels."
         actions={<Link className="btn primary" to="/journeys/new">New journey</Link>}
       />
-      <ErrorNote error={q.error} />
+      <ErrorNote error={q.error ?? act.error} />
+      {archivedCount > 0 && (
+        <label className="check" style={{ marginBottom: 12 }}>
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived ({archivedCount})
+        </label>
+      )}
       <div className="panel">
-        {js.length === 0 && !q.isLoading ? (
+        {js.length === 0 && !q.isLoading && !archivedCount ? (
           <Empty title="No journeys yet" action={<Link className="btn primary" to="/journeys/new">Build a journey</Link>}>
             For example: when someone enters "Abandoned cart", wait an hour, then send a WhatsApp reminder with an SMS fallback.
           </Empty>
         ) : (
           <table className="table">
-            <thead><tr><th>Name</th><th>Status</th><th>Schedule</th><th className="num">Steps</th><th className="num">Entered</th><th className="num">In progress</th><th className="num">Completed</th></tr></thead>
+            <thead><tr><th>Name</th><th>Status</th><th>Schedule</th><th className="num">Steps</th><th className="num">Entered</th><th className="num">In progress</th><th className="num">Completed</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {js.map((j) => {
                 const st = j.stats?.status ?? {};
                 return (
                   <tr key={j.id}>
                     <td><Link to={`/journeys/${j.id}`}>{j.name}</Link></td>
-                    <td><Status value={j.status} /></td>
+                    <td><Status value={j.status} />{j.archived_at && <> <span className="badge">Archived</span></>}</td>
                     <td className="muted small">{describeWindow(j.start_at, j.end_at)}</td>
                     <td className="num">{Object.keys(j.graph?.nodes ?? {}).length}</td>
                     <td className="num"><LiveNumber value={entered(st)} /></td>
                     <td className="num"><LiveNumber value={inProgress(st)} /></td>
                     <td className="num"><LiveNumber value={st.completed ?? 0} /></td>
+                    <td className="row-actions">
+                      {listActions(j).map((a) => (a === "delete" ? canEdit : canPublish) && (
+                        <button key={a} className={`btn ghost sm${a === "delete" ? " danger" : ""}`} disabled={act.isPending} onClick={() => run(j, a)}>
+                          {a === "delete" ? "Delete" : a === "archive" ? "Archive" : "Restore"}
+                        </button>
+                      ))}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
             {js.length > 1 && (
-              <tfoot><tr><th colSpan={4}>All journeys</th><td className="num"><LiveNumber value={sum(entered)} /></td><td className="num"><LiveNumber value={sum(inProgress)} /></td><td className="num"><LiveNumber value={sum((st) => st.completed ?? 0)} /></td></tr></tfoot>
+              <tfoot><tr><th colSpan={4}>{showArchived ? "All journeys" : "All journeys shown"}</th><td className="num"><LiveNumber value={sum(entered)} /></td><td className="num"><LiveNumber value={sum(inProgress)} /></td><td className="num"><LiveNumber value={sum((st) => st.completed ?? 0)} /></td><td /></tr></tfoot>
             )}
           </table>
         )}
@@ -113,6 +147,7 @@ function JourneyEditor() {
 
   const status = existing.data?.status ?? "draft";
   const locked = status === "active";
+  const archived = !!existing.data?.archived_at;
   const journeyId = isNew ? undefined : Number(id);
   const statsOn = showStats && !isNew;
   const report = useQuery({ queryKey: ["journey-report", id], queryFn: () => api.get<JourneyReport>(`/v1/journeys/${id}/report`), enabled: statsOn && view === "canvas", refetchInterval: 5000 });
@@ -242,11 +277,11 @@ function JourneyEditor() {
     },
   });
   const setStatus = useMutation({
-    mutationFn: (action: "activate" | "pause") => api.post(`/v1/journeys/${id}/${action}`),
+    mutationFn: (action: "activate" | "pause" | "unarchive") => api.post(`/v1/journeys/${id}/${action}`),
     onSuccess: (_, action) => {
       qc.invalidateQueries({ queryKey: ["journey", id] });
       qc.invalidateQueries({ queryKey: ["journeys"] });
-      toast({ text: action === "activate" ? "Journey is live. New matches enter it immediately." : "Journey paused" });
+      toast({ text: action === "activate" ? "Journey is live. New matches enter it immediately." : action === "pause" ? "Journey paused" : "Journey restored from the archive" });
     },
   });
 
@@ -254,7 +289,7 @@ function JourneyEditor() {
     graph, names: pickers.names, numbers, locked,
     counts: report.data?.enrollments.node ?? stats.data?.node ?? {},
     showStats: statsOn, steps: report.data?.steps, messages: report.data?.messages.by_node,
-    onAdd: openChooser, triggerText: triggerText(graph, pickers.names.segments ?? {}),
+    onAdd: openChooser, triggerText: triggerText(graph, pickers.names.segments ?? {}, pickers.names.forms ?? {}),
   };
   const templateMap = useMemo(() => new Map((tpls.data?.templates ?? []).map((t) => [t.id, t])), [tpls.data]);
 
@@ -272,11 +307,13 @@ function JourneyEditor() {
         actions={<>
           {!isNew && <Status value={status} />}
           {!locked && <button className="btn" disabled={save.isPending} onClick={() => save.mutate()}>Save draft</button>}
-          {!isNew && status !== "active" && <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and go live</button>}
+          {archived && <button className="btn" disabled={setStatus.isPending} onClick={() => setStatus.mutate("unarchive")}>Restore</button>}
+          {!isNew && status !== "active" && !archived && <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and go live</button>}
           {status === "active" && <button className="btn" onClick={() => setStatus.mutate("pause")}>Pause to edit</button>}
         </>}
       />
       <ErrorNote error={save.error ?? setStatus.error ?? existing.error} />
+      {archived && <div className="alert info">This journey is archived: it's hidden from the journey list and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
       {locked && <div className="alert info">This journey is live, so its steps are locked. Pause it to make changes; contacts already inside wait where they are.</div>}
       {!isNew && (
         <div className="tabs" role="tablist">
@@ -314,7 +351,7 @@ function JourneyEditor() {
               <Controls showInteractive={false} showFitView={false} />
               <MiniMap pannable zoomable ariaLabel="Journey overview" nodeStrokeWidth={2} nodeColor={(n) => {
                 const d = n.data as FlowData;
-                return d.isTrigger ? "#f0a202" : ({ action: "#2747d6", decision: "#c0496b", condition: "#6b4fd8", wait: "#8a93a3", split: "#0e7490" } as const)[groupOf(d.node!.type)];
+                return d.isTrigger ? "#f0a202" : ({ action: "#2747d6", decision: "#c0496b", condition: "#6b4fd8", wait: "#8a93a3", split: "#0e7490" } as const)[groupOf(d.node?.type ?? "")];
               }} />
               <Panel position="top-left" className="j-toolbar" aria-label="Canvas tools">
                 <button type="button" className="btn sm" onClick={doUndo} disabled={locked || hist.past.length === 0} title="Undo (Ctrl+Z)" aria-keyshortcuts="Control+Z Meta+Z">Undo</button>

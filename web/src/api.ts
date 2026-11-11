@@ -98,7 +98,7 @@ export interface Webhook {
   /** REST hook subscriptions (Zapier, Make) belong to an integration and may narrow to a segment or form. */
   integration_id?: number; segment_id?: number; form_id?: number;
 }
-export interface WebhookDelivery { id: number; event_id: string; event_name: string; at: string; attempt: number; status: number; error?: string; duration_ms: number; final: boolean }
+export interface WebhookDelivery { id: number; event_id: string; event_name: string; at: string; attempt: number; status: number; error?: string; duration_ms: number; final: boolean; test?: boolean }
 export interface Import {
   id: number; filename: string; list_id?: number; status: "uploading" | "queued" | "running" | "done" | "failed" | "cancelled";
   bytes: number; rows_done: number; rows_failed: number; errors: { row: number; error: string }[]; message?: string;
@@ -224,7 +224,7 @@ export interface PathStat { path: number; entrants: number; hits: number; rate: 
 /** A split's recorded winner: every contact after decided_at takes path. */
 export interface SplitDecision { path: number; next: string; label?: string; metric: string; decided_at: string; stats: PathStat[] }
 export interface JourneyGraph {
-  trigger: { type: "segment_entered" | "event"; segment_id?: number; event?: string; include_backfill?: boolean; reentry?: "once" | "always" | "after_days"; days?: number };
+  trigger: { type: "segment_entered" | "event" | "form_submitted"; segment_id?: number; event?: string; form_id?: number; include_backfill?: boolean; reentry?: "once" | "always" | "after_days"; days?: number };
   goal?: { event: string } | null;
   entry: string;
   nodes: Record<string, JourneyNode>;
@@ -233,6 +233,10 @@ export interface Journey {
   id: number; name: string; graph: JourneyGraph; status: "draft" | "active" | "paused"; start_at?: string; end_at?: string | null; stats?: Stats;
   /** Automatic A/B winners by split step id. */
   split_winners?: Record<string, SplitDecision>;
+  /** Archived journeys are hidden from the list; their enrollments and reports are kept. */
+  archived_at?: string | null;
+  /** Someone has entered it (list only): it can be archived but not deleted. */
+  has_run?: boolean;
 }
 export type Stats = { status: Record<string, number>; node: Record<string, number> };
 
@@ -258,6 +262,10 @@ export interface Broadcast {
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;
   ab?: ABTest | null; conversion_event?: string; conversion_days?: number;
+  /** Members of any of these segments get nothing. */
+  exclude_segment_ids?: number[];
+  /** Send at start_at's clock time in each contact's time zone (one-time only); timezone: the zone it was chosen in. */
+  local_time?: boolean; timezone?: string;
 }
 export interface BroadcastRun {
   id: number; scheduled_at: string; started_at: string; finished_at?: string; recipients: number;

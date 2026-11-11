@@ -36,19 +36,21 @@ export function describeWindow(start?: string, end?: string | null): string {
   return end ? `${from}, ends ${fmt(end)}` : `${from}, runs until you stop it`;
 }
 
-export function ScheduleFields({ start, end, onChange, startLabel = "Starts", disabled }: {
-  start?: string; end?: string | null; onChange: (v: { start_at?: string; end_at?: string }) => void; startLabel?: string; disabled?: boolean;
+/** ScheduleFields: start and end side by side; stacked puts them one under the other (narrow panels
+ * such as the journey inspector). */
+export function ScheduleFields({ start, end, onChange, startLabel = "Starts", disabled, stacked }: {
+  start?: string; end?: string | null; onChange: (v: { start_at?: string; end_at?: string }) => void; startLabel?: string; disabled?: boolean; stacked?: boolean;
 }) {
   const problem = scheduleProblem(start, end);
   return (
     <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div className="grid-2">
+      <div className={stacked ? undefined : "grid-2"}>
         <Field label={`${startLabel} (required)`}>
           <input className="input" type="datetime-local" required value={toLocalInput(start)} onChange={(e) => onChange({ start_at: fromLocalInput(e.target.value), end_at: end ?? undefined })} />
         </Field>
         <Field label="Ends (optional)" hint="Leave empty to keep it running until you stop it.">
           <div className="row" style={{ flexWrap: "nowrap" }}>
-            <input className="input" type="datetime-local" value={toLocalInput(end)} onChange={(e) => onChange({ start_at: start, end_at: fromLocalInput(e.target.value) })} />
+            <input className="input" style={{ minWidth: 0 }} type="datetime-local" value={toLocalInput(end)} onChange={(e) => onChange({ start_at: start, end_at: fromLocalInput(e.target.value) })} />
             {end && <button type="button" className="btn ghost sm" onClick={() => onChange({ start_at: start, end_at: undefined })}>Clear</button>}
           </div>
         </Field>

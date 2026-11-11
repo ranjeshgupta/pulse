@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"pulse/internal/channel"
@@ -198,11 +200,61 @@ func New(kind string, d Deps, config, secrets map[string]string) (Provider, erro
 }
 
 // StatusError classifies an HTTP status from a provider API: 5xx and 429 are transient,
-// other 4xx permanent unless the adapter knows better.
-func StatusError(provider string, code int, body string) error {
+// other 4xx permanent unless the adapter knows better. Pass the response headers when there are
+// any: a transient error then carries the provider's Retry-After (see RetryAfter).
+func StatusError(provider string, code int, body string, h ...http.Header) error {
 	msg := fmt.Sprintf("%s: HTTP %d: %.300s", provider, code, body)
 	if code == http.StatusTooManyRequests || code >= 500 {
-		return errors.New(msg)
+		err := errors.New(msg)
+		if len(h) > 0 && h[0] != nil {
+			if after := ParseRetryAfter(h[0].Get("Retry-After"), time.Now()); after > 0 {
+				return &RetryAfterError{Err: err, After: after}
+			}
+		}
+		return err
 	}
 	return Permanent(msg)
+}
+
+// RetryAfterError is a transient failure for which the provider said how long to wait (HTTP
+// Retry-After on a 429 or 503). The dispatcher waits at least that long before the next try.
+type RetryAfterError struct {
+	Err   error
+	After time.Duration
+}
+
+func (e *RetryAfterError) Error() string { return e.Err.Error() }
+func (e *RetryAfterError) Unwrap() error { return e.Err }
+
+// RetryAfter returns the wait a provider asked for, if the error carries one.
+func RetryAfter(err error) (time.Duration, bool) {
+	var ra *RetryAfterError
+	if errors.As(err, &ra) && ra.After > 0 {
+		return ra.After, true
+	}
+	return 0, false
+}
+
+// Transient reports whether retrying a failed send later may succeed: anything but a permanent
+// failure or an unreachable recipient (network errors, timeouts, 429 and 5xx).
+func Transient(err error) bool {
+	return err != nil && !errors.Is(err, ErrPermanent) && !errors.Is(err, ErrUnreachable)
+}
+
+// ParseRetryAfter reads a Retry-After header: delay seconds ("120") or an HTTP date. It returns 0
+// when the header is missing, unreadable or in the past.
+func ParseRetryAfter(v string, now time.Time) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil && t.After(now) {
+		return t.Sub(now)
+	}
+	return 0
 }

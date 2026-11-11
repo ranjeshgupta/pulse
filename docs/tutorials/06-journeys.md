@@ -65,17 +65,13 @@ The Start card on the canvas now reads *Contact does ‘newsletter_signup’*.
 
 <br clear="right">
 
-The two kinds of trigger:
+The three kinds of trigger:
 
 | Start this journey when a contact | Use it for | Notes |
 |---|---|---|
 | **enters a segment** | "Became a Pro customer", "Abandoned cart" (tutorial 3) | Only people who newly match from now on enter. Tick **Also enroll contacts added when the segment is rebuilt** to include those too; rebuilding a segment can then enroll many contacts at once |
 | **does an event** | A sign-up, a purchase, any event your site or app sends | Type the event name exactly |
-
-> **Starting on a form.** A form submission is the event `form_submitted`, so **does an event** with
-> `form_submitted` starts the journey for every form. For one form only, have the form add people to
-> a static segment and start on **enters a segment** with that segment (tutorial 5). Inside a
-> journey, the **Submits form** decision waits for one form.
+| **submits a form** | A webinar sign-up, a "contact us" form (tutorial 5) | Choose the **Form**, or leave **Any form**. Each submission starts the journey for the person who sent it, so **Form field value** conditions can check their answers. Inside a journey, the **Submits form** decision waits for a form instead |
 
 **Entering again** decides what happens when someone who has already been through the journey
 triggers it again: **never enters again**, **can enter again after finishing**, or **can enter again
@@ -197,6 +193,9 @@ The list disappears when nothing is missing. Other things it checks: a send step
 a decision without a time limit, a condition without a segment, a trigger without its segment or
 event, and an end date before the start.
 
+A journey created through the API may end a path with a step that has no next step (for example
+**Delete contact**); the editor shows it as the end of that path.
+
 ## 9. Tidy up and find your way around the canvas
 
 ![The canvas toolbar: Undo, Redo, Tidy up, Zoom to fit](img/06-toolbar.png)
@@ -249,7 +248,7 @@ The status turns **Active**. While a journey is live its steps are locked:
 
 ![Active status, the Pause to edit button, and the note "This journey is live, so its steps are locked"](img/06-live.png)
 
-Pulse starts sending new contacts into it within a couple of seconds.
+New matches enter it immediately: going live tells the journey workers at once.
 
 ## 12. Try it with a test contact
 
@@ -310,8 +309,22 @@ Postmark, Mailgun, SES) fill it in.
 While a journey is paused, nobody new enters, and contacts already inside wait where they are. A wait
 or decision that comes due while it is paused moves on when the journey goes live again.
 
-Leave this one paused. A journey that has had contacts in it can't be deleted (pause it instead); a
-journey that never ran can be deleted through the API (`DELETE /v1/journeys/{id}`).
+Leave this one paused.
+
+## 15. Delete or archive a journey
+
+The **Journeys** list has a button at the end of each row that isn't live:
+
+- **Delete**, for a journey nobody has entered yet (a draft you no longer need). It asks first and
+  can't be undone.
+- **Archive**, for a journey that has had contacts in it: those can't be deleted, because their
+  history and reports are kept. An archived journey disappears from the list and can't go live.
+  Tick **Show archived** above the list to see archived journeys, and click **Restore** (in the list
+  or on the journey's page) to bring one back as a paused journey.
+
+Pause a live journey before archiving it. Deleting needs **Journeys: Edit**; archiving and restoring
+need **Journeys: Publish**, like going live. Through the API: `DELETE /v1/journeys/{id}`,
+`POST /v1/journeys/{id}/archive` and `POST /v1/journeys/{id}/unarchive`.
 
 ## Every step, at a glance
 

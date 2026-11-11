@@ -19,6 +19,11 @@ import (
 	"pulse/internal/store/pg"
 )
 
+// ChangesChannel is the Redis pub/sub channel the API announces journey changes on (activate,
+// pause, edit, archive, delete), so engines reload at once instead of at the next refresh
+// (see changes.go).
+const ChangesChannel = "journeys:changed"
+
 const (
 	refreshEvery = 2 * time.Second
 	pollEvery    = 500 * time.Millisecond
@@ -64,6 +69,10 @@ type Engine struct {
 	exec  *Executor
 	log   *slog.Logger
 	idx   atomic.Pointer[index]
+	// changed asks RunTimers for a refresh now (Notify).
+	changed chan struct{}
+	// changes records loaded versions for Announce (WatchChanges); nil without Redis.
+	changes atomic.Pointer[changeLog]
 }
 
 // NewEngine wires the executor; x.Store is set to store.
@@ -72,12 +81,14 @@ func NewEngine(store EngineStore, x *Executor, log *slog.Logger) *Engine {
 	if x.Now == nil {
 		x.Now = time.Now
 	}
-	e := &Engine{store: store, exec: x, log: log}
+	e := &Engine{store: store, exec: x, log: log, changed: make(chan struct{}, 1)}
 	e.idx.Store(newIndex())
 	return e
 }
 
 func (e *Engine) Refresh(ctx context.Context) error {
+	cl := e.changes.Load()
+	v := cl.version(ctx) // read first: the journeys loaded below include at least this change
 	js, err := e.store.ActiveJourneys(ctx)
 	if err != nil {
 		return err
@@ -99,11 +110,12 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		switch g.Trigger.Type {
 		case TriggerSegmentEntered:
 			idx.bySegment[g.Trigger.SegmentID] = append(idx.bySegment[g.Trigger.SegmentID], a)
-		case TriggerEvent:
+		case TriggerEvent, TriggerFormSubmitted:
+			name := g.Trigger.TriggerEventName()
 			if idx.byEvent[j.TenantID] == nil {
 				idx.byEvent[j.TenantID] = map[string][]*active{}
 			}
-			idx.byEvent[j.TenantID][g.Trigger.Event] = append(idx.byEvent[j.TenantID][g.Trigger.Event], a)
+			idx.byEvent[j.TenantID][name] = append(idx.byEvent[j.TenantID][name], a)
 		}
 		for _, n := range g.Nodes {
 			name := n.Event
@@ -127,6 +139,7 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		}
 	}
 	e.idx.Store(idx)
+	cl.loaded(ctx, v, e.log)
 	return nil
 }
 
@@ -200,6 +213,9 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 			}
 		}
 		for _, j := range idx.byEvent[ev.TenantID][ev.Name] {
+			if !j.graph.Trigger.MatchesEvent(ev.Props) {
+				continue // a form trigger for another form
+			}
 			if err := e.enrollWith(ctx, j, ev.ContactID, &ev); err != nil {
 				return err
 			}
@@ -263,7 +279,16 @@ func (e *Engine) changeJourneys(ctx context.Context, idx *index, ev event.Event)
 	return nil
 }
 
-// RunTimers refreshes the journey index and fires due timers until ctx is done.
+// Notify asks for the journey index to be reloaded now (a journey was activated or changed).
+func (e *Engine) Notify() {
+	select {
+	case e.changed <- struct{}{}:
+	default: // a refresh is already pending
+	}
+}
+
+// RunTimers refreshes the journey index (every refreshEvery, and at once after Notify) and fires
+// due timers until ctx is done.
 func (e *Engine) RunTimers(ctx context.Context) error {
 	poll := time.NewTicker(pollEvery)
 	defer poll.Stop()
@@ -288,6 +313,8 @@ func (e *Engine) RunTimers(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-poll.C:
+		case <-e.changed:
+			lastRefresh = time.Time{} // refresh now
 		}
 	}
 }

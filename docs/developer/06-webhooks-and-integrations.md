@@ -74,7 +74,8 @@ Segment events carry only `contact.id` (no external ID or attributes) and an ID 
 `seg:<segment>:<contact>:<time>:<entered>`; look the contact up with the API if you need more.
 `contact_created` has the ID `created:<event id>`. The **Send test** button (or
 `POST /v1/settings/webhooks/{id}/test`) sends a `webhook_test` event with a sample contact, signed
-like a real one, and shows your server's answer.
+like a real one, and shows your server's answer. The attempt is also listed under **Deliveries**
+(`"test": true` in the API), marked **test**, and is never retried.
 
 ### Verifying the signature
 
@@ -397,11 +398,11 @@ Pulse waits up to 15 seconds.
 | other `4xx` | Permanent failure (`<channel>_failed`), not retried |
 | `429` or `5xx`, a timeout or a network error | Temporary failure: the dispatcher tries again, see the note below |
 
-**Note on temporary failures.** The `dispatch` role retries a message that failed temporarily only a
-few times, about a second and a half apart in total; if every try fails, the message is moved to the
-Kafka dead-letter topic `messages.<channel>.dlq` and no `_failed` event is recorded. Pulse doesn't
-replay that topic by itself. So a gateway should accept messages quickly and queue them internally
-rather than return 503 during a short outage, and an operator should watch the `.dlq` topics.
+**Note on temporary failures.** The `dispatch` role tries a message that failed temporarily again
+after 30 s, 1 min, 2 min, 5 min, 10 min, 30 min and 1 h (about 1 h 50 min in all), without holding
+up other messages. Send `Retry-After` (seconds or an HTTP date) with a `429` or `503` to ask for a
+longer wait (up to an hour). If every try fails, Pulse records `<channel>_failed` with
+`reason: "gave up after 8 tries: …"`. Every try carries the same `message_id`: deliver it once.
 
 ### Receipts and replies back to Pulse
 

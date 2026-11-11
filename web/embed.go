@@ -9,15 +9,35 @@ import (
 	"strings"
 )
 
+// dist always has a committed .gitkeep, so the Go build works before the app is built (a fresh
+// clone, make test); Handler then says how to build it. npm run build recreates .gitkeep.
+//
 //go:embed all:dist
 var dist embed.FS
+
+// Built reports whether the web app was built into dist before this binary was compiled.
+func Built() bool {
+	_, err := fs.Stat(dist, "dist/index.html")
+	return err == nil
+}
+
+const notBuilt = `<!doctype html><title>Pulse</title><p>The web app isn't built into this binary.
+Run <code>cd web && npm ci && npm run build</code>, then build Pulse again (the Docker image does both).</p>`
 
 // Handler serves the app. Unknown paths get index.html so client-side routes (/segments/4)
 // load directly; hashed assets are cached for a year, index.html never.
 func Handler() http.Handler {
 	root, _ := fs.Sub(dist, "dist")
 	files := http.FileServerFS(root)
+	built := Built()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !built {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(notBuilt))
+			return
+		}
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if p == "" || p == "." {
 			p = "index.html"

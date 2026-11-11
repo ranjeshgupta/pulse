@@ -34,6 +34,9 @@ The profile opens as a panel on the right. From top to bottom:
 <img src="img/02-profile-top.png" alt="The profile of store-1001: Merge into…, its segments, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
 
 - **Merge into…**: fold this contact into another one (step 10).
+- **Download data** and **Delete contact** (with **Contacts: Edit**): a JSON file of everything Pulse
+  keeps about the person, and permanent deletion after you type `DELETE`. Both are for privacy
+  requests ([tutorial 11](11-admin-and-privacy.md#5-a-persons-data-see-it-export-it-erase-it)).
 - **Segments**: every segment the contact is in right now, dynamic and static.
 - **Owner, stage and company**: three drop-downs (step 3).
 - **Tags and points**: the contact's tags and score (step 4).
@@ -143,7 +146,7 @@ already guessed:
 | `mobile` | **Phone (international format)** | also `phone_number`, `mobile_number`, … Spaces, dashes and brackets are removed, so `+91 98200 11001` becomes `+919820011001` |
 | `lifetime_value`, `loyalty_member` | **Lifetime value**, **Loyalty member** | the fields you defined in step 5 |
 | `first_name`, `last_name`, `city`, `plan` | **New field: …** | fields without a definition; created as text, marked *new field* |
-| `tags` | **Tags (separated by ;)** | `store-pune;diwali-2026` gives two tags |
+| `tags` | **Tags to add (separated by ;)** | `store-pune;diwali-2026` adds two tags |
 
 3. Set **notes** to **Don't import**: those are the store's own remarks.
 4. Click **Next**. If something is wrong, Pulse lists it in red under the table and **Next** stays
@@ -196,9 +199,9 @@ Row numbers count the heading row as row 1, like a spreadsheet. The list shows u
 Go back to **Contacts**: the new contacts (`store-1001` to `store-1007`, without Farah) are at the
 top, and each is in the segment **Pune store opening guests**.
 
-> **A `tags` column replaces tags.** Importing a contact with a `tags` cell sets its tags to exactly
-> that list, so a tag you added by hand is removed if the file doesn't have it. Leave the cell empty
-> (or don't import the column) to keep the tags a contact has.
+> **A `tags` column adds tags.** The tags in the cell are added to the ones the contact already has;
+> nothing is removed. To take a tag away, use the contact's profile or a journey's
+> **Modify contact's tags** step.
 
 ## 7. Filter your contacts
 

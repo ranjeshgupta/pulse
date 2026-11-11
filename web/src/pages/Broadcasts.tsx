@@ -6,6 +6,7 @@ import {
   type Segment, type Template,
 } from "../api";
 import { TemplateActions } from "../messagePreview";
+import { SegmentPicker } from "./InApp";
 import { money } from "../insights";
 import { CountsTable, DailyBars, metricsFor, ReportFigures, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
@@ -45,6 +46,17 @@ export function BroadcastList() {
       </div>
     </div>
   );
+}
+
+/** browserZone is the time zone this browser is in (the zone a local-time broadcast's time is chosen in). */
+export function browserZone(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
+}
+
+/** localClock shows an instant as clock time (e.g. 9:00 AM) in a zone. */
+export function localClock(iso: string, zone?: string): string {
+  if (!iso) return "the chosen time";
+  try { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: zone || undefined }); } catch { return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 }
 
 const NEW: Broadcast = { id: 0, name: "", channel: "email", template_id: 0, segment_id: 0, start_at: "", repeat: "none", status: "draft", conversion_days: 3 };
@@ -230,6 +242,9 @@ export function BroadcastEdit() {
               {segs.data?.segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </Field>
+          <SegmentPicker label="Leave out members of (optional)" hint="Nobody in these segments gets it, even if they're in the audience."
+            segments={(segs.data?.segments ?? []).filter((s) => s.id !== b.segment_id)} value={b.exclude_segment_ids ?? []}
+            onChange={(exclude_segment_ids) => set({ exclude_segment_ids })} />
           <Field label="Channel">
             <select className="select" value={b.channel} onChange={(e) => setChannel(e.target.value as Channel)}>
               {CHANNELS.map((c) => <option key={c} value={c}>{CHANNEL_NAMES[c]}</option>)}
@@ -258,14 +273,25 @@ export function BroadcastEdit() {
         <h3 style={{ margin: "10px 0 12px" }}>When</h3>
         <div className="grid-2">
           <Field label="Repeat">
-            <select className="select" value={b.repeat} onChange={(e) => set({ repeat: e.target.value as Repeat })}>
+            <select className="select" value={b.repeat} onChange={(e) => set({ repeat: e.target.value as Repeat, local_time: e.target.value === "none" ? b.local_time : false })}>
               {Object.entries(REPEAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
         </div>
         <ScheduleFields start={b.start_at} end={b.end_at} onChange={(w) => set({ start_at: w.start_at ?? "", end_at: w.end_at ?? null })} startLabel={b.repeat === "none" ? "Send at" : "First send"} />
         {b.repeat !== "none" && <p className="xs muted" style={{ marginTop: -6 }}>Sends {REPEAT_LABEL[b.repeat].toLowerCase()} at the same time. {b.end_at ? "" : "With no end, it keeps going until you cancel it."}</p>}
-        {b.repeat === "none" && new Date(b.start_at) < new Date() && <p className="xs muted" style={{ marginTop: -6 }}>The time has passed, so scheduling sends it right away.</p>}
+        {b.repeat === "none" && !b.local_time && new Date(b.start_at) < new Date() && <p className="xs muted" style={{ marginTop: -6 }}>The time has passed, so scheduling sends it right away.</p>}
+        {b.repeat === "none" && (
+          <label className="check">
+            <input type="checkbox" checked={!!b.local_time} onChange={(e) => set({ local_time: e.target.checked, timezone: e.target.checked ? browserZone() : "" })} />
+            Send at this time in each contact's own time zone
+          </label>
+        )}
+        {b.repeat === "none" && b.local_time && (
+          <p className="xs muted" style={{ marginTop: -6, maxWidth: "75ch" }}>
+            Each contact gets it at {localClock(b.start_at, b.timezone)} their time, from their <code>timezone</code> attribute (or the zone located from their IP); contacts with neither get it at {localClock(b.start_at, b.timezone)} in {b.timezone || "UTC"}. Sending starts when that time comes in the first time zone (UTC+14), up to a day before; anyone whose time has already passed when you schedule gets it right away.
+          </p>
+        )}
         <h3 style={{ margin: "18px 0 12px" }}>Conversion goal</h3>
         <div className="grid-2">
           <Field label="Event (optional)" hint="The results count recipients who do this after getting the message, e.g. purchase.">
@@ -419,7 +445,7 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
               ))}
             </div>
           )}
-          <p className="xs muted" style={{ marginTop: -12, marginBottom: 18 }}>
+          <p className="xs muted" style={{ margin: "0 0 18px" }}>
             Each contact counts once. Rates are out of messages sent.{bc.conversion_event ? ` Converted means they did ${bc.conversion_event} within ${bc.conversion_days || 3} days of their send.` : ""}
           </p>
           {variantRows.length > 0 && (

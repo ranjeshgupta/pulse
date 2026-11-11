@@ -75,9 +75,6 @@ you unpublish it.
 
    ![Check what a visitor sees: an anonymous visitor on a page containing tutorial=8 sees this focus item](img/08-focus-check.png)
 
-   > Right after publishing a *new* item, reload the page before using **Check**; otherwise it
-   > says the visitor doesn't see it.
-
 3. Open your site, or the test page with `&tutorial=8` added to its address. After two seconds the
    slide-in appears in the corner:
 

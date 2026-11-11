@@ -208,7 +208,14 @@ func rowEvents(cols []string, idCol, emailCol int, rec []string, o Options) ([]*
 	if err := CoerceAttrs(attrs, o.Types); err != nil {
 		return nil, err
 	}
+	// A tags column adds to the contact's tags (as tagging by hand does) instead of replacing them.
+	tags, hasTags := attrs[event.AttrTags]
+	delete(attrs, event.AttrTags)
 	evs := []event.Event{{ID: fmt.Sprintf("imp:%s:%s", o.ImportID, ext), TenantID: o.Tenant, ExternalID: ext, Name: event.Identify, Email: email, Attrs: attrs}}
+	if hasTags {
+		evs = append(evs, event.Event{ID: fmt.Sprintf("imp:%s:%s:tags", o.ImportID, ext), TenantID: o.Tenant, ExternalID: ext,
+			Name: event.TagAdded, Props: map[string]any{"tags": tags, "source": "import"}})
+	}
 	if o.ListID != 0 {
 		evs = append(evs, event.Event{ID: fmt.Sprintf("imp:%s:%s:list", o.ImportID, ext), TenantID: o.Tenant, ExternalID: ext,
 			Name: event.ListJoined, Props: map[string]any{"list_id": o.ListID, "source": "import"}})

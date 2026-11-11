@@ -118,8 +118,11 @@
 .j-channels li .select { width: auto; max-width: 150px; display: inline-block; margin: 0 4px; }
 .j-issues { margin-top: 20px; }
 .j-issues h4 { margin-bottom: 6px; }
-.j-issues ul { padding-left: 18px; margin: 0; color: var(--muted); }
-.j-issues li { margin-bottom: 4px; }
+/* Custom bullets on the first line: a wrapped link button would otherwise carry the marker to its last line. */
+.j-issues ul { list-style: none; padding: 0; margin: 0; color: var(--muted); }
+.j-issues li { position: relative; padding-left: 16px; margin-bottom: 4px; }
+.j-issues li::before { content: "•"; position: absolute; left: 4px; top: 0; }
+.j-issues .linklike { display: block; }
 .linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--cobalt-dark); text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: rgba(28, 54, 173, 0.35); text-underline-offset: 2px; }
 .linklike:hover { text-decoration-color: currentColor; }
 
@@ -172,3 +175,7 @@
 @media (prefers-reduced-motion: reduce) {
   .j-plus { transition: none; }
 }
+
+/* Journey list: Delete / Archive / Restore at the end of each row. */
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions .btn + .btn { margin-left: 4px; }

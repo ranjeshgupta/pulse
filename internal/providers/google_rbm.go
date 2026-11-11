@@ -104,7 +104,7 @@ func (g *GoogleRBM) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
-	code, body, err := call(g.HTTP, req)
+	code, body, hdr, err := call(g.HTTP, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -120,7 +120,7 @@ func (g *GoogleRBM) Send(ctx context.Context, o Outbound) (Result, error) {
 		_ = json.Unmarshal(body, &e)
 		return Result{}, Unreachable("google rbm: " + e.Error.Message)
 	}
-	return Result{}, StatusError("google rbm", code, string(body))
+	return Result{}, StatusError("google rbm", code, string(body), hdr)
 }
 
 // BodyChallenge answers RBM's webhook check: a POST {clientToken, secret} that must be echoed as

@@ -222,3 +222,78 @@ func TestPickWinnerAndValidate(t *testing.T) {
 		t.Errorf("a plain 100%% split needs no metric: %v", err)
 	}
 }
+
+type segMembers map[int64][]uint32
+
+func (m segMembers) Load(_ context.Context, _, seg int64) ([]byte, error) {
+	return segment.Build(m[seg]), nil
+}
+
+func TestExcludedSegmentsGetNothing(t *testing.T) {
+	at := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	b := model.Broadcast{ID: 5, TenantID: 1, Channel: "email", TemplateID: 3, SegmentID: 1, ExcludeSegmentIDs: []int64{2, 3},
+		StartAt: at, Repeat: schedule.None, NextRunAt: &at}
+	st, pub := &memStore{due: []model.Broadcast{b}, runs: map[time.Time]int{}}, &memPub{}
+	r := &Runner{Store: st, Members: segMembers{1: {1, 2, 3, 4, 900}, 2: {2}, 3: {4, 5000}}, Pub: pub, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := r.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var got []uint32
+	for _, m := range pub.msgs {
+		got = append(got, m.ContactID)
+	}
+	if len(got) != 3 || got[0] != 1 || got[1] != 3 || got[2] != 900 {
+		t.Fatalf("recipients = %v, want 1 3 900", got)
+	}
+	if st.runs[time.Unix(1, 0)] != 3 { // memStore keys runs by run id
+		t.Errorf("run recipients = %v", st.runs)
+	}
+}
+
+func TestLocalTime(t *testing.T) {
+	// 9:00 on 12 Nov, chosen in India (UTC+5:30).
+	b := model.Broadcast{ID: 6, TenantID: 1, Channel: "email", TemplateID: 3, SegmentID: 1, Repeat: schedule.None,
+		StartAt: time.Date(2026, 11, 12, 3, 30, 0, 0, time.UTC), LocalTime: true, Timezone: "Asia/Kolkata"}
+	if c := LocalClock(b); c != "2026-11-12T09:00" {
+		t.Fatalf("clock = %s", c)
+	}
+	// The run starts when 9:00 comes in UTC+14: 19:00 UTC the day before.
+	start := time.Date(2026, 11, 11, 19, 0, 0, 0, time.UTC)
+	if s := LocalStart(b); !s.Equal(start) {
+		t.Errorf("local start = %v", s)
+	}
+	if at, ok := FirstRun(b, start.Add(-time.Hour)); !ok || !at.Equal(start) {
+		t.Errorf("first run = %v %v", at, ok)
+	}
+	if at, ok := FirstRun(b, start.Add(time.Hour)); !ok || !at.Equal(start.Add(time.Hour)) {
+		t.Errorf("late schedule starts now: %v %v", at, ok)
+	}
+	// Each contact gets it at 9:00 in their zone.
+	ny, _ := LocalDue("2026-11-12T09:00", "America/New_York")
+	if !ny.Equal(time.Date(2026, 11, 12, 14, 0, 0, 0, time.UTC)) {
+		t.Errorf("New York: %v", ny)
+	}
+	utc, _ := LocalDue("2026-11-12T09:00", "")
+	if !utc.Equal(time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)) {
+		t.Errorf("no zone: %v", utc)
+	}
+	if _, ok := LocalDue("soon", "UTC"); ok {
+		t.Error("a bad clock parsed")
+	}
+	// Messages carry the clock time and the fallback zone.
+	b.NextRunAt = &start
+	st, pub := &memStore{due: []model.Broadcast{b}, runs: map[time.Time]int{}}, &memPub{}
+	r := &Runner{Store: st, Members: memMembers{7}, Pub: pub, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if err := r.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.msgs) != 1 || pub.msgs[0].LocalAt != "2026-11-12T09:00" || pub.msgs[0].LocalZone != "Asia/Kolkata" {
+		t.Errorf("messages = %+v", pub.msgs)
+	}
+	if err := ValidateLocalTime(model.Broadcast{LocalTime: true, Repeat: schedule.Daily}); err == nil {
+		t.Error("a repeating local-time broadcast was accepted")
+	}
+	if err := ValidateLocalTime(model.Broadcast{LocalTime: true, Repeat: schedule.None, Timezone: "Mars/Base"}); err == nil {
+		t.Error("an unknown zone was accepted")
+	}
+}

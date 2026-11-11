@@ -97,6 +97,14 @@ export function Access() {
     mutationFn: () => api.put<SSOConfig>("/v1/settings/sso", sso),
     onSuccess: (c) => { qc.setQueryData(["sso"], c); setSSO({ ...c, client_secret: "" }); toast({ text: "Single sign-on settings saved" }); },
   });
+  const remove = useMutation({
+    mutationFn: () => api.del("/v1/settings/sso"),
+    onSuccess: () => {
+      const blank: SSOConfig = { enabled: false, issuer: "", discovery_url: "", client_id: "", client_secret: "", has_client_secret: false, auto_create_users: true, default_role: "editor" };
+      qc.setQueryData(["sso"], blank); setSSO(blank); toast({ text: "Single sign-on removed" });
+    },
+  });
+  const saved = !!q.data?.issuer;
   const rotate = useMutation({ mutationFn: () => api.post<{ api_key: string }>("/v1/settings/api-key"), onSuccess: (r) => setNewKey(r.api_key) });
   const callback = `${window.location.origin}/v1/auth/sso/callback`;
 
@@ -109,7 +117,7 @@ export function Access() {
           <p className="small muted" style={{ marginBottom: 16, maxWidth: "70ch" }}>
             Works with Keycloak, Microsoft Entra ID, Google Workspace, Okta or any OpenID Connect provider. Register Pulse with your provider using this redirect URI: <code>{callback}</code>. Teammates choose "Sign in with SSO" and enter <strong>{me?.workspace.slug}</strong>.
           </p>
-          <ErrorNote error={save.error ?? q.error} />
+          <ErrorNote error={save.error ?? remove.error ?? q.error} />
           {sso && (
             <>
               <div className="grid-2">
@@ -121,7 +129,11 @@ export function Access() {
               <label className="check"><input type="checkbox" checked={sso.auto_create_users} onChange={(e) => setSSO({ ...sso, auto_create_users: e.target.checked })} />Give anyone your provider signs in access to this workspace</label>
               <Field label="Their role"><select className="select inline" value={sso.default_role} onChange={(e) => setSSO({ ...sso, default_role: e.target.value as RoleKey })}><RoleOptions roles={roles} /></select></Field>
               <label className="check"><input type="checkbox" checked={sso.enabled} onChange={(e) => setSSO({ ...sso, enabled: e.target.checked })} />Allow signing in with SSO</label>
-              <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save sign-on settings</button>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save sign-on settings</button>
+                {saved && <button className="btn danger" disabled={remove.isPending}
+                  onClick={() => confirm("Remove single sign-on? The provider settings and client secret are deleted, and teammates sign in with a password (anyone who only used SSO needs a password reset or a new invitation).") && remove.mutate()}>Remove single sign-on</button>}
+              </div>
             </>
           )}
         </div>

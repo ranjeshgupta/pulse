@@ -34,11 +34,6 @@ last four characters are ever shown again), a **Test connection** button, a prev
 **Sync log**. Only admins can connect or change integrations; other roles can open the page and see
 the list.
 
-> **Known issue (this version):** right after you click **Connect**, the form shows the type's
-> default values again (for example the **Name** goes back to "HubSpot") although your values were
-> saved: the page title shows the saved name. Reload the page before changing anything, or **Save**
-> would write the defaults back.
-
 ## 2. Connect HubSpot
 
 Pulse pulls HubSpot contacts on a schedule and pushes Pulse contacts to HubSpot, one at a time or
@@ -235,19 +230,8 @@ stops it. Deliveries are signed and retried like webhooks (step 9) and listed un
 deliveries**.
 
 There is no published Pulse app in Zapier or Make yet: use their *Webhooks* / *HTTP* modules with
-the calls above.
-
-> **Known issue (this version):** the Zapier / Make page fails to open ("Unexpected Application
-> Error"), so there is no picture here. Until it is fixed, an admin can create the connector with
-> the server API key; the answer contains the `pzk_` key, shown only this once:
->
-> ```bash
-> curl -s -X POST http://localhost:7080/v1/integrations \
->   -H "Authorization: Bearer pk_…" -H "Content-Type: application/json" \
->   -d '{"kind":"rest_hooks","name":"Zapier","active":true}'
-> ```
->
-> Then `GET /v1/hooks/me` with `Authorization: Bearer pzk_…` should answer with your workspace.
+the calls above. To check the key, `GET /v1/hooks/me` with `Authorization: Bearer pzk_…` answers with
+your workspace.
 
 ## 8. Sync a segment to Facebook or Google Ads
 
@@ -326,11 +310,9 @@ sign-up, a contact entering a segment.
    event name works, including ones you haven't sent yet. `segment_entered` and `segment_exited`
    fire when a contact joins or leaves any segment. Or tick **Send every event**.
 
-   ![New webhook: Purchases to CRM, its URL, and the events purchase and segment_entered](img/09-webhook-new.png)
+   The **+ event** suggestions under the box add that event with one click.
 
-   > **Known issue (this version):** clicking one of the **+ event** suggestions under the box ticks
-   > **Send every event** instead of adding that event. Type the names instead, and check that
-   > **Send every event** is not ticked before you save.
+   ![New webhook: Purchases to CRM, its URL, and the events purchase and segment_entered](img/09-webhook-new.png)
 
 4. Click **Add webhook**. Pulse creates its **Signing secret** and the page shows it hidden, with
    **Reveal**, **Copy** and **Rotate secret**.
@@ -360,7 +342,8 @@ HMAC-SHA256 and your secret; reject requests whose signature doesn't match or wh
 
 **Deliveries** lists the latest 100 attempts with the answer, time and error. Any 2xx answer counts
 as delivered. A failed attempt is retried after 30 seconds, 2 minutes, 10 minutes, 1 hour and 6
-hours; then Pulse gives up (**Gave up**). The **Send test** result isn't added to this list.
+hours; then Pulse gives up (**Gave up**). **Send test** results are listed too, marked **test**
+(**Test delivered** or **Test failed**); a test is never retried.
 
 The webhook list shows each webhook's events, **Active** / **Paused**, and its last delivery:
 

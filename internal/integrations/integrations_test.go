@@ -560,3 +560,21 @@ func TestGoogleUpload(t *testing.T) {
 		t.Errorf("ops = %v", ops)
 	}
 }
+
+// The web app reads kind.config and kind.secrets as arrays, so the catalog never sends null.
+func TestCatalogHasArrays(t *testing.T) {
+	b, err := json.Marshal(Catalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"config":null`) || strings.Contains(string(b), `"secrets":null`) {
+		t.Fatalf("catalog has null lists: %s", b)
+	}
+	for _, k := range Catalog() {
+		for _, f := range append(append([]Field{}, k.Config...), k.Secrets...) {
+			if strings.Contains(f.Label, "(optional)") {
+				t.Errorf("%s %s: the web app adds (optional) itself", k.ID, f.Key)
+			}
+		}
+	}
+}

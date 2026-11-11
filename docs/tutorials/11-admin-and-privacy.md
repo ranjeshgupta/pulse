@@ -116,14 +116,21 @@ When someone asks what you hold about them, or asks to be forgotten:
 **See it.** Open the contact: the profile shows their attributes, segments, consent, tags and points,
 and the **Activity** list of their events.
 
-**Export it.** In **Contacts**, search for their email (or `external_id`), pick the **Columns** you
-want, and click **Export CSV**: the file has that contact's profile fields
-([tutorial 2](02-contacts.md#9-choose-columns-and-export)). Exporting needs **Contacts: Edit**. There
-is no one-click "everything about this person" file yet: copy their **Activity** from the profile if
-you need their events too.
+**Export it.** Open the contact and click **Download data** at the top of the profile. Pulse
+downloads `contact-<external ID>.json` with everything it keeps about them: the profile (every
+attribute), consent per channel, the segments they are in, and their event history (newest first,
+up to 100,000 events; events already removed by your retention settings aren't in it). It needs
+**Contacts: Edit**, and each download is in the audit log as *Downloaded a contact's data*. From
+your server: `GET /v1/contacts/{external_id}/data`.
 
-**Erase it.** Pulse has no "Delete contact" button on the profile; contacts are deleted by a journey
-step, so you can make erasure a repeatable process:
+**Erase it.** Open the contact, click **Delete contact**, type `DELETE` and click **Delete contact**.
+Pulse deletes the contact with their attributes, events, segment memberships, devices, inbox
+messages, journey progress and files they uploaded through forms; it can't be undone. Download their
+data first if you need a copy. It needs **Contacts: Edit** and is in the audit log as *Deleted a
+contact*. From your server: `DELETE /v1/contacts/{external_id}`. If your site or app sends new events
+for that ID later, a new contact is created, so stop tracking them too.
+
+To make erasure an automatic process instead, use a journey step:
 
 1. Create a journey whose trigger is an event, e.g. `erasure_requested`.
 2. Add **Action → Delete contact**. It warns *Permanently deletes the contact and all their data.
@@ -140,7 +147,7 @@ step, so you can make erasure a repeatable process:
      -d '{"events":[{"external_id":"cust-0001","name":"erasure_requested"}]}'
    ```
 
-The contact, their events and their journey history are deleted. Static segments may keep the
+Either way, the contact, their events and their journey history are deleted. Static segments may keep the
 ID until they next change, but it no longer matches anyone. Audience uploads to Facebook or Google
 aren't recalled automatically: if the person was in a linked segment, remove them in the ad platform
 too.
@@ -205,8 +212,11 @@ SSO**; Pulse sends them to your provider and back.
   SSO**). A teammate added without a password can only use SSO.
 - To turn it off, untick **Allow signing in with SSO** and save. Pulse keeps the settings for next
   time; teammates with a password can still use it.
+- To remove it completely, click **Remove single sign-on** and confirm. Pulse deletes the provider
+  settings and the stored client secret; teammates then sign in with a password, so anyone who only
+  used SSO needs a password reset or a new invitation (**Settings → Team**).
 
-Every change here is in the audit log as *Changed single sign-on*.
+Every change here is in the audit log as *Changed single sign-on* or *Removed single sign-on*.
 
 ## 8. Identity verification
 
@@ -250,7 +260,7 @@ Who can do what is set on **Settings → Team** and **Settings → Roles**
 
 | Page or action | Needs |
 |---|---|
-| Change a contact's consent, export contacts, the **Delete contact** and **Remove Do Not Contact** journey steps | **Contacts: Edit** |
+| Change a contact's consent, export contacts, **Download data** and **Delete contact** on a profile, the **Delete contact** and **Remove Do Not Contact** journey steps | **Contacts: Edit** |
 | See **Data & privacy** | **Settings: View** (changing it: Admin) |
 | **Sign-in & keys**, **Audit log**, **Webhooks** | The full **Admin** role |
 | **Integrations** | Seen with **Settings: View**; connected and changed by admins |

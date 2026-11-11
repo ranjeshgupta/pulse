@@ -78,7 +78,7 @@ server.
 | **From address** | `Acme Retail <hello@acme-retail.example.com>`: the sender every email shows |
 | **Username (optional)**, **Password (optional)** | The relay's SMTP credentials (for SES, the SMTP user, not your AWS keys) |
 
-<img src="img/04-add-smtp.png" alt="Add a Email provider: SMTP with host, port 587 and a From address filled in; username and password empty" width="420">
+<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP with host, port 587 and a From address filled in; username and password empty" width="420">
 
 > Before sending to real people, set up SPF, DKIM and DMARC for the From domain at your email
 > service, and point its bounce webhook at Pulse (step 5).
@@ -90,7 +90,7 @@ server.
 | **Twilio** | **Account SID**, **Auth token**; then either a **From number** or a **Messaging Service SID**; optionally **Delivery report URL**: paste this provider's own Pulse webhook URL (you get it after saving, so edit the provider once more) |
 | **MSG91** (India, DLT) | **Flow template ID** (the flow's text must be exactly `##message##`: Pulse puts the whole SMS there), **Sender ID (DLT header)**, **Auth key** |
 
-<img src="img/04-add-msg91.png" alt="Add a SMS provider: MSG91 with a flow template ID and sender ID ACMEIN, saved as standby" width="420">
+<img src="img/04-add-msg91.png" alt="Add SMS provider: MSG91 with a flow template ID and sender ID ACMEIN, saved as standby" width="420">
 
 A template's own **Sender ID** (tutorial 5) overrides the provider's.
 
@@ -104,7 +104,7 @@ A template's own **Sender ID** (tutorial 5) overrides the provider's.
 | **App secret (verifies delivery webhooks) (optional)** | Your Meta app's settings. With it, Pulse checks that receipts really come from Meta |
 | **Webhook verify token (optional)** | Any string you choose; enter the same one in Meta's webhook settings |
 
-<img src="img/04-add-whatsapp.png" alt="Add a WhatsApp provider: Meta WhatsApp Cloud API with phone number ID and business account ID filled in, secret fields empty" width="420">
+<img src="img/04-add-whatsapp.png" alt="Add WhatsApp provider: Meta WhatsApp Cloud API with phone number ID and business account ID filled in, secret fields empty" width="420">
 
 In Meta's webhook settings, use this provider's **Delivery reports** URL as the callback URL. WhatsApp
 only delivers business-started messages from templates Meta has approved; tutorial 5 shows how a
@@ -123,7 +123,7 @@ settings → Service accounts → Generate new private key; paste the whole file
 Android, iOS (through FCM tokens, not direct APNs) and web apps that use Firebase. Your app registers
 its device tokens with the Pulse mobile SDKs.
 
-<img src="img/04-add-fcm.png" alt="Add a Push provider: Firebase Cloud Messaging with a project ID and an empty service account key box" width="420">
+<img src="img/04-add-fcm.png" alt="Add Push provider: Firebase Cloud Messaging with a project ID and an empty service account key box" width="420">
 
 ### Web push: no provider needed
 
@@ -159,7 +159,7 @@ any channel:
 - **Signing secret (we sign each request with it)**: every request is signed like Pulse's outgoing
   webhooks, so your endpoint can check it came from Pulse.
 
-<img src="img/04-add-gateway.png" alt="Add a SMS provider: Custom HTTP gateway with an endpoint URL and an empty signing secret" width="420">
+<img src="img/04-add-gateway.png" alt="Add SMS provider: Custom HTTP gateway with an endpoint URL and an empty signing secret" width="420">
 
 Your endpoint answers 2xx to accept (optionally `{"id": "..."}` to match receipts later), 404 or 410
 when the recipient can't be reached, another 4xx for a permanent failure; 429 and 5xx are retried.

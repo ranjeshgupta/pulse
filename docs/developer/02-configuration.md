@@ -16,17 +16,16 @@ reference you look things up in.
 
 - **Strings** (addresses, URLs, tokens): an unset or **empty** variable means "use the default". You
   can't set a variable to an empty string to blank out a default.
-- **Booleans**: only the exact lower-case value `true` counts as on. `TRUE`, `1` or `yes` are off.
-  That matters most for `PULSE_ALLOW_SIGNUP`, which defaults to on: any value other than `true`
-  turns sign-up **off**.
-- **Numbers** (`PULSE_KAFKA_PARTITIONS`, `PULSE_EMAIL_RATE`) are whole numbers. A value that doesn't
-  parse is ignored and the default is used, without a warning. `PULSE_EMAIL_RATE=12.5` therefore
-  gives you 200, not 12.5.
-- **Durations** use Go's syntax: `90s`, `5m`, `1h30m`, `24h`. A value that doesn't parse falls back
-  to the default, again without a warning.
+- **Booleans**: `true`, `1`, `yes` or `on` turn a switch on; `false`, `0`, `no` or `off` turn it off
+  (any case).
+- **Numbers**: `PULSE_KAFKA_PARTITIONS` is a whole number greater than 0; `PULSE_EMAIL_RATE` is a
+  number greater than 0 and may have a fraction (`12.5` emails a second).
+- **Durations** use Go's syntax: `90s`, `5m`, `1h30m`, `24h`, and must be greater than 0.
 
-Because bad numbers and durations fall back silently, check the effective behaviour after changing
-one (for example, the time between `segments` sweeps in the log).
+A value that doesn't parse stops the process at start-up, before it connects to anything, with exit
+code 2 and one log line naming every bad variable, e.g.
+`"msg":"bad settings","err":"PULSE_EMAIL_RATE=\"fast\": must be a number greater than 0"`. A typo
+therefore never runs silently with the default.
 
 ---
 
@@ -75,7 +74,7 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 |---|---|---|---|---|
 | `PULSE_SMTP_ADDR` | `localhost:11025` | `dispatch` | SMTP relay (`host:port`) for workspaces that haven't added an email provider of their own. The dev default is Mailpit | Always in production (`smtp.example.com:587`) |
 | `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | `dispatch` | Default sender for that relay | Always in production |
-| `PULSE_EMAIL_RATE` | `200` | `dispatch` | Emails per second **per workspace** (a Redis token bucket). Whole numbers only | Your relay or provider allows more or less. The other channels have fixed rates, see [Limits](#limits-fixed-in-the-code) |
+| `PULSE_EMAIL_RATE` | `200` | `dispatch` | Emails per second **per workspace** (a Redis token bucket). Fractions are allowed (`0.5` is one every 2 seconds) | Your relay or provider allows more or less. The other channels have fixed rates, see [Limits](#limits-fixed-in-the-code) |
 | `PULSE_SWEEP_INTERVAL` | `5m` | `segments` | How often segments with event windows ("within the last N days") or relative dates are re-checked in ClickHouse, so membership decays without new events | Shorter for fresher "within N days" segments, longer to take load off ClickHouse |
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | `journeys` | How often retention cleanup runs (anonymous visitors, events, audit log, per each workspace's Settings → Data & privacy) | Rarely |
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | `integrations` | How often each ad audience sync (Facebook Custom Audiences, Google Ads Customer Match) re-checks its whole segment. Entries and exits stream in between | You want drift corrected sooner, or fewer API calls to the ad platforms |
@@ -96,7 +95,7 @@ These appear in the repository but are read by tools, not by the `pulse` binary:
 ## Process roles
 
 One binary, `pulse <role>`. Without a valid role it prints
-`usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|integrations|all` and
+`usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|integrations|all|replay-dlq` and
 exits with status 2. Each role logs JSON lines to stdout with a `role` field, stops cleanly on
 `SIGTERM` or Ctrl+C, and exits with status 1 if it fails.
 
@@ -108,10 +107,11 @@ exits with status 2. Each role logs JSON lines to stdout with a `role` field, st
 | `chsink` | `events.enriched` and `segment.membership` → ClickHouse | `pulse-chsink` | ClickHouse, Kafka |
 | `segments` | Real-time membership from `events.enriched`; backfills of new and edited segments; sweeps every `PULSE_SWEEP_INTERVAL`; segments that depend on other segments (from `segment.membership`) | `pulse-segments`, `pulse-segments-deps` | Postgres, ClickHouse, Redis, Kafka |
 | `journeys` | Journey enrollment and steps (from `segment.membership` and `events.enriched`), durable timers, scheduled broadcasts (every second), background imports (every 2 s), retention cleanup, journey A/B winners (every 5 s) | `pulse-journeys` | Postgres, ClickHouse, Redis, Kafka |
-| `dispatch` | `messages.<channel>` and `delivery.receipts` → consent, caps, quiet hours, rate limits, providers, SMS fallback; held (quiet hours) messages | `pulse-dispatch` | Postgres, Redis, Kafka |
+| `dispatch` | `messages.<channel>` and `delivery.receipts` → consent, caps, quiet hours, rate limits, providers, SMS fallback; held (quiet hours) messages and retries of temporary provider failures | `pulse-dispatch` | Postgres, Redis, Kafka |
 | `webhooks` | Outbound webhooks and Zapier / Make subscriptions, from `events.enriched` and `segment.membership`; retries | `pulse-webhooks` | Postgres, Redis, Kafka |
 | `integrations` | CRM pulls (due pulls are claimed every 10 s), ad audience sync, bounce mailboxes (each read every 5 minutes; only when `PULSE_SECRET_KEY` is set, since mailbox passwords are sealed with it) | `pulse-integrations` | Postgres, Redis, Kafka |
 | `all` | `migrate`, then every role above in one process | all of the above | everything |
+| `replay-dlq` | A command, not a worker: `pulse replay-dlq [--limit N] [--dry-run] <topic or channel>` moves records from `<topic>.dlq` back to `<topic>`, then exits ([how](01-installation.md#dead-letter-topics-and-replaying-them)) | `pulse-replay-dlq` | Kafka |
 
 A role opens only the connections it uses (`deps` in `cmd/pulse/main.go` connects lazily), but
 it's simplest to give every role the same environment. `migrate` takes a Postgres advisory lock, so
@@ -158,12 +158,13 @@ Not configurable today; listed so you know what to expect.
 | Request body | 4 MB; `POST /v1/contacts/import` 200 MB; `POST /v1/imports` 10 GB; `POST /v1/assets` 26 MB (25 MB per file) | `bodyLimit` in `internal/api/server.go` |
 | Events per `POST /v1/events` | 1-1,000 | `maxBatch` |
 | Events per `POST /v1/web/events` (site key) | 1-50, and 600 events per minute per client IP and workspace | `internal/api/web.go` |
-| Form submissions | 10 per minute per client IP and workspace; faster than 2 s after the form was shown, or with the honeypot filled, is treated as a bot | `internal/api/forms.go` |
+| Form submissions | 10 per minute per client IP and workspace; faster than 2 s after the form was shown (or without the time it was shown: `_ts` on the hosted page, `shown` from the SDK), or with the honeypot filled, is treated as a bot | `internal/api/forms.go` |
 | Sign-in attempts | 10 per workspace and email in 15 minutes (successful ones count too) | `internal/api/auth.go` |
 | Session lifetime | 14 days (`pulse_session` cookie) | `internal/api/server.go` |
 | API key cache | Each `api` instance caches a key's workspace for up to 1 minute, so a replaced key keeps working for up to a minute | `authCacheTTL` |
 | Send rates per workspace | email `PULSE_EMAIL_RATE` (200/s), SMS 100/s, WhatsApp 80/s, RCS 50/s, push 500/s, app inbox 2,000/s | `DefaultRates` in `internal/dispatch/dispatcher.go` |
 | Outbound webhook retries | 30 s, 2 min, 10 min, 1 h, 6 h after the first attempt (about 7 hours), then given up | `Backoff` in `internal/webhooks/webhooks.go` |
+| Message retries (provider network error, timeout, 429, 5xx) | 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h (at least the provider's `Retry-After`, capped at 1 h), then `<channel>_failed` | `RetryBackoff` in `internal/dispatch/retry.go` |
 | Contacts list page | `limit` 1-200 (default 50) | `internal/api/contactview.go` |
 | Segment rules | 8 levels deep, 200 nodes, event windows 1-365 days, `in` lists up to 1,000 values | `internal/segment/ast.go` |
 | Journeys | 500 steps, waits up to 365 days, 25 jumps per enrollment | `internal/journey` |

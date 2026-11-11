@@ -190,6 +190,15 @@ func TestOutboundWebhooks(t *testing.T) {
 	if r := jsonCall(t, c, "POST", fmt.Sprintf("/v1/settings/webhooks/%d/test", id), nil, 200); r["ok"] != true {
 		t.Fatalf("test delivery = %v", r)
 	}
+	// The test send is listed with the deliveries, marked as a test.
+	testListed := false
+	for _, d := range asList(jsonCall(t, c, "GET", fmt.Sprint("/v1/settings/webhooks/", id), nil, 200)["deliveries"]) {
+		dm := d.(map[string]any)
+		testListed = testListed || (dm["event_name"] == "webhook_test" && dm["test"] == true && dm["status"] == 200.0)
+	}
+	if !testListed {
+		t.Error("the test delivery isn't listed")
+	}
 	time.Sleep(11 * time.Second) // the worker's webhook cache refreshes every 10 s
 
 	ext := "hook-" + run

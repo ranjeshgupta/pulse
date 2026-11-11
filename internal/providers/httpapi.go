@@ -22,19 +22,19 @@ const (
 	maxWebhookBytes  = 4 << 20
 )
 
-// call sends req and returns the status and (size-limited) body. A network error is returned as is,
-// so the dispatcher retries it.
-func call(c *http.Client, req *http.Request) (int, []byte, error) {
+// call sends req and returns the status, (size-limited) body and headers (StatusError reads
+// Retry-After from them). A network error is returned as is, so the dispatcher retries it.
+func call(c *http.Client, req *http.Request) (int, []byte, http.Header, error) {
 	resp, err := c.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
-	return resp.StatusCode, body, nil
+	return resp.StatusCode, body, resp.Header, nil
 }
 
 // jsonRequest builds a POST with a JSON body.

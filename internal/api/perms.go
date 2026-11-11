@@ -52,6 +52,7 @@ var special = map[string]need{
 	"GET /v1/forms/{id}/uploads/{upload}":             {auth.AreaContacts, auth.View}, // files contacts uploaded: personal data
 	"GET /v1/contacts/export":                         {auth.AreaContacts, auth.Edit}, // a full copy of the data
 	"GET /v1/contacts/{external_id}/preferences-link": {auth.AreaContacts, auth.Edit},
+	"GET /v1/contacts/{external_id}/data":             {auth.AreaContacts, auth.Edit}, // everything about one person
 	"GET /v1/settings/sso":                            {auth.AreaSettings, auth.Edit}, // shows SSO configuration
 	"GET /v1/settings/identity":                       {auth.AreaSettings, auth.Edit}, // shows the signing secret
 	"GET /v1/settings/webhooks":                       {auth.AreaSettings, auth.Edit}, // shows signing secrets

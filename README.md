@@ -145,7 +145,20 @@ Design notes:
     in-app" list (Website or Mobile app first); imports are one flow under Contacts (upload, map columns, static
     segment, review, background run, one history). Old addresses redirect. Decisions:
     [docs/05-feature-parity.md](docs/05-feature-parity.md#navigation-batch-9).
-- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step (1 of 11 written so far). Remaining gaps:
+- **Docs review fixes (done):** found while writing the docs:
+  - **Privacy:** **Delete contact** and **Download data** (profile, consent, segments and events as JSON) on the
+    contact profile and as `DELETE /v1/contacts/{id}` / `GET /v1/contacts/{id}/data` (contacts edit, audited).
+  - **Campaigns:** broadcasts leave out members of excluded segments and can send at the chosen clock time in each
+    contact's own time zone; journeys start on **submits a form** (any form or one); journeys that never ran can be
+    deleted from the list and those that ran archived (hidden, restorable, history kept); activation takes effect at
+    once (the API tells the journey workers through Redis).
+  - **Reports** export to CSV; **SSO** can be removed; a webhook's **Send test** is listed with its deliveries.
+  - **Delivery:** a provider outage (429, 5xx, timeouts) no longer drops messages: retries back off from 30 seconds
+    to an hour (honouring `Retry-After`) without holding up other messages, and giving up records `<channel>_failed`
+    with the reason; `pulse replay-dlq` replays dead-letter topics.
+  - **Robustness:** settings that don't parse stop start-up; forms without the time they were shown count as bots;
+    a fresh clone builds and tests without building the web app first.
+- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 11 written. Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it
@@ -172,22 +185,35 @@ cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies t
 
 ## Reserved attribute names
 
-Pulse maintains some profile attributes itself, so they can't be set directly by browsers, forms, journey "update
-profile" steps, server events or CSV imports (they are dropped there): `tags`, `points`, `stage`, `stage_changed_at`,
-`company_id`, `company_name` and every `company_*` key, `first_seen`, `last_seen`, `date_added`, `date_identified`,
-`date_modified`, `email_domain`, `owner_id`, `owner_name`, the last-seen device (`device_type`, `device_os`,
-`device_os_version`, `device_brand`, `device_model`, `browser`, `app_version`: from the SDKs' event properties),
-`merged_into`, `email_bounced` and `sms_bounced` (a server may clear them; a new phone number clears `sms_bounced`), and
-the `optout_*` consent flags. `locale` is filled from the SDKs but may be set by your server. `first_utm_*` and `first_referrer` (first-touch attribution, set by the
-web SDK) can be set but keep their first value. Change them through their own APIs and events: tags, points, stages
-(`PUT /v1/contacts/{id}/stage`, journey step `change_stage`), owners (`PUT /v1/contacts/{id}/owner`), companies (`PUT /v1/contacts/{id}/company`, or an identify
-with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`). Name your own fields differently, e.g.
-`team_size` rather than `company_size`.
+Pulse maintains some profile attributes itself. How far they are protected depends on who sends them:
+
+- **Never settable by anyone** (dropped from every event's `attrs`, including your server's and CSV
+  imports): `stage`, `stage_changed_at`, `company_id`, `company_name` and every `company_*` key,
+  `date_added`, `date_identified`, `date_modified`, `email_domain`, `owner_id`, `owner_name`,
+  `merged_into`, and the last-seen device (`device_type`, `device_os`, `device_os_version`,
+  `device_brand`, `device_model`, `browser`, `app_version`: from the SDKs' event properties).
+- **Also refused from browsers (site key), form fields and journey "update profile" steps**, but
+  accepted from your server (API key `attrs`) and CSV imports: `tags`, `points`, the `optout_*`
+  consent flags, `email_bounced` and `sms_bounced`, `first_seen` and `last_seen`. A server value
+  replaces what is there (e.g. `"tags": ["vip"]` replaces the tag list, `"optout_email": true`
+  unsubscribes without an `unsubscribed` event), so prefer the events below, which keep the
+  history. A CSV import's tags column adds tags (as `tag_added` events) rather than replacing them. A
+  new phone number clears `sms_bounced`.
+
+`locale` is filled from the SDKs but may be set by your server. `first_utm_*` and `first_referrer`
+(first-touch attribution, set by the web SDK) can be set but keep their first value. Change Pulse's
+attributes through their own APIs and events: tags (`tag_added` / `tag_removed`,
+`POST /v1/contacts/{id}/tags`), points (`points_changed`, `POST /v1/contacts/{id}/points`), stages
+(`PUT /v1/contacts/{id}/stage`, journey step `change_stage`), owners (`PUT /v1/contacts/{id}/owner`),
+companies (`PUT /v1/contacts/{id}/company`, or an identify with `attrs.company` from your server),
+consent (`unsubscribed` / `resubscribed`). Name your own fields differently, e.g. `team_size` rather
+than `company_size`.
 
 ## Settings
 
 Every setting is a `PULSE_*` environment variable (`internal/config/config.go`). The defaults suit `pulse all` on the
-host against the dev compose stack's published ports; `deploy/docker-compose.yml` sets the in-network addresses.
+host against the dev compose stack's published ports; `deploy/docker-compose.yml` sets the in-network addresses. A
+number, duration or switch that doesn't parse stops start-up with an error naming the variable.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -203,11 +229,11 @@ host against the dev compose stack's published ports; `deploy/docker-compose.yml
 | `PULSE_ALLOW_SIGNUP` | `true` | Anyone may create a workspace at `/signup`; `false` turns signup off |
 | `PULSE_PUBLIC_URL` | `http://localhost:7080` | Where browsers reach Pulse: SSO redirects, Secure cookies, tracking, unsubscribe and webhook URLs |
 | `PULSE_SWEEP_INTERVAL` | `5m` | How often segments with event windows or relative dates are re-checked |
-| `PULSE_EMAIL_RATE` | `200` | Emails per second per workspace (other channels have fixed rates, see the architecture doc) |
+| `PULSE_EMAIL_RATE` | `200` | Emails per second per workspace, fractions allowed (other channels have fixed rates, see the architecture doc) |
 | `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links, webhook secrets and download links (form-gated assets, attachment links for the custom gateway need it) |
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
-| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks, the custom gateway and integrations (CRM, Shopify, ad platform APIs) call private addresses (development only) |
+| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks, channel providers and the custom gateway, integrations (CRM, Shopify, ad platform APIs) and the IMAP bounce mailbox reach private addresses (development only) |
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | How often each ad audience sync re-checks its whole segment (entries and exits stream in between) |
 | `PULSE_GEOIP_DB` | none | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file (download with a free MaxMind licence key, e.g. via `geoipupdate`); unset turns geolocation off |
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often retention cleanup runs |
@@ -245,7 +271,7 @@ curl -s localhost:7080/v1/contacts/u1 -H "Authorization: Bearer $KEY"   # profil
 
 ```
 cmd/pulse/          one binary, one role per argument (migrate, api, profile, chsink, segments, journeys, dispatch,
-                    webhooks, integrations, all)
+                    webhooks, integrations, all), and `replay-dlq <topic>` to move dead-letter records back
 cmd/seed/           demo workspaces for `make seed` and `make docs-seed`; cmd/loadgen/: the load generator for `make load`
 internal/segment/   rule AST, Go evaluator, ClickHouse SQL compiler, Redis bitmaps and day counters
 internal/segengine/ streaming membership, backfill, sweep

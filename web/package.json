@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && vite build -c vite.sdk.config.ts",
+    "build": "tsc --noEmit && vite build && vite build -c vite.sdk.config.ts && touch dist/.gitkeep",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build:sdk": "vite build -c vite.sdk.config.ts"
+    "build:sdk": "vite build -c vite.sdk.config.ts && touch dist/.gitkeep"
   },
   "dependencies": {
     "@fontsource-variable/schibsted-grotesk": "^5.3.0",

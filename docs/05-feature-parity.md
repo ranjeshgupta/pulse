@@ -12,6 +12,8 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Contact profiles, custom attributes | ✅ | ✅ | ✅ JSON attributes, no schema needed | |
 | Anonymous visitor tracking, GeoIP location | ✅ | ✅ | ✅ anonymous visitors (on/off per workspace), MaxMind GeoIP city/state/country/time zone | |
 | Data retention and cleanup | ✅ | 🟡 | ✅ Data & privacy: anonymous visitors, events, audit log; hourly cleanup | |
+| Delete a contact | ✅ | ✅ | ✅ **Delete contact** on the profile (typed confirmation) and `DELETE /v1/contacts/{external_id}`: the cleanup deletion path (ClickHouse events and memberships, then profile, devices, inbox, journey state, form uploads); contacts edit access; audited; also the `delete_contact` journey step | Ad audiences aren't recalled |
+| Export one contact's data (access request) | 🟡 | ✅ | ✅ **Download data** on the profile and `GET /v1/contacts/{external_id}/data`: profile, consent per channel, segments and up to 100,000 events as JSON; contacts edit access (personal data, like exports); audited | |
 | Real-time event tracking API | 🟡 | ✅ | ✅ 20k events/s on one machine | |
 | Activity timeline | ✅ | ✅ | ✅ | |
 | Unsubscribe, do-not-contact, per-channel consent | ✅ | ✅ | ✅ per channel and "everything", honored by every send (`*_suppressed`), editable per contact | |
@@ -23,7 +25,7 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
 | Points / lead scoring | ✅ | ⬜ | ✅ scoring rules per event, manual adjust, journey step; `points` attribute in rules | |
 | Stages (lifecycle) | ✅ | ⬜ | ✅ ordered stages (Settings → Stages); `stage` attribute changed by hand, API, `stage_changed` events, the `change_stage` journey step, or a points threshold (forward only); "In stage" segment preset | P2 |
-| Companies (B2B accounts) | ✅ | ⬜ | ✅ companies with attributes copied to contacts as `company_<key>`; link by hand or by a server identify with `attrs.company`; company changes fan out to contacts; "Works at company" and "Company attribute" presets | P2 |
+| Companies (B2B accounts) | ✅ | ⬜ | ✅ companies with attributes copied to contacts as `company_<key>`; link by hand or by a server identify with `attrs.company`; company changes fan out to contacts; "Company", "Company name" and "Other company field" segment filters | P2 |
 | Identity merge (anonymous → known) | ✅ | ✅ | ✅ identify with `anonymous_id`: profile, counters and event history move; later visitor events follow | |
 | Identity verification for browser SDKs (signed user ID) | ⬜ | ✅ | ✅ HMAC user hash; can be required per workspace; secret rotation | |
 | Duplicate merge | ✅ | ✅ | ✅ `POST /v1/contacts/merge` on the identity-merge path (attributes, tags, points, history, counters, static segments move to the winner); Duplicates view by email or phone; "Merge into…" in the contact drawer | P2 |
@@ -51,7 +53,8 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
 | Visual canvas | ✅ | ✅ | ✅ "+" on every path opens Action · Decision · Condition · Wait · Split, then a searchable list (disabled items say why); drag-and-drop palette; Yes/No colours and labels, step numbers, Tidy up, zoom to fit, minimap, undo/redo, per-step counts. See [Campaign builder](#campaign-builder-batch-7b) | |
-| Triggers: segment entry, event | ✅ | ✅ | ✅ | |
+| Triggers: segment entry, event, form submission | ✅ | ✅ | ✅ `segment_entered`, `event`, `form_submitted` (any form or `form_id`; the submission is kept for form field conditions); activation reaches the journey workers at once (Redis pub/sub `journeys:changed`, plus a 2-second refresh) | |
+| Delete or archive a journey | ✅ | ✅ | ✅ delete one that never ran (list and `DELETE /v1/journeys/{id}`); archive one that ran (`POST /v1/journeys/{id}/archive` / `unarchive`): hidden from the list unless "Show archived", can't go live, enrollments and reports kept | |
 | Schedule: start required, end optional (empty = runs forever) | ✅ | ✅ | ✅ Phase 2 | |
 | Wait for a duration | ✅ | ✅ | ✅ durable timers | |
 | Wait until a date/time, or until an event (with timeout) | ✅ | ✅ | ✅ date, next time of day in the contact's zone, wait for event with timeout | |
@@ -80,6 +83,8 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Schedule: start required, optional end, repeat daily/weekly/monthly | 🟡 | ✅ | ✅ Phase 2 | |
 | A/B test with winner selection | ✅ | ✅ | ✅ 2-5 variants, test group %, winner by open or click rate after a wait, or by hand; plain splits | |
 | Conversion goal per broadcast | 🟡 | ✅ | ✅ recipients who do an event within N days | |
+| Excluded segments | ✅ | ✅ | ✅ `exclude_segment_ids` (up to 10): members of any are left out of every send and the A/B winner step | |
+| Send at the same local time in each contact's time zone | ⬜ | ✅ | ✅ one-time broadcasts, `local_time` + `timezone` (the zone the time was chosen in): the run starts when that clock time comes in UTC+14 and each message is held until it in the contact's `timezone` / `geo_timezone` (else the chosen zone) | Not for repeating broadcasts |
 
 ## Channels
 
@@ -125,18 +130,18 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Funnel breakdown by attribute | ⬜ | ✅ | ✅ any profile attribute (geo_country, plan, stage...): step counts for the top 10 values plus everyone else | P2 |
 | Cohorts / retention | ⬜ | ✅ | ✅ cohorts by first seen or first time doing an event (with filters), by day, week or month; coming back = any activity or an event; segment filter; heat-map triangle with an all-cohorts row; saved reports | P2 |
 | Revenue attribution, UTM | 🟡 | ✅ | ✅ web SDK keeps first/last-touch UTM (`first_utm_*`, `last_utm_*`, referrer domain; first kept once set) on identify and forms, the session's campaign on page views; revenue event and amount property per workspace; last-touch, first-touch and linear attribution to broadcasts, journeys and UTM campaigns over an N-day window; recipients' revenue in broadcast and journey reports | P2 |
-| Custom report builder | ✅ | 🟡 | ✅ events, message outcomes or contacts; count, unique contacts, sum or average; group by event, property, attribute, outcome, channel, campaign or day/week/month; property/attribute, channel and segment filters; table, bars or line; saved reports; at most 100 groups, a year of data | P2 |
+| Custom report builder | ✅ | 🟡 | ✅ events, message outcomes or contacts; count, unique contacts, sum or average; group by event, property, attribute, outcome, channel, campaign or day/week/month; property/attribute, channel and segment filters; table, bars or line; saved reports; CSV export (formula-safe) of the result shown; at most 100 groups, a year of data | P2 |
 
 ## Platform
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
 | Multi-tenant workspaces | ⬜ | ✅ | ✅ | |
-| Password sign-in, SSO (OIDC: Keycloak, Entra ID, Okta, Google) | 🟡 SAML | ✅ | ✅ tested against Keycloak | |
+| Password sign-in, SSO (OIDC: Keycloak, Entra ID, Okta, Google) | 🟡 SAML | ✅ | ✅ tested against Keycloak; settings can be removed (`DELETE /v1/settings/sso`) | |
 | Roles | ✅ granular | ✅ | ✅ admin, editor, viewer and custom roles: none/view/edit/publish per area, enforced on every route | |
 | Audit log | 🟡 | ✅ | ✅ every change through the app or API (secrets redacted) and every sign-in; retention setting; CSV / JSON export with person, type and date filters | |
 | REST API with keys | ✅ | ✅ | ✅ | |
-| Outbound webhooks on events | ✅ | ✅ | ✅ any event or segment entry/exit; HMAC-signed; retries over ~7 hours; delivery log; test send | |
+| Outbound webhooks on events | ✅ | ✅ | ✅ any event or segment entry/exit; HMAC-signed; retries over ~7 hours; delivery log; test send (listed in the log, marked as a test) | |
 | Integrations (CRM, Zapier, Shopify) | ✅ plugins | ✅ | ✅ HubSpot and Salesforce (scheduled pull with field mapping, push on demand and from journeys), Shopify webhooks (orders, customers, checkouts), Zapier / Make REST hooks (triggers and actions with the connector's own key); masked secrets, test connection, previews, sync log | See [Integrations](#integrations-batch-8a) |
 | Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | ✅ web SDK (track, identify, page views, on-site, forms, web push); Flutter SDK (`sdks/flutter/pulse_sdk`); native Kotlin (`sdks/android`) and Swift (`sdks/ios`) SDKs | Native cores unit-tested in Docker; the Android module compiled and linted, never run on a device; the iOS UIKit code not yet compiled (no Xcode here) |
 
@@ -497,4 +502,4 @@ Everything above is built. What is still missing or only approximate, in one pla
 - **Scale:** Redis is single-threaded and the per-poll barrier waits for the slowest partition; bulk imports still go
   through the real-time pipeline; analytics reports and filtered contact views weren't load-tested and will want rollups
   at billions of events ([load test](03-load-test.md), [architecture](02-architecture.md#at-scale-needs-pre-aggregation)).
-- **Docs:** tutorials 2-11 aren't written yet ([docs/tutorials](tutorials/README.md)).
+- **Broadcasts:** sending at each contact's local time works for one-time broadcasts only.

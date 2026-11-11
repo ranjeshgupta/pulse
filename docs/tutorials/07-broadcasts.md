@@ -34,14 +34,16 @@ schedule or cancel you need **Broadcasts: Publish** (Admins and Editors have it)
    - **Send to**: the segment, here **Sale preview testers**. Pulse shows how many contacts are in it
      now (*About 6 contacts are in it right now*). Membership is taken at send time, so people who join
      or leave the segment before then are counted then.
+   - **Leave out members of (optional)**: one or more segments whose members get nothing, even if
+     they are in **Send to**. Choose them from **Add a segment**; × removes one. For example, leave out
+     *Bought this week* so recent buyers don't get the sale email.
    - **Channel**: **Email**, SMS, WhatsApp, RCS, Push or App inbox.
    - **Template**: lists only the chosen channel's templates. Pick **Weekend sale**.
 
    ![The New broadcast form: Name, Send to Sale preview testers (about 6 contacts), Channel Email, Template Weekend sale, Preview and Send a test](img/07-new-broadcast.png)
 
-A broadcast goes to one segment. To leave people out (say, everyone who bought this week), build a
-segment that does it, with a **not in segment** filter or the rule itself (tutorial 3), and send to
-that.
+A broadcast goes to one segment, minus everyone in the segments you leave out. Both are taken at
+send time.
 
 For **WhatsApp** and **RCS** a further field appears: **If it can't be delivered, send this SMS
 instead**. It is used when a number isn't on WhatsApp or RCS, or delivery fails, at most once per
@@ -109,6 +111,16 @@ the percentage you set (here 2 or 4 of the 6).
 Times are in your browser's time zone, and a broadcast goes to everyone at that time. (Quiet hours, if
 you turn them on under Delivery rules, hold SMS, WhatsApp, RCS and push until they end in each
 contact's own time zone.)
+
+**Send at this time in each contact's own time zone** (one-time broadcasts only): tick it and each
+contact gets the message at the chosen clock time where they are, e.g. 9:00 am in Mumbai and 9:00 am
+in London. Their zone comes from the contact's `timezone` attribute (an IANA name such as
+`Asia/Kolkata`, sent by your app or server), else the zone located from their IP address
+(`geo_timezone`, when GeoIP is set up); contacts with neither get it at that time in your browser's
+time zone, which the line under the box names. Sending starts when the time comes in the first time
+zone (UTC+14), up to a day before, and each message waits until it is due; the contact's activity
+shows a *deferred* entry meanwhile. Anyone whose time has already passed when you schedule gets it
+right away.
 
 **Conversion goal** (optional): type an event, e.g. `purchase`, and **Within** `3` days (1 to 30). The
 results then count recipients who did it within that many days of their send, and show the revenue

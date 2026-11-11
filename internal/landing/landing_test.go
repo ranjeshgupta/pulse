@@ -149,10 +149,11 @@ func TestRenderPreview(t *testing.T) {
 	p := page()
 	p.HTML = `<h1>Sale</h1>{form:fAbc}<div data-pulse-form="fGone"></div>`
 	forms := map[string]model.Form{"fAbc": {PublicKey: "fAbc", Status: "draft", Fields: []model.FormField{
-		{Key: "email", Label: "Your <email>", Type: "email", Required: true}, {Key: "src", Type: "hidden"}},
+		{Key: "email", Label: "Your <email>", Type: "email", Required: true}, {Key: "city", Label: "City", Type: "select", Options: []string{"Pune", "Delhi"}},
+		{Key: "src", Type: "hidden"}},
 		Settings: model.FormSettings{SubmitText: "Get it"}}}
 	doc := Render(p, Page{Preview: true, Forms: forms})
-	for _, want := range []string{"Your &lt;email&gt; *", "Get it", "This form is a draft", "Form fGone</strong>: not found", `http-equiv="Content-Security-Policy"`} {
+	for _, want := range []string{"Your &lt;email&gt; *", "Pune<span aria-hidden=\"true\">▾</span>", "Get it", "This form is a draft", "Form fGone</strong>: not found", `http-equiv="Content-Security-Policy"`} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("preview lacks %q:\n%s", want, doc)
 		}

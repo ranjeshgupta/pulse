@@ -317,10 +317,40 @@ curl -s $PULSE/v1/contacts/cust-1001/preferences-link -H "Authorization: Bearer 
 # {"url":"http://localhost:7080/u/…?view=preferences"}
 ```
 
+### Export one contact's data
+
+For a data access request, everything Pulse keeps about one person as a JSON download:
+
+```bash
+curl -s $PULSE/v1/contacts/cust-1001/data -H "Authorization: Bearer $KEY" -o contact-cust-1001.json
+```
+
+```json
+{
+  "exported_at": "2026-11-11T10:00:00Z",
+  "contact": {"external_id": "cust-1001", "email": "asha@example.com", "attributes": {…}, "created_at": "…", "updated_at": "…"},
+  "consent": {"subscribed_to_all": true, "channels": [{"channel": "email", "subscribed": true}, {"channel": "sms", "subscribed": false}, …]},
+  "segments": [{"id": 3, "name": "Pune buyers", "kind": "rule"}],
+  "events": [{"id": "…", "name": "purchase", "at": "…", "props": {"amount": 499}}, …],
+  "events_note": "Newest first, at most 100000 events. …"
+}
+```
+
+It needs **contacts edit** access (it is personal data, like exports) and every download is in the
+audit log. Events already removed by retention settings aren't included.
+
 ### Delete a contact
 
-There is **no `DELETE` endpoint for contacts** in this version. A contact is deleted permanently
-(profile, events and memberships, through the same path as retention cleanup) by:
+```bash
+curl -s -X DELETE $PULSE/v1/contacts/cust-1001 -H "Authorization: Bearer $KEY"
+# 200 {"deleted":"cust-1001"}
+```
+
+Deletes the contact permanently through the same path as retention cleanup: their ClickHouse events,
+snapshots and segment memberships first, then the profile, devices, inbox messages, journey state
+and files they uploaded through forms. It needs **contacts edit** access, is audited, and answers 404
+for an unknown ID. New events for the same external ID create a new contact. Contacts are also
+deleted by:
 
 - a journey with a **Delete contact** step (`{"type":"delete_contact","confirm":"DELETE"}`, see
   [Journeys](#journeys)), for example triggered by your own `erasure_requested` event; saving or
@@ -540,8 +570,10 @@ How it fits together:
 
 - **`trigger`**: `{"type":"event","event":"signup"}` enrolls on each matching event;
   `{"type":"segment_entered","segment_id":14}` enrolls contacts entering a segment (live changes
-  only, unless `"include_backfill": true`). `reentry`: `once` (default), `always`, or `after_days`
-  with `days` (1-3650).
+  only, unless `"include_backfill": true`); `{"type":"form_submitted","form_id":4}` enrolls whoever
+  submits that form (leave out `form_id` for any form; the submission is kept for `if_form_field`).
+  `reentry`: `once` (default), `always`, or `after_days` with `days` (1-3650). Activation takes effect
+  at once: the API tells the journey workers through Redis.
 - **`goal`** (optional): contacts who do this event leave and count as converted.
 - **`entry`** names the first step; **`nodes`** maps step IDs (your names) to steps. Steps point to
   the next with `next`, or `yes` / `no` for conditions and decisions, or `variants[].next` for
@@ -564,7 +596,12 @@ The step types (each one's fields are in `journey.Node`, `internal/journey/graph
 | End | `exit`, `jump` (`target`), `delete_contact` (`confirm: "DELETE"`) |
 
 `PUT /v1/journeys/{id}` replaces name, graph and schedule; it answers 409 while the journey is active,
-so pause it first (`POST /v1/journeys/{id}/pause`). The web app's builder writes the same JSON, so a
+so pause it first (`POST /v1/journeys/{id}/pause`). `DELETE /v1/journeys/{id}` deletes a journey
+nobody has entered (409 otherwise). One that has run is archived instead:
+`POST /v1/journeys/{id}/archive` (paused or draft only) hides it from the app's list and stops it
+going live (`activate` answers 409) while keeping its enrollments and reports;
+`POST /v1/journeys/{id}/unarchive` brings it back. `GET /v1/journeys` returns `archived_at` and
+`has_run` for each journey. A step with no next step (such as `delete_contact`) simply ends its path. The web app's builder writes the same JSON, so a
 quick way to learn a step's fields is to build it in the app and `GET /v1/journeys/{id}`. More
 about the engine: [architecture, journeys](../02-architecture.md#journeys).
 
@@ -594,6 +631,8 @@ curl -s -X POST $PULSE/v1/broadcasts/6/schedule -H "Authorization: Bearer $KEY"
 | `fallback_template_id` | WhatsApp or RCS broadcasts: an SMS template for contacts they can't reach |
 | `ab` | A/B test: `{"variants":[{"label":"A","template_id":31},{"label":"B","template_id":33}], "test_percent":20, "metric":"opens", "wait_hours":4}`. `metric` `opens` or `clicks` (email) picks a winner after `wait_hours` (1-72) and sends it to the rest; `manual` waits for `POST /v1/broadcasts/{id}/runs/{run}/winner` with `{"variant":"B"}`; `test_percent: 100` is a plain split |
 | `conversion_event`, `conversion_days` | Reports count recipients who do the event within 1-30 days (default 3) |
+| `exclude_segment_ids` | Up to 10 segments whose members are left out, even if they are in `segment_id` |
+| `local_time`, `timezone` | One-time broadcasts: send at `start_at`'s clock time in `timezone` (an IANA zone such as `Asia/Kolkata`, the zone the time was chosen in) in each contact's own zone: their `timezone` attribute, else `geo_timezone`, else `timezone`. The run starts when that clock time comes in UTC+14 (`next_run_at` shows it), and each message is held until it is due (a `<channel>_deferred` event records the wait) |
 
 A run sends to whoever is in the segment when it starts. `start_at` in the past sends at once.
 `GET /v1/broadcasts/{id}` returns the broadcast and its runs; `POST /v1/broadcasts/{id}/cancel`
@@ -618,7 +657,9 @@ which segments, journeys (`on_form`) and webhooks can use.
 
 To submit a form from your own backend (a form on a page you render server-side), use the same
 endpoint as the SDK. Fetch the form first: the response's `shown` timestamp must be sent back, and
-submissions less than 2 seconds after it are treated as bots (accepted, but nothing is recorded).
+submissions less than 2 seconds after it, or without it, are treated as bots (accepted, but nothing
+is recorded). There is no form submission route for the server API key: from a server, send the
+contact's data as events instead.
 
 ```bash
 SHOWN=$(curl -s $PULSE/v1/web/forms/$FORM_KEY | jq .shown)
@@ -683,6 +724,8 @@ curl -s -X POST $PULSE/v1/settings/webhooks/2/test -H "Authorization: Bearer $KE
 # {"duration_ms":84,"ok":true,"status":200}
 ```
 
+The test attempt is also listed in the webhook's `deliveries` with `"test": true` (never retried).
+
 Payload, signature verification (Node, Python, Go) and retries are in
 [6. Webhooks and integrations](06-webhooks-and-integrations.md).
 
@@ -731,6 +774,7 @@ the path, a signature, or nothing).
 | `DELETE` | `/v1/users/{id}` | Remove a teammate | settings edit |
 | `GET` | `/v1/settings/sso` | Single sign-on settings (client secret never returned) | full admin |
 | `PUT` | `/v1/settings/sso` | Change single sign-on settings | full admin |
+| `DELETE` | `/v1/settings/sso` | Remove single sign-on (settings and client secret) | full admin |
 | `POST` | `/v1/settings/api-key` | Replace the server API key; returns the new `api_key` once | full admin |
 | `GET` | `/v1/settings/delivery` | Delivery rules: frequency caps, quiet hours, keywords, reply tracking | settings view |
 | `PUT` | `/v1/settings/delivery` | Change delivery rules | settings edit |
@@ -765,6 +809,8 @@ the path, a signature, or nothing).
 | `GET` | `/v1/contacts/{external_id}` | Profile and the IDs of the segments the contact is in | contacts view |
 | `GET` | `/v1/contacts` | List or search contacts: `?q=` filters, `limit`, `after` cursor | contacts view |
 | `GET` | `/v1/contacts/{external_id}/events` | The contact's latest 100 events | contacts view |
+| `GET` | `/v1/contacts/{external_id}/data` | Download everything about the contact as JSON (audited) | contacts edit |
+| `DELETE` | `/v1/contacts/{external_id}` | Delete the contact permanently (audited) | contacts edit |
 
 ### Segments and contact data model
 
@@ -846,12 +892,12 @@ the path, a signature, or nothing).
 | Method | Path | Does | Needs |
 |---|---|---|---|
 | `POST` | `/v1/journeys` | Create a journey (`name`, `graph`, optional `start_at`, `end_at`); 201, draft | journeys edit |
-| `POST` | `/v1/journeys/{id}/{action}` | `activate` or `pause` | journeys publish |
+| `POST` | `/v1/journeys/{id}/{action}` | `activate`, `pause`, `archive` or `unarchive` | journeys publish |
 | `GET` | `/v1/journeys/{id}/stats` | Enrollments by status and by current step | journeys view |
-| `GET` | `/v1/journeys` | List journeys with enrollment counts | journeys view |
+| `GET` | `/v1/journeys` | List journeys with enrollment counts, `archived_at` and `has_run` | journeys view |
 | `GET` | `/v1/journeys/{id}` | A journey with its graph | journeys view |
 | `PUT` | `/v1/journeys/{id}` | Change a journey (409 while it's active) | journeys edit |
-| `DELETE` | `/v1/journeys/{id}` | Delete a journey | journeys edit |
+| `DELETE` | `/v1/journeys/{id}` | Delete a journey nobody has entered (409 otherwise: archive it) | journeys edit |
 
 ### Broadcasts
 

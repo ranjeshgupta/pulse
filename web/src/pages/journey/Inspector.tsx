@@ -30,7 +30,7 @@ export function Inspector({ graph, setGraph, win, setWin, selected, locked, deci
   onDelete: (id: string) => void; onDeleteBranch: (id: string) => void;
 }) {
   if (!selected) return <p className="small muted">Select a step to set it up, or use a <strong>+</strong> on the canvas to add one.</p>;
-  if (selected === TRIGGER_ID) return <StartFields graph={graph} setGraph={setGraph} win={win} setWin={setWin} locked={locked} segments={pickers.lists.segments} />;
+  if (selected === TRIGGER_ID) return <StartFields graph={graph} setGraph={setGraph} win={win} setWin={setWin} locked={locked} segments={pickers.lists.segments} forms={pickers.lists.forms} />;
   const n = graph.nodes[selected];
   if (!n) return null;
   const setN: SetN = (patch) => setGraph({ ...graph, nodes: { ...graph.nodes, [selected]: { ...n, ...patch } } }, `node:${selected}`);
@@ -469,7 +469,7 @@ function CompanyAttrFields({ value, onChange }: { value: Record<string, string |
 
 // ---- Start ----
 
-function StartFields({ graph, setGraph, win, setWin, locked, segments }: { graph: JourneyGraph; setGraph: (g: JourneyGraph, key?: string) => void; win: Win; setWin: (w: Win) => void; locked: boolean; segments: Segment[] }) {
+function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: { graph: JourneyGraph; setGraph: (g: JourneyGraph, key?: string) => void; win: Win; setWin: (w: Win) => void; locked: boolean; segments: Segment[]; forms: Pickers["lists"]["forms"] }) {
   const t = graph.trigger;
   const setT = (patch: Partial<JourneyGraph["trigger"]>) => setGraph({ ...graph, trigger: { ...t, ...patch } }, "trigger");
   return (
@@ -479,9 +479,10 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments }: { graph
         <div><h3 tabIndex={-1} id="inspector-title">Start</h3><p className="xs faint">{describeWindow(win.start_at, win.end_at)}</p></div>
       </div>
       <Field label="Start this journey when a contact">
-        <select className="select" value={t.type} onChange={(e) => setT({ type: e.target.value as "segment_entered" | "event" })}>
+        <select className="select" value={t.type} onChange={(e) => setT({ type: e.target.value as JourneyGraph["trigger"]["type"] })}>
           <option value="segment_entered">enters a segment</option>
           <option value="event">does an event</option>
+          <option value="form_submitted">submits a form</option>
         </select>
       </Field>
       {t.type === "segment_entered" ? (
@@ -494,6 +495,13 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments }: { graph
           </Field>
           <label className="check"><input type="checkbox" checked={!!t.include_backfill} onChange={(e) => setT({ include_backfill: e.target.checked })} />Also enroll contacts added when the segment is rebuilt</label>
           <p className="xs muted">Off: only people who newly match from now on enter. On: rebuilding a segment can enroll many contacts at once.</p>
+        </>
+      ) : t.type === "form_submitted" ? (
+        <>
+          <Field label="Form" hint="Each submission starts the journey for the contact who sent it; form field conditions can then check what they entered.">
+            <PickSelect value={t.form_id} items={forms} any="Any form" onChange={(form_id) => setT({ form_id })} />
+          </Field>
+          {forms.length === 0 && <Note>No forms yet. <Link to="/forms/new">Create one</Link></Note>}
         </>
       ) : (
         <Field label="Event name" hint="Exactly as your app sends it, e.g. signup or cart_abandoned.">
@@ -519,7 +527,7 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments }: { graph
         </Field>
       )}
       <h4 className="small" style={{ margin: "18px 0 8px" }}>Schedule</h4>
-      <ScheduleFields start={win.start_at} end={win.end_at} onChange={setWin} startLabel="Contacts can enter from" />
+      <ScheduleFields stacked start={win.start_at} end={win.end_at} onChange={setWin} startLabel="Contacts can enter from" />
       <p className="xs muted">Contacts already inside keep going after the end.</p>
     </fieldset>
   );

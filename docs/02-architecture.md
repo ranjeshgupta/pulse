@@ -37,8 +37,9 @@ and `pulse all` runs every role in one process for local development.
 | `events.raw` | `tenant:external_id` | api (ingest, forms, tracking), journeys (incl. imports), dispatch, integrations → profile | `event.Event` without `contact_id` |
 | `events.enriched` | `tenant:contact_id` | profile → chsink, segments, journeys, webhooks, integrations | `event.Event` with `contact_id` and the merged `attrs` snapshot |
 | `segment.membership` | `tenant:contact_id` | segments → journeys, chsink, webhooks, integrations, segments (segments that depend on other segments) | `segment.Change{tenant, segment, contact, entered, source}` |
-| `messages.<channel>` (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`) | `tenant:contact_id` | journeys (and broadcasts), api test sends, dispatch (SMS fallback, held messages) → dispatch | `model.Message{id, tenant, contact, channel, template, ...}` |
+| `messages.<channel>` (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`) | `tenant:contact_id` | journeys (and broadcasts), api test sends, dispatch (SMS fallback, held messages, retries) → dispatch | `model.Message{id, tenant, contact, channel, template, ...}`; header `pulse-tries` on a retry |
 | `delivery.receipts` | `tenant:provider message id` | api (provider webhooks) → dispatch | delivery receipts (delivered, read, failed) |
+| `<topic>.dlq` for each topic above | as the topic | a consumer that gave up on a record → `pulse replay-dlq` | the record as it was, plus an `error` header |
 
 Each key keeps one contact's events in order on a single partition. That ordering is what lets the streaming segment path work without locks.
 
@@ -63,7 +64,7 @@ consent, tags and points directly (imports).
 | Attributes | Changed by (events) | Notes |
 |---|---|---|
 | `optout_<channel>`, `optout_all` | `unsubscribed`, `resubscribed` | per-channel consent |
-| `tags`, `points` | `tag_added`, `tag_removed`, `points_changed`, scoring rules | server imports may also set them |
+| `tags`, `points` | `tag_added`, `tag_removed`, `points_changed`, scoring rules | server identify events may also set them (imports add tags through `tag_added`) |
 | `first_seen`, `last_seen` | every event | RFC 3339 time / UTC date |
 | `stage`, `stage_changed_at` | `stage_changed {stage}` | from `PUT /v1/contacts/{id}/stage`, `POST /v1/events` (stage checked against the workspace's stages), the `change_stage` journey step, or a points threshold |
 | `company_id`, `company_name`, `company_<key>` | `company_linked`, `company_updated`, `company_unlinked` | copies of the linked company's attributes, so segment rules on them work in both compilers |
@@ -162,7 +163,19 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
     "x":  { "type": "exit" } } }
 ```
 
-- Triggers: `segment_entered` (optionally ignoring backfill) and `event` (by name).
+- Triggers: `segment_entered` (optionally ignoring backfill), `event` (by name) and `form_submitted` (any form, or
+  `form_id`; indexed under the `form_submitted` event and filtered on `props.form_id`; the submission is recorded on
+  the enrollment for `if_form_field`).
+- **Loading journeys.** Each journey worker keeps an index of active journeys (by trigger segment and event), rebuilt
+  every 2 s. Every change through the API (activate, pause, edit, archive, delete) also `INCR`s `journeys:version` and
+  publishes it on the Redis channel `journeys:changed`; workers reload at once and record the version they loaded in the
+  hash `journeys:loaded` (instance → version and time). The API waits up to 3 s until every worker seen in the last 15 s
+  has the new version before it answers (`journey.Announce`), so an activated journey takes the next matching event.
+- **Archive and delete.** A journey nobody has entered can be deleted. One with enrollments is archived instead
+  (`journeys.archived_at`): hidden from the app's list, refused by `activate` and left out of the workers' index, with
+  its enrollments and reports kept; `unarchive` clears it. Archiving needs the journey paused.
+- A step with no outgoing edge (`exit`, `jump`, `delete_contact`) ends its path; API-made graphs need no explicit
+  `exit` after them.
 - Nodes (`internal/journey/graph.go`, the builder's newer steps in `nodes.go` / `steps.go`). Outputs: actions and waits
   have `next`; decisions and conditions `yes` / `no`; splits one path per variant; `exit`, `jump` and `delete_contact` end
   the path.
@@ -200,13 +213,14 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
     days or ever).
   - **Waits and splits:** `wait` (a duration), `wait_until` (a date, or a time of day in the contact's zone), `split`
     (A/B/n by weight, optional automatic winner).
-  - Journey settings: trigger (`segment_entered`, `event`), re-entry (`once`, `always`, `after_days`), goal event, schedule window.
+  - Journey settings: trigger (`segment_entered`, `event`, `form_submitted`), re-entry (`once`, `always`, `after_days`), goal event, schedule window.
 - **Jumps.** A graph must be acyclic except through `jump` steps, whose target isn't an edge. `journey_enrollments.jumps`
   counts an enrollment's jumps; at 25 the next jump ends the enrollment (completed, `journey_jump_limit` recorded). Step
   keys are `{enrollment}:{step}` plus `:j{n}` after n jumps, so a step repeated after a jump sends (and records) again,
   and a message decision waits for that pass's message. A jump also moves the pending safety timer to the target.
 - **Delete contact** uses the cleanup deletion path (`maintenance.Cleaner.DeleteContacts`: ClickHouse rows first, then
-  Postgres: contact, devices, inbox, enrollments). The step needs `confirm: "DELETE"`; saving or activating a journey
+  Postgres: contact, devices, inbox, enrollments, form uploads), as does `DELETE /v1/contacts/{external_id}` (the
+  profile's Delete contact button). The step needs `confirm: "DELETE"`; saving or activating a journey
   with it needs edit access to contacts, as does one with Remove Do Not Contact, Update contact owner, Update company,
   Add to company or Add to company's score (`contactSteps` in `internal/api/journeyrefs.go`; Add DNC only stops messages,
   so it needs nothing more). Events still in flight for that contact can create a new, empty profile.
@@ -268,7 +282,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   (`web/src/importMapping.ts`), lets the user map each column (External ID, Email, Phone, Tags, a contact field, a new
   field, or Don't import) and uploads a new header row followed by `file.slice(end of the old header)` (a Blob, so a
   10 GB file is never read into memory) to `POST /v1/imports` with `list_id` for a static segment. The importer skips
-  columns with an empty heading. `POST /v1/contacts/import` (synchronous, 200 MB) stays for API clients.
+  columns with an empty heading and turns a `tags` column into a `tag_added` event, so imported tags add to a contact's
+  tags instead of replacing them. `POST /v1/contacts/import` (synchronous, 200 MB) stays for API clients.
 
 ## Dispatch
 - Per-tenant, per-channel token bucket in Redis (messages/second: email 200, set by `PULSE_EMAIL_RATE`; SMS 100, WhatsApp 80,
@@ -289,8 +304,31 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - Providers (`internal/providers`): SMTP (any relay, SES included), Twilio and MSG91 (SMS), Meta WhatsApp Cloud API, Google RBM
   (RCS), FCM, standard web push (VAPID), the sandbox, and the custom HTTP gateway for any channel. iOS push goes through FCM
   (no direct APNs).
+- **Broadcast audiences** (`internal/broadcast`): a run (and an A/B winner step) loads the segment's Redis bitmap and
+  clears the bits of every excluded segment (`exclude_segment_ids`, `broadcast.Exclude`), so exclusions cost one bitmap
+  read each. A local-time broadcast (one-time only) runs when its clock time comes in UTC+14 and stamps each message
+  with `local_at` (the clock time) and `local_zone` (the zone it was chosen in).
+- **Local-time broadcasts.** A message with `local_at` (a clock time, set by a local-time broadcast) is held in the
+  same Redis set as quiet hours (`deferred:messages`) until that time in the contact's zone (`timezone`, else
+  `geo_timezone`, else the broadcast's `local_zone`), recording `<channel>_deferred` with the reason; then quiet hours and
+  caps apply as usual. The binary embeds the time zone database (`time/tzdata`), so zones work in the slim image.
 - Every send emits a `<channel>_sent` or `<channel>_failed` event (plus `_suppressed`, `_capped`, `_deferred`, `_fallback`)
   back into `events.raw`, so journeys and segments can react to delivery.
+- **Retries (`internal/dispatch/retry.go`).** A provider failure is classified by the adapter: `providers.Permanent`
+  (other 4xx, rejected template, bad credentials) and `Unreachable` fail at once; anything else (network error,
+  timeout, 429, 5xx) is temporary. A temporarily failed message is not retried in place, which would hold up the
+  partition and so other workspaces' messages: it is parked in the Redis sorted set `retry:messages`, scored by when
+  to try again, and the dispatcher's 5-second loop (the same one that releases quiet-hours messages) re-publishes due
+  ones to `messages.<channel>` with the record header `pulse-tries`. Waits are 30 s, 1 min, 2 min, 5 min, 10 min,
+  30 min and 1 h (`RetryBackoff`, about 1 h 50 min in all), or the provider's `Retry-After` when longer (capped at
+  1 h; `providers.RetryAfterError`). After the 8th try the message is recorded as `<channel>_failed` with
+  `props.reason` "gave up after 8 tries: …", which reports count as failed. A retried message keeps its id and is
+  marked sent (`sent:{tenant}:{id}`) only when it goes out, so it is sent once. For a push message with several
+  devices, a retry happens only when no device got it.
+- **Dead letters.** A record the dispatcher can't handle at all after 4 quick tries (undecodable, or Postgres or
+  Redis down at that moment) goes to `<topic>.dlq` with an `error` header. `pulse replay-dlq <topic>` moves such
+  records back once the cause is fixed (`--dry-run` lists them, `--limit N`), committing as it goes in its own
+  consumer group, `pulse-replay-dlq`.
 
 ## Content: emails, assets and landing pages
 

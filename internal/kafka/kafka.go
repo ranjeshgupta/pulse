@@ -2,7 +2,8 @@
 //
 //   - at-least-once: offsets are committed only after a fetch has been fully handled
 //   - per-key ordering: records of one partition are handled one at a time, partitions in parallel
-//   - poison records go to "<topic>.dlq" after a few retries instead of blocking the partition
+//   - poison records go to "<topic>.dlq" after a few retries instead of blocking the partition;
+//     Replay (`pulse replay-dlq`) moves them back once the cause is fixed
 package kafka
 
 import (

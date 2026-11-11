@@ -119,9 +119,6 @@ The server renders the template exactly as it would be sent, with that contact's
 **Send a test** sends the saved template to one contact through the channel's normal delivery path,
 personalised with their attributes.
 
-> **Known issue:** right after the *first* save of a new template, **Send a test** answers *not found*.
-> Reload the page (F5) once, then send.
-
 1. Click **Send a test**, enter the **Contact's external ID** (`cust-0287`), and click **Send test**.
 
    <img src="img/05-email-send-test.png" alt="Send a test: Diwali offer (email), contact's external ID cust-0287" width="420">
@@ -304,7 +301,9 @@ shows), then attach the file and tick the consent box:
 
 The submitter becomes a contact (or updates the existing one) right away, with `company`, `quantity`
 and `utm_source` on their profile and the `bulk-order` tag. Pulse keeps bots out with a hidden
-honeypot field, a minimum fill time (2 seconds) and a limit on submissions per IP address.
+honeypot field, a minimum fill time (2 seconds; a submission that doesn't say when the form was
+shown counts as too fast) and a limit on submissions per IP address. To follow up automatically,
+start a journey on **submits a form** with this form ([tutorial 6](06-journeys.md#3-choose-the-trigger)).
 
 ### Submissions
 

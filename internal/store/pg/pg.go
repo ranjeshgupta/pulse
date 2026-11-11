@@ -450,7 +450,9 @@ func (s *Store) CreateJourney(ctx context.Context, tenant int64, name string, gr
 }
 
 func (s *Store) SetJourneyStatus(ctx context.Context, tenant, id int64, status string) error {
-	tag, err := s.db.Exec(ctx, `UPDATE journeys SET status = $3 WHERE tenant_id = $1 AND id = $2`, tenant, id, status)
+	// An archived journey can't go live until it's restored.
+	tag, err := s.db.Exec(ctx, `UPDATE journeys SET status = $3 WHERE tenant_id = $1 AND id = $2
+		AND ($3 <> 'active' OR archived_at IS NULL)`, tenant, id, status)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}
@@ -458,7 +460,7 @@ func (s *Store) SetJourneyStatus(ctx context.Context, tenant, id int64, status s
 }
 
 func (s *Store) ActiveJourneys(ctx context.Context) ([]model.Journey, error) {
-	rows, err := s.db.Query(ctx, `SELECT `+journeyCols+` FROM journeys WHERE status = 'active'`)
+	rows, err := s.db.Query(ctx, `SELECT `+journeyCols+` FROM journeys WHERE status = 'active' AND archived_at IS NULL`)
 	if err != nil {
 		return nil, err
 	}

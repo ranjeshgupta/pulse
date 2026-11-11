@@ -73,9 +73,9 @@ func (s *Store) ActiveWebhookRows(ctx context.Context) ([]model.Webhook, error) 
 // RecordDelivery logs an attempt; now and then it prunes attempts older than a week.
 func (s *Store) RecordDelivery(ctx context.Context, d webhooks.Delivery) error {
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO webhook_deliveries (webhook_id, event_id, event_name, attempt, status, error, duration_ms, final)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8 WHERE EXISTS (SELECT 1 FROM webhooks WHERE id = $1)`,
-		d.WebhookID, d.EventID, d.EventName, d.Attempt, d.Status, d.Error, d.DurationMS, d.Final)
+		INSERT INTO webhook_deliveries (webhook_id, event_id, event_name, attempt, status, error, duration_ms, final, test)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9 WHERE EXISTS (SELECT 1 FROM webhooks WHERE id = $1)`,
+		d.WebhookID, d.EventID, d.EventName, d.Attempt, d.Status, d.Error, d.DurationMS, d.Final, d.Test)
 	if err == nil && rand.IntN(200) == 0 {
 		_, err = s.db.Exec(ctx, `DELETE FROM webhook_deliveries WHERE at < now() - interval '7 days'`)
 	}
@@ -120,7 +120,7 @@ func (s *Store) DeleteHookSubscription(ctx context.Context, id int64) error {
 // HookDeliveries are the latest delivery attempts of an integration's subscriptions.
 func (s *Store) HookDeliveries(ctx context.Context, tenant, integration int64, limit int) ([]model.WebhookDelivery, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT d.id, d.event_id, d.event_name, d.at, d.attempt, d.status, d.error, d.duration_ms, d.final
+		SELECT d.id, d.event_id, d.event_name, d.at, d.attempt, d.status, d.error, d.duration_ms, d.final, d.test
 		FROM webhook_deliveries d JOIN webhooks h ON h.id = d.webhook_id
 		WHERE h.tenant_id = $1 AND h.integration_id = $2 ORDER BY d.id DESC LIMIT $3`, tenant, integration, limit)
 	if err != nil {
@@ -131,7 +131,7 @@ func (s *Store) HookDeliveries(ctx context.Context, tenant, integration int64, l
 
 func (s *Store) WebhookDeliveries(ctx context.Context, tenant, id int64, limit int) ([]model.WebhookDelivery, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT d.id, d.event_id, d.event_name, d.at, d.attempt, d.status, d.error, d.duration_ms, d.final
+		SELECT d.id, d.event_id, d.event_name, d.at, d.attempt, d.status, d.error, d.duration_ms, d.final, d.test
 		FROM webhook_deliveries d JOIN webhooks h ON h.id = d.webhook_id
 		WHERE h.tenant_id = $1 AND h.id = $2 ORDER BY d.id DESC LIMIT $3`, tenant, id, limit)
 	if err != nil {

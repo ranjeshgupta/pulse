@@ -8,7 +8,7 @@ import { JOURNEY_CATALOG } from "../../journeyCatalog";
 import { insertStep, TRIGGER_ID, stepNumbers, emptyGraph } from "../../journeyGraph";
 import { Inspector } from "./Inspector";
 import { StepChooser } from "./StepChooser";
-import { CanvasCtx, PulseNode } from "./Canvas";
+import { CanvasCtx, PulseNode, triggerText } from "./Canvas";
 import { summary } from "./nodeText";
 
 const wrap = (el: React.ReactNode) => renderToString(
@@ -36,5 +36,21 @@ describe("smoke", () => {
   it("renders the chooser", () => {
     const html = wrap(<StepChooser graph={emptyGraph()} at={{ source: TRIGGER_ID, handle: "next" }} where="After Start" ctx={{ canEditContacts: true }} onPick={() => {}} onClose={() => {}} />);
     for (const l of ["Action", "Decision", "Condition", "Wait", "Split"]) expect(html).toContain(`aria-label="${l}"`);
+  });
+  it("draws nothing for a card whose step is no longer in the graph", () => {
+    // The placeholder graph's Exit card renders once more after a journey without an Exit loads.
+    const g = { trigger: { type: "event" as const, event: "x" }, entry: "d", nodes: { d: { type: "delete_contact", confirm: "DELETE" } } };
+    const card = wrap(<CanvasCtx.Provider value={{ graph: g, names: {}, numbers: stepNumbers(g), locked: false, counts: {}, showStats: true, onAdd: () => {}, triggerText: "x" }}>
+      <PulseNode {...({ id: "exit", data: { id: "exit", node: { type: "exit" } }, selected: false } as unknown as NodeProps)} />
+    </CanvasCtx.Provider>);
+    expect(card).not.toContain("jnode");
+  });
+});
+
+describe("form trigger", () => {
+  it("describes the trigger on the Start card", () => {
+    const g = emptyGraph();
+    expect(triggerText({ ...g, trigger: { type: "form_submitted" } }, {})).toBe("Contact submits any form");
+    expect(triggerText({ ...g, trigger: { type: "form_submitted", form_id: 3 } }, {}, { 3: "Newsletter" })).toBe("Contact submits ‘Newsletter’");
   });
 });

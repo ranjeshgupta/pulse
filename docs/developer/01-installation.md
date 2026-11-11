@@ -304,12 +304,13 @@ What the managed services must offer today:
 | Kafka | 4.1 | Plain connection to the brokers: Pulse has no TLS or SASL settings yet, so a managed Kafka must allow an unauthenticated listener on a private network. Topics: see below |
 | Redis | 8 | One address (`PULSE_REDIS_ADDR`), no password or TLS settings yet: keep it on a private network. Turn on persistence (AOF), as the dev stack does |
 
-**Kafka topics.** `pulse migrate` creates `events.raw`, `events.enriched`, `segment.membership` and
-`messages.email`, `messages.sms`, `messages.whatsapp`, `messages.rcs`, `messages.push`,
-`messages.inbox`, each with a `.dlq` twin, with `PULSE_KAFKA_PARTITIONS` partitions (12 by default)
-and **replication factor 1**, and leaves topics that already exist alone. On a cluster of three or
-more brokers, create these topics yourself first with replication factor 3 and the partition count
-you want; `migrate` then keeps them.
+**Kafka topics.** `pulse migrate` creates `events.raw`, `events.enriched`, `segment.membership`,
+`delivery.receipts` and `messages.email`, `messages.sms`, `messages.whatsapp`, `messages.rcs`,
+`messages.push`, `messages.inbox`, each with a `.dlq` twin (`events.raw.dlq`, …,
+`delivery.receipts.dlq`, `messages.email.dlq`, …), with `PULSE_KAFKA_PARTITIONS` partitions (12 by
+default) and **replication factor 1**, and leaves topics that already exist alone. On a cluster of
+three or more brokers, create these topics yourself first with replication factor 3 and the
+partition count you want; `migrate` then keeps them.
 
 ### Scaling notes
 
@@ -429,6 +430,30 @@ to repeat and run on every `migrate`.
    once, a Postgres advisory lock makes them migrate one at a time; the later ones find nothing to do.
 
 Events that arrive during the restart wait in Kafka and are processed when the roles are back.
+
+### Dead-letter topics and replaying them
+
+A provider outage doesn't need you: `dispatch` retries a message that failed temporarily (network
+error, timeout, 429, 5xx) for about two hours (30 s, 1 min, 2 min, 5 min, 10 min, 30 min and 1 h
+apart, longer if the provider sends `Retry-After`), then records `<channel>_failed` with the reason.
+
+A record that a role can't handle at all after 4 quick tries (it can't be decoded, or Postgres or
+Redis was down at that moment) goes to `<topic>.dlq`, with the error in its `error` header, so it
+doesn't block the partition. Nothing replays these topics by itself: watch them (their size, or
+alert on new records), fix the cause, then move the records back:
+
+```bash
+pulse replay-dlq --dry-run messages.email   # list what is in messages.email.dlq: offset, key, error
+pulse replay-dlq messages.email             # re-publish everything to messages.email
+pulse replay-dlq --limit 100 sms            # a channel name works too; replay at most 100 records
+```
+
+With Compose: `docker compose run --rm pulse replay-dlq …` (the same image and environment). The
+command reads `<topic>.dlq` with the consumer group `pulse-replay-dlq`, re-publishes each batch
+(same key, value and headers, without `error`) and commits it, and stops when the dead-letter topic
+has had nothing new for 10 seconds. Running it again picks up only records that arrived since. A
+record that fails again goes back to the `.dlq`. Replaying is safe for messages: one already sent
+is skipped by its idempotency key.
 
 ---
 

@@ -83,6 +83,7 @@ function StatsRow({ id }: { id: string }) {
   const c = useContext(CanvasCtx);
   if (!c.showStats) return null;
   const n = c.graph.nodes[id];
+  if (!n) return null;
   const st = c.steps?.[id] ?? {};
   const here = c.counts[id] ?? 0;
   const parts: string[] = [`Entered ${(st.entered ?? 0).toLocaleString("en-IN")}`];
@@ -114,7 +115,10 @@ export function PulseNode({ data, selected }: NodeProps) {
       </div>
     );
   }
-  const n = d.node!;
+  // React Flow can render a card once more after its step left the graph (e.g. the placeholder's
+  // Exit when a journey without one loads): draw nothing for it.
+  const n = c.graph.nodes[d.id];
+  if (!n) return null;
   const g = c.graph;
   const group = groupOf(n.type);
   const item = itemForNode(g, n);
@@ -186,8 +190,9 @@ export const nodeTypes = { pulse: PulseNode };
 export const edgeTypes = { add: AddEdge, jump: JumpEdge };
 
 /** The trigger's line on the Start card. */
-export function triggerText(g: JourneyGraph, segments: Record<number, string>): string {
+export function triggerText(g: JourneyGraph, segments: Record<number, string>, forms: Record<number, string> = {}): string {
   const t = g.trigger;
+  if (t.type === "form_submitted") return `Contact submits ${t.form_id ? `‘${forms[t.form_id] ?? `form ${t.form_id}`}’` : "any form"}`;
   return t.type === "segment_entered"
     ? `Contact enters ${t.segment_id ? `‘${segments[t.segment_id] ?? `segment ${t.segment_id}`}’` : "a segment"}`
     : `Contact does ${t.event ? `‘${t.event}’` : "an event"}`;

@@ -24,6 +24,7 @@ const delivered = (d: WebhookDelivery) => d.status >= 200 && d.status < 300;
 
 /** DeliveryBadge: delivered, retrying (a later attempt is due), retried (a later attempt exists), or gave up. */
 function DeliveryBadge({ d, all }: { d: WebhookDelivery; all: WebhookDelivery[] }) {
+  if (d.test) return delivered(d) ? <span className="badge ok">Test delivered</span> : <span className="badge bad">Test failed</span>;
   if (delivered(d)) return <span className="badge ok">Delivered</span>;
   if (d.final) return <span className="badge bad">Gave up</span>;
   const retried = all.some((x) => x.event_id === d.event_id && x.event_name === d.event_name && x.attempt > d.attempt);
@@ -187,7 +188,7 @@ function EventPicker({ events, onChange }: { events: string[]; onChange: (e: str
   const known = Array.from(new Set([...SEGMENT_EVENTS, ...(names.data?.names ?? []), ...COMMON_EVENTS]));
   const suggestions = known.filter((n) => !events.includes(n)).slice(0, 14);
   return (
-    <Field label="Events" hint={every ? "Every event Pulse records is sent, including segment_entered and segment_exited." : "Any event name works, including ones you haven't sent yet."}>
+    <Field label="Events" group hint={every ? "Every event Pulse records is sent, including segment_entered and segment_exited." : "Any event name works, including ones you haven't sent yet."}>
       <label className="check" style={{ marginBottom: every ? 0 : 10 }}>
         <input type="checkbox" checked={every} onChange={(e) => onChange(e.target.checked ? ["*"] : [])} />Send every event
       </label>
@@ -275,11 +276,11 @@ function DeliveriesPanel({ deliveries }: { deliveries: WebhookDelivery[] }) {
       <h3>Deliveries</h3>
       <p className="xs muted" style={{ marginBottom: 10 }}>
         The latest 100 attempts, updated every few seconds. A failed attempt is tried again after 30 seconds, 2 minutes, 10 minutes, 1 hour and 6 hours; after that Pulse gives up.
-        Any 2xx answer counts as delivered.
+        Any 2xx answer counts as delivered. Test sends are listed too, marked "test", and are never retried.
       </p>
       <div className="panel">
         {deliveries.length === 0 ? (
-          <Empty title="Nothing sent yet">Deliveries show up here as matching events happen. Send a test to try it now.</Empty>
+          <Empty title="Nothing sent yet">Deliveries show up here as matching events happen. Send a test to try it now: it's listed here too.</Empty>
         ) : (
           <div className="table-scroll">
             <table className="table">
@@ -287,7 +288,7 @@ function DeliveriesPanel({ deliveries }: { deliveries: WebhookDelivery[] }) {
               <tbody>{deliveries.map((d) => (
                 <tr key={d.id}>
                   <td className="muted" style={{ whiteSpace: "nowrap" }} title={d.at}>{fmt(d.at)}</td>
-                  <td><code>{d.event_name}</code></td>
+                  <td><code>{d.event_name}</code>{d.test && <> <span className="badge">test</span></>}</td>
                   <td className="num">{d.attempt}</td>
                   <td>{d.status ? d.status : <span className="muted">None</span>}</td>
                   <td className="num">{d.duration_ms} ms</td>

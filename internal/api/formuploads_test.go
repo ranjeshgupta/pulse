@@ -168,3 +168,27 @@ func TestFormUploadPermission(t *testing.T) {
 		t.Errorf("uploads need contacts access, got %s", required(r).area)
 	}
 }
+
+// A submission without the time the form was shown (or with an unreadable one) counts as too fast:
+// it gets the usual success answer but nothing is recorded.
+func TestFormWithoutShownTimeIsABot(t *testing.T) {
+	s, us, pub := uploadServer(t)
+	h := s.Handler()
+	file := map[string][2]string{"cv": {"cv.pdf", "%PDF-1.7\nhello"}}
+	for name, ts := range map[string]string{"missing": "", "garbage": "soon", "zero": "0", "future": fmt.Sprint(time.Now().Add(time.Hour).UnixMilli())} {
+		fields := map[string]string{"email": "bot@example.com"}
+		if ts != "" {
+			fields["_ts"] = ts
+		}
+		if w := multipartPost(t, h, "/f/fJobs", fields, file); w.Code != 200 {
+			t.Errorf("hosted %s: %d", name, w.Code)
+		}
+	}
+	payload, _ := json.Marshal(map[string]any{"values": map[string]string{"email": "bot@example.com"}})
+	if w := multipartPost(t, h, "/v1/web/forms/fJobs", map[string]string{"payload": string(payload)}, file); w.Code != 200 {
+		t.Errorf("SDK without shown: %d %s", w.Code, w.Body.String())
+	}
+	if len(us.uploads) != 0 || len(pub.recs) != 0 {
+		t.Fatalf("a submission without a shown time was recorded: %d uploads, %d events", len(us.uploads), len(pub.recs))
+	}
+}

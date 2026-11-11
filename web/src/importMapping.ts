@@ -8,7 +8,7 @@ export const CORE_TARGETS: { value: string; label: string }[] = [
   { value: "external_id", label: "External ID" },
   { value: "email", label: "Email" },
   { value: "phone", label: "Phone (international format)" },
-  { value: "tags", label: "Tags (separated by ;)" },
+  { value: "tags", label: "Tags to add (separated by ;)" },
 ];
 
 const KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;

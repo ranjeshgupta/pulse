@@ -112,7 +112,11 @@ export function TemplateEdit() {
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["templates"] });
       toast({ text: "Template saved" });
-      if (isNew) nav(`/templates/${r.id}`, { replace: true });
+      if (isNew) {
+        // The page stays mounted under its new address: keep the saved id so Send a test and later saves use it.
+        setT((cur) => (cur ? { ...cur, id: r.id } : cur));
+        nav(`/templates/${r.id}`, { replace: true });
+      }
     },
   });
   const remove = useMutation({
@@ -407,8 +411,8 @@ function fillContent(c: ChannelContent): ChannelContent {
 // rcs_clicked) in reports and segments. Each link becomes about 40 characters.
 function TrackLinks({ c, setC }: { c: ChannelContent; setC: (p: Partial<ChannelContent>) => void }) {
   return (
-    <label className="row small" style={{ gap: 8, margin: "6px 0 10px" }}>
-      <input type="checkbox" checked={!!c.track_links} onChange={(e) => setC({ track_links: e.target.checked || undefined })} />
+    <label className="check" style={{ alignItems: "flex-start", margin: "6px 0 10px" }}>
+      <input type="checkbox" style={{ marginTop: 3 }} checked={!!c.track_links} onChange={(e) => setC({ track_links: e.target.checked || undefined })} />
       <span>
         Track link clicks
         <span className="xs muted" style={{ display: "block" }}>Links become short tracked links (…/t/s/abc123XYZ01, about 40 characters, working for 30 days), so “Clicked a link in an SMS” works in segments and reports.</span>

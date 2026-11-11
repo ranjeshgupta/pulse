@@ -61,6 +61,7 @@ type Store interface {
 	DeleteSession(ctx context.Context, tokenHash string) error
 	GetSSO(ctx context.Context, tenant int64) (model.SSOConfig, []byte, error)
 	PutSSO(ctx context.Context, tenant int64, c model.SSOConfig, sealedSecret []byte) error
+	DeleteSSO(ctx context.Context, tenant int64) error
 
 	// marketing objects
 	CreateSegment(ctx context.Context, tenant int64, name string, rule []byte, hasWindow bool) (int64, error)
@@ -93,7 +94,8 @@ type Deps struct {
 	Log         *slog.Logger
 	// AllowPrivateSSO lets SSO discovery and token calls reach private addresses (internal IdPs).
 	AllowPrivateSSO bool
-	// AllowPrivateWebhooks lets webhook tests reach private addresses (local development).
+	// AllowPrivateWebhooks lets outbound calls to workspace-entered URLs (webhooks, providers, the
+	// gateway, integrations, the IMAP bounce mailbox) reach private addresses (local development).
 	AllowPrivateWebhooks bool
 	// PagesURL is a separate origin for public, workspace-authored content: landing pages, asset
 	// downloads and hosted forms (e.g. https://pages.example.com). Set it in production so that
@@ -105,6 +107,8 @@ type Deps struct {
 	TrustProxy bool
 	// MailboxOpener connects to bounce mailboxes (nil: IMAP through the SSRF-guarded dialer).
 	MailboxOpener bounces.Opener
+	// Deleter permanently deletes contacts (DELETE /v1/contacts/{id}); nil turns that off.
+	Deleter ContactDeleter
 }
 
 type Server struct {
@@ -157,6 +161,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/users/{id}", s.admin(s.deleteUser))
 	mux.HandleFunc("GET /v1/settings/sso", s.fullAdmin(s.getSSO))
 	mux.HandleFunc("PUT /v1/settings/sso", s.fullAdmin(s.putSSO))
+	mux.HandleFunc("DELETE /v1/settings/sso", s.fullAdmin(s.deleteSSO))
 	mux.HandleFunc("POST /v1/settings/api-key", s.fullAdmin(s.rotateAPIKey))
 	mux.HandleFunc("GET /v1/settings/delivery", s.authed(s.getDelivery))
 	mux.HandleFunc("PUT /v1/settings/delivery", s.admin(s.putDelivery))
@@ -197,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 	s.landingRoutes(mux)
 	s.insightRoutes(mux)
 	s.integrationRoutes(mux)
+	s.contactDataRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)

@@ -866,3 +866,20 @@ export function formatWait(seconds = 0): string {
   if (seconds % 60 === 0) return `${seconds / 60} min`;
   return `${seconds} s`;
 }
+
+// ---- the journey list ----
+
+export type ListAction = "delete" | "archive" | "restore";
+
+/** listActions: what the journey list offers for a journey. A live journey is paused first; one
+ * that never ran can be deleted; one that ran is archived instead (its enrollments are kept). */
+export function listActions(j: { status: string; has_run?: boolean; archived_at?: string | null }): ListAction[] {
+  if (j.archived_at) return ["restore"];
+  if (j.status === "active") return [];
+  return j.has_run ? ["archive"] : ["delete"];
+}
+
+/** visibleJourneys hides archived journeys unless asked to show them. */
+export function visibleJourneys<T extends { archived_at?: string | null }>(js: T[], showArchived: boolean): T[] {
+  return showArchived ? js : js.filter((j) => !j.archived_at);
+}

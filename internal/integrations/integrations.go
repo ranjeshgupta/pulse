@@ -119,7 +119,7 @@ var kinds = []Kind{
 		Secrets: []Field{
 			{Key: "webhook_secret", Label: "Webhook signing secret", Required: true,
 				Hint: "Shopify admin → Settings → Notifications → Webhooks shows it, or your app's client secret."},
-			{Key: "access_token", Label: "Admin API access token (optional)", Placeholder: "shpat_…", Hint: "Only for Test connection."},
+			{Key: "access_token", Label: "Admin API access token", Placeholder: "shpat_…", Hint: "Only for Test connection."},
 		},
 		Webhooks: true, RemoteID: "shopify_customer_id",
 	},
@@ -144,7 +144,7 @@ var kinds = []Kind{
 		Description: "Keep a Google Ads Customer Match list in step with a segment: hashed emails and phone numbers, updated as contacts enter and leave.",
 		Config: []Field{
 			{Key: "customer_id", Label: "Customer ID", Placeholder: "123-456-7890", Required: true},
-			{Key: "login_customer_id", Label: "Manager account ID (optional)", Hint: "When you reach the account through a manager account."},
+			{Key: "login_customer_id", Label: "Manager account ID", Hint: "When you reach the account through a manager account."},
 			{Key: "default_country", Label: "Default country calling code", Placeholder: "91", Hint: "For phone numbers saved without +country."},
 			{Key: "base_url", Label: "Google Ads API base URL", Default: "https://googleads.googleapis.com/v18", Hint: "Change only for testing.", Hosts: []string{"googleads.googleapis.com"}},
 			{Key: "token_url", Label: "OAuth token URL", Default: "https://oauth2.googleapis.com/token", Hint: "Change only for testing.", Hosts: []string{"oauth2.googleapis.com"}},
@@ -159,8 +159,21 @@ var kinds = []Kind{
 	},
 }
 
-// Catalog lists every connector kind.
-func Catalog() []Kind { return kinds }
+// Catalog lists every connector kind. Config and Secrets are never nil, so the JSON always has
+// arrays.
+func Catalog() []Kind {
+	out := make([]Kind, len(kinds))
+	for i, k := range kinds {
+		if k.Config == nil {
+			k.Config = []Field{}
+		}
+		if k.Secrets == nil {
+			k.Secrets = []Field{}
+		}
+		out[i] = k
+	}
+	return out
+}
 
 // Lookup finds a kind by id.
 func Lookup(id string) (Kind, bool) {

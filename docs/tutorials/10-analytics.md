@@ -84,9 +84,14 @@ gives bars like the seeded report:
 Enter a **Name** and click **Create report** (on a saved one, **Save report**; **Delete** removes
 it). A saved report opens on its saved period (7, 30 or 90 days); custom dates aren't saved.
 
-> **No export yet:** reports have no download button. Copy the table, or have a developer call
-> `POST /v1/reports/run` with the report's settings to get the numbers as JSON. Contact lists can be
-> exported as CSV from **Contacts**.
+### Export it
+
+**Export CSV** at the top of the results downloads what the report shows now as a CSV file named
+after the report and today's date (e.g. `revenue-by-category-2026-11-11.csv`): a header row, then one
+row per group with the raw numbers (sums and averages to 2 decimals, dates as `YYYY-MM-DD`). It opens
+in Excel, Google Sheets or Numbers; cells that could be read as formulas are quoted so they stay text.
+Anyone who can see the report can export it. Developers can get the same numbers as JSON from
+`POST /v1/reports/run`.
 
 ## 3. Funnels
 

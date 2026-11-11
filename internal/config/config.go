@@ -2,6 +2,9 @@
 package config
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -26,7 +29,9 @@ type Config struct {
 	PublicURL     string  // where browsers reach Pulse (SSO redirects, Secure cookies)
 	SecretKey     string  // 64 hex chars: encrypts stored secrets and SSO state
 	AllowSignup   bool
-	// AllowPrivateWebhooks lets journey webhooks call private addresses (local development only).
+	// AllowPrivateWebhooks lets every outbound call Pulse makes to a URL a workspace entered reach
+	// private addresses: journey and outbound webhooks, channel providers and the custom gateway,
+	// integrations (CRM, Shopify, ad platforms) and the IMAP bounce mailbox. Local development only.
 	AllowPrivateWebhooks bool
 	// AllowPrivateSSO lets workspace SSO discovery reach private addresses (an IdP on the internal
 	// network, like the dev Keycloak). Off by default: any workspace admin can enter these URLs.
@@ -44,8 +49,11 @@ type Config struct {
 	AudienceReconcile time.Duration
 }
 
-func Load() Config {
-	return Config{
+// Load reads the settings. A number, duration or on/off switch that doesn't parse is an error
+// naming the variable, so a typo fails startup instead of quietly running with the default.
+func Load() (Config, error) {
+	var r reader
+	c := Config{
 		HTTPAddr:             env("PULSE_HTTP_ADDR", ":7070"),
 		PGDSN:                env("PULSE_PG_DSN", "postgres://pulse:pulse@localhost:55432/pulse?sslmode=disable"),
 		CHAddr:               env("PULSE_CH_ADDR", "localhost:19000"),
@@ -54,23 +62,24 @@ func Load() Config {
 		CHPassword:           env("PULSE_CH_PASSWORD", "pulse"),
 		RedisAddr:            env("PULSE_REDIS_ADDR", "localhost:16379"),
 		KafkaBrokers:         strings.Split(env("PULSE_KAFKA_BROKERS", "localhost:19092"), ","),
-		Partitions:           int32(envInt("PULSE_KAFKA_PARTITIONS", 12)),
+		Partitions:           int32(r.integer("PULSE_KAFKA_PARTITIONS", 12)),
 		SMTPAddr:             env("PULSE_SMTP_ADDR", "localhost:11025"),
 		SMTPFrom:             env("PULSE_SMTP_FROM", "Pulse <noreply@pulse.local>"),
 		AdminToken:           env("PULSE_ADMIN_TOKEN", ""),
-		SweepInterval:        envDuration("PULSE_SWEEP_INTERVAL", 5*time.Minute),
-		EmailRate:            float64(envInt("PULSE_EMAIL_RATE", 200)),
+		SweepInterval:        r.duration("PULSE_SWEEP_INTERVAL", 5*time.Minute),
+		EmailRate:            r.rate("PULSE_EMAIL_RATE", 200),
 		PublicURL:            env("PULSE_PUBLIC_URL", "http://localhost:7080"),
 		SecretKey:            env("PULSE_SECRET_KEY", ""),
-		AllowSignup:          env("PULSE_ALLOW_SIGNUP", "true") == "true",
-		AllowPrivateWebhooks: env("PULSE_ALLOW_PRIVATE_WEBHOOKS", "false") == "true",
-		AllowPrivateSSO:      env("PULSE_ALLOW_PRIVATE_SSO", "false") == "true",
-		TrustProxy:           env("PULSE_TRUST_PROXY", "false") == "true",
+		AllowSignup:          r.boolean("PULSE_ALLOW_SIGNUP", true),
+		AllowPrivateWebhooks: r.boolean("PULSE_ALLOW_PRIVATE_WEBHOOKS", false),
+		AllowPrivateSSO:      r.boolean("PULSE_ALLOW_PRIVATE_SSO", false),
+		TrustProxy:           r.boolean("PULSE_TRUST_PROXY", false),
 		GeoIPDB:              env("PULSE_GEOIP_DB", ""),
 		PagesURL:             env("PULSE_PAGES_URL", ""),
-		MaintenanceInterval:  envDuration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
-		AudienceReconcile:    envDuration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
+		MaintenanceInterval:  r.duration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
+		AudienceReconcile:    r.duration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
 	}
+	return c, errors.Join(r.errs...)
 }
 
 func env(k, def string) string {
@@ -80,16 +89,67 @@ func env(k, def string) string {
 	return def
 }
 
-func envInt(k string, def int) int {
-	if v, err := strconv.Atoi(os.Getenv(k)); err == nil {
-		return v
-	}
-	return def
+// reader parses typed settings and collects every bad value, so one startup reports them all.
+type reader struct{ errs []error }
+
+func (r *reader) fail(k, v, want string) {
+	r.errs = append(r.errs, fmt.Errorf("%s=%q: %s", k, v, want))
 }
 
-func envDuration(k string, def time.Duration) time.Duration {
-	if v, err := time.ParseDuration(os.Getenv(k)); err == nil {
-		return v
+// integer reads a whole number greater than zero.
+func (r *reader) integer(k string, def int) int {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
 	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n <= 0 {
+		r.fail(k, v, "must be a whole number greater than 0")
+		return def
+	}
+	return n
+}
+
+// rate reads a number greater than zero; fractions are fine (12.5 per second).
+func (r *reader) rate(k string, def float64) float64 {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || n <= 0 || math.IsInf(n, 0) || math.IsNaN(n) {
+		r.fail(k, v, "must be a number greater than 0")
+		return def
+	}
+	return n
+}
+
+// duration reads a Go duration such as 90s, 5m or 24h, greater than zero.
+func (r *reader) duration(k string, def time.Duration) time.Duration {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(v))
+	if err != nil || d <= 0 {
+		r.fail(k, v, "must be a duration greater than 0 such as 90s, 5m or 24h")
+		return def
+	}
+	return d
+}
+
+// boolean reads true or false (also 1/0, yes/no, on/off).
+func (r *reader) boolean(k string, def bool) bool {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off":
+		return false
+	}
+	r.fail(k, v, "must be true or false")
 	return def
 }

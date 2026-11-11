@@ -27,6 +27,7 @@ import (
 const (
 	TriggerSegmentEntered = "segment_entered"
 	TriggerEvent          = "event"
+	TriggerFormSubmitted  = "form_submitted" // a form submission: any form, or form_id
 
 	NodeWait         = "wait"
 	NodeCondition    = "condition"
@@ -72,6 +73,7 @@ type Trigger struct {
 	Type      string `json:"type"`
 	SegmentID int64  `json:"segment_id,omitempty"`
 	Event     string `json:"event,omitempty"`
+	FormID    int64  `json:"form_id,omitempty"` // form_submitted: this form only (0 = any form)
 	// IncludeBackfill also enrolls contacts that entered the segment through a backfill or sweep,
 	// not just live changes. Off by default so creating a segment never mass-enrolls by surprise.
 	IncludeBackfill bool `json:"include_backfill,omitempty"`
@@ -200,6 +202,27 @@ func ParseGraph(b []byte) (Graph, error) {
 	return g, g.Validate()
 }
 
+// TriggerEventName is the event that enrolls contacts in an event or form trigger ("" for segments).
+func (t Trigger) TriggerEventName() string {
+	switch t.Type {
+	case TriggerEvent:
+		return t.Event
+	case TriggerFormSubmitted:
+		return EventFormSubmitted
+	}
+	return ""
+}
+
+// MatchesEvent reports whether an event of the trigger's name enrolls: a form trigger with a
+// form_id takes that form's submissions only.
+func (t Trigger) MatchesEvent(props map[string]any) bool {
+	if t.Type != TriggerFormSubmitted || t.FormID == 0 {
+		return true
+	}
+	v, _ := attr.Number(attr.String(props["form_id"]))
+	return int64(v) == t.FormID
+}
+
 // Validate checks the trigger, every node, every edge, and that the graph has no cycles,
 // so the executor always terminates.
 func (g Graph) Validate() error {
@@ -211,6 +234,10 @@ func (g Graph) Validate() error {
 	case TriggerEvent:
 		if !event.ValidName(g.Trigger.Event) {
 			return fmt.Errorf("event trigger: invalid event name %q", g.Trigger.Event)
+		}
+	case TriggerFormSubmitted:
+		if g.Trigger.FormID < 0 {
+			return errors.New("form trigger: invalid form_id")
 		}
 	default:
 		return fmt.Errorf("unknown trigger type %q", g.Trigger.Type)

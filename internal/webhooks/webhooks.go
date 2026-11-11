@@ -99,6 +99,7 @@ type Delivery struct {
 	Error      string
 	DurationMS int
 	Final      bool
+	Test       bool // a test send from the app, never retried
 }
 
 type Store interface {

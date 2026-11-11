@@ -62,5 +62,5 @@ func (p *WebPush) Send(ctx context.Context, o Outbound) (Result, error) {
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		return Result{}, Unreachable("the browser unsubscribed from push") // the device is removed
 	}
-	return Result{}, StatusError("web push", resp.StatusCode, string(msg))
+	return Result{}, StatusError("web push", resp.StatusCode, string(msg), resp.Header)
 }

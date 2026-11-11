@@ -72,7 +72,7 @@ func (f *FCM) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
-	code, body, err := call(f.HTTP, req)
+	code, body, hdr, err := call(f.HTTP, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -107,5 +107,5 @@ func (f *FCM) Send(ctx context.Context, o Outbound) (Result, error) {
 		code == http.StatusBadRequest && fcmCode == "INVALID_ARGUMENT" && strings.Contains(strings.ToLower(e.Error.Message), "token"):
 		return Result{}, Unreachable(reason)
 	}
-	return Result{}, StatusError("fcm", code, string(body))
+	return Result{}, StatusError("fcm", code, string(body), hdr)
 }

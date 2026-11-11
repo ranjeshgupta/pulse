@@ -88,8 +88,9 @@ export function FocusEdit() {
     onSuccess: (r, item) => {
       qc.invalidateQueries({ queryKey: ["focus"] });
       toast({ text: item.status === "active" ? "Published. Visitors see it within seconds." : "Saved as draft" });
+      // Keep the id the create call returned: the page stays mounted under its new address.
+      setF(isNew ? { ...item, id: r.id } : item);
       if (isNew) nav(`/on-site/focus/${r.id}`, { replace: true });
-      setF(item);
     },
   });
   const remove = useMutation({ mutationFn: () => api.del(`/v1/focus-items/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["focus"] }); nav("/on-site?channel=website"); } });
@@ -231,7 +232,8 @@ export function DWCEdit() {
     onSuccess: (r, s) => {
       qc.invalidateQueries({ queryKey: ["dwc"] });
       toast({ text: s.status === "active" ? "Published" : "Saved as draft" });
-      setD(s);
+      // Keep the id the create call returned: the page stays mounted under its new address.
+      setD(isNew ? { ...s, id: r.id } : s);
       if (isNew) nav(`/on-site/content/${r.id}`, { replace: true });
     },
   });

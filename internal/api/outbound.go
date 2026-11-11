@@ -24,6 +24,7 @@ type WebhookStore interface {
 	SaveWebhook(ctx context.Context, h model.Webhook) (int64, error)
 	DeleteWebhook(ctx context.Context, tenant, id int64) error
 	WebhookDeliveries(ctx context.Context, tenant, id int64, limit int) ([]model.WebhookDelivery, error)
+	RecordDelivery(ctx context.Context, d webhooks.Delivery) error
 }
 
 func (s *Server) webhookRoutes(mux *http.ServeMux) {
@@ -154,6 +155,7 @@ func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request, p model.P
 }
 
 // testWebhook sends a sample "webhook_test" event right away and reports the receiver's answer.
+// The attempt is listed with the webhook's deliveries, marked as a test (never retried).
 func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -172,9 +174,16 @@ func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request, p model.Pri
 	start := time.Now()
 	status, err := webhooks.Send(r.Context(), safehttp.Client(15*time.Second, s.AllowPrivateWebhooks),
 		webhooks.Webhook{ID: h.ID, URL: h.URL, Secret: h.Secret}, payload.ID, payload.Event, body, s.now())
-	out := map[string]any{"ok": err == nil, "status": status, "duration_ms": time.Since(start).Milliseconds()}
+	took := time.Since(start).Milliseconds()
+	out := map[string]any{"ok": err == nil, "status": status, "duration_ms": took}
+	d := webhooks.Delivery{WebhookID: h.ID, EventID: payload.ID, EventName: payload.Event, Attempt: 1, Status: status,
+		DurationMS: int(took), Final: true, Test: true}
 	if err != nil {
 		out["error"] = err.Error()
+		d.Error = err.Error()
+	}
+	if rerr := s.hooks().RecordDelivery(r.Context(), d); rerr != nil {
+		s.Log.Error("record test delivery", "webhook", h.ID, "err", rerr)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

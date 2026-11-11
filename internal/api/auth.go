@@ -352,6 +352,17 @@ func (s *Server) putSSO(w http.ResponseWriter, r *http.Request, p model.Principa
 	writeJSON(w, http.StatusOK, c)
 }
 
+// deleteSSO removes single sign-on: the settings and the stored client secret. People then sign in
+// with a password (those who only ever used SSO reset theirs or are invited again).
+func (s *Server) deleteSSO(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if err := s.Store.DeleteSSO(r.Context(), p.TenantID); err != nil && !errors.Is(err, pg.ErrNotFound) {
+		s.fail(w, err)
+		return
+	}
+	s.sso.forget(p.TenantID)
+	writeJSON(w, http.StatusOK, model.SSOConfig{AutoCreateUsers: true, DefaultRole: auth.RoleEditor})
+}
+
 // ---- delivery rules ----
 
 type DeliveryStore interface {

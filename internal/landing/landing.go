@@ -364,6 +364,15 @@ func previewFormHTML(key string, forms map[string]model.Form) string {
 			fmt.Fprintf(&b, `<label style="display:flex;gap:8px;margin:0 0 12px"><input type="checkbox" disabled> %s</label>`, label)
 			continue
 		}
+		if fd.Type == "select" {
+			// A dropdown: its first option and an arrow, as the live form shows it.
+			first := "Choose…"
+			if len(fd.Options) > 0 {
+				first = fd.Options[0]
+			}
+			fmt.Fprintf(&b, `<label style="display:block;margin:0 0 12px;font-weight:600;font-size:14px">%s<span style="display:flex;justify-content:space-between;margin-top:6px;padding:9px 12px;border:1px solid #c3cbd6;border-radius:6px;background:#fff;font-weight:400;color:#5b6474">%s<span aria-hidden="true">▾</span></span></label>`, label, html.EscapeString(first))
+			continue
+		}
 		fmt.Fprintf(&b, `<label style="display:block;margin:0 0 12px;font-weight:600;font-size:14px">%s<span style="display:block;margin-top:6px;height:38px;border:1px solid #c3cbd6;border-radius:6px;background:#fff"></span></label>`, label)
 	}
 	if f.Settings.ConsentText != "" && pages == 1 {

@@ -294,6 +294,16 @@ var attributionKeys = func() map[string]bool {
 	return m
 }()
 
+// sinceShown is how long ago the form was shown (shown: unix ms from the page or the SDK). A
+// missing or unreadable time counts as no time at all, so a bot can't skip the minimum fill time
+// by leaving it out. Every submission path (hosted page, SDK, asset form) gets the time from Pulse.
+func (s *Server) sinceShown(shown int64) time.Duration {
+	if shown <= 0 {
+		return 0
+	}
+	return s.now().Sub(time.UnixMilli(shown))
+}
+
 // submit validates and records a submission, and returns the submitter's external id. Bot-looking
 // submissions get a normal-looking success (so bots learn nothing) but record nothing (and no id).
 func (s *Server) submit(ctx context.Context, f model.Form, t model.Tenant, in formInput, r *http.Request) ([]forms.FieldError, int, string, error) {
@@ -566,7 +576,7 @@ func (s *Server) hostedFormSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	shown, _ := strconv.ParseInt(values["_ts"], 10, 64)
 	in := formInput{Values: values, Uploads: uploads, PageURL: r.Referer(), Source: "hosted", Honeypot: values["_hp"],
-		Elapsed: s.now().Sub(time.UnixMilli(shown))}
+		Elapsed: s.sinceShown(shown)}
 	ferrs, code, _, err := s.submit(r.Context(), f, t, in, r)
 	view := formView{Form: f, Fields: f.Fields, Values: values, Errors: map[string]string{}, Shown: shown}
 	switch {
@@ -655,7 +665,7 @@ func (s *Server) webFormSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ferrs, code, _, err := s.submit(r.Context(), f, t, formInput{Values: req.Values, Uploads: uploads, Visitor: req.ID, UserHash: req.UserHash,
-		PageURL: req.PageURL, Source: "sdk", Honeypot: req.HP, Elapsed: s.now().Sub(time.UnixMilli(req.Shown)), Attribution: req.Attribution}, r)
+		PageURL: req.PageURL, Source: "sdk", Honeypot: req.HP, Elapsed: s.sinceShown(req.Shown), Attribution: req.Attribution}, r)
 	switch {
 	case err != nil && code == 0:
 		s.fail(w, err)

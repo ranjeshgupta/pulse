@@ -39,7 +39,7 @@ export function Stages() {
     <div className="page">
       <PageHead
         title="Stages"
-        intro="The lifecycle a contact moves through, from first touch to customer. Each contact is in one stage. Move them by hand, with a journey's “Change stage” step, through the API, or automatically when their points reach a stage's threshold. Segments can select contacts by stage."
+        intro="The lifecycle a contact moves through, from first touch to customer. Each contact is in one stage. Move them by hand, with a journey's “Change contact's stage” step, through the API, or automatically when their points reach a stage's threshold. Segments can select contacts by stage."
         actions={<button className="btn primary" onClick={() => setEditing("new")}>New stage</button>}
       />
       <ErrorNote error={q.error ?? reorder.error ?? remove.error} />

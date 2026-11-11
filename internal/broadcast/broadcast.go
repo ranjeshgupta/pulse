@@ -5,6 +5,11 @@
 // the audience waits until the winner is known (best open or click rate after a wait, or picked by
 // hand) and then gets the winning variant. A contact's group and variant come from a hash of
 // (broadcast, run, contact), so retries and the winner step agree on who was in the test.
+//
+// Exclusions: members of any excluded segment are left out of every send. Local time: a one-time
+// broadcast can go at its start's clock time in each contact's own time zone. The run then starts
+// when that time comes in the earliest zone (UTC+14), and each message carries the clock time; the
+// dispatcher holds it until that time in the contact's zone (see model.Message.LocalAt).
 package broadcast
 
 import (
@@ -121,12 +126,15 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 	if err != nil {
 		return err
 	}
-	bitmap, err := r.Members.Load(ctx, b.TenantID, b.SegmentID)
+	members, err := r.audience(ctx, b)
 	if err != nil {
 		return err
 	}
 	runKey := at.Unix()
-	members := segment.Members(bitmap)
+	localAt := ""
+	if b.LocalTime {
+		localAt = LocalClock(b)
+	}
 	send := make([]model.Message, 0, min(chunk, len(members)))
 	sent, tested := 0, 0
 	flush := func() error {
@@ -138,6 +146,7 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 	}
 	for _, contact := range members {
 		m := r.message(b, runKey, contact, b.TemplateID, "")
+		m.LocalAt, m.LocalZone = localAt, b.Timezone
 		if b.AB != nil {
 			bk := Bucket(b.ID, runKey, contact)
 			if bk >= b.AB.TestPercent*100 {
@@ -201,13 +210,13 @@ func (r *Runner) sendWinner(ctx context.Context, w WinnerRun) error {
 	if tpl == 0 {
 		return r.Store.FinishWinner(ctx, w.RunID, b.ID, winner, "not sent: variant "+winner+" no longer exists", 0)
 	}
-	bitmap, err := r.Members.Load(ctx, b.TenantID, b.SegmentID)
+	members, err := r.audience(ctx, b)
 	if err != nil {
 		return err
 	}
 	var send []model.Message
 	n := 0
-	for _, contact := range segment.Members(bitmap) {
+	for _, contact := range members {
 		if Bucket(b.ID, runKey, contact) < b.AB.TestPercent*100 {
 			continue // was in the test
 		}
@@ -225,6 +234,87 @@ func (r *Runner) sendWinner(ctx context.Context, w WinnerRun) error {
 	}
 	r.Log.Info("broadcast winner sent", "broadcast", b.ID, "run", w.RunID, "winner", winner, "recipients", n)
 	return r.Store.FinishWinner(ctx, w.RunID, b.ID, winner, reason, n)
+}
+
+// audience lists the broadcast's recipients now: members of its segment who are in none of the
+// excluded segments.
+func (r *Runner) audience(ctx context.Context, b model.Broadcast) ([]uint32, error) {
+	include, err := r.Members.Load(ctx, b.TenantID, b.SegmentID)
+	if err != nil {
+		return nil, err
+	}
+	var excludes [][]byte
+	for _, id := range b.ExcludeSegmentIDs {
+		ex, err := r.Members.Load(ctx, b.TenantID, id)
+		if err != nil {
+			return nil, err
+		}
+		excludes = append(excludes, ex)
+	}
+	return segment.Members(Exclude(include, excludes...)), nil
+}
+
+// Exclude returns the include bitmap without the bits set in any of excludes.
+func Exclude(include []byte, excludes ...[]byte) []byte {
+	if len(excludes) == 0 {
+		return include
+	}
+	out := append([]byte(nil), include...)
+	for _, ex := range excludes {
+		for i := 0; i < len(out) && i < len(ex); i++ {
+			out[i] &^= ex[i]
+		}
+	}
+	return out
+}
+
+// earliestOffset is the zone furthest ahead of UTC (UTC+14, Line Islands): a local-time broadcast
+// starts sending when its clock time comes there.
+const earliestOffset = 14 * time.Hour
+
+// LocalClockLayout is the clock time a local-time message carries.
+const LocalClockLayout = "2006-01-02T15:04"
+
+// LocalClock is the broadcast's start as clock time in the zone it was chosen in.
+func LocalClock(b model.Broadcast) string {
+	loc, err := time.LoadLocation(b.Timezone)
+	if err != nil || b.Timezone == "" {
+		loc = time.UTC
+	}
+	return b.StartAt.In(loc).Format(LocalClockLayout)
+}
+
+// LocalStart is when a local-time broadcast's run starts: its clock time in the earliest zone.
+func LocalStart(b model.Broadcast) time.Time {
+	clock, _ := time.ParseInLocation(LocalClockLayout, LocalClock(b), time.UTC)
+	return clock.Add(-earliestOffset)
+}
+
+// LocalDue is when a message held for clock (LocalClockLayout) may go in zone tz. ok is false when
+// clock doesn't parse (the message then goes right away).
+func LocalDue(clock, tz string) (time.Time, bool) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil || tz == "" {
+		loc = time.UTC
+	}
+	t, err := time.ParseInLocation(LocalClockLayout, clock, loc)
+	return t, err == nil
+}
+
+// ValidateLocalTime checks the local-time option.
+func ValidateLocalTime(b model.Broadcast) error {
+	if !b.LocalTime {
+		return nil
+	}
+	if b.Repeat != schedule.None {
+		return errors.New("sending in each contact's time zone works for one-time broadcasts only")
+	}
+	if b.Timezone != "" {
+		if _, err := time.LoadLocation(b.Timezone); err != nil {
+			return fmt.Errorf("unknown time zone %q", b.Timezone)
+		}
+	}
+	return nil
 }
 
 // PickWinner returns the variant with the best open (or click) rate among its sent messages, and
@@ -318,6 +408,15 @@ func ValidateAB(ab *model.ABTest, ch string) error {
 // has passed (a one-time broadcast), or the next repeat after now.
 func FirstRun(b model.Broadcast, now time.Time) (time.Time, bool) {
 	w := schedule.Window{Start: b.StartAt, End: b.EndAt}
+	if b.LocalTime && b.Repeat == schedule.None {
+		// Starts when the clock time comes in the earliest zone; contacts whose time has already
+		// passed get it right away.
+		start := LocalStart(b)
+		if now.Before(start) {
+			return start, true
+		}
+		return now, w.End == nil || now.Before(*w.End)
+	}
 	if now.Before(b.StartAt) {
 		return b.StartAt, true
 	}

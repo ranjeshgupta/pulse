@@ -15,14 +15,11 @@ export function PageHead({ title, intro, actions, back }: { title: ReactNode; in
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-      {hint && <small>{hint}</small>}
-    </label>
-  );
+/** Field: a labelled form control. group renders a div (role group) instead of a <label>, for fields
+ * holding several controls (a checkbox and buttons), so a click on one doesn't activate another. */
+export function Field({ label, hint, group, children }: { label: string; hint?: ReactNode; group?: boolean; children: ReactNode }) {
+  const inner = <><span>{label}</span>{children}{hint && <small>{hint}</small>}</>;
+  return group ? <div className="field" role="group" aria-label={label}>{inner}</div> : <label className="field">{inner}</label>;
 }
 
 export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {

@@ -72,7 +72,7 @@ function GroupCard({ group, onMerged }: { group: DuplicateGroup; onMerged: () =>
               <td><input type="radio" name={`keep-${group.value}`} checked={c.external_id === winner} onChange={() => setWinner(c.external_id)} aria-label={`Keep ${c.external_id}`} /></td>
               <td>{c.external_id}</td>
               <td>{c.email || <span className="faint">none</span>}</td>
-              <td>{String(c.attrs.name ?? c.attrs.first_name ?? "")}</td>
+              <td>{String(c.attrs.name ?? [c.attrs.first_name, c.attrs.last_name].filter(Boolean).join(" "))}</td>
               <td>{String(c.attrs.stage ?? "")}</td>
               <td className="muted">{timeAgo(c.created_at)}</td>
             </tr>

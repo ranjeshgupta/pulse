@@ -34,15 +34,17 @@ with the caches in `.cache/` (so files you create stay yours and later runs are 
 `make e2e`, `make load`, `make seed` and `make docs-seed` always use the image, because they join
 Docker networks. With Go installed, `make test`, `make build` and `make vet` use it directly.
 
-**Fresh clone:** `web/embed.go` embeds `web/dist`, which is git-ignored and only created by the web
-build. Build the web app once before `make build` or `make test`, or the `web` and `cmd/pulse`
-packages don't compile:
+**Fresh clone:** `web/embed.go` embeds `web/dist`, the web build. The build output is git-ignored, but
+`web/dist/.gitkeep` is committed (and `npm run build` puts it back after Vite empties the folder), so
+`make build`, `make vet` and `make test` work on a fresh clone without Node. A binary built that way
+answers every app page with *The web app isn't built into this binary* (HTTP 503); the API works. To
+serve the app from a local `go build`, build the web app first:
 
 ```bash
 cd web && npm ci && npm run build && cd ..
 ```
 
-(The Docker image build does this itself, so `make up` works without it.)
+The Docker image build does this itself, so `make up` always serves the app.
 
 ---
 
@@ -52,8 +54,8 @@ cd web && npm ci && npm run build && cd ..
 |---|---|---|
 | `make up` / `make down` | Build the image and start the dev stack / stop it (volumes kept) | Docker |
 | `make ps`, `make logs` | Service status; follow Pulse's log | the stack |
-| `make build`, `make vet`, `make tidy` | `go build ./...`, `go vet ./...`, `go mod tidy` | `web/dist` (above) |
-| `make test` | Go unit tests, `go test -count=1 ./...`. No services: stores are faked | `web/dist` |
+| `make build`, `make vet`, `make tidy` | `go build ./...`, `go vet ./...`, `go mod tidy` | Docker or Go |
+| `make test` | Go unit tests, `go test -count=1 ./...`. No services: stores are faked | Docker or Go |
 | `make it` | Integration tests (`-tags integration ./internal/...`) in a container on the Compose network, against the stack's ClickHouse and Redis. The main one is `TestSQLAgreesWithEval`: the two segment compilers must agree | `make up` |
 | `make e2e` | End-to-end tests (`-tags e2e ./test/e2e/...`), see below | `make up` |
 | `make load ARGS="-rate 10000 -duration 45s"` | Load test from the Compose network. Flags: `-contacts`, `-rate`, `-batch`, `-workers`, `-duration`, `-journey`. Results: [docs/03-load-test.md](../03-load-test.md) | `make up` |

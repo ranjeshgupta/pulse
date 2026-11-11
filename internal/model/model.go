@@ -113,6 +113,8 @@ type Journey struct {
 	// SplitWinners are automatic A/B winners of split steps, by step id (journey.SplitDecision),
 	// recorded by the journey workers. Read-only through the API.
 	SplitWinners json.RawMessage `json:"split_winners,omitempty"`
+	// ArchivedAt hides a journey that has run from the list; its enrollments and reports are kept.
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 }
 
 type Enrollment struct {
@@ -153,6 +155,10 @@ type Message struct {
 	// rendered with the contact's data and sent to these addresses instead of the contact. It isn't
 	// consent-gated, capped or tracked, and records notification_sent / notification_failed.
 	To []string `json:"to,omitempty"`
+	// LocalAt (2006-01-02T15:04) holds the message until that clock time in the contact's time zone
+	// (their timezone or geo_timezone attribute, else LocalZone: the zone the broadcast was set in).
+	LocalAt   string `json:"local_at,omitempty"`
+	LocalZone string `json:"local_zone,omitempty"`
 }
 
 // Provider is a configured delivery provider of a workspace. Secrets are write-only.
@@ -288,6 +294,14 @@ type Broadcast struct {
 	AB              *ABTest `json:"ab,omitempty"`
 	ConversionEvent string  `json:"conversion_event,omitempty"` // reports count recipients who do this...
 	ConversionDays  int     `json:"conversion_days,omitempty"`  // ...within this many days of the send
+
+	// ExcludeSegmentIDs: members of any of these segments get nothing, even if in SegmentID.
+	ExcludeSegmentIDs []int64 `json:"exclude_segment_ids,omitempty"`
+	// LocalTime sends at StartAt's clock time in each contact's own time zone (one-time broadcasts).
+	// Timezone is the zone StartAt was chosen in: it gives the clock time, and is the zone used for
+	// contacts without one.
+	LocalTime bool   `json:"local_time,omitempty"`
+	Timezone  string `json:"timezone,omitempty"`
 }
 
 // ABTest sends 2-5 variants to a test group, then the best one to everyone else.
@@ -454,6 +468,7 @@ type WebhookDelivery struct {
 	Error      string    `json:"error,omitempty"`
 	DurationMS int       `json:"duration_ms"`
 	Final      bool      `json:"final"`
+	Test       bool      `json:"test,omitempty"` // a "Send test" from the webhook's page
 }
 
 // Import is a background CSV import.

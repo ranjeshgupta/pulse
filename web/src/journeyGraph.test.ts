@@ -3,7 +3,7 @@ import type { JourneyGraph, JourneyNode } from "./api";
 import {
   addNode, overlapping, childrenOf, COL, connect, cycleAt, decisionText, defaultInsertPoint, deleteStep, disconnect, edgeLabel, emptyGraph, formatWait,
   insertProblem, insertStep, issues, NODE_TYPES, OUTCOMES, outputs, positions, problems, removeBranch, removeNode, ROW, sendSteps,
-  STEP_GROUPS, stepLabel, stepNumbers, targetAt, tidy, toFlow, trackedSendsAfter, TRIGGER_ID, upstream, winnerProblem, wouldCycle,
+  STEP_GROUPS, stepLabel, stepNumbers, targetAt, tidy, toFlow, trackedSendsAfter, TRIGGER_ID, upstream, winnerProblem, wouldCycle, listActions, visibleJourneys,
 } from "./journeyGraph";
 
 const g: JourneyGraph = {
@@ -510,5 +510,50 @@ describe("overlapping", () => {
     };
     expect(overlapping(g)).toBe(true);
     expect(overlapping(tidy(g))).toBe(false);
+  });
+});
+
+describe("graphs saved through the API", () => {
+  // No Exit step, no positions, a terminal step without next, and one whose next points nowhere
+  // (the server ignores next on end steps).
+  const api: JourneyGraph = JSON.parse(`{
+    "trigger": {"type": "event", "event": "erasure_requested"}, "entry": "tag",
+    "nodes": {
+      "tag": {"type": "update_tags", "add_tags": ["erase"], "next": "del"},
+      "del": {"type": "delete_contact", "confirm": "DELETE"},
+      "old": {"type": "delete_contact", "confirm": "DELETE", "next": "gone"}
+    }}`);
+  it("treats a missing or dangling next as the end of the path", () => {
+    const { nodes, edges } = toFlow(api);
+    expect(nodes.map((n) => n.id).sort()).toEqual([TRIGGER_ID, "del", "old", "tag"]);
+    expect(edges.map((e) => e.id).sort()).toEqual([`${TRIGGER_ID}:next`, "tag:next"]);
+    expect(childrenOf(api, "old")).toEqual([]);
+    expect(targetAt(api, { source: "old", handle: "next" })).toBeUndefined();
+    expect(problems(api)).toEqual([]);
+    expect(stepNumbers(api)).toEqual({ tag: 1, del: 2, old: 3 });
+    expect(overlapping(tidy(api))).toBe(false);
+    expect(defaultInsertPoint(api, "del")).toEqual({ source: TRIGGER_ID, handle: "next" });
+    expect(insertStep(api, { source: "tag", handle: "next" }, { type: "wait", seconds: 60 })!.graph.nodes.wait1.next).toBe("del");
+    expect(Object.keys(deleteStep(api, "old").nodes).sort()).toEqual(["del", "tag"]);
+  });
+  it("treats a dangling next on an ordinary step as a free handle", () => {
+    const g2 = withNode(api, "tag", { next: "gone" });
+    expect(toFlow(g2).edges.map((e) => e.id)).toEqual([`${TRIGGER_ID}:next`]);
+    expect(about(g2, "tag")).toEqual(["connect it to the next step."]);
+    expect(defaultInsertPoint(g2, "tag")).toEqual({ source: "tag", handle: "next" });
+  });
+});
+
+describe("journey list", () => {
+  it("offers delete before a journey runs, archive after, restore when archived, nothing while live", () => {
+    expect(listActions({ status: "draft" })).toEqual(["delete"]);
+    expect(listActions({ status: "paused", has_run: true })).toEqual(["archive"]);
+    expect(listActions({ status: "active", has_run: true })).toEqual([]);
+    expect(listActions({ status: "paused", has_run: true, archived_at: "2026-11-11T00:00:00Z" })).toEqual(["restore"]);
+  });
+  it("hides archived journeys unless asked", () => {
+    const js = [{ id: 1 }, { id: 2, archived_at: "2026-11-11T00:00:00Z" }];
+    expect(visibleJourneys(js, false).map((j) => j.id)).toEqual([1]);
+    expect(visibleJourneys(js, true).map((j) => j.id)).toEqual([1, 2]);
   });
 });

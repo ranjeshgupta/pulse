@@ -298,6 +298,15 @@ func (s *Server) listJourneys(w http.ResponseWriter, r *http.Request, tenant int
 	type row struct {
 		model.Journey
 		Stats map[string]map[string]int `json:"stats"`
+		// HasRun: someone has entered it, so it can be archived but not deleted.
+		HasRun bool `json:"has_run"`
+	}
+	ran := map[int64]bool{}
+	if as, ok := s.Store.(JourneyArchiveStore); ok {
+		if ran, err = as.JourneysThatRan(r.Context(), tenant); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	out := make([]row, len(js))
 	for i, j := range js {
@@ -306,7 +315,7 @@ func (s *Server) listJourneys(w http.ResponseWriter, r *http.Request, tenant int
 			s.fail(w, err)
 			return
 		}
-		out[i] = row{j, st}
+		out[i] = row{j, st, ran[j.ID]}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"journeys": out})
 }
@@ -346,6 +355,7 @@ func (s *Server) updateJourney(w http.ResponseWriter, r *http.Request, p model.P
 		s.fail(w, err)
 		return
 	}
+	s.journeysChanged(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
 }
 
@@ -362,6 +372,7 @@ func (s *Server) deleteJourney(w http.ResponseWriter, r *http.Request, tenant in
 		s.fail(w, err)
 		return
 	}
+	s.journeysChanged(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

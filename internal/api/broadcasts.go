@@ -131,6 +131,17 @@ func (s *Server) validBroadcast(ctx context.Context, b model.Broadcast) error {
 	if _, err := s.Store.GetSegment(ctx, b.TenantID, b.SegmentID); err != nil {
 		errs = append(errs, errors.New("choose a segment"))
 	}
+	if len(b.ExcludeSegmentIDs) > 10 {
+		errs = append(errs, errors.New("exclude at most 10 segments"))
+	}
+	for _, id := range b.ExcludeSegmentIDs {
+		if id == b.SegmentID {
+			errs = append(errs, errors.New("a segment can't be both the audience and excluded"))
+		} else if _, err := s.Store.GetSegment(ctx, b.TenantID, id); err != nil {
+			errs = append(errs, fmt.Errorf("excluded segment %d doesn't exist", id))
+		}
+	}
+	errs = append(errs, broadcast.ValidateLocalTime(b))
 	t, err := s.uiStore().Template(ctx, b.TenantID, b.TemplateID)
 	if err != nil {
 		errs = append(errs, errors.New("choose a template"))

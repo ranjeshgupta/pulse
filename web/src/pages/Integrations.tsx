@@ -11,12 +11,13 @@ import {
   type RevenueSettings, type Segment, type Webhook, type WebhookDelivery,
 } from "../api";
 import { useCan, useIsAdmin } from "../auth";
-import { CATEGORY_LABELS, CATEGORY_ORDER, mappingProblems, PULL_EVERY } from "../integrations";
+import {
+  CATEGORY_LABELS, CATEGORY_ORDER, mappingProblems, normalizeCatalog, normalizeIntegration, normalizeKind, PULL_EVERY, type IntegrationCatalog,
+} from "../integrations";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useCopy, useToast } from "../ui";
 import "./integrations.css";
 import "./webhooks.css";
 
-type Catalog = { kinds: IntegrationKind[]; shopify_topics: string[]; hook_events: string[] };
 type Detail = {
   integration: Integration; kind: IntegrationKind; log: IntegrationLogEntry[];
   webhook_url?: string; hooks_url?: string; subscriptions?: Webhook[]; deliveries?: WebhookDelivery[]; audiences?: AudienceSync[];
@@ -24,7 +25,14 @@ type Detail = {
 type TestResult = { ok: boolean; error?: string; duration_ms: number };
 
 const fmt = (s: string) => new Date(s).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-const useCatalog = () => useQuery({ queryKey: ["integration-catalog"], queryFn: () => api.get<Catalog>("/v1/integrations/catalog"), staleTime: 300_000 });
+// Both answers are normalised once here: lists the server may send as null become empty.
+const useCatalog = () => useQuery({
+  queryKey: ["integration-catalog"], staleTime: 300_000,
+  queryFn: () => api.get<Partial<IntegrationCatalog>>("/v1/integrations/catalog").then(normalizeCatalog),
+});
+const getDetail = (id: string) => api.get<Detail>(`/v1/integrations/${id}`).then((r) => ({
+  ...r, integration: normalizeIntegration(r.integration), kind: normalizeKind(r.kind), log: r.log ?? [],
+}));
 
 function StatusBadge({ i }: { i: Pick<Integration, "status" | "active"> }) {
   if (!i.active) return <span className="badge">Paused</span>;
@@ -101,18 +109,26 @@ export function IntegrationEdit() {
   const qc = useQueryClient();
   const toast = useToast();
   const cat = useCatalog();
-  const existing = useQuery({ queryKey: ["integration", id], queryFn: () => api.get<Detail>(`/v1/integrations/${id}`), enabled: !isNew, refetchInterval: 8000 });
-  const kind: IntegrationKind | undefined = isNew ? cat.data?.kinds.find((k) => k.id === params.get("kind")) : existing.data?.kind;
+  const existing = useQuery({ queryKey: ["integration", id], queryFn: () => getDetail(id!), enabled: !isNew, refetchInterval: 8000 });
   const [d, setD] = useState<Draft | null>(null);
+  // Which page (id) and type the draft belongs to: the draft is filled from defaults or the server only
+  // when there is none for this id, so the first save (new → its id) keeps what was typed.
+  const [owner, setOwner] = useState<{ id: string; kind: string } | null>(null);
+  const kindId = isNew ? params.get("kind") : owner && owner.id === id ? owner.kind : null;
+  const kind: IntegrationKind | undefined = existing.data?.kind ?? cat.data?.kinds.find((k) => k.id === kindId);
   const [newKey, setNewKey] = useState<string | null>(null);
   useEffect(() => {
-    if (d) return;
-    if (isNew && kind) setD({ name: kind.name, config: {}, secrets: {}, mapping: kind.default_mapping ?? [], active: true, sync_minutes: kind.pull ? 60 : 0 });
+    if (d && owner?.id === id) return;
+    if (isNew && kind) {
+      setD({ name: kind.name, config: {}, secrets: {}, mapping: kind.default_mapping ?? [], active: true, sync_minutes: kind.pull ? 60 : 0 });
+      setOwner({ id: id!, kind: kind.id });
+    }
     if (!isNew && existing.data) {
       const i = existing.data.integration;
-      setD({ name: i.name, config: { ...i.config }, secrets: {}, mapping: i.mapping ?? [], active: i.active, sync_minutes: i.sync_minutes });
+      setD({ name: i.name, config: { ...i.config }, secrets: {}, mapping: i.mapping, active: i.active, sync_minutes: i.sync_minutes });
+      setOwner({ id: id!, kind: i.kind });
     }
-  }, [isNew, kind, existing.data, d]);
+  }, [isNew, id, kind, existing.data, d, owner]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -123,9 +139,12 @@ export function IntegrationEdit() {
       qc.invalidateQueries({ queryKey: ["integrations"] });
       if (r.api_key) setNewKey(r.api_key);
       toast({ text: isNew ? "Integration connected" : "Integration saved" });
-      if (isNew) nav(`/settings/integrations/${r.id}`, { replace: true });
-      else qc.invalidateQueries({ queryKey: ["integration", id] });
-      setD(null);
+      // Keep the saved values in the form; typed secrets are stored now, so clear them (empty keeps them).
+      setD((cur) => (cur ? { ...cur, secrets: {} } : cur));
+      if (isNew) {
+        setOwner({ id: String(r.id), kind: kind!.id });
+        nav(`/settings/integrations/${r.id}`, { replace: true });
+      } else qc.invalidateQueries({ queryKey: ["integration", id] });
     },
   });
   const remove = useMutation({
@@ -445,7 +464,7 @@ function HooksPanel({ id, detail, admin, onKey }: { id: string; detail: Detail; 
               <thead><tr><th>Event</th><th>Only</th><th>Target URL</th><th>Since</th><th /></tr></thead>
               <tbody>{subs.map((s) => (
                 <tr key={s.id}>
-                  <td><code>{s.events.join(", ")}</code></td>
+                  <td><code>{(s.events ?? []).join(", ")}</code></td>
                   <td className="small">{s.segment_id ? segName(s.segment_id) : s.form_id ? `form ${s.form_id}` : <span className="muted">All</span>}</td>
                   <td className="xs muted int-url">{s.url}</td>
                   <td className="small muted">{timeAgo(s.created_at)}</td>

@@ -31,6 +31,12 @@ func TestRoutePermissions(t *testing.T) {
 		{"GET /v1/settings/delivery", viewer, false},
 		{"POST /v1/channels/providers", editor, false},
 		{"GET /v1/contacts/export", viewer, false},
+		{"DELETE /v1/contacts/{external_id}", viewer, false},
+		{"DELETE /v1/contacts/{external_id}", editor, true},
+		{"DELETE /v1/contacts/{external_id}", auth.Perms{auth.AreaContacts: auth.View}, false},
+		{"GET /v1/contacts/{external_id}/data", viewer, false}, // personal data: contacts edit, like export
+		{"GET /v1/contacts/{external_id}/data", auth.Perms{auth.AreaContacts: auth.View}, false},
+		{"GET /v1/contacts/{external_id}/data", auth.Perms{auth.AreaContacts: auth.Edit}, true},
 		{"POST /v1/something-new", editor, false}, // unlisted: settings edit
 		{"GET /v1/inapp/check", auth.Perms{auth.AreaContent: auth.Publish}, false},
 		{"GET /v1/inapp/check", viewer, true},

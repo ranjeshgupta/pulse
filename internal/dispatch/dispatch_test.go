@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -299,16 +300,190 @@ func TestPushDropsDeadTokens(t *testing.T) {
 	}
 }
 
-func TestTransientErrorsRetry(t *testing.T) {
+// A temporary provider failure parks the message instead of returning an error (which would
+// hold up the partition); it is re-published when due, with the tries so far, and sent once.
+func TestTransientErrorsRetryLater(t *testing.T) {
 	f := setup(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	f.d.now = func() time.Time { return now }
 	f.mail.err = errors.New("connection reset")
 	rec := msgRecord(model.Message{ID: "t", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 1})
-	if err := f.d.Handle(context.Background(), rec); err == nil {
-		t.Fatal("transient error must be returned so the record is retried")
+	if err := f.d.Handle(ctx, rec); err != nil {
+		t.Fatalf("a temporary failure must not fail the record (it would block the partition): %v", err)
+	}
+	if evs, msgs := f.pub.take(); len(evs) != 0 || len(msgs) != 0 {
+		t.Fatalf("after the first failure: events %v, messages %v", evs, msgs)
+	}
+	f.d.releaseRetries(ctx) // not due yet
+	if len(f.pub.recs) != 0 {
+		t.Fatal("released before the backoff")
+	}
+	now = now.Add(RetryBackoff[0])
+	f.d.releaseRetries(ctx)
+	if len(f.pub.recs) != 1 || f.pub.recs[0].Topic != channel.Topic(channel.Email) || triesOf(f.pub.recs[0]) != 1 {
+		t.Fatalf("released = %+v", f.pub.recs)
+	}
+	retry := f.pub.recs[0]
+	f.pub.recs = nil
+	f.d.releaseRetries(ctx) // released once only
+	if len(f.pub.recs) != 0 {
+		t.Fatal("released twice")
 	}
 	f.mail.err = nil
-	if err := f.d.Handle(context.Background(), rec); err != nil || len(f.mail.sent) != 1 {
-		t.Errorf("retry after recovery: err %v, sent %d", err, len(f.mail.sent))
+	for i := 0; i < 2; i++ { // the retry isn't a duplicate, and a redelivery of it doesn't send again
+		if err := f.d.Handle(ctx, retry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(f.mail.sent) != 1 {
+		t.Errorf("sent %d times, want 1", len(f.mail.sent))
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_sent" {
+		t.Errorf("events = %v", evs)
+	}
+}
+
+// When every try fails, the message is given up as <channel>_failed with the reason.
+func TestRetriesGiveUpAsFailed(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	f.d.now = func() time.Time { return now }
+	f.mail.err = errors.New("smtp: 451 try again later")
+	rec := msgRecord(model.Message{ID: "g", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 1})
+	tries := 0
+	for ; tries < 20; tries++ {
+		if err := f.d.Handle(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.pub.recs) > 0 {
+			break // the outcome event
+		}
+		now = now.Add(2 * time.Hour)
+		f.d.releaseRetries(ctx)
+		if len(f.pub.recs) != 1 {
+			t.Fatalf("try %d: released %d records", tries+1, len(f.pub.recs))
+		}
+		rec, f.pub.recs = f.pub.recs[0], nil
+	}
+	if tries+1 != len(RetryBackoff)+1 {
+		t.Errorf("gave up after %d tries, want %d", tries+1, len(RetryBackoff)+1)
+	}
+	if len(f.pub.recs) != 1 {
+		t.Fatalf("records = %d", len(f.pub.recs))
+	}
+	var ev event.Event
+	_ = json.Unmarshal(f.pub.recs[0].Value, &ev)
+	reason, _ := ev.Props["reason"].(string)
+	if ev.Name != "email_failed" || ev.ID != "msg:g:email_failed" || !strings.Contains(reason, "gave up after 8 tries") ||
+		!strings.Contains(reason, "451 try again later") {
+		t.Errorf("event = %s %s, reason %q", ev.Name, ev.ID, reason)
+	}
+	if n, _ := f.d.rdb.ZCard(ctx, retryKey).Result(); n != 0 {
+		t.Errorf("%d messages still parked", n)
+	}
+	if err := f.d.Handle(ctx, rec); err != nil || len(f.pub.recs) != 1 { // done: a redelivery does nothing
+		t.Errorf("redelivery after giving up: err %v, records %d", err, len(f.pub.recs))
+	}
+}
+
+// Permanent failures are recorded at once, never parked.
+func TestPermanentErrorsAreNotRetried(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.mail.err = providers.Permanent("550 mailbox does not exist")
+	if err := f.d.Handle(ctx, msgRecord(model.Message{ID: "p", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 1})); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_failed" {
+		t.Errorf("events = %v", evs)
+	}
+	if n, _ := f.d.rdb.ZCard(ctx, retryKey).Result(); n != 0 {
+		t.Errorf("a permanent failure was parked")
+	}
+}
+
+func TestRetryDelay(t *testing.T) {
+	plain := errors.New("HTTP 503")
+	for i, want := range RetryBackoff {
+		if got, ok := retryDelay(i+1, plain); !ok || got != want {
+			t.Errorf("try %d: wait %v %v, want %v", i+1, got, ok, want)
+		}
+	}
+	if _, ok := retryDelay(len(RetryBackoff)+1, plain); ok {
+		t.Error("retries must run out")
+	}
+	var total time.Duration
+	for _, w := range RetryBackoff {
+		total += w
+	}
+	if total < time.Hour || total > 2*time.Hour {
+		t.Errorf("retries span %v, want one to two hours", total)
+	}
+	ra := func(d time.Duration) error { return &providers.RetryAfterError{Err: plain, After: d} }
+	cases := []struct {
+		tries int
+		err   error
+		want  time.Duration
+	}{
+		{1, ra(5 * time.Minute), 5 * time.Minute},   // longer than the backoff: the provider wins
+		{1, ra(10 * time.Second), 30 * time.Second}, // shorter: the backoff wins
+		{1, ra(5 * time.Hour), time.Hour},           // capped
+		{1, fmt.Errorf("send email: %w", ra(2*time.Minute)), 2 * time.Minute},
+	}
+	for _, c := range cases {
+		if got, _ := retryDelay(c.tries, c.err); got != c.want {
+			t.Errorf("retryDelay(%d, %v) = %v, want %v", c.tries, c.err, got, c.want)
+		}
+	}
+}
+
+// A provider's Retry-After holds the message at least that long.
+func TestRetryAfterIsRespected(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	f.d.now = func() time.Time { return now }
+	f.mail.err = providers.StatusError("ses", 429, "slow down", http.Header{"Retry-After": {"600"}})
+	if err := f.d.Handle(ctx, msgRecord(model.Message{ID: "r", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 1})); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(9 * time.Minute)
+	f.d.releaseRetries(ctx)
+	if len(f.pub.recs) != 0 {
+		t.Fatal("released before Retry-After")
+	}
+	now = now.Add(time.Minute)
+	f.d.releaseRetries(ctx)
+	if len(f.pub.recs) != 1 {
+		t.Fatalf("released %d after Retry-After", len(f.pub.recs))
+	}
+}
+
+// An internal notification ("email to user") retries the same way.
+func TestNotificationRetriesThenSends(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	f.d.now = func() time.Time { return now }
+	f.mail.err = errors.New("timeout")
+	m := model.Message{ID: "n", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 1, To: []string{"ops@example.com"}}
+	if err := f.d.Handle(ctx, msgRecord(m)); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	f.d.releaseRetries(ctx)
+	if len(f.pub.recs) != 1 {
+		t.Fatalf("released %d", len(f.pub.recs))
+	}
+	retry := f.pub.recs[0]
+	f.pub.recs, f.mail.err = nil, nil
+	if err := f.d.Handle(ctx, retry); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "notification_sent" {
+		t.Errorf("events = %v", evs)
 	}
 }
 
@@ -506,5 +681,48 @@ func TestSMSTrackedLinks(t *testing.T) {
 	tok, dest, err := tracking.ResolveShort(ctx, f.d.rdb, tracked[i:i+11])
 	if err != nil || dest != "https://shop.in/x" || tok.MessageID != "l7" || tok.ExternalID != "u1" || tok.Channel != "sms" {
 		t.Errorf("resolve = %+v %q %v", tok, dest, err)
+	}
+}
+
+// A local-time broadcast message waits for its clock time in the contact's zone (their timezone
+// attribute, else the zone the broadcast was scheduled in), then goes.
+func TestLocalTimeHold(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	c := f.st.contacts[1]
+	c.Attrs["timezone"] = "America/New_York"
+	f.st.contacts[1] = c
+	early := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC) // 05:00 in New York, 15:30 in India
+	f.d.now = func() time.Time { return early }
+	m := model.Message{ID: "bc1:1:1", TenantID: 1, ContactID: 1, Channel: channel.Email, TemplateID: 1, LocalAt: "2026-11-12T09:00", LocalZone: "Asia/Kolkata"}
+	if err := f.d.Handle(ctx, msgRecord(m)); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_deferred" || len(f.mail.sent) != 0 {
+		t.Fatalf("before 9:00 in New York: %v, sent %d", evs, len(f.mail.sent))
+	}
+	f.d.now = func() time.Time { return early.Add(4*time.Hour + time.Minute) } // 09:01 in New York
+	f.d.releaseDue(ctx)
+	_, msgs := f.pub.take()
+	if len(msgs) != 1 {
+		t.Fatalf("released %v", msgs)
+	}
+	if err := f.d.Handle(ctx, msgRecord(msgs[0])); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_sent" {
+		t.Errorf("after release: %v", evs)
+	}
+
+	// No zone of their own: the broadcast's zone, where 9:00 has passed, so it goes right away.
+	m.ID, m.ContactID = "bc1:1:2", 2
+	c2 := f.st.contacts[2]
+	c2.Email = "u2@example.com"
+	f.st.contacts[2] = c2
+	if err := f.d.Handle(ctx, msgRecord(m)); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_sent" {
+		t.Errorf("no zone, time passed in India: %v", evs)
 	}
 }

@@ -1,7 +1,7 @@
 // Editing model for custom reports (the Reports page). Pure: no React, no DOM.
 // The editor keeps a Draft (filters in the form-friendly Where shape); toSpec/fromSpec convert to and
 // from the API's ReportSpec. specProblems mirrors the server's rules so we only run valid specs.
-import { CHANNELS, CHANNEL_NAMES, type Channel, type PropFilter, type ReportGroup, type ReportMetric, type ReportSource, type ReportSpec } from "./api";
+import { CHANNELS, CHANNEL_NAMES, type Channel, type PropFilter, type ReportGroup, type ReportMetric, type ReportResult, type ReportSource, type ReportSpec } from "./api";
 import { ATTR_OPS, DATE_OPS, NUMERIC_OPS, RELATIVE_DATE_OPS, type AttrOp, type Where } from "./segmentRules";
 
 export const KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
@@ -335,6 +335,22 @@ export function metricLabel(s: Pick<ReportSpec, "source" | "metric">): string {
     case "unique_contacts": return "Contacts";
     default: return s.source === "events" ? "Events" : s.source === "messages" ? "Messages" : "Contacts";
   }
+}
+
+/** reportRows: a report result as table rows for a CSV export, header first. Values stay numbers
+ * (sums and averages to 2 decimals); time groups use ISO dates so spreadsheets read them as dates. */
+export function reportRows(spec: ReportSpec, r: Pick<ReportResult, "rows" | "labels">): (string | number)[][] {
+  const g = spec.group_by.type;
+  const value = (v: number) => (spec.metric.type === "sum" || spec.metric.type === "avg" ? Math.round(v * 100) / 100 : Math.round(v));
+  if (g === "none") return [[metricLabel(spec)], [value(r.rows[0]?.value ?? 0)]];
+  const head = groupOption(spec.source, g)?.label ?? "Group";
+  const campaign = g === "campaign";
+  const rows: (string | number)[][] = [[spec.group_by.key ? `${head}: ${spec.group_by.key}` : head, ...(campaign ? ["Type"] : []), metricLabel(spec)]];
+  for (const x of r.rows) {
+    const label = isTimeGroup(g) && /^\d{4}-\d{2}-\d{2}/.test(x.group) ? x.group.slice(0, 10) : groupLabel(x.group, g, r.labels);
+    rows.push([label, ...(campaign ? [campaignKind(x.group)] : []), value(x.value)]);
+  }
+  return rows;
 }
 
 /** niceMax rounds a maximum up to 1, 2, 2.5 or 5 times a power of ten (0 becomes 1). */

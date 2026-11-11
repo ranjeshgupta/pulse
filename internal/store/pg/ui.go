@@ -31,11 +31,11 @@ func (s *Store) DeleteSegment(ctx context.Context, tenant, id int64) error {
 	return err
 }
 
-const journeyCols = `id, tenant_id, name, graph, status, start_at, end_at, split_winners`
+const journeyCols = `id, tenant_id, name, graph, status, start_at, end_at, split_winners, archived_at`
 
 func scanJourney(row pgx.Row) (model.Journey, error) {
 	var j model.Journey
-	err := row.Scan(&j.ID, &j.TenantID, &j.Name, &j.Graph, &j.Status, &j.StartAt, &j.EndAt, &j.SplitWinners)
+	err := row.Scan(&j.ID, &j.TenantID, &j.Name, &j.Graph, &j.Status, &j.StartAt, &j.EndAt, &j.SplitWinners, &j.ArchivedAt)
 	return j, notFound(err)
 }
 
@@ -95,9 +95,44 @@ func (s *Store) DeleteJourney(ctx context.Context, tenant, id int64) error {
 		if _, err := s.GetJourney(ctx, tenant, id); err != nil {
 			return err
 		}
-		return errorString("only journeys that never ran can be deleted; pause it instead")
+		return errorString("only journeys that never ran can be deleted; pause and archive it instead")
 	}
 	return nil
+}
+
+// SetJourneyArchived archives a journey (hidden from the list, enrollments kept) or restores it.
+// An active journey must be paused first.
+func (s *Store) SetJourneyArchived(ctx context.Context, tenant, id int64, archived bool) error {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE journeys SET archived_at = CASE WHEN $3 THEN coalesce(archived_at, now()) END, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2 AND status <> 'active'`, tenant, id, archived)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		if _, err := s.GetJourney(ctx, tenant, id); err != nil {
+			return err
+		}
+		return errorString("pause the journey before archiving it")
+	}
+	return nil
+}
+
+// JourneysThatRan lists which of a workspace's journeys have ever enrolled anyone (those can be
+// archived but not deleted).
+func (s *Store) JourneysThatRan(ctx context.Context, tenant int64) (map[int64]bool, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT j.id FROM journeys j WHERE j.tenant_id = $1
+		AND EXISTS (SELECT 1 FROM journey_enrollments e WHERE e.journey_id = j.id)`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	out := map[int64]bool{}
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, err
 }
 
 // ListContacts lists contacts newest first, through the primary key, leaving out visitors merged into

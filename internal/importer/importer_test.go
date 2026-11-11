@@ -64,6 +64,22 @@ func TestRunSkipsUnnamedColumns(t *testing.T) {
 	}
 }
 
+// A tags column adds tags (a tag_added event) rather than replacing the contact's tags.
+func TestRunAddsTags(t *testing.T) {
+	var got []*kgo.Record
+	pub := publishFunc(func(recs ...*kgo.Record) { got = append(got, recs...) })
+	src := "external_id,tags\nu1,vip;pune\n"
+	if _, err := Run(context.Background(), pub, strings.NewReader(src), Options{Tenant: 1, ImportID: "t"}); err != nil || len(got) != 2 {
+		t.Fatalf("err %v, %d events", err, len(got))
+	}
+	if v := string(got[0].Value); strings.Contains(v, "vip") {
+		t.Errorf("identify carries the tags: %s", v)
+	}
+	if v := string(got[1].Value); !strings.Contains(v, `"tag_added"`) || !strings.Contains(v, "vip;pune") {
+		t.Errorf("second event = %s, want tag_added with the tags", v)
+	}
+}
+
 type publishFunc func(recs ...*kgo.Record)
 
 func (f publishFunc) Publish(_ context.Context, recs ...*kgo.Record) error { f(recs...); return nil }

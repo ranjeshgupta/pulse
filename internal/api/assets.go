@@ -431,7 +431,7 @@ func (s *Server) assetFormSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	shown, _ := strconv.ParseInt(values["_ts"], 10, 64)
 	in := formInput{Values: values, Uploads: uploads, PageURL: r.Referer(), Source: "asset", Honeypot: values["_hp"],
-		Elapsed: s.now().Sub(time.UnixMilli(shown)), Meta: map[string]any{"asset_id": a.ID}}
+		Elapsed: s.sinceShown(shown), Meta: map[string]any{"asset_id": a.ID}}
 	ferrs, code, ext, err := s.submit(r.Context(), *f, t, in, r)
 	view := assetView{formView: formView{Form: *f, Fields: f.Fields, Values: values, Errors: map[string]string{}, Shown: shown}, Asset: a}
 	switch {

@@ -57,12 +57,12 @@ func (m *MSG91) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, err
 	}
 	req.Header.Set("authkey", m.AuthKey)
-	code, body, err := call(m.HTTP, req)
+	code, body, hdr, err := call(m.HTTP, req)
 	if err != nil {
 		return Result{}, err
 	}
 	if code == http.StatusTooManyRequests || code >= 500 {
-		return Result{}, StatusError("msg91", code, string(body))
+		return Result{}, StatusError("msg91", code, string(body), hdr)
 	}
 	var r struct {
 		Type    string          `json:"type"`
@@ -70,7 +70,7 @@ func (m *MSG91) Send(ctx context.Context, o Outbound) (Result, error) {
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
 		if code >= 300 {
-			return Result{}, StatusError("msg91", code, string(body))
+			return Result{}, StatusError("msg91", code, string(body), hdr)
 		}
 		// Accepted or not is unknown; retrying could send twice, so don't.
 		return Result{}, Permanent(fmt.Sprintf("msg91: unreadable response: %.300s", body))
@@ -80,7 +80,7 @@ func (m *MSG91) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, Permanent(fmt.Sprintf("msg91: %.300s", r.Message))
 	}
 	if code >= 300 {
-		return Result{}, StatusError("msg91", code, string(body))
+		return Result{}, StatusError("msg91", code, string(body), hdr)
 	}
 	var id string
 	if json.Unmarshal(r.Message, &id) != nil || r.Type != "success" || id == "" {

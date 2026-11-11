@@ -98,7 +98,7 @@ func (m *MetaWhatsApp) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+m.AccessToken)
-	code, body, err := call(m.HTTP, req)
+	code, body, hdr, err := call(m.HTTP, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -135,7 +135,7 @@ func (m *MetaWhatsApp) Send(ctx context.Context, o Outbound) (Result, error) {
 	if code >= 200 && code < 300 {
 		return Result{}, Permanent(fmt.Sprintf("meta whatsapp: response without message id: %.300s", body)) // may have been sent: don't retry
 	}
-	return Result{}, StatusError("meta whatsapp", code, string(body))
+	return Result{}, StatusError("meta whatsapp", code, string(body), hdr)
 }
 
 // ParseReceipts handles a "messages" webhook: X-Hub-Signature-256 must be the HMAC-SHA256 of the raw

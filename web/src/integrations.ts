@@ -1,6 +1,6 @@
 // Pure helpers for Settings → Integrations: which attributes a CRM may write into, and the
 // field-mapping problems shown before saving (the server checks the same rules).
-import type { FieldMap, IntegrationCategory } from "./api";
+import type { FieldMap, Integration, IntegrationCategory, IntegrationKind } from "./api";
 
 export const CATEGORY_LABELS: Record<IntegrationCategory, string> = {
   crm: "CRM", ecommerce: "E-commerce", automation: "Automation", ads: "Ads",
@@ -40,3 +40,21 @@ export const PULL_EVERY: { value: number; label: string }[] = [
   { value: 0, label: "Never (push only)" }, { value: 15, label: "Every 15 minutes" }, { value: 30, label: "Every 30 minutes" },
   { value: 60, label: "Every hour" }, { value: 240, label: "Every 4 hours" }, { value: 1440, label: "Once a day" },
 ];
+
+/** normalizeKind fills the lists a catalog entry may send as null (a kind without settings, such
+ * as Zapier / Make, has "config": null), so the editor can always map over them. */
+export function normalizeKind(k: IntegrationKind): IntegrationKind {
+  return { ...k, config: k.config ?? [], secrets: k.secrets ?? [], default_mapping: k.default_mapping ?? undefined };
+}
+
+export type IntegrationCatalog = { kinds: IntegrationKind[]; shopify_topics: string[]; hook_events: string[] };
+
+/** normalizeCatalog: the catalog with every list present (null or missing becomes empty). */
+export function normalizeCatalog(c: Partial<IntegrationCatalog> | null | undefined): IntegrationCatalog {
+  return { kinds: (c?.kinds ?? []).map(normalizeKind), shopify_topics: c?.shopify_topics ?? [], hook_events: c?.hook_events ?? [] };
+}
+
+/** normalizeIntegration: a saved integration with its maps and mapping present. */
+export function normalizeIntegration(i: Integration): Integration {
+  return { ...i, config: i.config ?? {}, secrets: i.secrets ?? {}, mapping: i.mapping ?? [] };
+}

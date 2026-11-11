@@ -87,7 +87,7 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
   });
 
   return (
-    <Modal title={provider ? `Edit ${provider.name}` : `Add a ${CHANNEL_NAMES[channel]} provider`} onClose={onClose}
+    <Modal title={provider ? `Edit ${provider.name}` : `Add ${CHANNEL_NAMES[channel]} provider`} onClose={onClose}
       footer={<>
         {provider && <button className="btn danger" style={{ marginRight: "auto" }} onClick={() => confirm("Remove this provider?") && remove.mutate()}>Remove</button>}
         <button className="btn" onClick={onClose}>Cancel</button>
@@ -189,7 +189,7 @@ function DeliveryRulesPanel({ admin }: { admin: boolean }) {
           )}
           <h4 className="small" style={{ margin: "6px 0 8px" }}>Reply keywords</h4>
           <p className="xs muted" style={{ marginBottom: 10 }}>
-            When someone replies to an SMS or WhatsApp message with just one of these words, they're unsubscribed from (or subscribed back to) that channel.
+            When someone replies to an SMS, WhatsApp or RCS message with just one of these words, they're unsubscribed from (or subscribed back to) that channel.
             Case and punctuation don't matter, so "Stop." counts. Point your provider's incoming-message webhook at its Pulse webhook URL.
           </p>
           <div className="grid-2">

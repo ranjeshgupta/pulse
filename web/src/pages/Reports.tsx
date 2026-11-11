@@ -8,9 +8,10 @@ import { useCan } from "../auth";
 import { daysAgo, defaultRange, FilterRows, PROP_OPS, RangePicker, rangeBounds, rangeProblem, SegmentPicker, useDebounced, ymd, type Preset, type Range } from "../insights";
 import {
   campaignKind, CONTACT_OPS, describe, EVENT_RE, formatValue, fromSpec, groupLabel, groupOption, GROUPS, isTimeGroup, KIND_NAMES,
-  labelIndices, lineGeometry, MAX_EVENTS, MESSAGE_KINDS, metricLabel, metricOption, METRICS, newDraft, PRESETS, rangeDaysOf,
+  labelIndices, lineGeometry, MAX_EVENTS, MESSAGE_KINDS, metricLabel, metricOption, METRICS, newDraft, PRESETS, rangeDaysOf, reportRows,
   shortTimeLabel, SOURCES, specProblems, toSpec, withGroup, withMetric, withSource, type Chart, type Draft, type MessageSource,
 } from "../reportBuilder";
+import { csvFileName, downloadCsv, toCsv } from "../csv";
 import { BUILTIN_ATTRS } from "../segmentRules";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import "./reports-builder.css";
@@ -174,6 +175,7 @@ export function ReportEdit() {
               <SegmentPicker value={draft.segment_id} onChange={(segment_id) => setDraft({ ...draft, segment_id })} />
             </div>
             <Results
+              name={name.trim() || "Report"}
               run={run.data}
               ready={debounced !== "" && runKey !== ""}
               stale={debounced !== runKey || run.isFetching}
@@ -334,7 +336,7 @@ function MessageFilters({ draft, onChange }: { draft: Draft; onChange: (d: Draft
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
-function Results({ run, ready, stale, error }: { run?: Run; ready: boolean; stale: boolean; error: unknown }) {
+function Results({ name, run, ready, stale, error }: { name: string; run?: Run; ready: boolean; stale: boolean; error: unknown }) {
   // The query keeps the previous result as placeholder data, so it stays on screen (dimmed) while a
   // new one is counted or while the report has problems.
   if (error && !stale) return <p className="xs rb-danger" role="alert">{error instanceof Error ? error.message : String(error)}</p>;
@@ -366,7 +368,11 @@ function Results({ run, ready, stale, error }: { run?: Run; ready: boolean; stal
   }
   return (
     <div className="rb-out" style={{ opacity: busy ? 0.45 : 1 }} aria-busy={busy}>
-      <p className="small muted rb-desc">{describe(spec)}</p>
+      <div className="rb-out-head">
+        <p className="small muted rb-desc">{describe(spec)}</p>
+        <button type="button" className="btn sm" disabled={busy} title={busy ? "Wait for the new result" : "Download the result shown as a CSV file"}
+          onClick={() => downloadCsv(csvFileName(name), toCsv(reportRows(spec, r)))}>Export CSV</button>
+      </div>
       {body}
       <p className="xs faint rb-period">{fmtDate(r.from)} to {fmtDate(r.to)}</p>
     </div>

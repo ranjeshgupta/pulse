@@ -97,6 +97,13 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 		return users[uid], nil
 	}
 	refs, _ := s.Store.(JourneyRefStore)
+	if fs, ok := s.Store.(FormStore); ok && g.Trigger.Type == journey.TriggerFormSubmitted && g.Trigger.FormID > 0 {
+		if _, err := fs.GetForm(ctx, tenant, g.Trigger.FormID); errors.Is(err, pg.ErrNotFound) {
+			return fmt.Errorf("%w: the trigger's form %d doesn't exist", errBadJourney, g.Trigger.FormID)
+		} else if err != nil {
+			return err
+		}
+	}
 	for id, n := range g.Nodes {
 		switch n.Type {
 		case journey.NodeNotifyUser, journey.NodeUpdateOwner:

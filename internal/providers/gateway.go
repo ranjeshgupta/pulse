@@ -94,7 +94,7 @@ func (g *Gateway) Send(ctx context.Context, o Outbound) (Result, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Pulse-Signature", "t="+ts+",v1="+hex.EncodeToString(m.Sum(nil)))
 	req.Header.Set("Idempotency-Key", o.MessageID)
-	code, resp, err := call(g.HTTP, req)
+	code, resp, hdr, err := call(g.HTTP, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -108,7 +108,7 @@ func (g *Gateway) Send(ctx context.Context, o Outbound) (Result, error) {
 	case code == http.StatusNotFound || code == http.StatusGone:
 		return Result{}, Unreachable("gateway: recipient not reachable")
 	}
-	return Result{}, StatusError("gateway", code, string(resp))
+	return Result{}, StatusError("gateway", code, string(resp), hdr)
 }
 
 // ParseReceipts accepts delivery receipts the gateway posts back, signed the same way.

@@ -111,7 +111,8 @@ export function InAppEdit() {
     onSuccess: (r, msg) => {
       qc.invalidateQueries({ queryKey: ["inapp"] });
       toast({ text: msg.status === "active" ? "Live. Apps pick it up the next time they fetch campaigns." : "Saved as draft" });
-      setM(msg);
+      // Keep the id the create call returned: the page stays mounted under its new address.
+      setM(isNew ? { ...msg, id: r.id } : msg);
       if (isNew) nav(`/on-site/in-app/${r.id}`, { replace: true });
     },
   });
@@ -315,7 +316,7 @@ function PhonePreview({ m }: { m: InAppMessage }) {
       {m.layout === "modal" && (
         <>
           <div className="ia-backdrop" />
-          <div className="ia-msg modal" style={vars}>
+          <div className="ia-msg ia-msg-modal" style={vars}>
             {img}
             <span className="ia-close" aria-hidden>×</span>
             <div className="ia-body">{text}{btns}</div>
@@ -323,13 +324,13 @@ function PhonePreview({ m }: { m: InAppMessage }) {
         </>
       )}
       {m.layout === "banner" && (
-        <div className={`ia-msg banner ${c.position === "bottom" ? "bottom" : "top"}${img ? "" : " no-img"}`} style={vars}>
+        <div className={`ia-msg ia-msg-banner ${c.position === "bottom" ? "ia-msg-bottom" : "ia-msg-top"}${img ? "" : " ia-msg-no-img"}`} style={vars}>
           {img}
           <div>{text}{btns}</div>
         </div>
       )}
       {m.layout === "fullscreen" && (
-        <div className="ia-msg fullscreen" style={vars}>
+        <div className="ia-msg ia-msg-fullscreen" style={vars}>
           {img}
           <span className="ia-close" aria-hidden>×</span>
           <div className="ia-body">{text}{btns}</div>
@@ -339,7 +340,7 @@ function PhonePreview({ m }: { m: InAppMessage }) {
   );
 }
 
-function SegmentPicker({ label, hint, segments, value, onChange }: { label: string; hint?: string; segments: Segment[]; value: number[]; onChange: (v: number[]) => void }) {
+export function SegmentPicker({ label, hint, segments, value, onChange }: { label: string; hint?: string; segments: Segment[]; value: number[]; onChange: (v: number[]) => void }) {
   const rest = segments.filter((s) => !value.includes(s.id));
   return (
     <div className="field">

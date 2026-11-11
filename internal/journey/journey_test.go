@@ -3,6 +3,7 @@ package journey
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -171,4 +172,43 @@ func (f *fakeStore) Jump(_ context.Context, en int64, target string) (int, error
 	f.jumps++
 	f.nodes[en] = [2]string{target, StatusActive}
 	return f.jumps, nil
+}
+
+// A form trigger enrolls on form_submitted: any form, or only the chosen one.
+func TestFormTrigger(t *testing.T) {
+	g, err := ParseGraph([]byte(`{"trigger":{"type":"form_submitted","form_id":4},"entry":"x","nodes":{"x":{"type":"exit"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Trigger.TriggerEventName() != EventFormSubmitted {
+		t.Errorf("event = %q", g.Trigger.TriggerEventName())
+	}
+	if !g.Trigger.MatchesEvent(map[string]any{"form_id": float64(4)}) || g.Trigger.MatchesEvent(map[string]any{"form_id": float64(5)}) {
+		t.Error("form 4 only")
+	}
+	anyForm := Trigger{Type: TriggerFormSubmitted}
+	if !anyForm.MatchesEvent(map[string]any{"form_id": float64(9)}) {
+		t.Error("any form")
+	}
+	if (Trigger{Type: TriggerEvent, Event: "signup"}).TriggerEventName() != "signup" || (Trigger{Type: TriggerSegmentEntered}).TriggerEventName() != "" {
+		t.Error("other triggers")
+	}
+	if _, err := ParseGraph([]byte(`{"trigger":{"type":"form_submitted","form_id":-1},"entry":"x","nodes":{"x":{"type":"exit"}}}`)); err == nil {
+		t.Error("a negative form id was accepted")
+	}
+}
+
+// Announce waits for every engine that reloaded recently, and ignores ones that stopped.
+func TestAllLoaded(t *testing.T) {
+	now := time.Now()
+	at := func(v int64, ago time.Duration) string { return fmt.Sprintf("%d:%d", v, now.Add(-ago).UnixMilli()) }
+	if !allLoaded(map[string]string{}, 5, now) {
+		t.Error("no engines: nothing to wait for")
+	}
+	if allLoaded(map[string]string{"a": at(5, time.Second), "b": at(4, time.Second)}, 5, now) {
+		t.Error("engine b hasn't loaded version 5")
+	}
+	if !allLoaded(map[string]string{"a": at(6, time.Second), "gone": at(1, time.Minute), "bad": "x"}, 5, now) {
+		t.Error("a stopped engine or a bad entry must not hold up the API")
+	}
 }

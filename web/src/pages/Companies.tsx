@@ -160,7 +160,7 @@ export function CompanyDetail() {
             <div className="panel-body">
               <p className="small muted">Contacts at this company</p>
               <div className="preview-count">{company ? <LiveNumber value={company.members} /> : "…"}</div>
-              <p className="xs muted" style={{ marginTop: 10 }}>Segment on it with “Works at company”, or on its attributes with “Company attribute”.</p>
+              <p className="xs muted" style={{ marginTop: 10 }}>Segment on it with the “Company” filter, or on its fields with “Company name” and “Other company field”.</p>
             </div>
           </aside>
         </div>

@@ -211,6 +211,12 @@ func (s *Store) PutSSO(ctx context.Context, tenant int64, c model.SSOConfig, sea
 	return err
 }
 
+// DeleteSSO removes a workspace's SSO settings and secret.
+func (s *Store) DeleteSSO(ctx context.Context, tenant int64) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM tenant_sso WHERE tenant_id = $1`, tenant)
+	return err
+}
+
 func (s *Store) TenantByBounceToken(ctx context.Context, token string) (int64, error) {
 	var id int64
 	err := s.db.QueryRow(ctx, `SELECT id FROM tenants WHERE bounce_token = $1 AND $1 <> ''`, token).Scan(&id)

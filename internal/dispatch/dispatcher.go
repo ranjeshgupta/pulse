@@ -5,17 +5,20 @@
 // then report the outcome as an event (email_sent, whatsapp_fallback, ...) so journeys, segments and
 // the dashboard see deliveries. WhatsApp and RCS messages that can't reach the contact fall back to
 // an SMS template, exactly once, whether the failure is immediate or arrives later as a receipt.
+// A send that fails temporarily is retried later for about two hours without holding up the
+// partition (retry.go), then recorded as <channel>_failed.
 package dispatch
 
 import (
-	"maps"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +28,7 @@ import (
 	"pulse/internal/assets"
 	"pulse/internal/attr"
 	"pulse/internal/auth"
+	"pulse/internal/broadcast"
 	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/delivery"
@@ -153,13 +157,17 @@ func (d *Dispatcher) Handle(ctx context.Context, r *kgo.Record) error {
 	if channel.Topic(m.Channel) != r.Topic {
 		return fmt.Errorf("message for %s on topic %s", m.Channel, r.Topic)
 	}
-	return d.Send(ctx, m)
+	return d.send(ctx, m, triesOf(r))
 }
 
 type target struct{ to, platform string }
 
 // Send delivers one message. Returning an error means "retry"; final outcomes are reported as events.
-func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
+func (d *Dispatcher) Send(ctx context.Context, m model.Message) error { return d.send(ctx, m, 0) }
+
+// send is Send for a message already tried tries times (a parked retry, see retry.go). A
+// temporary provider failure parks the message for a later try instead of returning an error.
+func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error {
 	sentKey := fmt.Sprintf("sent:%d:%s", m.TenantID, m.ID)
 	if n, err := d.rdb.Exists(ctx, sentKey).Result(); err != nil {
 		return err
@@ -171,7 +179,7 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 		return fmt.Errorf("load contact: %w", err)
 	}
 	if len(m.To) > 0 {
-		return d.sendInternal(ctx, sentKey, m, c)
+		return d.sendInternal(ctx, sentKey, m, c, tries)
 	}
 	t, err := d.template(ctx, m.TenantID, m.TemplateID)
 	if errors.Is(err, pg.ErrNotFound) {
@@ -192,6 +200,12 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	}
 	if t.Channel != m.Channel {
 		return d.finish(ctx, sentKey, m, c, "failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
+	}
+	// A local-time broadcast waits for its clock time in the contact's own zone.
+	if m.LocalAt != "" {
+		if due, ok := broadcast.LocalDue(m.LocalAt, localZone(c, m.LocalZone)); ok && due.After(d.now()) {
+			return d.holdUntil(ctx, m, c, due, "local", "sends at "+strings.Replace(m.LocalAt, "T", " ", 1)+" in the contact's time zone")
+		}
 	}
 	// Marketing messages respect the workspace's quiet hours and frequency caps; transactional ones don't.
 	if !t.Transactional {
@@ -298,13 +312,16 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	}
 
 	var sent, unreachable int
-	var lastErr error
+	var lastErr, transient error
 	for _, tg := range targets {
 		via := p
 		if m.Channel == channel.Push && providers.IsWebPushSubscription(tg.to) {
 			wp, err := d.webPusher(ctx, m.TenantID)
 			if err != nil {
 				lastErr = err
+				if providers.Transient(err) {
+					transient = err
+				}
 				continue
 			}
 			via = wp
@@ -327,11 +344,8 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 			}
 		case errors.Is(err, providers.ErrPermanent):
 			lastErr = err
-		default:
-			if len(targets) == 1 {
-				return fmt.Errorf("send %s: %w", m.Channel, err) // transient: retry the record
-			}
-			lastErr = err
+		default: // transient: network error, timeout, 429, 5xx
+			lastErr, transient = err, err
 		}
 	}
 	switch {
@@ -346,6 +360,11 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 
 		}
 		return d.finish(ctx, sentKey, m, c, "sent", "")
+	case transient != nil:
+		// Nothing went out and at least one target may work later: try the whole message again.
+		return d.retryLater(ctx, m, tries+1, fmt.Errorf("send %s: %w", m.Channel, transient), func(reason string) error {
+			return d.finish(ctx, sentKey, m, c, "failed", reason)
+		})
 	case lastErr == nil:
 		return d.finish(ctx, sentKey, m, c, "failed", "nothing was sent")
 	case m.Channel == channel.SMS && providers.Bounced(lastErr):
@@ -379,7 +398,7 @@ func (d *Dispatcher) replyTo(ctx context.Context, m model.Message, token string,
 // sendInternal sends a journey's "email to user": the email template rendered with the contact's
 // data, to workspace users or fixed addresses. It isn't the contact's message, so consent, caps,
 // quiet hours and tracking don't apply; it records notification_sent or notification_failed.
-func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.Message, c model.Contact) error {
+func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.Message, c model.Contact, tries int) error {
 	done := func(outcome, reason string) error {
 		props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID, "recipients": len(m.To)}
 		if reason != "" {
@@ -419,12 +438,15 @@ func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.M
 		return err
 	}
 	sent := 0
-	var last error
+	var last, transient error
 	for i, to := range m.To {
 		_, err := p.Send(ctx, providers.Outbound{TenantID: m.TenantID, MessageID: m.ID + ":" + strconv.Itoa(i), Channel: channel.Email,
 			To: to, From: d.cfg.From, Rendered: rendered})
 		if err != nil {
 			last = err
+			if providers.Transient(err) {
+				transient = err
+			}
 			continue
 		}
 		sent++
@@ -432,8 +454,10 @@ func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.M
 	switch {
 	case sent > 0:
 		return done("sent", "")
-	case len(m.To) == 1 && !errors.Is(last, providers.ErrPermanent) && !errors.Is(last, providers.ErrUnreachable):
-		return fmt.Errorf("send notification: %w", last) // transient: retry
+	case transient != nil:
+		return d.retryLater(ctx, m, tries+1, fmt.Errorf("send notification: %w", transient), func(reason string) error {
+			return done("failed", reason)
+		})
 	default:
 		return done("failed", last.Error())
 	}
@@ -626,23 +650,44 @@ func (d *Dispatcher) countSend(ctx context.Context, m model.Message) {
 
 // deferUntil holds a message until quiet hours end; RunDeferred sends it again then.
 func (d *Dispatcher) deferUntil(ctx context.Context, m model.Message, c model.Contact, until time.Time) error {
+	return d.holdUntil(ctx, m, c, until, "deferred", "quiet hours until "+until.UTC().Format(time.RFC3339))
+}
+
+// localZone is the zone a local-time message follows: the contact's own (timezone, or
+// geo_timezone from GeoIP), else the zone the broadcast was scheduled in.
+func localZone(c model.Contact, scheduled string) string {
+	for _, k := range []string{"timezone", "geo_timezone"} {
+		if tz, _ := c.Attrs[k].(string); tz != "" {
+			if _, err := time.LoadLocation(tz); err == nil {
+				return tz
+			}
+		}
+	}
+	return scheduled
+}
+
+// holdUntil parks a message until a time (RunDeferred sends it again then) and records a
+// <channel>_deferred event; kind keeps the event ids of different holds apart.
+func (d *Dispatcher) holdUntil(ctx context.Context, m model.Message, c model.Contact, until time.Time, kind, reason string) error {
 	b, _ := json.Marshal(m)
 	if err := d.rdb.ZAdd(ctx, deferredKey, redis.Z{Score: float64(until.UnixMilli()), Member: string(b)}).Err(); err != nil {
 		return err
 	}
-	rec, err := d.eventRecord("msg:"+m.ID+":deferred", m, c, "deferred", "quiet hours until "+until.UTC().Format(time.RFC3339))
+	rec, err := d.eventRecord("msg:"+m.ID+":"+kind, m, c, "deferred", reason)
 	if err != nil {
 		return err
 	}
 	return d.pub.Publish(ctx, rec)
 }
 
-// RunDeferred releases held messages whose quiet hours are over, until ctx is done.
+// RunDeferred releases held messages whose quiet hours are over, and parked retries that are due
+// (retry.go), until ctx is done.
 func (d *Dispatcher) RunDeferred(ctx context.Context) error {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
 		d.releaseDue(ctx)
+		d.releaseRetries(ctx)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

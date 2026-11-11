@@ -291,6 +291,8 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
   const contact = c.data?.contact;
   const merged = contact?.attrs.merged_into != null;
   const [merging, setMerging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const canEdit = useCan("contacts", "edit");
 
   return (
     <Drawer title={externalId} subtitle={contact?.email} onClose={onClose}>
@@ -298,12 +300,16 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
       {merged && (
         <div className="alert">This contact was merged into <strong>{String(contact!.attrs.merged_into)}</strong>. Their history now belongs to that contact; new events go there too.</div>
       )}
-      {contact && !merged && (
+      {contact && (
         <div className="row" style={{ marginBottom: 18 }}>
-          <button className="btn sm" onClick={() => setMerging(true)}>Merge into…</button>
+          {!merged && <button className="btn sm" onClick={() => setMerging(true)}>Merge into…</button>}
+          {canEdit && <a className="btn sm" href={`/v1/contacts/${id}/data`} download
+            title="Everything Pulse keeps about this person (profile, consent, segments, events) as a JSON file, for a data access request">Download data</a>}
+          {canEdit && <button className="btn sm danger" onClick={() => setDeleting(true)}>Delete contact</button>}
         </div>
       )}
       {merging && contact && <MergeModal loser={contact} onClose={() => setMerging(false)} />}
+      {deleting && contact && <DeleteContactModal contact={contact} onClose={() => setDeleting(false)} onDeleted={onClose} />}
       <h3 style={{ marginBottom: 10 }}>Segments</h3>
       {c.data && c.data.segments.length === 0 && <p className="muted small">Not in any segment right now.</p>}
       <div className="row" style={{ marginBottom: 22 }}>
@@ -336,6 +342,36 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
         </tbody>
       </table>
     </Drawer>
+  );
+}
+
+// DeleteContactModal permanently deletes a contact (an erasure request): the profile, events,
+// segment memberships, devices, inbox, journey progress and form uploads. Typing DELETE confirms it.
+function DeleteContactModal({ contact, onClose, onDeleted }: { contact: Contact; onClose: () => void; onDeleted: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [typed, setTyped] = useState("");
+  const remove = useMutation({
+    mutationFn: () => api.del(`/v1/contacts/${encodeURIComponent(contact.external_id)}`),
+    onSuccess: () => {
+      toast({ text: `Deleted ${contact.external_id}` });
+      qc.removeQueries({ queryKey: ["contact", contact.external_id] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      onClose();
+      onDeleted();
+    },
+  });
+  return (
+    <Modal title={`Delete ${contact.external_id}?`} onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn danger" disabled={typed !== "DELETE" || remove.isPending} onClick={() => remove.mutate()}>Delete contact</button>
+    </>}>
+      <p className="small muted" style={{ marginBottom: 12 }}>
+        This permanently deletes the contact with their attributes, event history, segment memberships, devices, inbox messages, journey progress and files they uploaded through forms. It can't be undone. Download their data first if you need a copy. If your website or servers send new events for this ID, a new contact is created.
+      </p>
+      <Field label="Type DELETE to confirm"><input className="input" autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="Type DELETE to confirm" /></Field>
+      <ErrorNote error={remove.error} />
+    </Modal>
   );
 }
 

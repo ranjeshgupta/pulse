@@ -83,7 +83,7 @@ func (t *Twilio) Send(ctx context.Context, o Outbound) (Result, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	req.SetBasicAuth(t.AccountSID, t.AuthToken)
-	code, body, err := call(t.HTTP, req)
+	code, body, hdr, err := call(t.HTTP, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -105,7 +105,7 @@ func (t *Twilio) Send(ctx context.Context, o Outbound) (Result, error) {
 	if code >= 200 && code < 300 {
 		return Result{}, Permanent(fmt.Sprintf("twilio: response without sid: %.300s", body)) // may have been sent: don't retry
 	}
-	return Result{}, StatusError("twilio", code, string(body))
+	return Result{}, StatusError("twilio", code, string(body), hdr)
 }
 
 // ParseReceipts handles a status callback (one message per request).

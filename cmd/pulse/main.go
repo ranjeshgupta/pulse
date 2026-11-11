@@ -11,6 +11,8 @@
 //	pulse integrations  CRM pulls on a schedule, ad audience sync (segment.membership, events.enriched),
 //	                    bounce mailboxes (IMAP)
 //	pulse all       migrate, then every role in one process (local development)
+//	pulse replay-dlq [--limit N] [--dry-run] <topic or channel>
+//	                move records from <topic>.dlq back to <topic> (after fixing what failed them)
 //
 // In production each role is its own deployment and scales on its own Kafka consumer group.
 package main
@@ -27,6 +29,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // time zones (quiet hours, local-time broadcasts) without zoneinfo in the image
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
@@ -71,19 +74,25 @@ var roles = map[string]func(context.Context, *deps) error{
 	"webhooks":     runWebhooks,
 	"integrations": runIntegrations,
 	"all":          runAll,
+	"replay-dlq":   runReplayDLQ,
 }
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if len(os.Args) < 2 || roles[os.Args[1]] == nil {
-		fmt.Fprintln(os.Stderr, "usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|integrations|all")
+		fmt.Fprintln(os.Stderr, "usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|integrations|all|replay-dlq")
 		os.Exit(2)
 	}
 	role := os.Args[1]
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	d := &deps{cfg: config.Load(), base: log, log: log.With("role", role)}
+	cfg, err := config.Load()
+	if err != nil {
+		log.Error("bad settings", "role", role, "err", err)
+		os.Exit(2)
+	}
+	d := &deps{cfg: cfg, base: log, log: log.With("role", role)}
 	defer d.close()
 	if err := roles[role](ctx, d); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("exit", "role", role, "err", err)
@@ -208,6 +217,11 @@ func (d *deps) close() {
 	}
 }
 
+// pipelineTopics are the topics `pulse migrate` creates, each with a .dlq twin.
+func pipelineTopics() []string {
+	return append([]string{event.TopicRaw, event.TopicEnriched, event.TopicMembership}, dispatch.Topics()...)
+}
+
 func runMigrate(ctx context.Context, d *deps) error {
 	pgs, err := d.pg(ctx)
 	if err != nil {
@@ -231,8 +245,7 @@ func runMigrate(ctx context.Context, d *deps) error {
 	}
 	var kerr error
 	for i := 0; i < 30; i++ { // the broker may still be starting
-		topics := append([]string{event.TopicRaw, event.TopicEnriched, event.TopicMembership}, dispatch.Topics()...)
-		if kerr = kafka.EnsureTopics(ctx, d.cfg.KafkaBrokers, d.cfg.Partitions, topics...); kerr == nil {
+		if kerr = kafka.EnsureTopics(ctx, d.cfg.KafkaBrokers, d.cfg.Partitions, pipelineTopics()...); kerr == nil {
 			break
 		}
 		time.Sleep(time.Second)
@@ -272,7 +285,7 @@ func runAPI(ctx context.Context, d *deps) error {
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
-		Tracking: d.tracking(box),
+		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
 	})
 	srv := &http.Server{
 		Addr:              d.cfg.HTTPAddr,
@@ -404,6 +417,7 @@ func runJourneys(ctx context.Context, d *deps) error {
 	defer c.Close()
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return eng.RunTimers(ctx) })
+	g.Go(func() error { return eng.WatchChanges(ctx, rdb) })
 	g.Go(func() error { return runBroadcasts(ctx, pgs, d, prod) })
 	g.Go(func() error { return runImports(ctx, pgs, d, prod) })
 	g.Go(func() error { return runMaintenance(ctx, pgs, d) })

@@ -3,12 +3,14 @@ package api
 // Handlers for marketing objects: events, segments, templates, journeys, contacts.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
@@ -181,7 +183,12 @@ func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, p model.P
 	if !ok {
 		return
 	}
-	status := map[string]string{"activate": "active", "pause": "paused"}[r.PathValue("action")]
+	action := r.PathValue("action")
+	if action == "archive" || action == "unarchive" {
+		s.archiveJourney(w, r, tenant, id, action == "archive")
+		return
+	}
+	status := map[string]string{"activate": "active", "pause": "paused"}[action]
 	if status == "" {
 		writeErr(w, http.StatusNotFound, "unknown action")
 		return
@@ -193,6 +200,10 @@ func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, p model.P
 				s.fail(w, err)
 				return
 			}
+			if j.ArchivedAt != nil {
+				writeErr(w, http.StatusConflict, "restore the journey from the archive before activating it")
+				return
+			}
 			if g, err := journey.ParseGraph(j.Graph); err == nil && !deletePermOK(w, p, g) {
 				return
 			}
@@ -202,7 +213,49 @@ func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, p model.P
 		s.fail(w, err)
 		return
 	}
+	s.journeysChanged(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": status})
+}
+
+// JourneyArchiveStore archives journeys that have run (they can't be deleted).
+type JourneyArchiveStore interface {
+	SetJourneyArchived(ctx context.Context, tenant, id int64, archived bool) error
+	JourneysThatRan(ctx context.Context, tenant int64) (map[int64]bool, error)
+}
+
+// archiveJourney hides a paused or draft journey from the list (archive) or brings it back
+// (unarchive). Its enrollments and reports are kept.
+func (s *Server) archiveJourney(w http.ResponseWriter, r *http.Request, tenant, id int64, archived bool) {
+	as, ok := s.Store.(JourneyArchiveStore)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "archiving isn't available")
+		return
+	}
+	if err := as.SetJourneyArchived(r.Context(), tenant, id, archived); err != nil {
+		if pg.IsUserError(err) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		s.fail(w, err)
+		return
+	}
+	s.journeysChanged(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "archived": archived})
+}
+
+// journeysChanged tells the journey engines to reload now (activate, pause, edit, archive, delete)
+// and waits up to 3 seconds until they have, so "new matches enter it immediately" holds once the
+// request answers. Engines also reload every 2 seconds regardless.
+func (s *Server) journeysChanged(ctx context.Context) {
+	if s.RDB == nil {
+		return
+	}
+	ok, err := journey.Announce(ctx, s.RDB, 3*time.Second)
+	if err != nil {
+		s.Log.Warn("announce journey change", "err", err)
+	} else if !ok {
+		s.Log.Warn("a journey worker didn't confirm the change within 3 s; it reloads within 2 s")
+	}
 }
 
 func (s *Server) journeyStats(w http.ResponseWriter, r *http.Request, tenant int64) {

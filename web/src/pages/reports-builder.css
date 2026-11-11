@@ -36,6 +36,8 @@
 
 .rb-out { transition: opacity 0.15s; }
 .rb-desc { margin: 0 0 14px; }
+.rb-out-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rb-out-head .btn { flex: none; }
 .rb-period { margin: 14px 0 0; }
 
 .rb-figure { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 4px; }

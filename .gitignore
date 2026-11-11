@@ -2,4 +2,6 @@
 /pulse
 *.test
 web/node_modules/
-web/dist/
+# web/dist holds the built app; .gitkeep stays committed so the Go embed compiles on a fresh clone
+web/dist/*
+!web/dist/.gitkeep
