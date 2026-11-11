@@ -15,7 +15,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Activity timeline | ✅ | ✅ | ✅ | |
 | Unsubscribe, do-not-contact, per-channel consent | ✅ | ✅ | ✅ per channel and "everything", honored by every send (`*_suppressed`), editable per contact | |
 | Preference center | ✅ | 🟡 | ✅ per-channel switches and public lists; `{{.PreferencesURL}}`, unsubscribe page link, API-minted links | |
-| SMS / WhatsApp reply keywords (STOP, START) | ✅ | ✅ | ✅ Twilio and Meta inbound webhooks; editable keyword lists; replies recorded as `<channel>_received` | RCS replies: P2 |
+| SMS / WhatsApp reply keywords (STOP, START) | ✅ | ✅ | ✅ Twilio and Meta inbound webhooks; editable keyword lists; replies recorded as `<channel>_received`; RCS replies and suggestion taps (Google RBM webhook) with STOP/START and `rcs_replied` for journeys | RCS: a reply is matched to the latest RCS message of the last 7 days (RBM doesn't link them) |
 | CSV import and export | ✅ | ✅ | ✅ import through the live pipeline; export with one column per attribute; background imports of any size (up to 10 GB) with progress and cancel | |
 | Attribute definitions (type, label, PII flag) | ✅ | ✅ | ✅ Settings, Attributes; typed inputs in the segment builder; imports convert numbers and yes/no | |
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
@@ -88,13 +88,13 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Provider connection test, per provider | 🟡 | ✅ | ✅ this change | |
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
 | Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{.UnsubscribeURL}}`, RFC 8058 one-click, confirm page | |
-| Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe | SMTP DSN mailbox parsing: P2 |
+| Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe; an IMAP bounce mailbox read every 5 minutes for DSN (RFC 3464) and ARF (RFC 5965) reports | Non-standard plain-text bounces aren't read; one mailbox per workspace |
 | Plain-text part, attachments | ✅ | 🟡 | ✅ every email is multipart/alternative: the template's own text or one generated from the HTML (links as "text (url)", direct, plus the unsubscribe link); up to 10 asset attachments (10 MB together) in multipart/mixed; the custom gateway gets signed 7-day download links; preview shows the text part and the files | P2 |
 | SMS (Twilio, MSG91) | ✅ | ✅ | ✅ adapters, not tried on live accounts | |
 | WhatsApp (Meta Cloud) with SMS fallback | ⬜ | ✅ | ✅ | |
 | RCS (Google RBM) with SMS fallback | ⬜ | ✅ | ✅ | |
-| Mobile push (FCM) | ✅ | ✅ | ✅ adapter, tokens via API | SDK next |
-| Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work | Click tracking: P2 |
+| Mobile push (FCM) | ✅ | ✅ | ✅ adapter; tokens from the Flutter, Android and iOS SDKs; taps tracked by the native SDKs (`push_clicked`, "clicked" journey decision) | iOS via FCM tokens (no direct APNs); dismissals only where the OS reports them |
+| Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work; clicks and dismissals reported by the service worker (`push_clicked` / `push_dismissed`) | Browsers report dismissals unevenly; FCM web tokens (Firebase's own worker) aren't tracked |
 | App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
 | In-app messages (modal, banner, full screen) | ⬜ | ✅ | ✅ campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; editor with phone preview, "see what a contact gets" and test send; rendered by the Flutter SDK; shown/clicked/dismissed stats | |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
@@ -109,7 +109,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Schedule on-site content (start, optional end) | 🟡 | ✅ | ✅ this change | |
 | "See what a contact would see" check | 🟡 | 🟡 | ✅ this change | |
 | Rendering on websites (JS SDK) | ✅ | ✅ | ✅ `/sdk/pulse.js` (3 KB gzipped): focus items with all triggers and frequency caps, content slots | |
-| Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; lists, tags, consent opt-in; honeypot, fill time, rate limit; submissions log | File uploads, multi-page forms: P2 |
+| Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; lists, tags, consent opt-in; honeypot, fill time, rate limit; submissions log; file uploads (types checked against content, size limits, private downloads) and multi-page forms (page breaks, per-page checks, progress bar) | Files uploaded on a page with errors must be chosen again; no-script browsers see all pages at once |
 | Landing pages | ✅ | ⬜ | ✅ `/p/{workspace}/{page}`, drag-and-drop, rich text or HTML, title and meta description, embedded forms (`{form:KEY}`), draft/published with a schedule; nonce CSP (only the Pulse SDK runs, scripts and handlers stripped), frameable; `landing_page_viewed` via the web SDK; views, unique visitors, form submissions; script-free preview | P2 |
 | Assets (gated downloads) | ✅ | ⬜ | ✅ uploads up to 25 MB (type allowlist checked against file signatures) kept in Postgres; `/a/{key}` open or gated by a form (15-minute sealed link, `asset_downloaded` for the submitter); always `Content-Disposition: attachment`, nosniff, sandbox CSP; download counts; email attachments | P2 |
 
@@ -132,11 +132,11 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Multi-tenant workspaces | ⬜ | ✅ | ✅ | |
 | Password sign-in, SSO (OIDC: Keycloak, Entra ID, Okta, Google) | 🟡 SAML | ✅ | ✅ tested against Keycloak | |
 | Roles | ✅ granular | ✅ | ✅ admin, editor, viewer and custom roles: none/view/edit/publish per area, enforced on every route | |
-| Audit log | 🟡 | ✅ | ✅ every change through the app or API (secrets redacted) and every sign-in | Retention settings, export: P2 |
+| Audit log | 🟡 | ✅ | ✅ every change through the app or API (secrets redacted) and every sign-in; retention setting; CSV / JSON export with person, type and date filters | |
 | REST API with keys | ✅ | ✅ | ✅ | |
 | Outbound webhooks on events | ✅ | ✅ | ✅ any event or segment entry/exit; HMAC-signed; retries over ~7 hours; delivery log; test send | |
 | Integrations (CRM, Zapier, Shopify) | ✅ plugins | ✅ | ✅ HubSpot and Salesforce (scheduled pull with field mapping, push on demand and from journeys), Shopify webhooks (orders, customers, checkouts), Zapier / Make REST hooks (triggers and actions with the connector's own key); masked secrets, test connection, previews, sync log | See [Integrations](#integrations-batch-8a) |
-| Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | ✅ web SDK (track, identify, page views, on-site, forms, web push); Flutter SDK for Android and iOS apps (`sdks/flutter/pulse_sdk`) | Native Kotlin and Swift SDKs: P2 |
+| Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | ✅ web SDK (track, identify, page views, on-site, forms, web push); Flutter SDK (`sdks/flutter/pulse_sdk`); native Kotlin (`sdks/android`) and Swift (`sdks/ios`) SDKs | Native cores unit-tested in Docker; the Android module compiled and linted, never run on a device; the iOS UIKit code not yet compiled (no Xcode here) |
 
 ## Order to close the gaps
 
@@ -192,8 +192,8 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
    - **Batch 8, integrations and reach:**
      - ✅ **Batch 8a (done 2026-11-11):** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, the
        "Push contact to integration" journey step. See [Integrations](#integrations-batch-8a).
-     - **Batch 8b:** native Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file
-       uploads and multi-page forms, audit log export.
+     - ✅ **Batch 8b (done 2026-11-11):** native Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push
+       click tracking, form file uploads and multi-page forms, audit log export. See [Batch 8b](#batch-8b).
 
 9. **After batch 8 (requested 2026-11-11), in this order:**
    - **Batch 9, contact views and one clear navigation:**
@@ -396,3 +396,17 @@ sent, so a removal (or a changed address) removes exactly what was added. A full
 now", on resume and every `PULSE_AUDIENCE_RECONCILE_INTERVAL` (24 h): it walks the segment bitmap and everyone uploaded,
 which also removes deleted contacts. A failing link backs off (up to 10 minutes) and shows the error; the counts are
 in the audience now, added, removed, left out (no consent or nothing to match) and waiting.
+
+## Batch 8b
+
+| Item | What Pulse does | Approximate / missing |
+|---|---|---|
+| Android SDK (`sdks/android`) | `pulse-core` (plain Kotlin/JVM: queue, batching, backoff, sessions, validation, inbox, in-app logic, push click reports, opt-out, storage namespaced by site key) and `pulse-android` (SharedPreferences, lifecycle, device props, notification click / dismiss helpers, FCM token by reflection, in-app Activity) | Core: 44 unit tests in `gradle:8-jdk17`. `pulse-android` compiled and linted in an Android SDK image only: never run on a device, no tests of its own. In-app layouts are basic. Dismissals of notifications FCM shows itself aren't reported |
+| iOS SDK (`sdks/ios`) | Swift package: `PulseCore` (Foundation only, same features) and `Pulse` (UIKit / UserNotifications behind `#if canImport`: lifecycle, device props, `PulseNotificationDelegate`, in-app presenter) | Core: 33 unit tests in `swift:5.10` on Linux. The UIKit / UserNotifications code has never been compiled (no Xcode here): expect small fixes on first build. Dismissals need a category with `.customDismissAction`. Push goes through FCM tokens |
+| RCS replies | Google RBM webhook: URL check, HMAC-SHA512 signature with the agent's client token, delivered / read receipts, typed replies and suggestion taps (`suggestion`, `postback` props) as `rcs_received`, STOP / START keywords, `rcs_replied`; "replied" in RCS message decisions; the Channels sandbox simulates typed replies and taps | RBM doesn't say which message a reply answers: it counts for the latest RCS message the contact got in the last 7 days. Replies aren't in broadcast / journey report counts. Files and locations sent by users are ignored |
+| SMTP bounce mailbox | IMAP (TLS or STARTTLS; plain only in development) through the SSRF guard; password sealed and masked, needed again when server or user change; test connection, check now, last check / error / counts; DSN and ARF parsing (nested reports, base64 parts); stable event ids; read messages flagged `\Seen` | One mailbox per workspace; every unread message in it is marked read (use a dedicated mailbox); non-standard plain-text bounces and VERP addresses aren't read; OAuth (Gmail / Microsoft 365 XOAUTH2) sign-in isn't supported |
+| Push click tracking | `data.pulse_track` on every push; `POST /t/p/{token}?a=clicked` (or `dismissed`); the web service worker and the native SDKs report; `push_clicked` counts in reports; "clicked" push decisions | No link filter on push clicks; the Flutter SDK doesn't report taps yet |
+| Form uploads | `file` fields: accepted types (PDF, images, Office, text/CSV), 1-10 MB, at most 5 per form; content signature plus content sniffing; private assets within the workspace's 2 GB; download link in the submissions list for users with contacts access; deleted with the form or the contact | No virus scanning; files aren't shown on the contact's profile, only in the form's submissions |
+| Multi-page forms | `page_break` fields with page titles (up to 10 pages), Next / Back with per-page checks and a progress bar on the hosted page, gated asset pages and web SDK embeds; preview in the builder and the landing page preview | Without scripts the hosted page shows every page at once; server checks happen on submit (the page with the first error opens) |
+| Audit log export | CSV (formula-safe) or JSON, filters for person, object type and date range, streamed in pages of 1,000; buttons on the Audit log page | |
+

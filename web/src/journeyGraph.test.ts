@@ -174,6 +174,7 @@ describe("app inbox and message decisions", () => {
     expect(OUTCOMES.whatsapp).toEqual(["delivered", "read"]);
     expect(OUTCOMES.email).toContain("replied");
     expect(OUTCOMES.sms).not.toContain("replied");
+    expect(OUTCOMES.rcs).toContain("replied");
   });
 
   it("forgets a removed send step and preselects the only one", () => {

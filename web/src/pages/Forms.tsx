@@ -3,11 +3,12 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Form, type FormField, type FormFieldType, type FormSettings, type FormStats, type Segment } from "../api";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast, useCopy } from "../ui";
+import { DEFAULT_FILE_MB, formPages, layoutProblems, MAX_FILE_MB, UPLOAD_KINDS, uploadOf } from "./formPages";
 import "./forms.css";
 
 const TYPE_LABEL: Record<FormFieldType, string> = {
   text: "Short text", email: "Email", tel: "Phone", number: "Number", textarea: "Long text",
-  select: "Dropdown", checkbox: "Checkbox", hidden: "Hidden",
+  select: "Dropdown", checkbox: "Checkbox", hidden: "Hidden", file: "File upload", page_break: "Page break",
 };
 const DEFAULT_ACCENT = "#2747d6";
 const MAX_FIELDS = 30;
@@ -50,7 +51,7 @@ export function FormList() {
               return (
                 <tr key={f.id}>
                   <td><Link to={`/forms/${f.id}`}>{f.name}</Link></td>
-                  <td className="num">{f.fields.length}</td>
+                  <td className="num">{f.fields.filter((x) => x.type !== "page_break").length}</td>
                   <td>{f.status === "active" ? (
                     <div className="row" style={{ gap: 4 }}>
                       <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer">Open</a>
@@ -99,11 +100,16 @@ function newDraft(): Draft {
 /** The Form body the API takes. */
 function toForm(d: Draft): Omit<Form, "id" | "public_key"> {
   const fields = d.rows.map(({ f, optText }) => {
+    if (f.type === "page_break") return { key: "", label: f.label.trim(), type: f.type } as FormField;
     const out: FormField = { key: f.key.trim(), label: f.label.trim(), type: f.type };
+    if (f.type === "file") {
+      if (f.accept?.length) out.accept = f.accept;
+      if (f.max_mb) out.max_mb = f.max_mb;
+    }
     if (f.type !== "hidden" && f.required) out.required = true;
     if (f.type === "select") out.options = splitList(optText, true);
     if (f.type === "hidden" && f.default) out.default = f.default;
-    if (f.type !== "hidden" && f.progressive) out.progressive = true;
+    if (f.type !== "hidden" && f.type !== "file" && f.progressive) out.progressive = true;
     return out;
   });
   const s = d.settings;
@@ -127,14 +133,19 @@ function check(d: Draft): { rowErr: Map<number, string>; problems: string[] } {
   const problems: string[] = [];
   const seen = new Set<string>();
   let identifies = false;
-  d.rows.forEach(({ uid, f, optText }) => {
+  const layout = layoutProblems(d.rows.map((r) => r.f));
+  d.rows.forEach(({ uid, f, optText }, i) => {
+    if (f.type === "page_break") {
+      if (layout.at.get(i)) rowErr.set(uid, layout.at.get(i)!);
+      return;
+    }
     const k = f.key.trim();
-    let err = "";
+    let err = layout.at.get(i) ?? "";
     if (!k) err = "Give it a key.";
     else if (!KEY_RE.test(k)) err = "Keys use letters, digits and _ only, and start with a letter.";
     else if (k.startsWith("optout_") || RESERVED.has(k)) err = `"${k}" is managed by Pulse; pick another key.`;
     else if (seen.has(k)) err = `"${k}" is used by another field.`;
-    else if (f.type !== "hidden" && !f.label.trim()) err = "Add a label.";
+    else if (!err && f.type !== "hidden" && !f.label.trim()) err = "Add a label.";
     else if (f.type === "select" && splitList(optText, true).length === 0) err = "Add the dropdown's options.";
     else if (k === "email" && f.type !== "email") err = "The email key needs the Email type.";
     else if (k === "phone" && f.type !== "tel") err = "The phone key needs the Phone type.";
@@ -142,6 +153,7 @@ function check(d: Draft): { rowErr: Map<number, string>; problems: string[] } {
     if ((k === "email" && f.type === "email") || (k === "phone" && f.type === "tel")) identifies = true;
     if (err) rowErr.set(uid, err);
   });
+  problems.push(...layout.problems);
   if (d.rows.length === 0) problems.push("Add at least one field.");
   if (d.rows.length > MAX_FIELDS) problems.push(`A form can have up to ${MAX_FIELDS} fields.`);
   if (d.rows.length && !identifies) problems.push("Add an Email field (key email) or a Phone field (key phone). It's how Pulse knows who filled in the form.");
@@ -201,6 +213,7 @@ export function FormEdit() {
   const addField = () => {
     set({ rows: [...d.rows, row({ key: d.rows.length ? "" : "email", label: "", type: d.rows.length ? "text" : "email" }, true)] });
   };
+  const addPageBreak = () => set({ rows: [...d.rows, row({ key: "", label: "", type: "page_break" })] });
 
   const { rowErr, problems } = check(d);
   const blocker = !body.name ? "Name the form." : rowErr.size ? "Fix the fields marked in red." : problems[0];
@@ -245,13 +258,33 @@ export function FormEdit() {
 
           <section className="section" style={{ marginTop: 10 }}>
             <h3 style={{ marginBottom: 4 }}>Fields</h3>
-            <p className="small muted" style={{ marginBottom: 12 }}>Each field saves to the contact attribute named by its key. You need an Email or Phone field: it says who filled in the form.</p>
+            <p className="small muted" style={{ marginBottom: 12 }}>Each field saves to the contact attribute named by its key (file uploads are kept with the submission instead). You need an Email or Phone field: it says who filled in the form. Page breaks split long forms into steps with a progress bar.</p>
             {problems.length > 0 && (
               <div className="alert info">{problems.length === 1 ? problems[0] : <ul style={{ margin: 0, paddingLeft: 18 }}>{problems.map((p) => <li key={p}>{p}</li>)}</ul>}</div>
             )}
             {d.rows.map((r, i) => {
               const f = r.f;
               const identifies = f.key === "email" || f.key === "phone";
+              if (f.type === "page_break") {
+                const pageNo = d.rows.slice(0, i + 1).filter((x) => x.f.type === "page_break").length + 1;
+                return (
+                  <div className="ff ff-break" key={r.uid}>
+                    <div className="ff-break-head"><span>Page {pageNo} starts here</span></div>
+                    <Field label="Page title (optional)" hint="Shown at the top of the page, e.g. “About your company”.">
+                      <input className="input" value={f.label} placeholder="Next page" onChange={(e) => setRow(r.uid, {}, { label: e.target.value })} />
+                    </Field>
+                    {rowErr.get(r.uid) && <p className="ff-err">{rowErr.get(r.uid)}</p>}
+                    <div className="ff-foot">
+                      <span className="ff-num">{i + 1}</span>
+                      <div className="row" style={{ gap: 2 }}>
+                        <button className="btn ghost sm" disabled={i === 0} onClick={() => move(i, -1)}>Move up</button>
+                        <button className="btn ghost sm" disabled={i === d.rows.length - 1} onClick={() => move(i, 1)}>Move down</button>
+                        <button className="btn ghost sm" onClick={() => set({ rows: d.rows.filter((x) => x.uid !== r.uid) })}>Remove</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div className="ff" key={r.uid}>
                   <div className="ff-main">
@@ -265,7 +298,7 @@ export function FormEdit() {
                     </Field>
                     <Field label="Type">
                       <select className="select" value={f.type} onChange={(e) => setRow(r.uid, {}, { type: e.target.value as FormFieldType })}>
-                        {Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        {Object.entries(TYPE_LABEL).filter(([k]) => k !== "page_break").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                       </select>
                     </Field>
                   </div>
@@ -279,6 +312,30 @@ export function FormEdit() {
                       <input className="input" value={f.default ?? ""} onChange={(e) => setRow(r.uid, {}, { default: e.target.value })} placeholder="website" />
                     </Field>
                   )}
+                  {f.type === "file" && (
+                    <div className="grid-2">
+                      <div className="field">
+                        <span>Accepted files</span>
+                        <div className="checks-box">
+                          {UPLOAD_KINDS.map((k) => {
+                            const on = !f.accept?.length || k.exts.every((x) => f.accept!.includes(x));
+                            const toggle = () => {
+                              const cur = f.accept?.length ? f.accept : UPLOAD_KINDS.flatMap((x) => x.exts);
+                              const next = on ? cur.filter((x) => !k.exts.includes(x)) : [...cur, ...k.exts];
+                              const all = UPLOAD_KINDS.every((x) => x.exts.every((e) => next.includes(e)));
+                              setRow(r.uid, {}, { accept: all ? undefined : next.length ? next : cur });
+                            };
+                            return <label className="check" key={k.label}><input type="checkbox" checked={on} onChange={toggle} /> {k.label}</label>;
+                          })}
+                        </div>
+                        <small>Checked against the file's content, not just its name. Files are private: only people with access to contacts can download them.</small>
+                      </div>
+                      <Field label="Size limit (MB)" hint={`1 to ${MAX_FILE_MB} MB.`}>
+                        <input className="input" type="number" min={1} max={MAX_FILE_MB} value={f.max_mb ?? DEFAULT_FILE_MB}
+                          onChange={(e) => setRow(r.uid, {}, { max_mb: Math.max(0, Math.round(Number(e.target.value))) || undefined })} />
+                      </Field>
+                    </div>
+                  )}
                   {rowErr.get(r.uid) && <p className="ff-err">{rowErr.get(r.uid)}</p>}
                   <div className="ff-foot">
                     <div className="row" style={{ gap: 16 }}>
@@ -286,9 +343,11 @@ export function FormEdit() {
                       {f.type !== "hidden" && (
                         <>
                           <label className="check"><input type="checkbox" checked={!!f.required} onChange={(e) => setRow(r.uid, {}, { required: e.target.checked })} /> Required</label>
-                          <label className="check" title={identifies ? "Email and phone always show: they identify the submitter." : "Works when the form is embedded with the web SDK and Pulse knows the visitor."}>
-                            <input type="checkbox" disabled={identifies} checked={!!f.progressive && !identifies} onChange={(e) => setRow(r.uid, {}, { progressive: e.target.checked })} /> Hide when already known
-                          </label>
+                          {f.type !== "file" && (
+                            <label className="check" title={identifies ? "Email and phone always show: they identify the submitter." : "Works when the form is embedded with the web SDK and Pulse knows the visitor."}>
+                              <input type="checkbox" disabled={identifies} checked={!!f.progressive && !identifies} onChange={(e) => setRow(r.uid, {}, { progressive: e.target.checked })} /> Hide when already known
+                            </label>
+                          )}
                         </>
                       )}
                     </div>
@@ -301,7 +360,10 @@ export function FormEdit() {
                 </div>
               );
             })}
-            <button className="btn sm" disabled={d.rows.length >= MAX_FIELDS} onClick={addField}>Add field</button>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn sm" disabled={d.rows.length >= MAX_FIELDS} onClick={addField}>Add field</button>
+              <button className="btn sm" disabled={d.rows.length >= MAX_FIELDS || d.rows.length === 0} onClick={addPageBreak} title="Split the form into pages: each page is checked before the next one shows">Add page break</button>
+            </div>
           </section>
 
           <section className="section">
@@ -400,10 +462,14 @@ export function FormEdit() {
 
 function Preview({ form }: { form: ReturnType<typeof toForm> }) {
   const [picked, setView] = useState<"new" | "known" | "done">("new");
+  const [page, setPage] = useState(0);
   const s = form.settings;
   const progressive = form.fields.some((f) => f.progressive);
   const view = picked === "known" && !progressive ? "new" : picked;
-  const fields = form.fields.filter((f) => f.type !== "hidden" && !(view === "known" && f.progressive && f.key !== "email" && f.key !== "phone"));
+  const shown = form.fields.filter((f) => f.type !== "hidden" && !(view === "known" && f.progressive && f.key !== "email" && f.key !== "phone"));
+  const pages = formPages(shown).filter((p, i) => i === 0 || p.fields.length > 0);
+  const cur = Math.min(page, pages.length - 1);
+  const lastPage = cur === pages.length - 1;
   const hidden = form.fields.filter((f) => f.type === "hidden");
   return (
     <div>
@@ -424,7 +490,14 @@ function Preview({ form }: { form: ReturnType<typeof toForm> }) {
           <form onSubmit={(e) => e.preventDefault()} noValidate>
             <h1>{form.name || "Your form"}</h1>
             {s.description && <p className="desc">{s.description}</p>}
-            {fields.map((f, i) =>
+            {pages.length > 1 && (
+              <div className="steps">
+                <span>Page {cur + 1} of {pages.length}</span>
+                <div className="bar"><i style={{ width: `${Math.round(((cur + 1) * 100) / pages.length)}%` }} /></div>
+              </div>
+            )}
+            {pages[cur].title && <p className="page-title">{pages[cur].title}</p>}
+            {pages[cur].fields.map((f, i) =>
               f.type === "checkbox" ? (
                 <label key={i} className="pcheck"><input type="checkbox" /> <span>{f.label}{f.required && <span className="req"> *</span>}</span></label>
               ) : (
@@ -432,16 +505,25 @@ function Preview({ form }: { form: ReturnType<typeof toForm> }) {
                   {f.label || <span className="faint">No label</span>}{f.required && <span className="req" aria-hidden="true"> *</span>}
                   {f.type === "textarea" ? <textarea /> : f.type === "select" ? (
                     <select defaultValue=""><option value="">Choose…</option>{(f.options ?? []).map((o) => <option key={o}>{o}</option>)}</select>
+                  ) : f.type === "file" ? (
+                    <>
+                      <input type="file" accept={(f.accept ?? []).join(",") || undefined} />
+                      <span className="hint">Up to {f.max_mb || DEFAULT_FILE_MB} MB.</span>
+                    </>
                   ) : <input type={f.type} placeholder={f.type === "tel" ? "+91 98123 45678" : undefined} />}
                 </label>
               ),
             )}
-            {s.consent_text && <label className="pcheck"><input type="checkbox" /> <span>{s.consent_text}</span></label>}
-            <button type="submit">{s.submit_text || "Submit"}</button>
+            {lastPage && s.consent_text && <label className="pcheck"><input type="checkbox" /> <span>{s.consent_text}</span></label>}
+            <div className="nav">
+              {cur > 0 && <button type="button" className="back" onClick={() => setPage(cur - 1)}>Back</button>}
+              {lastPage ? <button type="submit">{s.submit_text || "Submit"}</button> : <button type="button" onClick={() => setPage(cur + 1)}>Next</button>}
+            </div>
           </form>
         )}
       </div>
       {view === "known" && <p className="xs muted" style={{ marginTop: 8 }}>A visitor Pulse already knows, with values for every “Hide when already known” field. Works when the form is embedded with the web SDK.</p>}
+      {view !== "done" && pages.length > 1 && <p className="xs muted" style={{ marginTop: 8 }}>Visitors move on only when the page's fields are filled in correctly; everything is checked again on submit.</p>}
       {view !== "done" && hidden.length > 0 && (
         <p className="xs muted" style={{ marginTop: 8 }}>Also sent, not shown: {hidden.map((f, i) => <span key={i}>{i > 0 && ", "}<code>{f.key || "?"}</code>{f.default ? ` = ${f.default}` : ""}</span>)}</p>
       )}
@@ -556,7 +638,10 @@ function Submissions({ id }: { id: string }) {
                         <td className="muted" title={fmtTime(r.ts)} style={{ whiteSpace: "nowrap" }}>{timeAgo(r.ts)}</td>
                         <td><code>{r.external_id}</code></td>
                         <td className="sub-fields">
-                          {entries.length === 0 ? <span className="faint">—</span> : entries.map(([k, v], j) => <span key={k}>{j > 0 && " · "}<b>{k}:</b> {String(v)}</span>)}
+                          {entries.length === 0 ? <span className="faint">—</span> : entries.map(([k, v], j) => {
+                            const up = uploadOf(v);
+                            return <span key={k}>{j > 0 && " · "}<b>{k}:</b> {up ? <a href={`/v1/forms/${id}/uploads/${up.id}`} download title="Download (needs access to contacts)">{up.filename}</a> : String(v)}</span>;
+                          })}
                           {p.consent && <span> · <b>consent:</b> yes</span>}
                         </td>
                         <td className="muted small" title={p.page_url}>{SOURCE_LABEL[p.source ?? ""] ?? p.source ?? ""}</td>

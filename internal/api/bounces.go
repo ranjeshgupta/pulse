@@ -81,26 +81,12 @@ func (s *Server) bounceWebhook(w http.ResponseWriter, r *http.Request) {
 
 // applyBounces records each bounce on the contact with that email. Unknown addresses are skipped.
 func (s *Server) applyBounces(ctx context.Context, tenant int64, bs []bounces.Bounce) error {
-	var evs []event.Event
-	for _, b := range bs {
-		c, err := s.formStore().ContactByEmail(ctx, tenant, b.Email)
-		if err != nil {
-			continue
-		}
-		props := map[string]any{"kind": b.Kind, "reason": b.Reason, "source": b.Source, "email": b.Email}
-		switch b.Kind {
-		case bounces.Hard:
-			evs = append(evs, event.Event{ExternalID: c.ExternalID, Name: "email_bounced", Props: props,
-				Attrs: map[string]any{AttrEmailBounced: true}})
-		case bounces.Soft:
-			evs = append(evs, event.Event{ExternalID: c.ExternalID, Name: "email_bounced", Props: props})
-		case bounces.Complaint:
-			evs = append(evs, event.Event{ExternalID: c.ExternalID, Name: "email_complained", Props: props},
-				event.Event{ExternalID: c.ExternalID, Name: consent.Unsubscribed, Props: map[string]any{"channel": "email", "source": "complaint"}})
-		}
-	}
-	if len(evs) == 0 {
-		return nil
+	evs, err := bounces.Events(bs, func(email string) (string, bool) {
+		c, err := s.formStore().ContactByEmail(ctx, tenant, email)
+		return c.ExternalID, err == nil
+	})
+	if err != nil || len(evs) == 0 {
+		return err
 	}
 	return s.publishEvents(ctx, tenant, evs)
 }

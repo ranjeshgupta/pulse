@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
@@ -22,6 +23,8 @@ func (s *Server) trackingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /t/o/{file}", s.trackOpen)
 	mux.HandleFunc("GET /t/c/{token}", s.trackClick)
 	mux.HandleFunc("GET /t/s/{code}", s.trackShortClick)
+	mux.HandleFunc("POST /t/p/{token}", s.trackPush)
+	mux.HandleFunc("OPTIONS /t/p/{token}", s.trackPushPreflight)
 	mux.HandleFunc("GET /u/{token}", s.unsubscribePage)
 	mux.HandleFunc("POST /u/{token}", s.unsubscribe)
 }
@@ -86,6 +89,44 @@ func (s *Server) trackShortClick(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(dest))
 	s.trackEvent(r.Context(), t, t.Channel+"_clicked", "click:"+t.MessageID+":"+hex.EncodeToString(sum[:6]), map[string]any{"url": dest})
 	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// trackPush records a push notification's click (push_clicked) or dismissal (push_dismissed),
+// reported by the web SDK's service worker or an app SDK: POST /t/p/{token}?a=clicked|dismissed,
+// no body. The sealed token names the message; each counts once per message. Any origin may call
+// it (the service worker runs on the customer's site) and nothing is returned.
+func (s *Server) trackPush(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if s.Tracking == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	t, err := s.Tracking.Decode(r.PathValue("token"))
+	if err != nil || t.Channel != channel.Push {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	action := r.URL.Query().Get("a")
+	if action == "" {
+		action = "clicked"
+	}
+	if action != "clicked" && action != "dismissed" {
+		writeErr(w, http.StatusBadRequest, "a must be clicked or dismissed")
+		return
+	}
+	props := map[string]any{}
+	if p := r.URL.Query().Get("platform"); p == "web" || p == "android" || p == "ios" {
+		props["platform"] = p
+	}
+	s.trackEvent(r.Context(), t, "push_"+action, "push:"+t.MessageID+":"+action, props)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) trackPushPreflight(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 var unsubPage = template.Must(template.New("u").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8">

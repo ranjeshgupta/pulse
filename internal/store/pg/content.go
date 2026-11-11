@@ -1,6 +1,8 @@
 package pg
 
-// Assets (files kept in Postgres, apart from their metadata) and landing pages.
+// Assets (files kept in Postgres, apart from their metadata) and landing pages. Files uploaded
+// through forms are assets too (upload_form_id set) but every asset query here leaves them out:
+// they are reached only through FormUpload.
 
 import (
 	"context"
@@ -24,7 +26,7 @@ func scanAsset(row pgx.Row) (model.Asset, error) {
 }
 
 func (s *Store) ListAssets(ctx context.Context, tenant int64) ([]model.Asset, error) {
-	rows, err := s.db.Query(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 ORDER BY id DESC`, tenant)
+	rows, err := s.db.Query(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 AND upload_form_id IS NULL ORDER BY id DESC`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -32,17 +34,17 @@ func (s *Store) ListAssets(ctx context.Context, tenant int64) ([]model.Asset, er
 }
 
 func (s *Store) GetAsset(ctx context.Context, tenant, id int64) (model.Asset, error) {
-	return scanAsset(s.db.QueryRow(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 AND id = $2`, tenant, id))
+	return scanAsset(s.db.QueryRow(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 AND id = $2 AND upload_form_id IS NULL`, tenant, id))
 }
 
 // AssetByKey finds an asset by the public key in its download URL (any workspace).
 func (s *Store) AssetByKey(ctx context.Context, key string) (model.Asset, error) {
-	return scanAsset(s.db.QueryRow(ctx, `SELECT `+assetCols+` FROM assets WHERE public_key = $1`, key))
+	return scanAsset(s.db.QueryRow(ctx, `SELECT `+assetCols+` FROM assets WHERE public_key = $1 AND upload_form_id IS NULL`, key))
 }
 
 // AssetsByIDs returns the workspace's assets among ids (missing ones are left out).
 func (s *Store) AssetsByIDs(ctx context.Context, tenant int64, ids []int64) ([]model.Asset, error) {
-	rows, err := s.db.Query(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 AND id = ANY($2) ORDER BY id`, tenant, ids)
+	rows, err := s.db.Query(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 AND id = ANY($2) AND upload_form_id IS NULL ORDER BY id`, tenant, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -52,6 +54,31 @@ func (s *Store) AssetsByIDs(ctx context.Context, tenant int64, ids []int64) ([]m
 // CreateAsset stores a new asset and its file, if the workspace stays within maxTotal bytes. The
 // workspace row is locked meanwhile, so two uploads can't both slip under the cap.
 func (s *Store) CreateAsset(ctx context.Context, a model.Asset, data []byte, maxTotal int64) (int64, error) {
+	return s.createAsset(ctx, a, data, maxTotal, 0, "")
+}
+
+// CreateFormUpload stores a file uploaded through a form for a submitter (a private asset).
+func (s *Store) CreateFormUpload(ctx context.Context, a model.Asset, data []byte, maxTotal, formID int64, externalID string) (int64, error) {
+	return s.createAsset(ctx, a, data, maxTotal, formID, externalID)
+}
+
+// FormUpload returns a form's uploaded file with its bytes.
+func (s *Store) FormUpload(ctx context.Context, tenant, formID, id int64) (model.Asset, []byte, error) {
+	a, err := scanAsset(s.db.QueryRow(ctx, `SELECT `+assetCols+` FROM assets WHERE tenant_id = $1 AND id = $2 AND upload_form_id = $3`,
+		tenant, id, formID))
+	if err != nil {
+		return a, nil, err
+	}
+	var data []byte
+	err = s.db.QueryRow(ctx, `SELECT data FROM asset_files WHERE asset_id = $1`, id).Scan(&data)
+	return a, data, notFound(err)
+}
+
+func (s *Store) createAsset(ctx context.Context, a model.Asset, data []byte, maxTotal, uploadForm int64, uploadExt string) (int64, error) {
+	var form *int64
+	if uploadForm != 0 {
+		form = &uploadForm
+	}
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE`, a.TenantID); err != nil {
 			return err
@@ -64,9 +91,9 @@ func (s *Store) CreateAsset(ctx context.Context, a model.Asset, data []byte, max
 			return ErrQuota
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO assets (tenant_id, public_key, title, description, filename, content_type, size, sha256, form_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-			a.TenantID, a.PublicKey, a.Title, a.Description, a.Filename, a.ContentType, len(data), a.SHA256, a.FormID).Scan(&a.ID); err != nil {
+			INSERT INTO assets (tenant_id, public_key, title, description, filename, content_type, size, sha256, form_id, upload_form_id, upload_external_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+			a.TenantID, a.PublicKey, a.Title, a.Description, a.Filename, a.ContentType, len(data), a.SHA256, a.FormID, form, uploadExt).Scan(&a.ID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO asset_files (asset_id, data) VALUES ($1, $2)`, a.ID, data)
@@ -78,7 +105,8 @@ func (s *Store) CreateAsset(ctx context.Context, a model.Asset, data []byte, max
 // UpdateAsset changes an asset's title, description and gating form (never its file).
 func (s *Store) UpdateAsset(ctx context.Context, a model.Asset) error {
 	tag, err := s.db.Exec(ctx, `
-		UPDATE assets SET title = $3, description = $4, form_id = $5, updated_at = now() WHERE tenant_id = $1 AND id = $2`,
+		UPDATE assets SET title = $3, description = $4, form_id = $5, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2 AND upload_form_id IS NULL`,
 		a.TenantID, a.ID, a.Title, a.Description, a.FormID)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
@@ -87,7 +115,7 @@ func (s *Store) UpdateAsset(ctx context.Context, a model.Asset) error {
 }
 
 func (s *Store) DeleteAsset(ctx context.Context, tenant, id int64) error {
-	tag, err := s.db.Exec(ctx, `DELETE FROM assets WHERE tenant_id = $1 AND id = $2`, tenant, id)
+	tag, err := s.db.Exec(ctx, `DELETE FROM assets WHERE tenant_id = $1 AND id = $2 AND upload_form_id IS NULL`, tenant, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}

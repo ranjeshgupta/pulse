@@ -8,12 +8,12 @@ func TestParse(t *testing.T) {
 		want []Bounce
 	}{
 		"sendgrid": {`[{"email":"a@x.co","event":"bounce","type":"bounce","reason":"550"},{"email":"b@x.co","event":"spamreport"},{"email":"c@x.co","event":"open"}]`,
-			[]Bounce{{"a@x.co", Hard, "550", "sendgrid"}, {"b@x.co", Complaint, "", "sendgrid"}}},
-		"postmark": {`{"RecordType":"Bounce","Type":"SoftBounce","Email":"a@x.co","Description":"full"}`, []Bounce{{"a@x.co", Soft, "full", "postmark"}}},
-		"mailgun":  {`{"event-data":{"event":"failed","severity":"permanent","recipient":"a@x.co","delivery-status":{"message":"no user"}}}`, []Bounce{{"a@x.co", Hard, "no user", "mailgun"}}},
+			[]Bounce{{"a@x.co", Hard, "550", "sendgrid", ""}, {"b@x.co", Complaint, "", "sendgrid", ""}}},
+		"postmark": {`{"RecordType":"Bounce","Type":"SoftBounce","Email":"a@x.co","Description":"full"}`, []Bounce{{"a@x.co", Soft, "full", "postmark", ""}}},
+		"mailgun":  {`{"event-data":{"event":"failed","severity":"permanent","recipient":"a@x.co","delivery-status":{"message":"no user"}}}`, []Bounce{{"a@x.co", Hard, "no user", "mailgun", ""}}},
 		"ses": {`{"Type":"Notification","Message":"{\"notificationType\":\"Bounce\",\"bounce\":{\"bounceType\":\"Permanent\",\"bouncedRecipients\":[{\"emailAddress\":\"a@x.co\",\"diagnosticCode\":\"550\"}]}}"}`,
-			[]Bounce{{"a@x.co", Hard, "550", "ses"}}},
-		"generic": {`{"email":"a@x.co","type":"complaint"}`, []Bounce{{"a@x.co", Complaint, "", "generic"}}},
+			[]Bounce{{"a@x.co", Hard, "550", "ses", ""}}},
+		"generic": {`{"email":"a@x.co","type":"complaint"}`, []Bounce{{"a@x.co", Complaint, "", "generic", ""}}},
 	} {
 		got, confirm, err := Parse([]byte(tc.body))
 		if err != nil || confirm != nil || len(got) != len(tc.want) {

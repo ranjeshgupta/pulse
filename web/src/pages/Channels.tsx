@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderKind, type SandboxMessage } from "../api";
 import { useIsAdmin } from "../auth";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { BounceMailboxPanel } from "./BounceMailbox";
 
 export function Channels() {
   const admin = useIsAdmin();
@@ -56,6 +57,7 @@ export function Channels() {
       </section>
       <DeliveryRulesPanel admin={admin} />
       {admin && <BouncesPanel />}
+      {admin && <BounceMailboxPanel />}
       {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
       {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} onClose={() => setEditing(null)} />}
     </div>
@@ -344,29 +346,46 @@ function SimulateBounce() {
   );
 }
 
-// SimulateReply sends a fake inbound SMS or WhatsApp message, as if a contact had replied.
+// SimulateReply sends a fake inbound SMS, WhatsApp or RCS message (for RCS optionally a tapped
+// suggestion), as if a contact had replied.
 function SimulateReply() {
   const toast = useToast();
-  const [ch, setCh] = useState<"sms" | "whatsapp">("sms");
+  const [ch, setCh] = useState<"sms" | "whatsapp" | "rcs">("sms");
   const [from, setFrom] = useState("");
   const [text, setText] = useState("STOP");
+  const [tap, setTap] = useState<"" | "reply" | "action">("");
+  const [postback, setPostback] = useState("");
   const send = useMutation({
-    mutationFn: () => api.post<{ keyword: string; action: string }>("/v1/sandbox/inbound", { channel: ch, from, text }),
+    mutationFn: () => api.post<{ keyword: string; action: string }>("/v1/sandbox/inbound",
+      ch === "rcs" && tap ? { channel: ch, from, text, suggestion: tap, postback } : { channel: ch, from, text }),
     onSuccess: (r) => toast({ text: r.action === "opt_out" ? `"${r.keyword}" unsubscribes this number from ${CHANNEL_NAMES[ch]}.` : r.action === "opt_in" ? `"${r.keyword}" subscribes this number again.` : "Recorded as a reply. It isn't a keyword, so subscriptions don't change." }),
   });
   return (
     <section className="panel section">
       <div className="panel-head"><h3>Simulate a reply</h3><span className="xs muted">As if a contact texted back</span></div>
       <div className="panel-body">
-        <div className="row" style={{ alignItems: "flex-end" }}>
+        <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
           <Field label="Channel">
-            <select className="select" value={ch} onChange={(e) => setCh(e.target.value as "sms" | "whatsapp")}><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option></select>
+            <select className="select" value={ch} onChange={(e) => setCh(e.target.value as "sms" | "whatsapp" | "rcs")}>
+              <option value="sms">SMS</option><option value="whatsapp">WhatsApp</option><option value="rcs">RCS</option>
+            </select>
           </Field>
           <Field label="From"><input className="input" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="+919812345678" /></Field>
-          <Field label="Message"><input className="input" value={text} onChange={(e) => setText(e.target.value)} /></Field>
+          {ch === "rcs" && (
+            <Field label="Kind">
+              <select className="select" value={tap} onChange={(e) => setTap(e.target.value as "" | "reply" | "action")}>
+                <option value="">Typed message</option><option value="reply">Tapped a suggested reply</option><option value="action">Tapped a suggested action</option>
+              </select>
+            </Field>
+          )}
+          <Field label={ch === "rcs" && tap ? "Suggestion text" : "Message"}><input className="input" value={text} onChange={(e) => setText(e.target.value)} /></Field>
+          {ch === "rcs" && tap && <Field label="Postback data"><input className="input" value={postback} onChange={(e) => setPostback(e.target.value)} placeholder="optional" /></Field>}
           <button className="btn" style={{ marginBottom: 14 }} disabled={!from.trim() || !text.trim() || send.isPending} onClick={() => send.mutate()}>Send reply</button>
         </div>
-        <p className="xs muted">Every contact with this phone number gets a <code>{ch}_received</code> event; journeys and segments can use it.</p>
+        <p className="xs muted">
+          Every contact with this phone number gets a <code>{ch}_received</code> event; journeys and segments can use it.
+          {ch === "rcs" && <> If the contact got an RCS message in the last 7 days, it also records <code>rcs_replied</code> on that message, for journeys&rsquo; &ldquo;gets a reply&rdquo; decision.</>}
+        </p>
         <ErrorNote error={send.error} />
       </div>
     </section>

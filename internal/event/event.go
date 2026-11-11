@@ -66,6 +66,7 @@ const (
 	JourneyJumpLimit = "journey_jump_limit" // an enrollment hit the jump cap and left
 	DWCRequested     = "dwc_requested"      // the decide API served a slot to a known contact: props slot, url
 	EmailReplied     = "email_replied"      // the inbound reply webhook matched a reply: props message_id, ...
+	RCSReplied       = "rcs_replied"        // an inbound RCS message, attributed to the latest RCS message: props message_id, ...
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -74,7 +75,7 @@ func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
 		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged,
-		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied:
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied:
 		return true
 	}
 	return false
@@ -85,7 +86,7 @@ func ServerOnly(name string) bool {
 func PlatformOnly(name string) bool {
 	switch name {
 	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
-		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied:
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied:
 		return true
 	}
 	return false

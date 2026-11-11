@@ -41,6 +41,8 @@ func TestRoutePermissions(t *testing.T) {
 		{"POST /v1/reports", editor, true},
 		{"GET /v1/revenue/settings", viewer, true},
 		{"PUT /v1/revenue/settings", editor, false},
+		{"GET /v1/audit/export", editor, false},
+		{"GET /v1/audit/export", auth.Perms{auth.AreaSettings: auth.Edit}, true},
 	} {
 		method, path, _ := strings.Cut(tc.pattern, " ")
 		r, _ := http.NewRequest(method, path, nil)

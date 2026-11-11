@@ -12,6 +12,7 @@
 import { pageProps, parseTouch, profileAttrs, touchFromUrl } from "./attribution";
 import { parseUserAgent, type UAData } from "./device";
 import { nextSession, parseActivity } from "./session";
+import { fileProblem, formPages, UPLOAD_TYPES, type FormField } from "./forms";
 
 type Props = Record<string, unknown>;
 interface Config {
@@ -390,15 +391,17 @@ export async function refresh() {
 
 // ---- forms ----
 
-interface FormField { key: string; label: string; type: string; required?: boolean; options?: string[]; default?: string }
 interface FormDef {
   key: string; name: string; fields: FormField[]; shown: number;
   settings: { submit_text?: string; success_message?: string; redirect_url?: string; consent_text?: string; description?: string; theme?: string };
 }
 
 const FORM_CSS = ".pulse-f{display:grid;gap:12px;max-width:520px}.pulse-f label{display:grid;gap:4px;font-weight:600}" +
-  ".pulse-f input:not([type=checkbox]),.pulse-f select,.pulse-f textarea{font:inherit;font-weight:400;padding:9px 11px;border:1px solid #c3cbd6;border-radius:6px}" +
-  ".pulse-f .pc{display:flex;gap:8px;font-weight:400}.pulse-f .pe{color:#b42318;font-weight:400;font-size:.85em}" +
+  ".pulse-f input:not([type=checkbox]):not([type=file]),.pulse-f select,.pulse-f textarea{font:inherit;font-weight:400;padding:9px 11px;border:1px solid #c3cbd6;border-radius:6px}" +
+  ".pulse-f .pc{display:flex;gap:8px;font-weight:400}.pulse-f .pe{color:#b42318;font-weight:400;font-size:.85em}.pulse-f .phint{font-weight:400;font-size:.85em;color:#5b6474}" +
+  ".pulse-f fieldset{border:0;margin:0;padding:0;display:grid;gap:12px}.pulse-f legend{font-weight:700;padding:0;margin-bottom:4px}" +
+  ".pulse-f .pst{font-size:.85em;color:#5b6474}.pulse-f .pbar{height:6px;background:#e4e8ee;border-radius:3px;margin-top:6px;overflow:hidden}.pulse-f .pbar i{display:block;height:100%}" +
+  ".pulse-f .pnav{display:flex;gap:8px}.pulse-f .pback{background:#fff!important;color:#152238!important;border:1px solid #c3cbd6!important}" +
   ".pulse-f button{font:inherit;font-weight:600;color:#fff;border:0;border-radius:6px;padding:10px 16px;cursor:pointer}.pulse-f .ph{position:absolute;left:-9999px}";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text?: string) {
@@ -408,7 +411,9 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return e;
 }
 
-/** form renders a Pulse form into target. Fields the visitor's profile already has may be skipped. */
+/** form renders a Pulse form into target. Fields the visitor's profile already has may be skipped.
+ * Page breaks split it into pages (each checked before the next shows, with a progress bar); file
+ * fields are sent as multipart/form-data. */
 export async function form(target: HTMLElement, key: string) {
   if (!cfg) return;
   const q = `?id=${encodeURIComponent(currentId())}&user_hash=${encodeURIComponent(userHash() ?? "")}`;
@@ -416,51 +421,121 @@ export async function form(target: HTMLElement, key: string) {
   if (!res?.ok) return;
   const def = (await res.json()) as FormDef;
   if (!document.getElementById("pulse-f-css")) document.head.append(el("style", { id: "pulse-f-css" }, FORM_CSS));
+  const accent = /^#[0-9a-f]{6}$/i.test(def.settings.theme ?? "") ? def.settings.theme! : "#2747d6";
   const f = el("form", { class: "pulse-f", novalidate: "" });
   if (def.settings.description) f.append(el("p", {}, def.settings.description));
   const errs: Record<string, HTMLElement> = {};
-  const field = (name: string, label: HTMLElement) => { errs[name] = el("span", { class: "pe", role: "alert" }); label.append(errs[name]); f.append(label); };
-  for (const fd of def.fields) {
-    if (fd.type === "hidden") { f.append(el("input", { type: "hidden", name: fd.key, value: fd.default ?? "" })); continue; }
-    const label = el("label", fd.type === "checkbox" ? { class: "pc" } : {});
-    const input = fd.type === "textarea" ? el("textarea") : fd.type === "select" ? el("select") : el("input", { type: fd.type === "checkbox" ? "checkbox" : fd.type });
-    input.setAttribute("name", fd.key);
-    if (fd.required) input.setAttribute("required", "");
-    if (input instanceof HTMLSelectElement) {
-      input.append(el("option", { value: "" }, "Choose…"));
-      for (const o of fd.options ?? []) input.append(el("option", {}, o));
+  const fileFields: Record<string, FormField> = {};
+  const pages = formPages(def.fields);
+  const steps = el("div", { class: "pst" });
+  const stepLabel = el("span");
+  const bar = el("i", { style: `background:${accent}` });
+  if (pages.length > 1) { const b = el("div", { class: "pbar" }); b.append(bar); steps.append(stepLabel, b); f.append(steps); }
+  const sets = pages.map((p) => {
+    const set = el("fieldset");
+    if (p.title) set.append(el("legend", {}, p.title));
+    for (const fd of p.fields) {
+      if (fd.type === "hidden") { set.append(el("input", { type: "hidden", name: fd.key, value: fd.default ?? "" })); continue; }
+      const label = el("label", fd.type === "checkbox" ? { class: "pc" } : {});
+      const input = fd.type === "textarea" ? el("textarea") : fd.type === "select" ? el("select") : el("input", { type: fd.type === "checkbox" ? "checkbox" : fd.type });
+      input.setAttribute("name", fd.key);
+      if (fd.required) input.setAttribute("required", "");
+      if (input instanceof HTMLSelectElement) {
+        input.append(el("option", { value: "" }, "Choose…"));
+        for (const o of fd.options ?? []) input.append(el("option", {}, o));
+      }
+      if (fd.type === "file") {
+        fileFields[fd.key] = fd;
+        input.setAttribute("accept", (fd.accept?.length ? fd.accept : UPLOAD_TYPES).join(","));
+        input.addEventListener("change", () => (input as HTMLInputElement).setCustomValidity(""));
+      }
+      if (fd.type === "checkbox") label.append(input, el("span", {}, fd.label));
+      else label.append(el("span", {}, fd.label + (fd.required ? " *" : "")), input);
+      if (fd.type === "file") label.append(el("span", { class: "phint" }, `Up to ${fd.max_mb || 5} MB.`));
+      errs[fd.key] = el("span", { class: "pe", role: "alert" });
+      label.append(errs[fd.key]);
+      set.append(label);
     }
-    if (fd.type === "checkbox") label.append(input, el("span", {}, fd.label));
-    else label.append(el("span", {}, fd.label + (fd.required ? " *" : "")), input);
-    field(fd.key, label);
-  }
+    f.append(set);
+    return set;
+  });
+  const last = el("div", { style: "display:grid;gap:12px" });
   if (def.settings.consent_text) {
     const label = el("label", { class: "pc" });
     label.append(el("input", { type: "checkbox", name: "_consent", required: "" }), el("span", {}, def.settings.consent_text));
-    field("_consent", label);
+    errs._consent = el("span", { class: "pe", role: "alert" });
+    label.append(errs._consent);
+    last.append(label);
   }
   const hp = el("input", { class: "ph", name: "_hp", tabindex: "-1", autocomplete: "off", "aria-hidden": "true" });
-  const btn = el("button", { type: "submit", style: `background:${/^#[0-9a-f]{6}$/i.test(def.settings.theme ?? "") ? def.settings.theme : "#2747d6"}` }, def.settings.submit_text || "Submit");
-  f.append(hp, btn);
+  const btn = el("button", { type: "submit", style: `background:${accent}` }, def.settings.submit_text || "Submit");
+  const nav = el("div", { class: "pnav" });
+  const back = el("button", { type: "button", class: "pback" }, "Back");
+  const next = el("button", { type: "button", style: `background:${accent}` }, "Next");
+  last.append(btn);
+  nav.append(back, next, last);
+  f.append(hp, nav);
+  let cur = 0;
+  const show = (i: number) => {
+    cur = i;
+    sets.forEach((s, j) => (s.hidden = j !== i));
+    back.hidden = i === 0;
+    next.hidden = i === sets.length - 1;
+    last.hidden = i !== sets.length - 1;
+    stepLabel.textContent = `Page ${i + 1} of ${sets.length}`;
+    bar.style.width = `${Math.round(((i + 1) * 100) / sets.length)}%`;
+  };
+  // check validates one page in the browser (required, email, number, file size and type).
+  const check = (scope: HTMLElement) => {
+    let ok = true;
+    scope.querySelectorAll<HTMLInputElement>("input,select,textarea").forEach((x) => {
+      const fd = fileFields[x.name];
+      if (fd && x.files?.[0]) x.setCustomValidity(fileProblem(fd, x.files[0]));
+      if (errs[x.name]) errs[x.name].textContent = x.checkValidity() ? "" : x.validationMessage;
+      if (!x.checkValidity()) ok = false;
+    });
+    return ok;
+  };
+  next.addEventListener("click", () => { if (check(sets[cur])) show(cur + 1); });
+  back.addEventListener("click", () => show(cur - 1));
+  show(0);
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!check(sets[cur]) || !check(last)) return;
     const values: Record<string, string> = {};
-    for (const [k, v] of new FormData(f)) if (k !== "_hp") values[k] = String(v);
+    const files: [string, File][] = [];
+    for (const [k, v] of new FormData(f)) {
+      if (k === "_hp") continue;
+      if (fileFields[k]) { if (v instanceof File && v.size > 0) files.push([k, v]); continue; }
+      values[k] = String(v);
+    }
     Object.values(errs).forEach((x) => (x.textContent = ""));
     btn.disabled = true;
-    const r = await fetch(`${cfg!.host}/v1/web/forms/${encodeURIComponent(key)}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ values, id: currentId(), user_hash: userHash(), page_url: location.href, shown: def.shown, hp: hp.value, attribution: attribution() }),
-    }).catch(() => undefined);
+    const payload = JSON.stringify({ values, id: currentId(), user_hash: userHash(), page_url: location.href, shown: def.shown, hp: hp.value, attribution: attribution() });
+    let body: BodyInit = payload;
+    const headers: Record<string, string> = {};
+    if (files.length) {
+      const fd = new FormData(); // the browser sets the multipart boundary
+      fd.append("payload", payload);
+      for (const [k, file] of files) fd.append(k, file, file.name);
+      body = fd;
+    } else headers["Content-Type"] = "application/json";
+    const r = await fetch(`${cfg!.host}/v1/web/forms/${encodeURIComponent(key)}`, { method: "POST", headers, body }).catch(() => undefined);
     btn.disabled = false;
-    const body = r ? await r.json().catch(() => ({})) : { error: "Couldn't send. Check your connection and try again." };
+    const out = r ? await r.json().catch(() => ({})) : { error: "Couldn't send. Check your connection and try again." };
     if (r?.ok) {
-      if (body.redirect_url) { location.href = body.redirect_url; return; }
-      f.replaceWith(el("p", { class: "pulse-f", role: "status" }, body.message || "Thanks! We've got your details."));
+      if (out.redirect_url) { location.href = out.redirect_url; return; }
+      f.replaceWith(el("p", { class: "pulse-f", role: "status" }, out.message || "Thanks! We've got your details."));
       return;
     }
-    for (const fe of body.fields ?? []) if (errs[fe.field]) errs[fe.field].textContent = fe.message;
-    if (!body.fields) alert(body.error || "Something went wrong. Please try again.");
+    let first = -1;
+    for (const fe of out.fields ?? []) {
+      if (errs[fe.field]) errs[fe.field].textContent = fe.message;
+      const page = sets.findIndex((s) => s.contains(errs[fe.field] ?? null));
+      if (page >= 0 && (first < 0 || page < first)) first = page;
+    }
+    if (first >= 0) show(first);
+    if (!out.fields) alert(out.error || "Something went wrong. Please try again.");
   });
   target.replaceChildren(f);
 }

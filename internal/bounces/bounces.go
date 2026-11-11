@@ -25,7 +25,10 @@ type Bounce struct {
 	Email  string `json:"email"`
 	Kind   string `json:"kind"` // hard | soft | complaint
 	Reason string `json:"reason,omitempty"`
-	Source string `json:"source"` // sendgrid | postmark | mailgun | ses | generic
+	Source string `json:"source"` // sendgrid | postmark | mailgun | ses | generic | dsn | arf
+	// Key, when set, makes the recorded events' ids stable, so reading the same report twice
+	// (a mailbox message whose \Seen flag didn't stick) records it once.
+	Key string `json:"-"`
 }
 
 // SNSConfirm is an Amazon SNS subscription confirmation: Pulse must GET SubscribeURL once.

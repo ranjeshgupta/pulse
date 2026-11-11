@@ -119,16 +119,28 @@ function Outcome({ status }: { status: number }) {
   return <span className="badge ok" title={`HTTP ${status}`}>Done</span>;
 }
 
+/** auditExportParams builds the export query from the page's filters (dates are whole days, "to" inclusive). */
+export function auditExportParams(f: { userId: string; objectType: string; from: string; to: string; format: "csv" | "json" }): string {
+  const p = new URLSearchParams({ format: f.format });
+  if (f.userId) p.set("user_id", f.userId);
+  if (f.objectType) p.set("object_type", f.objectType);
+  if (f.from) p.set("from", f.from);
+  if (f.to) p.set("to", f.to);
+  return p.toString();
+}
+
 const exact = (iso: string) => new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" });
 
 export function AuditLog() {
   const admin = useIsAdmin();
   const [userId, setUserId] = useState("");
   const [objectType, setObjectType] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [open, setOpen] = useState<number | null>(null);
   const users = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: User[] }>("/v1/users"), enabled: admin });
   const q = useInfiniteQuery({
-    queryKey: ["audit", userId, objectType],
+    queryKey: ["audit", userId, objectType, from, to],
     enabled: admin,
     initialPageParam: 0,
     queryFn: ({ pageParam }) => {
@@ -136,12 +148,15 @@ export function AuditLog() {
       if (pageParam) p.set("before", String(pageParam));
       if (userId) p.set("user_id", userId);
       if (objectType) p.set("object_type", objectType);
+      if (from) p.set("from", from);
+      if (to) p.set("to", to);
       return api.get<{ entries: AuditEntry[] }>(`/v1/audit?${p}`);
     },
     getNextPageParam: (last) => (last.entries.length >= 100 ? last.entries[last.entries.length - 1].id : undefined),
   });
   const entries = q.data?.pages.flatMap((p) => p.entries) ?? [];
-  const filtered = !!(userId || objectType);
+  const filtered = !!(userId || objectType || from || to);
+  const exportURL = (format: "csv" | "json") => `/v1/audit/export?${auditExportParams({ userId, objectType, from, to, format })}`;
 
   if (!admin) {
     return (
@@ -164,7 +179,13 @@ export function AuditLog() {
           <option value="">Everything</option>
           {OBJECT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        {filtered && <button className="btn ghost sm" onClick={() => { setUserId(""); setObjectType(""); }}>Clear filters</button>}
+        <label className="audit-date">From <input className="input inline" type="date" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setOpen(null); }} /></label>
+        <label className="audit-date">To <input className="input inline" type="date" value={to} min={from || undefined} onChange={(e) => { setTo(e.target.value); setOpen(null); }} /></label>
+        {filtered && <button className="btn ghost sm" onClick={() => { setUserId(""); setObjectType(""); setFrom(""); setTo(""); }}>Clear filters</button>}
+        <span className="audit-export">
+          <a className="btn sm" href={exportURL("csv")} download title="Download the entries matching these filters as CSV">Export CSV</a>
+          <a className="btn sm" href={exportURL("json")} download title="Download the entries matching these filters as JSON">Export JSON</a>
+        </span>
       </div>
       <ErrorNote error={q.error} />
       <div className="panel">

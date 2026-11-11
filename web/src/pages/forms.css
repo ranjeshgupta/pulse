@@ -42,3 +42,16 @@
 @media (max-width: 1200px) {
   .ff-main { grid-template-columns: 1fr; }
 }
+
+/* Multi-page forms and file fields */
+.ff-break { border-style: dashed; background: #f8f9fb; }
+.ff-break-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-weight: 600; font-size: var(--fs-sm); color: var(--muted, #5b6474); }
+.ff-break-head::before, .ff-break-head::after { content: ""; flex: 1; border-top: 1px dashed var(--rule); }
+.form-preview .steps { margin: 0 0 16px; font-size: 13px; color: #5b6474; }
+.form-preview .bar { height: 6px; background: #e4e8ee; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.form-preview .bar i { display: block; height: 100%; background: var(--accent); }
+.form-preview .page-title { font-weight: 700; font-size: 16px; margin: 0 0 12px; }
+.form-preview .hint { display: block; color: #5b6474; font-weight: 400; font-size: 13px; margin-top: 4px; }
+.form-preview .nav { display: flex; gap: 10px; }
+.form-preview .nav .back { background: #fff; color: #152238; border: 1px solid #c3cbd6; }
+.form-preview input[type=file] { border: 1px dashed #c3cbd6; }

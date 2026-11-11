@@ -1,0 +1,27 @@
+From: postmaster@outbound.mail.example
+To: bounces@pulse-mail.test
+Subject: Delivery delayed
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer"
+
+--outer
+Content-Type: text/plain
+
+Forwarded bounce below.
+--outer
+Content-Type: multipart/report; report-type="delivery-status"; boundary="inner"
+
+--inner
+Content-Type: text/plain
+
+Delayed.
+--inner
+Content-Type: message/delivery-status
+Content-Transfer-Encoding: base64
+
+UmVwb3J0aW5nLU1UQTogZG5zOyBvdXRib3VuZC5tYWlsLmV4YW1wbGUNCg0KRmluYWwtUmVjaXBp
+ZW50OiByZmM4MjI7bGF0ZUBleGFtcGxlLm5ldA0KQWN0aW9uOiBkZWxheWVkDQpTdGF0dXM6IDQu
+NC43DQpEaWFnbm9zdGljLUNvZGU6IHNtdHA7TWVzc2FnZSBkZWxheWVkDQo=
+
+--inner--
+--outer--

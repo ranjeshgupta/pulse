@@ -8,7 +8,8 @@
 //	pulse journeys  segment.membership, events.enriched -> journey steps (+ timers)
 //	pulse dispatch  messages.email -> SMTP
 //	pulse webhooks  events -> customers' outbound webhooks (and Zapier / Make subscriptions)
-//	pulse integrations  CRM pulls on a schedule, ad audience sync (segment.membership, events.enriched)
+//	pulse integrations  CRM pulls on a schedule, ad audience sync (segment.membership, events.enriched),
+//	                    bounce mailboxes (IMAP)
 //	pulse all       migrate, then every role in one process (local development)
 //
 // In production each role is its own deployment and scales on its own Kafka consumer group.
@@ -40,6 +41,7 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/geoip"
 	"pulse/internal/importer"
+	"pulse/internal/bounces"
 	"pulse/internal/integrations"
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
@@ -573,6 +575,15 @@ func runIntegrations(ctx context.Context, d *deps) error {
 	g.Go(func() error { return c.RunPartitionBatches(ctx, syncer.HandleBatch) })
 	g.Go(func() error { return syncer.Run(ctx, d.cfg.AudienceReconcile) })
 	g.Go(func() error { return svc.RunPulls(ctx, 10*time.Second) })
+	if box != nil { // bounce mailboxes keep their passwords sealed: without the key there are none to read
+		prod, err := d.producer()
+		if err != nil {
+			return err
+		}
+		mail := &bounces.Poller{Store: pgs, Open: bounces.IMAPOpener(d.cfg.AllowPrivateWebhooks), Pub: bounces.KafkaPublisher{Pub: prod},
+			Unseal: func(b []byte) (string, error) { p, err := box.Open(b); return string(p), err }, Log: d.log}
+		g.Go(func() error { return mail.Run(ctx, 10*time.Second) })
+	}
 	return g.Wait()
 }
 

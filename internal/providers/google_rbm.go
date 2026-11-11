@@ -2,10 +2,14 @@ package providers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"golang.org/x/oauth2"
 
@@ -18,14 +22,16 @@ func init() {
 		Description: "Rich RCS messages (cards, buttons) through Google's RBM API, from a launched agent.",
 		Config:      []Field{{Key: "agent_id", Label: "Agent ID", Placeholder: "acme_agent_abc123", Required: true}},
 		Secrets: []Field{{Key: "service_account_json", Label: "Service account key (JSON) with RBM access",
-			Placeholder: `{"type": "service_account", ...}`, Required: true}},
+			Placeholder: `{"type": "service_account", ...}`, Required: true},
+			{Key: "webhook_client_token", Label: "Webhook client token (for replies, delivery and read receipts)",
+				Placeholder: "the client token you set on the agent's webhook in the RBM console"}},
 		New: func(d Deps, c, s map[string]string) (Provider, error) {
 			ts, err := serviceAccountTokens(d, s["service_account_json"], rbmScope)
 			if err != nil {
 				return nil, fmt.Errorf("google rbm: %w", err)
 			}
 			return &GoogleRBM{HTTP: d.HTTP, AgentID: c["agent_id"], baseURL: "https://rcsbusinessmessaging.googleapis.com",
-				tokens: ts}, nil
+				tokens: ts, ClientToken: s["webhook_client_token"]}, nil
 		},
 	})
 }
@@ -40,6 +46,8 @@ type GoogleRBM struct {
 	AgentID string
 	baseURL string
 	tokens  oauth2.TokenSource
+	// ClientToken is the webhook's client token: it answers the URL check and signs every message.
+	ClientToken string
 }
 
 func rbmSuggestion(s channel.Suggestion) map[string]any {
@@ -113,4 +121,99 @@ func (g *GoogleRBM) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, Unreachable("google rbm: " + e.Error.Message)
 	}
 	return Result{}, StatusError("google rbm", code, string(body))
+}
+
+// BodyChallenge answers RBM's webhook check: a POST {clientToken, secret} that must be echoed as
+// {secret} when the client token is the agent's.
+func (g *GoogleRBM) BodyChallenge(body []byte) ([]byte, bool, bool) {
+	var c struct {
+		ClientToken string `json:"clientToken"`
+		Secret      string `json:"secret"`
+	}
+	if json.Unmarshal(body, &c) != nil || c.Secret == "" || c.ClientToken == "" {
+		return nil, false, false
+	}
+	if g.ClientToken == "" || !equalSecret(c.ClientToken, g.ClientToken) {
+		return nil, true, false
+	}
+	out, _ := json.Marshal(map[string]string{"secret": c.Secret})
+	return out, true, true
+}
+
+// rbmUserMessage is the decoded data of an RBM webhook message: a user message (text or a
+// tapped suggestion) or an event about an agent message (delivered, read).
+type rbmUserMessage struct {
+	SenderPhoneNumber  string `json:"senderPhoneNumber"`
+	MessageID          string `json:"messageId"`
+	EventType          string `json:"eventType"`
+	Text               string `json:"text"`
+	SuggestionResponse *struct {
+		PostbackData string `json:"postbackData"`
+		Text         string `json:"text"`
+		Type         string `json:"type"` // REPLY | ACTION
+	} `json:"suggestionResponse"`
+}
+
+// ParseReceipts reads an RBM webhook delivery: {"message": {"data": base64 JSON, ...}}. The
+// X-Goog-Signature header must be the base64 HMAC-SHA512 of the decoded data, keyed by the client
+// token. DELIVERED and READ events become receipts for Pulse's message id; text and tapped
+// suggestions become inbound messages. Typing indicators and files are ignored.
+func (g *GoogleRBM) ParseReceipts(r *http.Request) ([]Receipt, error) {
+	body, err := webhookBody(r)
+	if err != nil {
+		return nil, err
+	}
+	var env struct {
+		Message struct {
+			Data string `json:"data"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("google rbm webhook: %w", err)
+	}
+	data, err := base64.StdEncoding.DecodeString(env.Message.Data)
+	if err != nil {
+		return nil, fmt.Errorf("google rbm webhook: message data is not base64")
+	}
+	if g.ClientToken == "" {
+		return nil, ErrUnauthorized
+	}
+	mac := hmac.New(sha512.New, []byte(g.ClientToken))
+	mac.Write(data)
+	if !equalSecret(r.Header.Get("X-Goog-Signature"), base64.StdEncoding.EncodeToString(mac.Sum(nil))) {
+		return nil, ErrUnauthorized
+	}
+	return parseRBMMessage(data)
+}
+
+func parseRBMMessage(data []byte) ([]Receipt, error) {
+	var m rbmUserMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("google rbm webhook: %w", err)
+	}
+	switch strings.ToUpper(m.EventType) {
+	case "DELIVERED":
+		return []Receipt{{ProviderMessageID: m.MessageID, Status: "delivered"}}, nil
+	case "READ":
+		return []Receipt{{ProviderMessageID: m.MessageID, Status: "read"}}, nil
+	case "":
+	default: // IS_TYPING and anything new
+		return nil, nil
+	}
+	from := strings.ReplaceAll(m.SenderPhoneNumber, " ", "")
+	if from == "" {
+		return nil, nil
+	}
+	rc := Receipt{ProviderMessageID: m.MessageID, Status: Inbound, From: from, Text: m.Text}
+	if sr := m.SuggestionResponse; sr != nil {
+		rc.Text, rc.Postback = sr.Text, sr.PostbackData
+		rc.Suggestion = "reply"
+		if strings.EqualFold(sr.Type, "ACTION") {
+			rc.Suggestion = "action"
+		}
+	}
+	if rc.Text == "" && rc.Suggestion == "" {
+		return nil, nil // a file or location share: nothing Pulse reads
+	}
+	return []Receipt{rc}, nil
 }

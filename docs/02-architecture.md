@@ -179,7 +179,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
     "Integrations"), `jump`, `delete_contact`.
   - **Decisions** (park on `journey_event_waits` with a timeout; Yes when the event comes, No at the timeout):
     `wait_for_event` (any event); `message_decision` (an earlier send step's own message, matched on the message id
-    `{enrollment}:{step}`: opened, clicked — optionally a link containing `url` —, delivered, read, replied (email);
+    `{enrollment}:{step}`: opened, clicked — optionally a link containing `url` —, delivered, read, replied (email,
+    RCS), clicked (push, no link filter);
     the send step must be upstream); `on_form` (`form_submitted`, optional `form_id`), `on_asset` (`asset_downloaded`),
     `on_page` (`page_view` whose url contains `url`, or `landing_page_viewed` of `page_id`), `on_device` (`page_view`
     with `device_type` / `os`), `on_dwc` (`dwc_requested` for `slot`). The wait stores only the event name; the engine
@@ -303,7 +304,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 | `GET /a/{key}/download?t=` | sealed 15-minute (gate) or 7-day (gateway attachment) link | same |
 | `GET /p/{workspace}/{page}` | landing page | 300 views/min per IP and workspace |
 | `/v1/web/*` | web SDK API (site key) | 600 events/min per IP and workspace |
-| `/t/*`, `/u/*` | email tracking and unsubscribe (sealed tokens) | |
+| `/t/*`, `/u/*` | email tracking and unsubscribe (sealed tokens); `POST /t/p/{token}` push clicks / dismissals | |
 
 ## ClickHouse tables
 - `events`: `MergeTree PARTITION BY toYYYYMM(ts) ORDER BY (tenant_id, name, contact_id, ts)`. Event-window segment queries hit only the
@@ -369,6 +370,50 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - **Tests.** `internal/integrations` unit tests run every connector against `httptest` mocks; the e2e tests
   `TestHubSpotIntegration`, `TestRESTHooksE2E` and `TestAudienceSync` run mocks in the compose-network container
   (`PULSE_HOOK_HOST`), and `TestShopifyWebhooks` signs deliveries itself.
+
+## Reach (batch 8b)
+
+- **Native SDKs** (`sdks/android`, `sdks/ios`). Each splits a platform-neutral core (queue, batching and backoff,
+  HTTP behind an interface, JSON, validation, sessions, inbox and in-app logic, push click reports, opt-out) from the
+  platform module (storage, lifecycle, device properties, notification helpers, in-app UI). The cores are plain
+  Kotlin/JVM and a Foundation-only Swift target, so they are unit-tested in Docker; stored keys are
+  `pulse.<siteKey>.*`. They use the same `/v1/web/*` API as the Flutter SDK. See each README for what was and wasn't
+  built here.
+- **RCS replies.** `providers.GoogleRBM` implements `ReceiptParser` and `BodyChallenger`: the webhook URL check
+  (`{clientToken, secret}` → `{secret}`) and messages `{message: {data: base64}}` verified by `X-Goog-Signature` =
+  base64 HMAC-SHA512 of the decoded data keyed by the agent's client token (a provider secret). DELIVERED / READ
+  events become receipts on Pulse's message id (the RBM message id); text and suggestion taps (`suggestion` reply or
+  action, `postback`) become inbound messages handled like SMS / WhatsApp (`<channel>_received`, keywords). RBM
+  doesn't say which agent message a user message answers, so the dispatcher keeps the latest successful RCS message per
+  contact in Redis (`lastmsg:{tenant}:rcs:{contact}`, 7 days, `replies.SaveLast`) and the inbound handler records
+  `rcs_replied` with that message's ids (journey, step key, broadcast), which `message_decision` replied waits for.
+- **Bounce mailbox** (`internal/bounces`: `report.go`, `mailbox.go`, `imap.go`; `bounce_mailboxes`, migration 017).
+  One IMAP mailbox per workspace, edited at `/v1/settings/bounce-mailbox` (settings edit access; `test` connects with
+  unsaved settings, `check` makes it due now). The password is sealed with the server key and returned masked; a
+  changed host, port, encryption or user needs it typed again. Plain connections are refused unless
+  `PULSE_ALLOW_PRIVATE_WEBHOOKS` (development); connections go through `safehttp.Dialer` (public addresses only). The
+  integrations role claims due mailboxes (`FOR UPDATE SKIP LOCKED`, every 5 minutes), reads up to 200 unseen messages
+  (`BODY.PEEK[]`), parses RFC 3464 reports (failed + 5.x.x = hard, 4.x.x or delayed = soft; nested reports and base64
+  parts are read) and RFC 5965 feedback reports (complaint for `Original-Rcpt-To`, else the original message's `To`;
+  `not-spam` skipped), records them through `bounces.Events` (the webhook path's code) with event ids derived from the
+  message hash, then flags every read message `\Seen`. A failed publish leaves them unseen for the next check.
+- **Push click tracking.** For push the dispatcher seals a tracking token and adds `data.pulse_track` =
+  `{PULSE_PUBLIC_URL}/t/p/{token}`. `POST /t/p/{token}?a=clicked|dismissed&platform=` (CORS `*`, no body, so the service
+  worker's `no-cors` fetch needs no preflight) records `push_clicked` / `push_dismissed` once per message with the
+  message's ids; `push_clicked` lands in `message_events` like other clicks.
+- **Form uploads and pages.** Field types `file` (`accept` extensions, `max_mb` 1-10) and `page_break` (its label
+  titles the next page). Uploads are read from multipart posts (hosted page, gated asset page, and the web SDK, which
+  sends `payload` JSON plus files when a form has files), checked by `assets.DetectUpload` (extension allowed, format
+  signature, and Go's WHATWG content sniffing must not see HTML, XML, script or SVG; no SVG or ZIP uploads) and stored
+  as assets with `upload_form_id` (migration 018): every other asset query excludes them, `GET
+  /v1/forms/{id}/uploads/{upload}` serves them (contacts view access, attachment, sandbox CSP), and deleting the form
+  or the contact deletes them. `form_submitted.fields.<key>` holds `{upload_id, filename, size, content_type}`; file
+  fields never become attributes. The hosted and gated pages render every page in one form with a nonce'd script that
+  shows one page at a time, checks it (`checkValidity`, size and type) before Next, and opens the page with the first
+  server error; without scripts all pages show. The landing page preview draws the first page and the progress.
+- **Audit export.** `GET /v1/audit/export?format=csv|json&user_id=&object_type=&from=&to=` (settings edit, like the
+  log) pages through `ListAudit` 1,000 entries at a time and streams CSV (`csvSafe` on every text cell) or one JSON
+  array.
 
 ## Analytics (batch 7)
 

@@ -1,0 +1,61 @@
+Return-Path: <>
+Received: by mx.pulse-mail.test (Postfix) id 4B1C2; Tue, 10 Nov 2026 10:00:00 +0000 (UTC)
+Date: Tue, 10 Nov 2026 10:00:00 +0000 (UTC)
+From: MAILER-DAEMON@mx.pulse-mail.test (Mail Delivery System)
+Subject: Undelivered Mail Returned to Sender
+To: bounces@pulse-mail.test
+Auto-Submitted: auto-replied
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status;
+	boundary="4B1C2.1731232800/mx.pulse-mail.test"
+Message-Id: <20261110100000.4B1C2@mx.pulse-mail.test>
+
+This is a MIME-encapsulated message.
+
+--4B1C2.1731232800/mx.pulse-mail.test
+Content-Description: Notification
+Content-Type: text/plain; charset=us-ascii
+
+This is the mail system at host mx.pulse-mail.test.
+
+I'm sorry to have to inform you that your message could not
+be delivered to one or more recipients.
+
+<gone@example.org>: host mx.example.org[203.0.113.5] said: 550 5.1.1
+    <gone@example.org>: Recipient address rejected: User unknown
+
+--4B1C2.1731232800/mx.pulse-mail.test
+Content-Description: Delivery report
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; mx.pulse-mail.test
+X-Postfix-Queue-ID: 4B1C2
+X-Postfix-Sender: rfc822; bounces@pulse-mail.test
+Arrival-Date: Tue, 10 Nov 2026 09:59:58 +0000 (UTC)
+
+Final-Recipient: rfc822; Gone@Example.org
+Original-Recipient: rfc822;gone@example.org
+Action: failed
+Status: 5.1.1
+Remote-MTA: dns; mx.example.org
+Diagnostic-Code: smtp; 550 5.1.1 <gone@example.org>: Recipient address
+    rejected: User unknown
+
+Final-Recipient: rfc822; ok@example.org
+Action: delivered
+Status: 2.0.0
+
+Final-Recipient: rfc822; full@example.org
+Action: failed
+Status: 4.2.2
+Diagnostic-Code: smtp; 452 4.2.2 Mailbox full
+
+--4B1C2.1731232800/mx.pulse-mail.test
+Content-Description: Undelivered Message Headers
+Content-Type: text/rfc822-headers
+
+From: Acme <news@acme.test>
+To: gone@example.org
+Subject: November offers
+
+--4B1C2.1731232800/mx.pulse-mail.test--

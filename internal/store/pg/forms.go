@@ -68,12 +68,19 @@ func (s *Store) SaveForm(ctx context.Context, f model.Form) (int64, error) {
 	return f.ID, err
 }
 
+// DeleteForm deletes a form and the files uploaded through it.
 func (s *Store) DeleteForm(ctx context.Context, tenant, id int64) error {
-	tag, err := s.db.Exec(ctx, `DELETE FROM forms WHERE tenant_id = $1 AND id = $2`, tenant, id)
-	if err == nil && tag.RowsAffected() == 0 {
-		err = ErrNotFound
-	}
-	return err
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `DELETE FROM forms WHERE tenant_id = $1 AND id = $2`, tenant, id)
+		if err == nil && tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM assets WHERE tenant_id = $1 AND upload_form_id = $2`, tenant, id)
+		return err
+	})
 }
 
 // ContactByEmail finds the contact with this email (case-insensitive). With several, the oldest wins.

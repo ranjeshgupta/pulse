@@ -424,16 +424,13 @@ func (s *Server) assetFormSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/a/"+url.PathEscape(a.PublicKey), http.StatusSeeOther)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+	values, uploads, err := readFormPost(w, r, *f)
+	if err != nil {
+		http.Error(w, "The form data couldn't be read (are the files too big?).", http.StatusBadRequest)
 		return
 	}
-	values := map[string]string{}
-	for k := range r.PostForm {
-		values[k] = r.PostForm.Get(k)
-	}
 	shown, _ := strconv.ParseInt(values["_ts"], 10, 64)
-	in := formInput{Values: values, PageURL: r.Referer(), Source: "asset", Honeypot: values["_hp"],
+	in := formInput{Values: values, Uploads: uploads, PageURL: r.Referer(), Source: "asset", Honeypot: values["_hp"],
 		Elapsed: s.now().Sub(time.UnixMilli(shown)), Meta: map[string]any{"asset_id": a.ID}}
 	ferrs, code, ext, err := s.submit(r.Context(), *f, t, in, r)
 	view := assetView{formView: formView{Form: *f, Fields: f.Fields, Values: values, Errors: map[string]string{}, Shown: shown}, Asset: a}
@@ -527,11 +524,12 @@ var assetPageTpl = template.Must(template.Must(formTemplates.Clone()).New("a").F
 <a class="dl" href="{{.Download}}">Download {{.Asset.Filename}}</a></div>
 {{else}}{{with .Form.Settings.Description}}<p class="desc">{{.}}</p>{{end}}
 {{with .Problem}}<div class="alert" role="alert">{{.}}</div>{{end}}
-<form method="post" novalidate>{{template "fields" .}}</form>{{end}}</main></body></html>`))
+{{template "form" .}}{{end}}</main></body></html>`))
 
 func renderAssetPage(w http.ResponseWriter, code int, v assetView) {
+	v.Nonce = auth.NewToken("")[:22]
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+v.Nonce+"'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Cache-Control", "no-store")
 	var b bytes.Buffer
 	if err := assetPageTpl.Execute(&b, v); err != nil {

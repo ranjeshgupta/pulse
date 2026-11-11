@@ -30,7 +30,7 @@ and journeys within seconds, not on a 15-minute cron.
   broadcast and journey reports, funnels.
 - **P1 batch 4 (done):** custom roles, audit log, outbound webhooks (`webhooks` role), background imports, bounce and
   complaint webhooks, standard web push, a custom HTTP gateway for any channel, and the Flutter SDK
-  ([sdks/flutter/pulse_sdk](sdks/flutter/pulse_sdk)).
+  ([sdks/flutter/pulse_sdk](sdks/flutter/pulse_sdk)); native Android and iOS SDKs came with batch 8b.
 - **App inbox (done):** an `inbox` channel kept by Pulse itself; journeys (`send_inbox`) and broadcasts send to it, the
   SDKs list and update it (`GET/POST /v1/web/inbox`, `Pulse.inbox`), reads and clicks count in reports.
   A signed-in user's inbox always needs their user hash (identity verification); anonymous visitors' doesn't.
@@ -99,8 +99,27 @@ and journeys within seconds, not on a 15-minute cron.
     settings and segments edit access.
   Every remote base URL is a setting (the real one by default, only the vendor's own hosts outside local
   development; changing it asks for the credentials again), and every call goes through the SSRF-guarded client.
-- **Still to build:** the rest of batch 8 (native SDKs, RCS replies, bounce mailbox, push click tracking, form uploads,
-  audit export), then batch 9 in the feature-parity doc.
+- **Batch 8b, reach (done):**
+  - **Native SDKs:** Kotlin for Android ([sdks/android](sdks/android): `pulse-core`, plain Kotlin/JVM, and
+    `pulse-android`) and Swift for iOS ([sdks/ios](sdks/ios): Swift package, `PulseCore` + `Pulse`), with the Flutter
+    SDK's features plus push click / dismiss tracking, a local opt-out and storage namespaced by site key. The cores are
+    unit-tested in Docker (`gradle:8-jdk17`, `swift:5.10`); the Android module compiled with lint in an Android SDK
+    image, the iOS UIKit / UserNotifications code has not been compiled (no Xcode here). See each README.
+  - **RCS replies:** Google RBM webhooks (client token check, signed with HMAC-SHA512) bring typed replies and tapped
+    suggestions as `rcs_received`, delivered / read receipts, STOP / START keywords, and `rcs_replied` on the latest
+    RCS message the contact got in 7 days, so a journey's message decision can wait for "replied" on RCS.
+  - **Bounce mailbox:** Channels → Bounce mailbox (IMAP, TLS or STARTTLS, password sealed and shown masked) is read
+    every 5 minutes for delivery status notifications (RFC 3464) and feedback-loop complaints (RFC 5965 / ARF), handled
+    like bounce webhooks; read messages are flagged `\Seen`.
+  - **Push click tracking:** every push carries `data.pulse_track`; the web SDK's service worker and the app SDKs
+    post clicks and dismissals there (`POST /t/p/{token}?a=clicked|dismissed`), recorded as `push_clicked` /
+    `push_dismissed`; reports count clicks and a message decision can wait for "clicked" on push.
+  - **Forms:** file upload fields (types checked against the content, size limits, kept as private assets, downloaded
+    only by signed-in users with contacts access) and multi-page forms (page breaks, each page checked before the next,
+    a progress bar) in the builder, the hosted page, the web SDK embed and the landing page preview.
+  - **Audit log export:** CSV (formula-safe) or JSON, filtered by person, object type and dates, streamed
+    (`GET /v1/audit/export`, same access as the log).
+- **Still to build:** batch 9 in the feature-parity doc.
 
 ## Run it
 
@@ -188,6 +207,8 @@ internal/dispatch/  email: idempotency, token bucket, templates, SMTP
 internal/profile/   identity resolution, attribute merge
 internal/chsink/    events.enriched -> ClickHouse
 internal/integrations/ CRM, Shopify, REST hook and ad audience connectors; audience sync
+internal/bounces/   bounce webhooks, DSN / ARF report parsing, the IMAP bounce mailbox poller
+sdks/               Flutter, Android (Kotlin) and iOS (Swift) SDKs
 internal/api/       HTTP API
 internal/store/     Postgres and ClickHouse stores
 migrations/         embedded SQL

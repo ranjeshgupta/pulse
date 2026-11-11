@@ -95,8 +95,8 @@ export const OUTCOMES: Record<Channel, Outcome[]> = {
   email: ["opened", "clicked", "replied", "delivered"],
   sms: ["delivered"],
   whatsapp: ["delivered", "read"],
-  rcs: ["delivered", "read"],
-  push: ["delivered"],
+  rcs: ["delivered", "read", "replied"],
+  push: ["delivered", "clicked"],
   inbox: ["opened", "clicked"],
 };
 /** Outcomes in words: for the inspector ("the message …") and the canvas. */

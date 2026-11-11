@@ -128,7 +128,7 @@ type Node struct {
 	Timezone   string          `json:"timezone,omitempty"`    // wait_until: zone when the contact has none
 	Event      string          `json:"event,omitempty"`       // wait_for_event
 	Step       string          `json:"step,omitempty"`        // message_decision: the send step whose message it watches
-	Outcome    string          `json:"outcome,omitempty"`     // message_decision: opened | clicked | delivered | read
+	Outcome    string          `json:"outcome,omitempty"`     // message_decision: opened | clicked | delivered | read | replied
 	Rule       json.RawMessage `json:"rule,omitempty"`        // check: a segment rule
 	Variants   []Variant       `json:"variants,omitempty"`    // split
 	Winner     *SplitWinner    `json:"winner,omitempty"`      // split: pick a winning path automatically
@@ -453,8 +453,8 @@ var Outcomes = map[string][]string{
 	channel.Email:    {"opened", "clicked", "delivered", "replied"},
 	channel.SMS:      {"delivered"},
 	channel.WhatsApp: {"delivered", "read"},
-	channel.RCS:      {"delivered", "read"},
-	channel.Push:     {"delivered"},
+	channel.RCS:      {"delivered", "read", "replied"},
+	channel.Push:     {"delivered", "clicked"},
 	channel.Inbox:    {"opened", "clicked"},
 }
 
@@ -469,6 +469,9 @@ func (g Graph) validMessageDecision(id string, n Node) error {
 	}
 	if n.Seconds < 60 || n.Seconds > maxWaitSecs {
 		return fmt.Errorf("message decision %q: wait 1 minute to 365 days for it", id)
+	}
+	if n.URL != "" && ch == channel.Push {
+		return fmt.Errorf("message decision %q: a push click has no link to filter on; leave the link empty", id)
 	}
 	if n.URL != "" && (n.Outcome != "clicked" || len(n.URL) > maxURLFilter) {
 		return fmt.Errorf("message decision %q: a link filter (up to %d characters) only applies to clicks", id, maxURLFilter)

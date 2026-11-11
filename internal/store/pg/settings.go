@@ -104,7 +104,8 @@ func (s *Store) IdleAnonymous(ctx context.Context, tenant int64, days, limit int
 	})
 }
 
-// DeleteContacts removes contacts and what Postgres keeps for them (devices, inbox, journey state).
+// DeleteContacts removes contacts and what Postgres keeps for them (devices, inbox, journey state,
+// files uploaded through forms).
 func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) error {
 	big := make([]int64, len(ids))
 	for i, id := range ids {
@@ -115,6 +116,9 @@ func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) 
 			`DELETE FROM contact_devices WHERE tenant_id = $1 AND contact_id = ANY($2)`,
 			`DELETE FROM inbox_messages WHERE tenant_id = $1 AND contact_id = ANY($2)`,
 			`DELETE FROM journey_enrollments WHERE tenant_id = $1 AND contact_id = ANY($2)`,
+			// files they uploaded through forms
+			`DELETE FROM assets WHERE tenant_id = $1 AND upload_form_id IS NOT NULL AND upload_external_id <> ''
+				AND upload_external_id IN (SELECT external_id FROM contacts WHERE tenant_id = $1 AND id = ANY($2))`,
 			`DELETE FROM contacts WHERE tenant_id = $1 AND id = ANY($2)`,
 		} {
 			if _, err := tx.Exec(ctx, q, tenant, big); err != nil {

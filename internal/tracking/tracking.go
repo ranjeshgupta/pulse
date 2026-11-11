@@ -88,6 +88,13 @@ func (c *Codec) UnsubscribeURL(token string) string { return c.base + "/u/" + to
 func (c *Codec) PreferencesURL(token string) string {
 	return c.base + "/u/" + token + "?view=preferences"
 }
+// PushTrackKey is the push payload data key holding the message's PushURL.
+const PushTrackKey = "pulse_track"
+
+// PushURL is where a push notification's service worker or app SDK reports a click or dismissal:
+// POST {PushURL}?a=clicked or ?a=dismissed.
+func (c *Codec) PushURL(token string) string { return c.base + "/t/p/" + token }
+
 func (c *Codec) OpenURL(token string) string { return c.base + "/t/o/" + token + ".gif" }
 
 func (c *Codec) ClickURL(token, dest string) string {

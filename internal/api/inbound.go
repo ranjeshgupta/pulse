@@ -1,8 +1,10 @@
 package api
 
-// Inbound messages (SMS and WhatsApp replies). Every reply is recorded as <channel>_received on the
-// sender's contacts; a reply that is an opt-out keyword (STOP, ...) unsubscribes them from that
-// channel, and an opt-in keyword (START, ...) subscribes them again.
+// Inbound messages (SMS, WhatsApp and RCS replies). Every reply is recorded as <channel>_received
+// on the sender's contacts; a reply that is an opt-out keyword (STOP, ...) unsubscribes them from
+// that channel, and an opt-in keyword (START, ...) subscribes them again. An RCS reply (typed, or
+// a tapped suggestion chip or action) is also recorded as rcs_replied on the latest RCS message the
+// contact got in the last 7 days, for journeys' "replied" decision.
 
 import (
 	"context"
@@ -14,6 +16,7 @@ import (
 	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/providers"
+	"pulse/internal/replies"
 )
 
 const maxInboundText = 1600
@@ -50,7 +53,23 @@ func (s *Server) handleInbound(ctx context.Context, tenant int64, ch string, rc 
 		if word != "" {
 			props["keyword"] = word
 		}
+		if rc.Suggestion != "" {
+			props["suggestion"], props["postback"] = rc.Suggestion, truncate(rc.Postback, 500)
+		}
 		evs = append(evs, event.Event{ID: idFor(id, c.ExternalID), ExternalID: c.ExternalID, Name: ch + "_received", Props: props})
+		if ch == channel.RCS && s.RDB != nil {
+			tok, ok, err := replies.Last(ctx, s.RDB, tenant, ch, c.ID)
+			if err != nil {
+				return err
+			}
+			if ok {
+				rp := tok.Props()
+				for k, v := range props {
+					rp[k] = v
+				}
+				evs = append(evs, event.Event{ID: idFor(id+":r", c.ExternalID), ExternalID: c.ExternalID, Name: ch + "_replied", Props: rp})
+			}
+		}
 		switch action {
 		case "opt_out":
 			evs = append(evs, event.Event{ID: idFor(id+":c", c.ExternalID), ExternalID: c.ExternalID, Name: consent.Unsubscribed,
@@ -61,6 +80,13 @@ func (s *Server) handleInbound(ctx context.Context, tenant int64, ch string, rc 
 		}
 	}
 	return s.publishEvents(ctx, tenant, evs)
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 // idFor scopes a message-derived event id to one contact (several may share a number).
@@ -81,12 +107,19 @@ func (s *Server) sandboxInbound(w http.ResponseWriter, r *http.Request, tenant i
 		Channel string `json:"channel"`
 		From    string `json:"from"`
 		Text    string `json:"text"`
+		// rcs: a tapped suggestion ("reply" or "action") and its postback data
+		Suggestion string `json:"suggestion"`
+		Postback   string `json:"postback"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.Channel != channel.SMS && req.Channel != channel.WhatsApp {
-		writeErr(w, http.StatusBadRequest, "channel must be sms or whatsapp")
+	if req.Channel != channel.SMS && req.Channel != channel.WhatsApp && req.Channel != channel.RCS {
+		writeErr(w, http.StatusBadRequest, "channel must be sms, whatsapp or rcs")
+		return
+	}
+	if req.Suggestion != "" && (req.Channel != channel.RCS || (req.Suggestion != "reply" && req.Suggestion != "action")) {
+		writeErr(w, http.StatusBadRequest, "suggestion (reply or action) only applies to rcs")
 		return
 	}
 	req.From = strings.ReplaceAll(req.From, " ", "")
@@ -94,7 +127,8 @@ func (s *Server) sandboxInbound(w http.ResponseWriter, r *http.Request, tenant i
 		writeErr(w, http.StatusBadRequest, "from (E.164, like +919812345678) and text are required")
 		return
 	}
-	rc := providers.Receipt{ProviderMessageID: "sbx-" + event.NewID()[:12], Status: providers.Inbound, From: req.From, Text: req.Text}
+	rc := providers.Receipt{ProviderMessageID: "sbx-" + event.NewID()[:12], Status: providers.Inbound, From: req.From, Text: req.Text,
+		Suggestion: req.Suggestion, Postback: req.Postback}
 	if err := s.handleInbound(r.Context(), tenant, req.Channel, rc); err != nil {
 		s.fail(w, err)
 		return

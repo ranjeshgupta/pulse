@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"net/http"
 	"path"
 	"strings"
 	"time"
@@ -166,4 +167,65 @@ func Open(box *auth.Box, s string, now time.Time) (Token, error) {
 		return Token{}, errors.New("this download link has expired")
 	}
 	return t, nil
+}
+
+// UploadExtensions are the types a form's file field may accept: documents, images and text,
+// but not SVG (it can carry script), ICS or ZIP.
+func UploadExtensions() []string {
+	return []string{".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".txt", ".csv", ".docx", ".xlsx", ".pptx"}
+}
+
+// DetectUpload checks a file sent through a form: its extension must be among accept (or any
+// upload type when accept is empty), its content must carry that format's signature (Detect), and
+// content sniffing (the WHATWG algorithm browsers use) must not see a web page or script in it,
+// so a renamed HTML or XML file never passes as text. It returns the content type to store.
+func DetectUpload(filename string, data []byte, accept []string) (string, error) {
+	ext := strings.ToLower(path.Ext(filename))
+	allowed := UploadExtensions()
+	if len(accept) > 0 {
+		allowed = accept
+	}
+	ok := false
+	for _, a := range allowed {
+		a = strings.ToLower(a)
+		ok = ok || a == ext || (a == ".jpg" && ext == ".jpeg") || (a == ".jpeg" && ext == ".jpg")
+	}
+	if !ok || !slicesContains(UploadExtensions(), ext) {
+		names := make([]string, len(allowed))
+		for i, a := range allowed {
+			names[i] = strings.ToUpper(strings.TrimPrefix(a, "."))
+		}
+		return "", fmt.Errorf("this type of file isn't accepted here: upload %s", strings.Join(names, ", "))
+	}
+	ct, err := Detect(filename, data)
+	if err != nil {
+		return "", err
+	}
+	sniffed := http.DetectContentType(data)
+	for _, bad := range []string{"text/html", "text/xml", "application/xml", "application/javascript", "image/svg+xml"} {
+		if strings.HasPrefix(sniffed, bad) {
+			return "", errors.New("the file's content looks like a web page or script, not a " + strings.ToUpper(strings.TrimPrefix(ext, ".")) + " file")
+		}
+	}
+	if k := kinds[ext]; !k.text && sniffed != "application/octet-stream" && !sniffMatches(k.contentType, sniffed) {
+		return "", fmt.Errorf("the file's content isn't a %s file", strings.ToUpper(strings.TrimPrefix(ext, ".")))
+	}
+	return ct, nil
+}
+
+// sniffMatches: content sniffing agrees with the extension's type (Office files are ZIP archives).
+func sniffMatches(want, sniffed string) bool {
+	if strings.HasPrefix(want, "application/vnd.openxmlformats") {
+		return sniffed == "application/zip"
+	}
+	return strings.HasPrefix(sniffed, want)
+}
+
+func slicesContains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }

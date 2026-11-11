@@ -1,0 +1,18 @@
+From: fbl@isp.test
+To: fbl@pulse-mail.test
+Subject: Not spam
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=feedback-report; boundary="b"
+
+--b
+Content-Type: text/plain
+
+Marked as not spam.
+--b
+Content-Type: message/feedback-report
+
+Feedback-Type: not-spam
+Version: 1
+Original-Rcpt-To: happy@example.com
+
+--b--

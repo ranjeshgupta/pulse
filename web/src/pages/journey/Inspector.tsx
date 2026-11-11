@@ -566,13 +566,15 @@ function DecisionFields({ id, n, graph, templates, setN, numbers }: { id: string
           {allowed.map((o) => <option key={o} value={o}>{OUTCOME_WORDS[o].long}</option>)}
         </select>
       </Field>
-      {n.outcome === "clicked" && (
+      {ch === "push" && n.outcome === "clicked" && <Note>Clicks are reported by the web SDK&rsquo;s service worker and the app SDKs when the notification is tapped.</Note>}
+      {n.outcome === "clicked" && ch !== "push" && (
         <Field label="Link contains (optional)" hint="Leave empty for any link, e.g. /pricing for that page only.">
           <input className="input" value={n.url ?? ""} placeholder="any link" onChange={(e) => setN({ url: e.target.value || undefined })} />
         </Field>
       )}
       {ch === "email" && n.outcome === "opened" && <Note>Some mail apps hide opens, so "a link is clicked" is the surer signal.</Note>}
       {ch === "email" && n.outcome === "replied" && <Note>Needs a reply tracking address under Channels, Delivery rules.</Note>}
+      {ch === "rcs" && n.outcome === "replied" && <Note>Any RCS message from the contact (typed, or a tapped suggestion) within 7 days counts as a reply to the latest RCS message they got. Needs the RCS provider's webhook (client token) set up.</Note>}
       <WaitField label="Take “No” if it hasn't happened within" seconds={n.seconds ?? 0} onChange={(seconds) => setN({ seconds })} />
     </>
   );

@@ -332,11 +332,31 @@ func previewFormHTML(key string, forms map[string]model.Form) string {
 	if f.Settings.Description != "" {
 		b.WriteString(`<p style="margin:0 0 12px;color:#5b6474">` + html.EscapeString(f.Settings.Description) + `</p>`)
 	}
+	// A multi-page form shows its progress and first page; the live form steps through the rest.
+	pages := 1
 	for _, fd := range f.Fields {
+		if fd.Type == "page_break" {
+			pages++
+		}
+	}
+	if pages > 1 {
+		fmt.Fprintf(&b, `<p style="margin:0 0 4px;font-size:13px;color:#5b6474">Page 1 of %d</p><span style="display:block;height:6px;background:#e4e8ee;border-radius:3px;margin:0 0 14px"><span style="display:block;height:6px;width:%d%%;background:#2747d6;border-radius:3px"></span></span>`, pages, 100/pages)
+	}
+	for _, fd := range f.Fields {
+		if fd.Type == "page_break" {
+			break
+		}
 		if fd.Type == "hidden" {
 			continue
 		}
 		label := html.EscapeString(fd.Label)
+		if fd.Type == "file" {
+			if fd.Required {
+				label += " *"
+			}
+			fmt.Fprintf(&b, `<label style="display:block;margin:0 0 12px;font-weight:600;font-size:14px">%s<span style="display:block;margin-top:6px;padding:9px 12px;border:1px dashed #c3cbd6;border-radius:6px;background:#fff;font-weight:400;color:#5b6474">Choose a file…</span></label>`, label)
+			continue
+		}
 		if fd.Required {
 			label += " *"
 		}
@@ -346,12 +366,15 @@ func previewFormHTML(key string, forms map[string]model.Form) string {
 		}
 		fmt.Fprintf(&b, `<label style="display:block;margin:0 0 12px;font-weight:600;font-size:14px">%s<span style="display:block;margin-top:6px;height:38px;border:1px solid #c3cbd6;border-radius:6px;background:#fff"></span></label>`, label)
 	}
-	if f.Settings.ConsentText != "" {
+	if f.Settings.ConsentText != "" && pages == 1 {
 		fmt.Fprintf(&b, `<label style="display:flex;gap:8px;margin:0 0 12px"><input type="checkbox" disabled> %s</label>`, html.EscapeString(f.Settings.ConsentText))
 	}
 	submit := f.Settings.SubmitText
 	if submit == "" {
 		submit = "Submit"
+	}
+	if pages > 1 {
+		submit = "Next"
 	}
 	fmt.Fprintf(&b, `<span style="display:block;text-align:center;background:#2747d6;color:#fff;border-radius:6px;padding:10px;font-weight:600">%s</span></div>`, html.EscapeString(submit))
 	return b.String()

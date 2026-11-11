@@ -49,6 +49,7 @@ var special = map[string]need{
 	"GET /v1/journeys/{id}/report":                    {auth.AreaReports, auth.View},
 	"GET /v1/broadcasts/{id}/report":                  {auth.AreaReports, auth.View},
 	"GET /v1/forms/{id}/submissions":                  {auth.AreaContent, auth.View},
+	"GET /v1/forms/{id}/uploads/{upload}":             {auth.AreaContacts, auth.View}, // files contacts uploaded: personal data
 	"GET /v1/contacts/export":                         {auth.AreaContacts, auth.Edit}, // a full copy of the data
 	"GET /v1/contacts/{external_id}/preferences-link": {auth.AreaContacts, auth.Edit},
 	"GET /v1/settings/sso":                            {auth.AreaSettings, auth.Edit}, // shows SSO configuration
@@ -56,6 +57,7 @@ var special = map[string]need{
 	"GET /v1/settings/webhooks":                       {auth.AreaSettings, auth.Edit}, // shows signing secrets
 	"GET /v1/settings/webhooks/{id}":                  {auth.AreaSettings, auth.Edit},
 	"GET /v1/settings/bounces":                        {auth.AreaSettings, auth.Edit}, // shows the bounce URL secret
+	"GET /v1/settings/bounce-mailbox":                 {auth.AreaSettings, auth.Edit}, // mailbox server and user
 	"POST /v1/sandbox/receipts":                       {auth.AreaContent, auth.Edit},  // test tools, like test sends
 	"POST /v1/sandbox/bounce":                         {auth.AreaContent, auth.Edit},
 	"POST /v1/sandbox/inbound":                        {auth.AreaContent, auth.Edit},
@@ -64,6 +66,7 @@ var special = map[string]need{
 	"GET /v1/attributes/{key}/values":                 {auth.AreaContacts, auth.View}, // real values from contacts
 	"GET /v1/events/{name}/values":                    {auth.AreaContacts, auth.View},
 	"GET /v1/audit":                                   {auth.AreaSettings, auth.Edit},
+	"GET /v1/audit/export":                            {auth.AreaSettings, auth.Edit}, // the same as viewing the log
 	"GET /v1/channels/catalog":                        {auth.AreaChannels, auth.View},
 	"GET /v1/integrations/{id}/fields":                {auth.AreaSettings, auth.Edit}, // calls the CRM with the stored credentials
 }

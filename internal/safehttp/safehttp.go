@@ -26,9 +26,9 @@ func Allowed(ip net.IP) bool {
 
 var _, cgnat, _ = net.ParseCIDR("100.64.0.0/10")
 
-// Client returns a client that refuses non-public destinations, unless allowPrivate is set (local
-// development, where webhook receivers run on localhost).
-func Client(timeout time.Duration, allowPrivate bool) *http.Client {
+// Dialer returns a TCP dialer that refuses non-public destinations (checked on the resolved
+// address at connect time), unless allowPrivate is set. For protocols other than HTTP (IMAP).
+func Dialer(allowPrivate bool) *net.Dialer {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	if !allowPrivate {
 		dialer.Control = func(_, address string, _ syscall.RawConn) error {
@@ -42,6 +42,13 @@ func Client(timeout time.Duration, allowPrivate bool) *http.Client {
 			return nil
 		}
 	}
+	return dialer
+}
+
+// Client returns a client that refuses non-public destinations, unless allowPrivate is set (local
+// development, where webhook receivers run on localhost).
+func Client(timeout time.Duration, allowPrivate bool) *http.Client {
+	dialer := Dialer(allowPrivate)
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{

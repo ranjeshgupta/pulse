@@ -1,0 +1,23 @@
+From: fbl@isp.test
+To: fbl@pulse-mail.test
+Subject: Complaint
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=feedback-report; boundary="b"
+
+--b
+Content-Type: text/plain
+
+A complaint.
+--b
+Content-Type: message/feedback-report
+
+Feedback-Type: fraud
+Version: 1
+
+--b
+Content-Type: text/rfc822-headers
+
+To: "Some One" <someone@example.com>
+From: news@acme.test
+Subject: hello
+--b--

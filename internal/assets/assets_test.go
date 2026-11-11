@@ -95,3 +95,28 @@ func TestTokens(t *testing.T) {
 		t.Error("opened without a key")
 	}
 }
+
+func TestDetectUpload(t *testing.T) {
+	if ct, err := DetectUpload("a.pdf", []byte("%PDF-1.7"), nil); err != nil || ct != "application/pdf" {
+		t.Errorf("pdf: %q %v", ct, err)
+	}
+	if ct, err := DetectUpload("a.jpeg", []byte{0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 'J', 'F', 'I', 'F'}, []string{".jpg"}); err != nil || ct != "image/jpeg" {
+		t.Errorf("jpeg for .jpg: %q %v", ct, err)
+	}
+	for name, c := range map[string]struct {
+		file   string
+		data   string
+		accept []string
+	}{
+		"html as txt":  {"notes.txt", "<!DOCTYPE html><script>x</script>", nil},
+		"xml as csv":   {"data.csv", "<?xml version=\"1.0\"?><a/>", nil},
+		"svg":          {"logo.svg", "<svg/>", nil},
+		"zip":          {"a.zip", "PK\x03\x04", nil},
+		"not accepted": {"a.png", "\x89PNG\r\n\x1a\n", []string{".pdf"}},
+		"no magic":     {"a.pdf", "hello", nil},
+	} {
+		if _, err := DetectUpload(c.file, []byte(c.data), c.accept); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

@@ -2,8 +2,14 @@ package providers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha512"
+	"encoding/base64"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"golang.org/x/oauth2"
@@ -96,5 +102,64 @@ func TestGoogleRBMErrors(t *testing.T) {
 				t.Fatalf("got %s (%v), want %s", c, err, tc.want)
 			}
 		})
+	}
+}
+
+// rbmWebhook builds a signed RBM webhook delivery of data (a user message or event).
+func rbmWebhook(data, token string) *http.Request {
+	mac := hmac.New(sha512.New, []byte(token))
+	mac.Write([]byte(data))
+	body := `{"message":{"data":"` + base64.StdEncoding.EncodeToString([]byte(data)) + `","messageId":"ps1"},"subscription":"x"}`
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/providers/3", strings.NewReader(body))
+	r.Header.Set("X-Goog-Signature", base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+	return r
+}
+
+func TestGoogleRBMWebhook(t *testing.T) {
+	g := &GoogleRBM{ClientToken: "ct-123"}
+	for _, tc := range []struct {
+		name, data string
+		want       []Receipt
+	}{
+		{"text", `{"senderPhoneNumber":"+919812345678","messageId":"MxA","text":"STOP","agentId":"a"}`,
+			[]Receipt{{ProviderMessageID: "MxA", Status: Inbound, From: "+919812345678", Text: "STOP"}}},
+		{"reply chip", `{"senderPhoneNumber":"+919812345678","messageId":"MxB","suggestionResponse":{"postbackData":"yes_please","text":"Yes please","type":"REPLY"}}`,
+			[]Receipt{{ProviderMessageID: "MxB", Status: Inbound, From: "+919812345678", Text: "Yes please", Suggestion: "reply", Postback: "yes_please"}}},
+		{"action", `{"senderPhoneNumber":"+919812345678","messageId":"MxC","suggestionResponse":{"postbackData":"url:Track","text":"Track","type":"ACTION"}}`,
+			[]Receipt{{ProviderMessageID: "MxC", Status: Inbound, From: "+919812345678", Text: "Track", Suggestion: "action", Postback: "url:Track"}}},
+		{"delivered", `{"senderPhoneNumber":"+919812345678","eventType":"DELIVERED","eventId":"e1","messageId":"12:send1"}`,
+			[]Receipt{{ProviderMessageID: "12:send1", Status: "delivered"}}},
+		{"read", `{"senderPhoneNumber":"+919812345678","eventType":"READ","eventId":"e2","messageId":"12:send1"}`,
+			[]Receipt{{ProviderMessageID: "12:send1", Status: "read"}}},
+		{"typing", `{"senderPhoneNumber":"+919812345678","eventType":"IS_TYPING","eventId":"e3"}`, nil},
+		{"file", `{"senderPhoneNumber":"+919812345678","messageId":"MxD","userFile":{"payload":{}}}`, nil},
+	} {
+		got, err := g.ParseReceipts(rbmWebhook(tc.data, "ct-123"))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if len(got) != len(tc.want) || (len(got) == 1 && got[0] != tc.want[0]) {
+			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+	if _, err := g.ParseReceipts(rbmWebhook(`{"senderPhoneNumber":"+919812345678","text":"x"}`, "wrong")); !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("a wrongly signed message: %v, want ErrUnauthorized", err)
+	}
+	if _, err := (&GoogleRBM{}).ParseReceipts(rbmWebhook(`{"text":"x"}`, "")); !errors.Is(err, ErrUnauthorized) {
+		t.Error("without a client token nothing is trusted")
+	}
+}
+
+func TestGoogleRBMWebhookCheck(t *testing.T) {
+	g := &GoogleRBM{ClientToken: "ct-123"}
+	out, isChallenge, ok := g.BodyChallenge([]byte(`{"clientToken":"ct-123","secret":"s-9"}`))
+	if !isChallenge || !ok || string(out) != `{"secret":"s-9"}` {
+		t.Fatalf("check: %s %v %v", out, isChallenge, ok)
+	}
+	if _, isChallenge, ok := g.BodyChallenge([]byte(`{"clientToken":"nope","secret":"s-9"}`)); !isChallenge || ok {
+		t.Error("a wrong client token must be refused")
+	}
+	if _, isChallenge, _ := g.BodyChallenge([]byte(`{"message":{"data":"e30="}}`)); isChallenge {
+		t.Error("an ordinary delivery is not a check")
 	}
 }

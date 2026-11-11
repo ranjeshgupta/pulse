@@ -8,6 +8,7 @@
 package dispatch
 
 import (
+	"maps"
 	"context"
 	"encoding/json"
 	"errors"
@@ -250,6 +251,17 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	if err := d.shortenLinks(ctx, m, c, &rendered); err != nil {
 		return err
 	}
+	if m.Channel == channel.Push && d.cfg.Tracking != nil {
+		// The service worker and the app SDKs post clicks and dismissals to this link.
+		tok := d.cfg.Tracking.Encode(tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID,
+			Channel: m.Channel, TemplateID: m.TemplateID, JourneyID: m.JourneyID, BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant})
+		data := maps.Clone(rendered.Content.Data)
+		if data == nil {
+			data = map[string]string{}
+		}
+		data[tracking.PushTrackKey] = d.cfg.Tracking.PushURL(tok)
+		rendered.Content.Data = data
+	}
 	var files []providers.Attachment
 	if m.Channel == channel.Email && len(rendered.Content.Attachments) > 0 {
 		files, err = d.attachments(ctx, m.TenantID, rendered.Content.Attachments)
@@ -326,6 +338,12 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error {
 	case sent > 0:
 		if !t.Transactional {
 			d.countSend(ctx, m)
+		}
+		if m.Channel == channel.RCS { // an RCS reply is attributed to the latest RCS message (package replies)
+			tok := tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID, Channel: m.Channel,
+				TemplateID: m.TemplateID, JourneyID: m.JourneyID, BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant}
+			_ = replies.SaveLast(ctx, d.rdb, c.ID, tok) // best effort: without it a reply is still recorded, just not matched
+
 		}
 		return d.finish(ctx, sentKey, m, c, "sent", "")
 	case lastErr == nil:

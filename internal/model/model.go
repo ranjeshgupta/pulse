@@ -352,11 +352,15 @@ type Form struct {
 type FormField struct {
 	Key      string   `json:"key"` // the profile attribute it sets ("email" sets the contact's email)
 	Label    string   `json:"label"`
-	Type     string   `json:"type"` // text | email | tel | number | textarea | select | checkbox | hidden
+	// text | email | tel | number | textarea | select | checkbox | hidden | file | page_break
+	// (page_break starts a new page; its label titles that page; it has no value)
+	Type     string   `json:"type"`
 	Required bool     `json:"required,omitempty"`
 	Options  []string `json:"options,omitempty"`     // select
 	Default  string   `json:"default,omitempty"`     // hidden fields: the value sent
 	Progress bool     `json:"progressive,omitempty"` // skip when the visitor's profile already has a value
+	Accept   []string `json:"accept,omitempty"`      // file: allowed extensions (.pdf, .png...); empty: every upload type
+	MaxMB    int      `json:"max_mb,omitempty"`      // file: size limit in MB (1-10; 0 means 5)
 }
 
 type FormSettings struct {
@@ -416,6 +420,7 @@ type AuditFilter struct {
 	Before     int64 // entries older than this id (paging)
 	UserID     int64
 	ObjectType string
+	From, To   time.Time // optional: entries at or after From and before To
 	Limit      int
 }
 

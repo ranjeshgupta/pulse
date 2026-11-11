@@ -22,6 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"pulse/internal/auth"
+	"pulse/internal/bounces"
 	"pulse/internal/geoip"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
@@ -102,6 +103,8 @@ type Deps struct {
 	Geo *geoip.Locator
 	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
 	TrustProxy bool
+	// MailboxOpener connects to bounce mailboxes (nil: IMAP through the SSRF-guarded dialer).
+	MailboxOpener bounces.Opener
 }
 
 type Server struct {
@@ -183,6 +186,7 @@ func (s *Server) Handler() http.Handler {
 	s.webhookRoutes(mux)
 	s.backgroundImportRoutes(mux)
 	s.bounceRoutes(mux)
+	s.mailboxRoutes(mux)
 	s.webPushRoutes(mux)
 	s.inboxRoutes(mux)
 	s.inappRoutes(mux)

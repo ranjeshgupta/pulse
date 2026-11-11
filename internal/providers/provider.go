@@ -83,6 +83,9 @@ type Receipt struct {
 	Reason            string `json:"reason,omitempty"`
 	From              string `json:"from,omitempty"` // inbound: the sender's E.164 number
 	Text              string `json:"text,omitempty"` // inbound: the message text
+	// inbound RCS: a tapped suggestion ("reply" or "action") and its postback data
+	Suggestion string `json:"suggestion,omitempty"`
+	Postback   string `json:"postback,omitempty"`
 }
 
 // Inbound is the Status of a receipt that is a message from the contact.
@@ -98,6 +101,13 @@ type ReceiptParser interface {
 // request first (Meta's hub.challenge). ok=false means the challenge is invalid.
 type ChallengeResponder interface {
 	Challenge(r *http.Request) (response string, ok bool)
+}
+
+// BodyChallenger is implemented by adapters whose provider verifies the webhook URL with a POST
+// (Google RBM's clientToken / secret handshake). isChallenge=false means body is an ordinary
+// webhook; ok=false means it is a challenge that didn't verify.
+type BodyChallenger interface {
+	BodyChallenge(body []byte) (response []byte, isChallenge, ok bool)
 }
 
 // Field describes one setting in a provider's form.

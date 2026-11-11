@@ -161,3 +161,20 @@ func TestRenderPreview(t *testing.T) {
 		t.Errorf("preview has scripts:\n%s", doc)
 	}
 }
+
+func TestRenderPreviewMultiPage(t *testing.T) {
+	p := page()
+	p.HTML = `{form:fPages}`
+	forms := map[string]model.Form{"fPages": {PublicKey: "fPages", Status: "active", Fields: []model.FormField{
+		{Key: "email", Label: "Email", Type: "email", Required: true}, {Key: "cv", Label: "Your CV", Type: "file", Required: true},
+		{Type: "page_break", Label: "More"}, {Key: "city", Label: "City <b>", Type: "text"}}}}
+	doc := Render(p, Page{Preview: true, Forms: forms})
+	for _, want := range []string{"Page 1 of 2", "Your CV *", "Choose a file", ">Next<"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("preview lacks %q:\n%s", want, doc)
+		}
+	}
+	if strings.Contains(doc, "City") || strings.Contains(doc, "<script") {
+		t.Errorf("preview shows later pages or scripts:\n%s", doc)
+	}
+}

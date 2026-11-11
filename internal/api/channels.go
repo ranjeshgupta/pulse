@@ -4,9 +4,11 @@ package api
 // delivery-receipt webhooks.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -301,6 +303,23 @@ func (s *Server) providerWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeErr(w, http.StatusNotFound, "this provider does not accept webhooks")
 		return
+	}
+	if bc, ok := p.(providers.BodyChallenger); ok { // e.g. RBM's {clientToken, secret} URL check
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "unreadable body")
+			return
+		}
+		if resp, isChallenge, valid := bc.BodyChallenge(body); isChallenge {
+			if !valid {
+				writeErr(w, http.StatusUnauthorized, "invalid client token")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(resp)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	receipts, err := parser.ParseReceipts(r)
 	if errors.Is(err, providers.ErrUnauthorized) {

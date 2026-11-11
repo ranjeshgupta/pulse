@@ -287,8 +287,12 @@ export interface SplitReport { metric?: string; paths: PathStat[]; decision?: Sp
 export type StepStats = { entered?: number; yes?: number; no?: number; [output: string]: number | undefined };
 export interface JourneyReport { messages: MessageReport; enrollments: Stats; splits?: Record<string, SplitReport>; steps?: Record<string, StepStats> }
 
-export type FormFieldType = "text" | "email" | "tel" | "number" | "textarea" | "select" | "checkbox" | "hidden";
-export interface FormField { key: string; label: string; type: FormFieldType; required?: boolean; options?: string[]; default?: string; progressive?: boolean }
+export type FormFieldType = "text" | "email" | "tel" | "number" | "textarea" | "select" | "checkbox" | "hidden" | "file" | "page_break";
+export interface FormField {
+  key: string; label: string; type: FormFieldType; required?: boolean; options?: string[]; default?: string; progressive?: boolean;
+  /** file: allowed extensions (empty: every upload type); size limit in MB (1-10, default 5) */
+  accept?: string[]; max_mb?: number;
+}
 export interface FormSettings {
   submit_text?: string; success_message?: string; redirect_url?: string; list_ids?: number[]; tags?: string[];
   consent_text?: string; resubscribe?: Channel[]; description?: string; theme?: string;
