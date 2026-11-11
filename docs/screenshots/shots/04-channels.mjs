@@ -3,7 +3,7 @@
 // (email goes through the server's SMTP relay, Mailpit in development). Provider forms are filled
 // with placeholder values and cancelled, never saved; delivery rules are changed on screen only.
 // The one thing it sends is a provider test through the SMS sandbox, which lands in the test inbox.
-import { clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -146,6 +146,41 @@ export default async function (browser) {
   await bounce.getByLabel("Email").fill("someone@example.com");
   await settle(page);
   await shot(page, AREA, "04-simulators", { clip: page.locator(".grid-2").last(), pad: 8 });
+
+  // 10. Sending limits and today's usage (M3): the SMS sandbox has 20/s and 5,000 a day (docs seed).
+  await go(page, "/settings/channels");
+  const sms = page.locator("section.panel").nth(1);
+  await shot(page, AREA, "04-limits-usage", { clip: sms, pad: 8 });
+  await sms.getByRole("button", { name: "Limits" }).click();
+  const limits = page.getByRole("dialog", { name: /^Sending limits/ });
+  await limits.waitFor();
+  await settle(page);
+  await shot(page, AREA, "04-limits", { clip: limits, pad: 0 });
+  await limits.getByRole("button", { name: "Cancel" }).click();
+
+  // 11. Saved test contacts, and the Send a test dialog that offers them.
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  const tcs = panel(page, "Test contacts");
+  await tcs.scrollIntoViewIfNeeded();
+  await settle(page);
+  await shot(page, AREA, "04-test-contacts", { clip: tcs, pad: 8 });
+  await tcs.getByRole("button", { name: "Add test contact" }).click();
+  const add = page.getByRole("dialog", { name: "Add a test contact" });
+  await add.getByLabel("Name").fill("Nina (marketing)");
+  await add.getByLabel("Email").fill("nina@acme-retail.test");
+  await add.getByLabel(/^Phone/).fill("+919812399003");
+  await settle(page);
+  await shot(page, AREA, "04-test-contact-add", { clip: add, pad: 0 });
+  await add.getByRole("button", { name: "Cancel" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const tpl = (await api(context, "GET", "/v1/templates?channel=sms")).templates.find((t) => t.name === "Cart rescue SMS");
+  await go(page, `/templates/${tpl.id}`);
+  await page.getByRole("button", { name: "Send a test" }).click();
+  const test = page.getByRole("dialog", { name: /^Send a test/ });
+  await test.getByLabel("Send to").selectOption({ label: "Priya (QA) (+919812399001)" });
+  await settle(page);
+  await shot(page, AREA, "04-send-test-saved", { clip: test, pad: 0 });
+  await page.keyboard.press("Escape");
 
   await context.close();
 }

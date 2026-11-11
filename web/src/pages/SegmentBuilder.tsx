@@ -12,6 +12,8 @@ import {
   type Path, type TreeAction, type Where,
 } from "../segmentRules";
 import { FilterPicker, Icon } from "./FilterPicker";
+import { copyText, parseText } from "../segmentClipboard";
+import { Field, Modal, useToast } from "../ui";
 import { useAttributes, useEventNames, useEventSchemas, useKnownValues, useRefObjects, useSegments, type RefItem } from "./segmentData";
 import { useStages } from "./Stages";
 import "./segment-builder.css";
@@ -25,6 +27,8 @@ type Ctx = {
   open: string | null;
   setOpen: (k: string | null) => void;
   self?: number;
+  /** the whole rule, for paste limits */
+  root: Group;
 };
 const BuilderCtx = createContext<Ctx | null>(null);
 const useB = () => useContext(BuilderCtx)!;
@@ -40,7 +44,7 @@ export function GroupEditor({ group, onChange, self }: { group: Group; onChange:
   latest.current = group;
   const dispatch = useCallback((a: TreeAction) => onChange(treeReducer(latest.current, a)), [onChange]);
   const remember = useCallback((id: string) => setRecent((r) => { const n = pushRecent(r, id); saveRecent(n); return n; }), []);
-  const ctx = useMemo<Ctx>(() => ({ dispatch, items, recent, remember, open, setOpen, self }), [dispatch, items, recent, remember, open, self]);
+  const ctx = useMemo<Ctx>(() => ({ dispatch, items, recent, remember, open, setOpen, self, root: group }), [dispatch, items, recent, remember, open, self, group]);
   return (
     <BuilderCtx.Provider value={ctx}>
       <div className="fb">
@@ -73,6 +77,7 @@ function GroupBox({ group, path }: { group: Group; path: Path }) {
         <MatchSelect root={root} value={group.match} onChange={(m) => dispatch({ type: "match", group: path, match: m })} label={root ? "Contacts must match all or any of the filters" : "This group matches all, any or none of its filters"} />
         <span>of the following{root ? ":" : ""}</span>
         {group.match === "none" && <span className="xs muted fb-none-hint">a contact matching any of these is excluded</span>}
+        <GroupClipboard group={group} path={path} />
         {!root && (
           <button type="button" className="btn ghost sm fb-remove-group" onClick={() => dispatch({ type: "remove", path })} aria-label="Remove this group and its filters">
             Remove group
@@ -627,5 +632,46 @@ function SharedLists() {
       <datalist id="fb-tag-names">{tags.map((t) => <option key={t} value={t} />)}</datalist>
       <datalist id="fb-event-names">{names.filter((n) => !KNOWN_EVENTS[n]).map((n) => <option key={n} value={n} />)}</datalist>
     </>
+  );
+}
+
+const RULE_CLIP_KEY = "pulse.segment-clipboard";
+
+/** GroupClipboard copies a group to the clipboard, and pastes copied filters into it (from this or
+ * another segment), checked against the builder's limits. */
+function GroupClipboard({ group, path }: { group: Group; path: Path }) {
+  const { dispatch, root } = useB();
+  const toast = useToast();
+  const [manual, setManual] = useState<string | null>(null);
+  const copy = () => {
+    const text = copyText(group);
+    try { localStorage.setItem(RULE_CLIP_KEY, text); } catch { /* private window */ }
+    navigator.clipboard?.writeText(text).catch(() => undefined);
+    toast({ text: `Copied ${path.length === 0 ? "the filters" : "the group"}. Paste it into any group of any segment.` });
+  };
+  const apply = (text: string) => {
+    const r = parseText(text, root, path);
+    if (r.error || !r.node) { toast({ text: r.error ?? "Nothing to paste.", error: true }); return; }
+    dispatch({ type: "add", group: path, node: r.node });
+    setManual(null);
+    toast({ text: "Pasted." });
+  };
+  const paste = () => {
+    const fallback = () => { let t = ""; try { t = localStorage.getItem(RULE_CLIP_KEY) ?? ""; } catch { /* private window */ } if (t) apply(t); else setManual(""); };
+    if (navigator.clipboard?.readText) navigator.clipboard.readText().then((t) => (t.includes("segment-rules") ? apply(t) : fallback()), fallback);
+    else fallback();
+  };
+  return (
+    <span className="fb-clip">
+      <button type="button" className="btn ghost sm" onClick={copy} disabled={group.children.length === 0} title="Copy this group's filters">Copy</button>
+      <button type="button" className="btn ghost sm" onClick={paste} title="Paste copied filters into this group">Paste</button>
+      {manual !== null && (
+        <Modal title="Paste filters" onClose={() => setManual(null)} footer={<><button className="btn" onClick={() => setManual(null)}>Cancel</button><button className="btn primary" disabled={!manual.trim()} onClick={() => apply(manual)}>Paste</button></>}>
+          <Field label="Copied filters" hint="Your browser didn't let Pulse read the clipboard: paste here (Ctrl+V).">
+            <textarea className="textarea code-editor" value={manual} onChange={(e) => setManual(e.target.value)} aria-label="Copied filters" />
+          </Field>
+        </Modal>
+      )}
+    </span>
   );
 }

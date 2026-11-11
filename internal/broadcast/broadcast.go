@@ -144,9 +144,15 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 		send = send[:0]
 		return nil
 	}
+	deadline := b.Deadline.After(at)
+	deadlineLocal := ""
+	if localAt != "" && b.Deadline != nil {
+		deadline, deadlineLocal = nil, b.Deadline.LocalClock(localAt)
+	}
 	for _, contact := range members {
 		m := r.message(b, runKey, contact, b.TemplateID, "")
 		m.LocalAt, m.LocalZone = localAt, b.Timezone
+		m.Deadline, m.DeadlineLocal = deadline, deadlineLocal
 		if b.AB != nil {
 			bk := Bucket(b.ID, runKey, contact)
 			if bk >= b.AB.TestPercent*100 {
@@ -220,7 +226,9 @@ func (r *Runner) sendWinner(ctx context.Context, w WinnerRun) error {
 		if Bucket(b.ID, runKey, contact) < b.AB.TestPercent*100 {
 			continue // was in the test
 		}
-		send = append(send, r.message(b, runKey, contact, tpl, WinnerVariant))
+		m := r.message(b, runKey, contact, tpl, WinnerVariant)
+		m.Deadline = b.Deadline.After(r.Now()) // the winner's send starts now
+		send = append(send, m)
 		n++
 		if len(send) == chunk {
 			if err := r.publish(ctx, send); err != nil {
@@ -236,12 +244,19 @@ func (r *Runner) sendWinner(ctx context.Context, w WinnerRun) error {
 	return r.Store.FinishWinner(ctx, w.RunID, b.ID, winner, reason, n)
 }
 
-// audience lists the broadcast's recipients now: members of its segment who are in none of the
+// audience lists the broadcast's recipients now: members of its segments who are in none of the
 // excluded segments.
 func (r *Runner) audience(ctx context.Context, b model.Broadcast) ([]uint32, error) {
 	include, err := r.Members.Load(ctx, b.TenantID, b.SegmentID)
 	if err != nil {
 		return nil, err
+	}
+	for _, id := range b.IncludeSegmentIDs {
+		more, err := r.Members.Load(ctx, b.TenantID, id)
+		if err != nil {
+			return nil, err
+		}
+		include = Union(include, more)
 	}
 	var excludes [][]byte
 	for _, id := range b.ExcludeSegmentIDs {
@@ -252,6 +267,18 @@ func (r *Runner) audience(ctx context.Context, b model.Broadcast) ([]uint32, err
 		excludes = append(excludes, ex)
 	}
 	return segment.Members(Exclude(include, excludes...)), nil
+}
+
+// Union returns a bitmap with the bits of both.
+func Union(a, b []byte) []byte {
+	if len(b) > len(a) {
+		a, b = b, a
+	}
+	out := append([]byte(nil), a...)
+	for i := range b {
+		out[i] |= b[i]
+	}
+	return out
 }
 
 // Exclude returns the include bitmap without the bits set in any of excludes.

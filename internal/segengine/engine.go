@@ -37,6 +37,7 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
+	"pulse/internal/reach"
 	"pulse/internal/segment"
 	"pulse/internal/store/ch"
 )
@@ -425,6 +426,9 @@ func (e *Engine) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	if err := e.countFiltered(ctx, evs); err != nil {
 		return err
 	}
+	if err := e.updateReach(ctx, evs); err != nil {
+		return err
+	}
 	jobs := make([]job, 0, len(evs))
 	idx := *e.idx.Load()
 	for _, ev := range evs {
@@ -549,6 +553,29 @@ func (e *Engine) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 		out = append(out, rec)
 	}
 	return e.pub.Publish(ctx, out...)
+}
+
+// updateReach sets the reachability bits (package reach) of contacts that were created, or whose
+// address, consent or bounce attributes changed, from their profile after the event.
+func (e *Engine) updateReach(ctx context.Context, evs []event.Event) error {
+	var p redis.Pipeliner
+	for i := range evs {
+		ev := &evs[i]
+		if ev.Profile == nil || ev.ContactID == 0 || !(ev.NewContact || reach.Relevant(ev.ChangedAttrs)) {
+			continue
+		}
+		if p == nil {
+			p = e.rdb.Pipeline()
+		}
+		reach.Queue(ctx, p, ev.TenantID, ev.ContactID, reach.Bits(ev.Profile))
+	}
+	if p == nil {
+		return nil
+	}
+	if _, err := p.Exec(ctx); err != nil {
+		return fmt.Errorf("write reachability: %w", err)
+	}
+	return nil
 }
 
 func boolBit(in bool) int {

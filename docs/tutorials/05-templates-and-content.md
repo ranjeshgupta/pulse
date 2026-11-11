@@ -126,6 +126,7 @@ The server renders the template exactly as it would be sent, with that contact's
 personalised with their attributes.
 
 1. Click **Send a test**, enter the **Contact's external ID** (`cust-0287`), and click **Send test**.
+   (**Send to** also lists your saved test contacts, see tutorial 4.)
 
    <img src="img/05-email-send-test.png" alt="Send a test: Diwali offer (email), contact's external ID cust-0287" width="420">
 2. You see *Test queued. Check the test inbox or the contact's device.*

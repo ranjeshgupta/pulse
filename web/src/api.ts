@@ -211,7 +211,9 @@ export interface ChannelContent {
   attachments?: number[];
 }
 /** missing_values: when a variable has no value and no default, render it empty (default) or skip the contact. */
-export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; missing_values?: "empty" | "skip"; updated_at: string }
+export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; missing_values?: "empty" | "skip";
+  /** Written inside a one-time campaign: kept out of template lists until saved as reusable. */
+  hidden?: boolean; updated_at: string }
 
 export interface DeliveryRules {
   caps: Partial<Record<Channel, { max: number; hours: number }>>;
@@ -287,6 +289,8 @@ export interface JourneyNode {
   confirm?: string;
   /** push_integration: the CRM integration the contact is pushed to. */
   integration_id?: number;
+  /** send steps and send_message: drop the message instead of sending it late. */
+  deadline?: Deadline | null;
 }
 /** A split's A/B test: after after_seconds, once every path has min_per_variant contacts, the best rate of metric wins. */
 export interface SplitWinner { metric: "opened" | "clicked" | "converted"; after_seconds: number; min_per_variant: number }
@@ -311,12 +315,20 @@ export interface Journey {
   archived_at?: string | null;
   /** Someone has entered it (list only): it can be archived but not deleted. */
   has_run?: boolean;
+  tags?: string[];
 }
 export type Stats = { status: Record<string, number>; node: Record<string, number> };
 
 export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean }
 export interface ProviderKind { id: string; channel: Channel; name: string; description: string; config: ProviderField[]; secrets: ProviderField[] }
-export interface Provider { id: number; channel: Channel; provider: string; name: string; config: Record<string, string>; has_secrets: boolean; is_default: boolean; webhook_url?: string }
+/** Per-provider sending limits: messages per second and a daily quota whose day runs in timezone (0 = none). */
+export interface ProviderLimits { rate_per_second?: number; daily_quota?: number; timezone?: string }
+export interface Provider {
+  id: number; channel: Channel; provider: string; name: string; config: Record<string, string>; has_secrets: boolean; is_default: boolean; webhook_url?: string;
+  limits?: ProviderLimits; usage_today?: number;
+}
+/** A saved test contact: an existing contact, or bare addresses per channel. */
+export interface TestContact { id: number; name: string; external_id?: string; email?: string; phone?: string; push_token?: string; created_at?: string }
 export interface SandboxMessage { id: number; channel: Channel; recipient: string; message_id: string; payload: { subject?: string; html?: string; content?: ChannelContent; platform?: string }; created_at: string }
 
 export interface FocusItem {
@@ -340,7 +352,13 @@ export interface Broadcast {
   exclude_segment_ids?: number[];
   /** Send at start_at's clock time in each contact's time zone (one-time only); timezone: the zone it was chosen in. */
   local_time?: boolean; timezone?: string;
+  /** Members of these segments get it too (the audience is the union with segment_id). */
+  include_segment_ids?: number[];
+  /** Don't send late: after a time of day and/or more than some hours after the send started. */
+  deadline?: Deadline | null;
+  tags?: string[];
 }
+export interface Deadline { at?: string; hours?: number; timezone?: string }
 export interface BroadcastRun {
   id: number; scheduled_at: string; started_at: string; finished_at?: string; recipients: number;
   test_recipients: number; winner_due_at?: string; winner?: string; winner_reason?: string; winner_sent_at?: string; winner_recipients: number;
@@ -361,6 +379,8 @@ export interface MessageReport {
   daily: { day: string; kind: "sent" | "opened" | "clicked"; count: number }[];
   /** Revenue events recipients did within `days` of their first message (only when there are any). */
   revenue?: RevenueCounts & { by_variant?: Record<string, RevenueCounts>; event: string; currency: string; days: number };
+  /** Contacts whose message was dropped by the send deadline (also counted in failed). */
+  late?: number;
 }
 export interface RevenueCounts { revenue: number; orders: number; buyers: number }
 /** A split step in the journey report: contacts (and, for A/B tests, hits of the metric) per path. */
@@ -505,3 +525,22 @@ export interface AudienceSync {
   uploaded: number; added: number; removed: number; skipped: number; queued: number;
   last_sync_at?: string; next_full_at: string; created_at: string;
 }
+
+// ---- campaigns (M3) ----
+
+export type CampaignCategory = "one_time" | "trigger" | "automation";
+/** One line of the Campaigns hub: a broadcast (one-time) or a journey (trigger based, automation). */
+export interface CampaignRow {
+  kind: "broadcast" | "journey"; id: number; name: string; category: CampaignCategory; channels: Channel[]; status: string; tags: string[];
+  repeat?: Repeat; next_run_at?: string | null; start_at: string; end_at?: string | null;
+  trigger?: "segment" | "event" | "form"; trigger_event?: string; segment_id?: number;
+  /** Size of the audience segment now (broadcasts and segment journeys); null for trigger-based journeys. */
+  audience: number | null; sent: number; last_activity?: string;
+}
+/** An exact audience estimate after each step. */
+export interface Estimate {
+  audience: number; after_exclude: number; after_consent: number; reachable: number; will_send: number;
+  capped?: { capped: number; approximate: boolean; checked: number }; cap?: { max: number; hours: number };
+  ready: boolean; computed_at: string; cached_until: string;
+}
+export interface SegmentReach { segment: number; size: number; ready: boolean; channels: { channel: Channel; after_consent: number; reachable: number }[] }

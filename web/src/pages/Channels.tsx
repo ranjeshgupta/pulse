@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderKind, type SandboxMessage } from "../api";
-import { useIsAdmin } from "../auth";
+import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type SandboxMessage } from "../api";
+import { useCan, useIsAdmin } from "../auth";
+import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { BounceMailboxPanel } from "./BounceMailbox";
 
 export function Channels() {
   const admin = useIsAdmin();
+  const canLimit = useCan("channels", "edit");
+  const canTest = useCan("content", "edit");
+  const [limiting, setLimiting] = useState<Provider | null>(null);
   const cat = useQuery({ queryKey: ["catalog"], queryFn: () => api.get<{ providers: ProviderKind[] }>("/v1/channels/catalog") });
   const list = useQuery({ queryKey: ["providers"], queryFn: () => api.get<{ providers: Provider[] }>("/v1/channels/providers") });
   const [editing, setEditing] = useState<{ channel: Channel; provider?: Provider } | null>(null);
@@ -34,13 +38,15 @@ export function Channels() {
               <table className="table">
                 <tbody>{mine.map((p) => (
                   <tr key={p.id}>
-                    <td style={{ width: "35%" }}><strong>{p.name}</strong><div className="xs muted">{kinds.find((k) => k.id === p.provider)?.name ?? p.provider}</div></td>
+                    <td style={{ width: "24%" }}><strong>{p.name}</strong><div className="xs muted">{kinds.find((k) => k.id === p.provider)?.name ?? p.provider}</div></td>
                     <td>{p.is_default ? <span className="badge ok">Default</span> : <span className="badge">Standby</span>}</td>
+                    <td className="small" style={{ minWidth: 210 }}><LimitsSummary p={p} /></td>
                     <td className="xs muted">{p.webhook_url && <>Delivery reports: <code>{p.webhook_url}</code></>}</td>
-                    <td className="num">{admin && <div className="row" style={{ justifyContent: "flex-end" }}>
-                      <button className="btn sm" onClick={() => setTesting(p)}>Send test</button>
-                      <button className="btn sm" onClick={() => setEditing({ channel: ch, provider: p })}>Edit</button>
-                    </div>}</td>
+                    <td className="num"><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                      {canLimit && <button className="btn sm" onClick={() => setLimiting(p)}>Limits</button>}
+                      {admin && <button className="btn sm" onClick={() => setTesting(p)}>Send test</button>}
+                      {admin && <button className="btn sm" onClick={() => setEditing({ channel: ch, provider: p })}>Edit</button>}
+                    </div></td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -55,10 +61,12 @@ export function Channels() {
           {" "}<code>Pulse.inbox</code> in the web SDK. Messages expire after 30 days unless the template says otherwise.
         </div>
       </section>
+      <TestContactsPanel canEdit={canTest} />
       <DeliveryRulesPanel admin={admin} />
       {admin && <BouncesPanel />}
       {admin && <BounceMailboxPanel />}
       {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
+      {limiting && <LimitsForm provider={limiting} onClose={() => setLimiting(null)} />}
       {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} onClose={() => setEditing(null)} />}
     </div>
   );
@@ -439,5 +447,113 @@ export function TestInbox() {
         <SimulateBounce />
       </div>
     </div>
+  );
+}
+
+// ---- sending limits (M3) ----
+
+const LIMIT_ZONES = ["UTC", "Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/London", "America/New_York", "America/Los_Angeles"];
+
+/** LimitsSummary shows a provider's rate, daily quota and today's usage. */
+function LimitsSummary({ p }: { p: Provider }) {
+  const l = p.limits ?? {};
+  const used = p.usage_today ?? 0;
+  if (!l.rate_per_second && !l.daily_quota) return <span className="xs muted">No limits{used ? ` · ${used.toLocaleString("en-IN")} sent today` : ""}</span>;
+  const pct = l.daily_quota ? Math.min(100, (used / l.daily_quota) * 100) : 0;
+  return (
+    <div>
+      <div className="xs">{l.rate_per_second ? `${l.rate_per_second}/s` : "No rate limit"}{l.daily_quota ? ` · ${used.toLocaleString("en-IN")} of ${l.daily_quota.toLocaleString("en-IN")} today` : ` · ${used.toLocaleString("en-IN")} sent today`}</div>
+      {!!l.daily_quota && <div className={`quota-bar${used >= l.daily_quota ? " full" : ""}`} role="meter" aria-label="Daily quota used" aria-valuemin={0} aria-valuemax={l.daily_quota} aria-valuenow={used}><span style={{ width: `${pct}%` }} /></div>}
+    </div>
+  );
+}
+
+/** LimitsForm sets a provider's messages per second and daily quota. */
+function LimitsForm({ provider, onClose }: { provider: Provider; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [l, setL] = useState<ProviderLimits>({ timezone: "Asia/Kolkata", ...provider.limits });
+  const save = useMutation({
+    mutationFn: () => api.put(`/v1/channels/providers/${provider.id}/limits`, { rate_per_second: l.rate_per_second || 0, daily_quota: l.daily_quota || 0, timezone: l.timezone ?? "" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: "Sending limits saved. Every dispatcher follows them within 30 seconds." }); onClose(); },
+  });
+  return (
+    <Modal title={`Sending limits: ${provider.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save limits</button></>}>
+      <ErrorNote error={save.error} />
+      <p className="small muted" style={{ marginTop: 0 }}>Shared by every Pulse server, on top of the workspace's own rate for the channel. Leave empty (or 0) for no limit.</p>
+      <div className="grid-2">
+        <Field label="Messages per second" hint="The provider's throughput, e.g. 10 for a small SMS account.">
+          <input className="input" type="number" min={0} max={10000} step="any" value={l.rate_per_second ?? ""} onChange={(e) => setL({ ...l, rate_per_second: e.target.value ? Number(e.target.value) : undefined })} />
+        </Field>
+        <Field label="Daily quota" hint="Messages a day. Over it, messages wait for the next day, or are dropped at their send deadline.">
+          <input className="input" type="number" min={0} value={l.daily_quota ?? ""} onChange={(e) => setL({ ...l, daily_quota: e.target.value ? Math.trunc(Number(e.target.value)) : undefined })} />
+        </Field>
+        <Field label="The day starts at midnight in">
+          <select className="select" value={l.timezone || "UTC"} onChange={(e) => setL({ ...l, timezone: e.target.value })}>
+            {[...new Set([...(l.timezone ? [l.timezone] : []), ...LIMIT_ZONES])].map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </Field>
+      </div>
+      <p className="xs muted">Sent today: {(provider.usage_today ?? 0).toLocaleString("en-IN")}.</p>
+    </Modal>
+  );
+}
+
+// ---- saved test contacts (M3) ----
+
+const BLANK_TC: TestContact = { id: 0, name: "", external_id: "", email: "", phone: "", push_token: "" };
+
+/** TestContactsPanel keeps the workspace's test contacts, offered by every "Send a test" dialog. */
+function TestContactsPanel({ canEdit }: { canEdit: boolean }) {
+  const q = useTestContacts();
+  const qc = useQueryClient();
+  const [edit, setEdit] = useState<TestContact | null>(null);
+  const save = useMutation({
+    mutationFn: (tc: TestContact) => (tc.id ? api.put(`/v1/test-contacts/${tc.id}`, tc) : api.post("/v1/test-contacts", tc)),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["test-contacts"] }); setEdit(null); },
+  });
+  const remove = useMutation({ mutationFn: (id: number) => api.del(`/v1/test-contacts/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["test-contacts"] }) });
+  const tcs = q.data?.test_contacts ?? [];
+  return (
+    <section className="panel" style={{ marginBottom: 16 }} aria-labelledby="tc-head">
+      <div className="panel-head">
+        <h3 id="tc-head">Test contacts</h3>
+        {canEdit && <button className="btn sm" onClick={() => setEdit({ ...BLANK_TC })}>Add test contact</button>}
+      </div>
+      <ErrorNote error={q.error ?? remove.error} />
+      {tcs.length === 0 ? (
+        <div className="panel-body small muted">People every "Send a test" dialog can send to: yourself, your team, a QA phone. Pick an existing contact (the test is personalised with their data) or enter addresses per channel.</div>
+      ) : (
+        <table className="table">
+          <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Phone</th><th>Push device</th><th aria-label="Actions" /></tr></thead>
+          <tbody>{tcs.map((t) => (
+            <tr key={t.id}>
+              <td><strong>{t.name}</strong></td>
+              <td className="small">{t.external_id || <span className="faint">–</span>}</td>
+              <td className="small">{t.email || <span className="faint">–</span>}</td>
+              <td className="small">{t.phone || <span className="faint">–</span>}</td>
+              <td className="small">{t.push_token ? `${t.push_token.slice(0, 14)}…` : <span className="faint">–</span>}</td>
+              <td className="num">{canEdit && <div className="row" style={{ justifyContent: "flex-end" }}>
+                <button className="btn sm" onClick={() => setEdit({ ...BLANK_TC, ...t })}>Edit</button>
+                <button className="btn ghost sm danger" onClick={() => confirm(`Remove ${t.name} from the test contacts?`) && remove.mutate(t.id)}>Remove</button>
+              </div>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {edit && (
+        <Modal title={edit.id ? `Edit ${edit.name}` : "Add a test contact"} onClose={() => setEdit(null)} footer={<><button className="btn" onClick={() => setEdit(null)}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate(edit)}>Save</button></>}>
+          <ErrorNote error={save.error} />
+          <Field label="Name"><input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Priya (QA)" autoFocus /></Field>
+          <Field label="An existing contact (external ID, optional)" hint="Tests to them use their own data and addresses, like any contact."><input className="input" value={edit.external_id ?? ""} onChange={(e) => setEdit({ ...edit, external_id: e.target.value })} /></Field>
+          <p className="xs muted">Or addresses, used as they are (nothing is tracked or recorded):</p>
+          <div className="grid-2">
+            <Field label="Email"><input className="input" type="email" value={edit.email ?? ""} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
+            <Field label="Phone (SMS, WhatsApp, RCS)" hint="With country code, e.g. +919812345678."><input className="input" value={edit.phone ?? ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></Field>
+          </div>
+          <Field label="Push device token (optional)"><input className="input" value={edit.push_token ?? ""} onChange={(e) => setEdit({ ...edit, push_token: e.target.value })} /></Field>
+        </Modal>
+      )}
+    </section>
   );
 }

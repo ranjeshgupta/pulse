@@ -4,6 +4,7 @@
 // insert-at-handle, delete with healing, tidy layout, step numbering and the server's validation
 // rules in words.
 import type { Edge, Node as FlowNode } from "@xyflow/react";
+import { deadlineProblem } from "./campaigns";
 import { CHANNEL_NAMES, type Channel, type ChannelRule, type JourneyGraph, type JourneyNode } from "./api";
 
 export const TRIGGER_ID = "__trigger";
@@ -688,6 +689,8 @@ export function issues(g: JourneyGraph, opts: { journeyId?: number } = {}): Issu
     if (shape === "decision" && n.type === "wait_for_event" && !(n.seconds !== undefined && n.seconds >= 1 && n.seconds <= MAX_WAIT)) add("wait between 1 second and 365 days.");
     if (shape === "decision" && n.type !== "wait_for_event" && !(n.seconds !== undefined && n.seconds >= DECISION_MIN && n.seconds <= MAX_WAIT)) add("wait between 1 minute and 365 days.");
     if (!typeInfo(n.type)) add(`"${n.type}" isn't a step this version knows.`);
+    const late = deadlineProblem(n.deadline);
+    if (late) add(late[0].toLowerCase() + late.slice(1));
     switch (n.type) {
       case "condition": if (!n.segment_id) add("choose a segment to check."); break;
       case "wait_until": if (!n.until && !n.time_of_day) add("choose when to continue."); break;

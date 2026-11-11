@@ -297,3 +297,41 @@ func TestLocalTime(t *testing.T) {
 		t.Error("an unknown zone was accepted")
 	}
 }
+
+func TestUnionAndExclude(t *testing.T) {
+	a := segment.Build([]uint32{1, 9})
+	b := segment.Build([]uint32{2, 30})
+	u := Union(a, b)
+	if got := segment.Members(u); len(got) != 4 || got[3] != 30 {
+		t.Fatalf("union %v", got)
+	}
+	if got := segment.Members(Exclude(u, segment.Build([]uint32{9, 30}))); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("exclude %v", got)
+	}
+	if len(segment.Members(a)) != 2 {
+		t.Fatal("union changed its input")
+	}
+}
+
+// Every message of a run carries the run's deadline; a local-time run carries it as a clock time.
+func TestRunStampsDeadline(t *testing.T) {
+	start := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	b := model.Broadcast{ID: 6, TenantID: 1, Channel: "email", TemplateID: 3, SegmentID: 9, StartAt: start,
+		Repeat: schedule.None, NextRunAt: &start, Deadline: &model.Deadline{Hours: 4}}
+	st, pub := &memStore{due: []model.Broadcast{b}, runs: map[time.Time]int{}}, &memPub{}
+	r := &Runner{Store: st, Members: memMembers{2, 7}, Pub: pub, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: time.Now}
+	if err := r.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.msgs) != 2 || pub.msgs[0].Deadline == nil || !pub.msgs[0].Deadline.Equal(start.Add(4*time.Hour)) {
+		t.Fatalf("messages %+v", pub.msgs)
+	}
+	b.ID, b.LocalTime, b.Timezone, b.Deadline = 7, true, "Asia/Kolkata", &model.Deadline{At: "21:00"}
+	st.due, pub.msgs = []model.Broadcast{b}, nil
+	if err := r.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if m := pub.msgs[0]; m.Deadline != nil || m.LocalAt != "2026-11-12T14:30" || m.DeadlineLocal != "2026-11-12T21:00" {
+		t.Fatalf("local-time message %+v", m)
+	}
+}

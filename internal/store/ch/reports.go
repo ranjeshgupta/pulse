@@ -8,6 +8,7 @@ package ch
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +114,8 @@ type Report struct {
 	Daily     []DayKindCount                 `json:"daily"` // sent, opened, clicked per UTC day
 	// Revenue from recipients (the workspace's revenue event), when there is any.
 	Revenue *RevenueReport `json:"revenue,omitempty"`
+	// Late: contacts whose message was dropped by the send deadline (counted in Failed too).
+	Late uint64 `json:"late"`
 }
 
 // RevenueReport is the revenue of a broadcast's or journey's recipients: revenue events they did
@@ -166,6 +169,10 @@ func (s *Store) MessageReport(ctx context.Context, sc Scope, conversionEvent str
 				rep.ByVariant[k] = c
 			}
 		}
+	}
+
+	if rep.Late, err = s.lateCount(ctx, sc); err != nil {
+		return rep, err
 	}
 
 	w, args := sc.Where()
@@ -452,6 +459,56 @@ func (s *Store) topValues(ctx context.Context, q string, args ...any) ([]ValueCo
 		if len(v.Value) <= 200 {
 			out = append(out, v)
 		}
+	}
+	return out, rows.Err()
+}
+
+// lateCount counts the contacts of a scope whose message was dropped by its send deadline
+// (<channel>_failed with reason "deadline"), from the event log.
+func (s *Store) lateCount(ctx context.Context, sc Scope) (uint64, error) {
+	key := "journey_id"
+	if sc.Source == "broadcast" {
+		key = "broadcast_id"
+	}
+	q := `SELECT uniqExact(contact_id) FROM events WHERE tenant_id = ?
+		AND name IN ('email_failed', 'sms_failed', 'whatsapp_failed', 'rcs_failed', 'push_failed', 'inbox_failed')
+		AND JSONExtractString(props, 'reason') = 'deadline' AND JSONExtractUInt(props, '` + key + `') = ?`
+	args := []any{uint64(sc.Tenant), uint64(sc.SourceID)}
+	if sc.Run != 0 {
+		q += " AND JSONExtractUInt(props, 'run') = ?"
+		args = append(args, uint64(sc.Run))
+	}
+	var n uint64
+	err := s.conn.QueryRow(ctx, q, args...).Scan(&n)
+	return n, err
+}
+
+// CampaignTotal is what the Campaigns hub shows of one broadcast or journey: contacts sent to,
+// and the time of its latest message event.
+type CampaignTotal struct {
+	Sent uint64
+	Last time.Time
+}
+
+// CampaignTotals returns the totals of every broadcast and journey of a workspace, keyed
+// "broadcast:<id>" and "journey:<id>".
+func (s *Store) CampaignTotals(ctx context.Context, tenant int64) (map[string]CampaignTotal, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT source, source_id, uniqExactIf(contact_id, kind = 'sent'), max(ts) FROM message_events
+		WHERE tenant_id = ? AND source IN ('broadcast', 'journey') GROUP BY source, source_id`, uint64(tenant))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]CampaignTotal{}
+	for rows.Next() {
+		var src string
+		var id uint64
+		var t CampaignTotal
+		if err := rows.Scan(&src, &id, &t.Sent, &t.Last); err != nil {
+			return nil, err
+		}
+		out[src+":"+strconv.FormatUint(id, 10)] = t
 	}
 	return out, rows.Err()
 }

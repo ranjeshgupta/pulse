@@ -47,6 +47,8 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Exclusion group ("none of") | 🟡 | ✅ | ✅ M1: `none` groups (Match NONE / "+ Exclude (none of)") | |
 | Daily-refresh segments | ⬜ | ✅ | ✅ M1: Refresh Live (default) or Daily at HH:MM in a time zone; daily segments leave the streaming index and are rebuilt by the batch path at that time | |
 | Why is this contact in this segment | ⬜ | 🟡 | ✅ M1: per segment on the contact page, rule by rule with the contact's values and event counts (`GET /v1/contacts/{id}/segments/{id}/explain`) | |
+| Reachable contacts per channel | ⬜ | ✅ | ✅ M3: "Reachable by channel" on a segment (not unsubscribed, and an address that hasn't bounced, not Do Not Contact), exact, from Redis reachability bitmaps (`GET /v1/segments/{id}/reach`) | |
+| Copy filter groups, duplicate segments | 🟡 | 🟡 | ✅ M3: Copy / Paste on every group (any segment, any tab; checked against the rule limits); Duplicate for dynamic segments | Static segments: export and import |
 | Date rules (before/after a date, within the last N days, more than N days ago) | ✅ | ✅ | ✅ on any date attribute and on first_seen / last_seen, which every profile keeps | |
 | Text and number operators (contains / doesn't contain, starts / ends with, is one of / not one of, is empty / not empty, is set / not set, between, on a date) | ✅ | ✅ | ✅ `not_contains`, `starts_with`, `ends_with`, `not_in`, `not_exists`, `between`, `on` in both compilers (checked by `make it`); empty = `eq ""` | |
 | Searchable, grouped filter picker; typed rows; explicit nested ALL/ANY groups | ✅ | ✅ | ✅ batch 7b, see "Segment builder" below | |
@@ -81,6 +83,9 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Every Mautic campaign decision, action and condition | ✅ | 🟡 | ✅ batch 7b, see [Campaign builder](#campaign-builder-batch-7b) | |
 | Multi-channel message with fallback (first reachable channel) | ✅ marketing messages | ✅ | ✅ `send_message`: ordered rules, each channel → template, optionally with conditions on the contact and trigger event (Indian number → SMS, otherwise WhatsApp); the choice shows in step stats | |
 | Jump to step (loops) | ✅ | ⬜ | ✅ `jump`, capped at 25 jumps per enrollment | |
+| One list of every campaign, by type, with tags | 🟡 | ✅ | ✅ M3: Campaigns → All campaigns: One-time (broadcasts), Trigger based (event or form journeys), Automation (segment journeys), set automatically; free tags with suggestions; search, status, channel and tag filters; audience, sent, last activity | |
+| Copy and paste steps, duplicate journeys | 🟡 (clone) | 🟡 | ✅ M3: Copy / Paste of a selection of steps between journeys and workspaces (clipboard JSON checked by the server: links outside the selection and other workspaces' references dropped, with notes); Duplicate | |
+| Send deadline on send steps | 🟡 ("prevent after date") | 🟡 | ✅ M3: don't send after HH:MM and/or more than N hours late: late messages are dropped as `<channel>_failed` with reason `deadline` | |
 
 ## Broadcasts (one-time and recurring campaigns)
 
@@ -92,11 +97,18 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Conversion goal per broadcast | 🟡 | ✅ | ✅ recipients who do an event within N days | |
 | Excluded segments | ✅ | ✅ | ✅ `exclude_segment_ids` (up to 10): members of any are left out of every send and the A/B winner step | |
 | Send at the same local time in each contact's time zone | ⬜ | ✅ | ✅ one-time broadcasts, `local_time` + `timezone` (the zone the time was chosen in): the run starts when that clock time comes in UTC+14 and each message is held until it in the contact's `timezone` / `geo_timezone` (else the chosen zone) | Not for repeating broadcasts |
+| One-time campaign wizard, content written inside the campaign | 🟡 | ✅ | ✅ M3: per channel: audience (segments in and out) → content in the template editor (kept with the campaign unless saved as reusable) → schedule → review, with the exact estimate at every step | |
+| Exact audience estimate (exclusions, consent, reachability, caps) | ⬜ | 🟡 | ✅ M3: Redis `BITOP` over segment and reachability bitmaps, step by step; frequency caps exact up to 50,000 contacts, sampled above; cached 30 s, 60 a minute per workspace | |
+| Send deadline | 🟡 | 🟡 | ✅ M3: time of day and/or hours late (local time for local-time broadcasts); late messages dropped and counted in the report | |
+| Duplicate a broadcast | ✅ | ✅ | ✅ M3: a draft copy, with its own copy of a message written in the campaign | |
 
 ## Channels
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
+| Per-provider rate and daily quota | 🟡 (per transport) | ✅ | ✅ M3: messages per second and a daily quota (day in a chosen zone) per provider, shared by every dispatcher through Redis; over the quota messages wait for the next day or their deadline; usage today on Settings → Channels | |
+| Pooled SMTP connections | ✅ | n/a | ✅ M3: per relay and login, bounded (max connections, messages per connection), TLS kept; ~30x the throughput of a connection per message in the benchmark | Per Pulse server |
+| Saved test contacts | 🟡 | ✅ | ✅ M3: contacts or bare addresses per channel, offered by every Send a test dialog (with the sample trigger event) | |
 | Email: drag-and-drop builder, HTML, personalization | ✅ | ✅ | ✅ GrapesJS builder, TipTap rich text editor (also on landing pages, focus items, web content), HTML; variables `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}` with defaults and formats, a picker on every templated field (M2) | |
 | Personalisation from the triggering event (Liquid-style variables, defaults, formats) | 🟡 tokens, no event data | ✅ | ✅ the trigger event's properties travel with every message of the journey (personal properties removed, 16 KB); pipes `default`, `date`, `money`, `number`, `truncate`…; missing-value policy per template; preview and test with a real contact's event (M2) | |
 | Preview (with a real contact's data) and send a test, every channel | ✅ | ✅ | ✅ Phase 2 | |

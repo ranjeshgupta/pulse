@@ -177,6 +177,9 @@ type templateReq struct {
 	Transactional bool `json:"transactional"`
 	// MissingValues: "empty" (default) or "skip" when a variable has no value and no default.
 	MissingValues string `json:"missing_values"`
+	// Hidden: written inside a one-time campaign, kept out of template lists (omitted on update:
+	// unchanged; false makes it a reusable template).
+	Hidden *bool `json:"hidden"`
 }
 
 func (req templateReq) template(tenant int64) model.Template {
@@ -184,7 +187,8 @@ func (req templateReq) template(tenant int64) model.Template {
 		req.Channel = channel.Email
 	}
 	return model.Template{TenantID: tenant, Name: req.Name, Channel: req.Channel, Subject: req.Subject,
-		HTML: req.HTML, Content: req.Content, Builder: req.Builder, Transactional: req.Transactional, MissingValues: req.MissingValues}
+		HTML: req.HTML, Content: req.Content, Builder: req.Builder, Transactional: req.Transactional, MissingValues: req.MissingValues,
+		Hidden: req.Hidden != nil && *req.Hidden}
 }
 
 func (s *Server) validTemplate(w http.ResponseWriter, r *http.Request, t model.Template) bool {
@@ -278,6 +282,9 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request, tenant i
 	}
 	t := req.template(tenant)
 	t.ID, t.Channel = id, cur.Channel // a template's channel is fixed
+	if req.Hidden == nil {
+		t.Hidden = cur.Hidden
+	}
 	if !s.validTemplate(w, r, t) {
 		return
 	}

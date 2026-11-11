@@ -53,6 +53,7 @@ import (
 	"pulse/internal/onsite"
 	"pulse/internal/profile"
 	"pulse/internal/providers"
+	"pulse/internal/reach"
 	"pulse/internal/safehttp"
 	"pulse/internal/segengine"
 	"pulse/internal/segment"
@@ -369,6 +370,9 @@ func runSegments(ctx context.Context, d *deps) error {
 	defer mc.Close()
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return eng.RunMaintenance(ctx) })
+	// Reachability bitmaps (package reach): rebuilt when missing and daily; events keep them current.
+	rb := &reach.Rebuilder{Store: pgs, RDB: d.redis(), Log: d.log}
+	g.Go(func() error { return rb.Run(ctx) })
 	g.Go(func() error { return c.RunPartitionBatches(ctx, eng.HandleBatch) })
 	g.Go(func() error { return mc.RunPartitionBatches(ctx, eng.HandleMembership) })
 	return g.Wait()
@@ -484,6 +488,7 @@ func runDispatch(ctx context.Context, d *deps) error {
 		Providers:    providers.Deps{Sandbox: pgs, AllowPrivate: d.cfg.AllowPrivateWebhooks},
 		Tracking:     d.tracking(box),
 		PushSubject:  pushSubject(d.cfg.PublicURL),
+		Log:          d.log,
 	})
 	c, err := d.consumer("pulse-dispatch", dispatch.Topics()...)
 	if err != nil {

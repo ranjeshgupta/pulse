@@ -378,6 +378,9 @@ func (g Graph) validNew(id string, n Node) (bool, error) {
 		if len(n.Channels) == 0 || len(n.Channels) > maxChannelRules {
 			return fail("add 1 to %d channels", maxChannelRules)
 		}
+		if err := n.Deadline.Validate(); err != nil {
+			return fail("%s", err.Error())
+		}
 		seen := map[string]bool{}
 		for i, c := range n.Channels {
 			if !channel.Valid(c.Channel) {

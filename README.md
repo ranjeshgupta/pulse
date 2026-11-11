@@ -139,7 +139,7 @@ Design notes:
     the segment compiler, keyset-paged, with a count that is exact up to 10,000 and approximate above. "Save as segment"
     stores that rule as a dynamic segment; "View contacts" on every segment opens `segment:<id>`; a column chooser; and
     "Export CSV" of the view with its columns (`GET /v1/contacts/export?q=&columns=`, contacts edit access).
-  - **One navigation:** Audience (Contacts, Companies, Segments), Campaigns (Journeys, Broadcasts, On-site & in-app),
+  - **One navigation:** Audience (Contacts, Companies, Segments), Campaigns (All campaigns since M3, Journeys, Broadcasts, On-site & in-app),
     Content (Message templates, Landing pages, Forms, Assets), Analytics (Reports, Funnels, Cohorts, Revenue), and one
     Settings entry with its own menu (Workspace, Contact data, Delivery, Connections). Segments and lists are one
     Segments page with Dynamic and Static segments; focus items, web content and in-app messages are one "On-site &
@@ -182,7 +182,20 @@ Design notes:
   (`GET /v1/templates/sample-event`), and "Send marketing message" rules that choose the channel by condition
   (`contact.phone_country = IN` → SMS, otherwise WhatsApp), with the choice in the step stats. Tutorial
   [13, personalising messages](docs/tutorials/13-personalising-messages.md).
-- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 13 written. Remaining gaps:
+- **M3, campaigns (done):** Campaigns → **All campaigns**: broadcasts and journeys in one list, typed automatically
+  (One-time, Trigger based, Automation), with free tags, search and filters by status, channel and tag
+  (`GET /v1/campaigns`). A **one-time campaign wizard** per channel (audience with segments in and out → content written
+  in the template editor, kept with the campaign unless saved as reusable → schedule → review). An **exact audience
+  estimate** after exclusions, consent, reachability and frequency caps, from Redis bitmaps per channel that the
+  segments role keeps current (`POST /v1/segments/estimate`, `GET /v1/segments/{id}/reach`; cached 30 s, rate
+  limited), also in the broadcast editor, the journey Start panel and segments. **Duplicate** broadcasts, journeys,
+  templates and segments; **copy and paste** journey steps (between journeys and workspaces, checked by
+  `POST /v1/journey-steps/check`) and segment filter groups. **Per-provider rates and daily quotas** shared by every
+  dispatcher (over the quota, messages wait for the next day), with usage today on Settings → Channels. **Send
+  deadlines** on broadcasts and send steps: late messages are dropped as `<channel>_failed` with reason `deadline`
+  and counted in reports. **Pooled SMTP connections** (about 30x faster in the benchmark). **Saved test contacts** in
+  every Send a test dialog. Tutorial [14, the Campaigns hub and one-time campaigns](docs/tutorials/14-campaigns-hub-and-one-time-campaigns.md).
+- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 14 written. Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it
@@ -299,8 +312,9 @@ cmd/pulse/          one binary, one role per argument (migrate, api, profile, ch
 cmd/seed/           demo workspaces for `make seed` and `make docs-seed`; cmd/loadgen/: the load generator for `make load`
 internal/segment/   rule AST, Go evaluator, ClickHouse SQL compiler, Redis bitmaps and day counters
 internal/segengine/ streaming membership, backfill, sweep
+internal/reach/     reachability bitmaps per channel and exact audience estimates
 internal/journey/   graph validation, executor, triggers and durable timers
-internal/dispatch/  every channel: idempotency, token buckets, consent, caps, quiet hours, fallback, providers
+internal/dispatch/  every channel: idempotency, token buckets, provider quotas, deadlines, consent, caps, quiet hours, fallback
 internal/profile/   identity resolution, attribute merge
 internal/chsink/    events.enriched -> ClickHouse
 internal/integrations/ CRM, Shopify, REST hook and ad audience connectors; audience sync

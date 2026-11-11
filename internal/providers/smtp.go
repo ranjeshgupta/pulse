@@ -3,7 +3,10 @@ package providers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -30,27 +33,60 @@ func init() {
 			{Key: "host", Label: "Host", Placeholder: "email-smtp.ap-south-1.amazonaws.com", Required: true},
 			{Key: "port", Label: "Port", Placeholder: "587", Required: true},
 			{Key: "from", Label: "From address", Placeholder: "Acme <hello@acme.com>", Required: true},
+			{Key: "max_connections", Label: "Max connections", Placeholder: "4"},
+			{Key: "messages_per_connection", Label: "Messages per connection", Placeholder: "100"},
 		},
 		Secrets: []Field{{Key: "username", Label: "Username"}, {Key: "password", Label: "Password"}},
 		New: func(_ Deps, c, s map[string]string) (Provider, error) {
-			p := &SMTP{Addr: net.JoinHostPort(c["host"], c["port"]), From: c["from"]}
+			maxConns, err := intSetting(c, "max_connections", "Max connections", defaultSMTPMaxConns, 1, 50)
+			if err != nil {
+				return nil, err
+			}
+			perConn, err := intSetting(c, "messages_per_connection", "Messages per connection", defaultSMTPMessagesPerConn, 1, 10000)
+			if err != nil {
+				return nil, err
+			}
+			p := &SMTP{Addr: net.JoinHostPort(c["host"], c["port"]), From: c["from"], MaxConns: maxConns, MessagesPerConn: perConn}
 			if s["username"] != "" {
 				p.Auth = smtp.PlainAuth("", s["username"], s["password"], c["host"])
+				sum := sha256.Sum256([]byte(s["password"]))
+				p.username, p.passSum = s["username"], hex.EncodeToString(sum[:])
 			}
 			return p, nil
 		},
 	})
 }
 
-// SMTP sends through a relay. Plain auth is only used over TLS (net/smtp refuses it otherwise,
-// except to localhost).
+// intSetting reads an optional whole-number setting within [lo, hi]; empty means def.
+func intSetting(c map[string]string, key, label string, def, lo, hi int) (int, error) {
+	v := strings.TrimSpace(c[key])
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < lo || n > hi {
+		return 0, fmt.Errorf("%s must be a whole number from %d to %d", label, lo, hi)
+	}
+	return n, nil
+}
+
+// SMTP sends through a relay over pooled connections (see smtppool.go): up to MaxConns per relay
+// and login, each reused for up to MessagesPerConn messages. STARTTLS is used whenever the server
+// offers it, implicit TLS on port 465; plain auth is only used over TLS (net/smtp refuses it
+// otherwise, except to localhost).
 type SMTP struct {
 	Addr string
 	Auth smtp.Auth
 	From string // overrides Outbound.From when set
+	// Pool limits; 0 means the defaults (4 connections, 100 messages each).
+	MaxConns, MessagesPerConn int
+
+	username, passSum string                                                            // identify the login in the pool key (passSum: SHA-256 of the password)
+	tlsConfig         *tls.Config                                                       // tests: trust a test CA (production uses the system roots)
+	dial              func(ctx context.Context, network, addr string) (net.Conn, error) // tests
 }
 
-func (s *SMTP) Send(_ context.Context, o Outbound) (Result, error) {
+func (s *SMTP) Send(ctx context.Context, o Outbound) (Result, error) {
 	from := o.From
 	if s.From != "" {
 		from = s.From
@@ -62,7 +98,12 @@ func (s *SMTP) Send(_ context.Context, o Outbound) (Result, error) {
 	}
 	fa, _ := mail.ParseAddress(from)
 	ta, _ := mail.ParseAddress(o.To)
-	if err := smtp.SendMail(s.Addr, s.Auth, fa.Address, []string{ta.Address}, msg); err != nil {
+	p, err := s.acquirePool()
+	if err != nil {
+		return Result{}, Permanent(err.Error())
+	}
+	defer p.release()
+	if err := p.send(ctx, fa.Address, ta.Address, msg); err != nil {
 		var te *textproto.Error
 		if errors.As(err, &te) && te.Code >= 500 { // 5xx reply: rejected, retrying won't help
 			return Result{}, Permanent(err.Error())

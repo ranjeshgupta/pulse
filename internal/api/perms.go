@@ -16,11 +16,11 @@ var areaByPrefix = map[string]string{
 	"contacts": auth.AreaContacts, "events": auth.AreaContacts, "tags": auth.AreaContacts, "imports": auth.AreaContacts,
 	"devices": auth.AreaContacts, "companies": auth.AreaContacts,
 	"segments": auth.AreaSegments, "lists": auth.AreaSegments, "attributes": auth.AreaSegments, "scoring": auth.AreaSegments,
-	"stages":     auth.AreaSegments,
-	"journeys":   auth.AreaJourneys,
+	"stages":   auth.AreaSegments,
+	"journeys": auth.AreaJourneys, "journey-steps": auth.AreaJourneys,
 	"broadcasts": auth.AreaBroadcasts,
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
-	"assets": auth.AreaContent, "landing-pages": auth.AreaContent,
+	"assets": auth.AreaContent, "landing-pages": auth.AreaContent, "test-contacts": auth.AreaContent,
 	"stats": auth.AreaReports, "funnels": auth.AreaReports, "cohorts": auth.AreaReports, "reports": auth.AreaReports,
 	"revenue":  auth.AreaReports,
 	"channels": auth.AreaChannels, "sandbox": auth.AreaChannels,
@@ -71,6 +71,10 @@ var special = map[string]need{
 	"GET /v1/audit/export":                            {auth.AreaSettings, auth.Edit}, // the same as viewing the log
 	"GET /v1/channels/catalog":                        {auth.AreaChannels, auth.View},
 	"GET /v1/integrations/{id}/fields":                {auth.AreaSettings, auth.Edit}, // calls the CRM with the stored credentials
+	// The Campaigns hub lists broadcasts and journeys: the handler shows only what the role may view.
+	"GET /v1/campaigns":          {"", auth.None},
+	"GET /v1/campaigns/tags":     {"", auth.None},
+	"POST /v1/segments/estimate": {auth.AreaSegments, auth.View}, // counts only, like a segment preview
 }
 
 type need struct {

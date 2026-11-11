@@ -21,6 +21,7 @@ import (
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/providers"
+	"pulse/internal/reach"
 	"pulse/internal/store/pg"
 )
 
@@ -111,6 +112,9 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request, tenant in
 	}
 	for i := range ps {
 		ps[i].WebhookURL = s.webhookURL(ps[i].ID)
+		if s.RDB != nil {
+			ps[i].UsageToday, _ = dispatch.UsageToday(r.Context(), s.RDB, ps[i].ID, ps[i].Limits, s.now())
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": ps})
 }
@@ -205,6 +209,8 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		TemplateID         int64  `json:"template_id"`
 		FallbackTemplateID int64  `json:"fallback_template_id"`
 		ExternalID         string `json:"external_id"`
+		// TestContactID sends to a saved test contact instead: its contact, or its address for the channel.
+		TestContactID int64 `json:"test_contact_id"`
 		// Event: sample trigger event properties for {{event.x}} (as a journey would carry them).
 		Event map[string]any `json:"event"`
 	}
@@ -216,21 +222,39 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		s.fail(w, err)
 		return
 	}
-	c, err := s.Store.ContactByExternalID(r.Context(), tenant, req.ExternalID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
 	if req.FallbackTemplateID != 0 && !channel.FallsBackToSMS(t.Channel) {
 		writeErr(w, http.StatusBadRequest, "only WhatsApp and RCS messages take an SMS fallback")
 		return
 	}
-	m := model.Message{ID: "test:" + auth.NewToken(""), TenantID: tenant, ContactID: c.ID, Channel: t.Channel,
+	m := model.Message{ID: "test:" + auth.NewToken(""), TenantID: tenant, Channel: t.Channel,
 		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID, Campaign: "Test send"}
+	if req.TestContactID != 0 {
+		tc, err := s.campStore().GetTestContact(r.Context(), tenant, req.TestContactID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if tc.ExternalID != "" {
+			req.ExternalID = tc.ExternalID
+		} else if addr := testAddress(tc, t.Channel); addr != "" {
+			m.TestTo, m.TestName, m.FallbackTemplateID = addr, tc.Name, 0
+		} else {
+			writeErr(w, http.StatusBadRequest, tc.Name+" has no address for "+t.Channel)
+			return
+		}
+	}
+	if m.TestTo == "" {
+		c, err := s.Store.ContactByExternalID(r.Context(), tenant, req.ExternalID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		m.ContactID = c.ID
+	}
 	if len(req.Event) > 0 {
 		m.Event, _ = json.Marshal(req.Event)
 	}
-	rec, err := kafka.JSON(channel.Topic(t.Channel), event.ContactKey(tenant, c.ID), m)
+	rec, err := kafka.JSON(channel.Topic(t.Channel), event.ContactKey(tenant, m.ContactID), m)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -293,6 +317,7 @@ func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request, tenant i
 		s.fail(w, err)
 		return
 	}
+	s.pushReachable(r.Context(), tenant, found[req.ExternalID].ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -367,4 +392,11 @@ func (s *Server) publishReceipts(ctx context.Context, tenant int64, rs []provide
 		recs = append(recs, rec)
 	}
 	return s.Pub.Publish(ctx, recs...)
+}
+
+// pushReachable marks a contact reachable by push (reachability bitmaps, package reach).
+func (s *Server) pushReachable(ctx context.Context, tenant int64, contact uint32) {
+	if s.RDB != nil {
+		_ = reach.SetPush(ctx, s.RDB, tenant, contact, true)
+	}
 }

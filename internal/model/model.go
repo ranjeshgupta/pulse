@@ -105,8 +105,11 @@ type Template struct {
 	Transactional bool `json:"transactional"`
 	// MissingValues is what happens when a variable ({{contact.first_name}}) has no value and no
 	// default: "empty" (the default) renders it empty, "skip" sends nothing to that contact.
-	MissingValues string    `json:"missing_values,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	MissingValues string `json:"missing_values,omitempty"`
+	// Hidden: written inside a one-time campaign and not offered in template lists and pickers
+	// (saving it as a reusable template clears it).
+	Hidden    bool      `json:"hidden,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Journey struct {
@@ -122,6 +125,8 @@ type Journey struct {
 	SplitWinners json.RawMessage `json:"split_winners,omitempty"`
 	// ArchivedAt hides a journey that has run from the list; its enrollments and reports are kept.
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	// Tags are free labels for the Campaigns hub.
+	Tags []string `json:"tags"`
 }
 
 type Enrollment struct {
@@ -172,6 +177,15 @@ type Message struct {
 	Event    json.RawMessage `json:"event,omitempty"`
 	Campaign string          `json:"campaign,omitempty"`
 	Step     string          `json:"step,omitempty"`
+	// Deadline: a message that can't go out by then is dropped as <channel>_failed with reason
+	// "deadline" (instead of a late burst). DeadlineLocal is the same for a local-time broadcast: a
+	// clock time (LocalClockLayout) in the contact's zone, like LocalAt.
+	Deadline      *time.Time `json:"deadline,omitempty"`
+	DeadlineLocal string     `json:"deadline_local,omitempty"`
+	// TestTo sends a test to a bare address (a saved test contact without a contact): ContactID is 0,
+	// TestName fills {{contact.first_name}}. Consent, caps and tracking don't apply; no events are recorded.
+	TestTo   string `json:"test_to,omitempty"`
+	TestName string `json:"test_name,omitempty"`
 }
 
 // Provider is a configured delivery provider of a workspace. Secrets are write-only.
@@ -186,6 +200,18 @@ type Provider struct {
 	HasSecrets bool              `json:"has_secrets"`
 	IsDefault  bool              `json:"is_default"`
 	WebhookURL string            `json:"webhook_url,omitempty"` // where the provider posts delivery receipts
+	Limits     ProviderLimits    `json:"limits"`
+	// UsageToday is how many messages went through it today (in Limits.Timezone), from Redis.
+	UsageToday int64 `json:"usage_today"`
+}
+
+// ProviderLimits caps what a provider sends, shared by every dispatcher: messages per second (0:
+// only the workspace's channel rate applies) and a daily quota (0: none), whose day runs in Timezone
+// (UTC when empty). Messages over the quota wait for the next day, or their deadline.
+type ProviderLimits struct {
+	RatePerSecond float64 `json:"rate_per_second,omitempty"`
+	DailyQuota    int64   `json:"daily_quota,omitempty"`
+	Timezone      string  `json:"timezone,omitempty"`
 }
 
 // InboxMessage is a message in a contact's app inbox.
@@ -315,6 +341,12 @@ type Broadcast struct {
 	// contacts without one.
 	LocalTime bool   `json:"local_time,omitempty"`
 	Timezone  string `json:"timezone,omitempty"`
+
+	// IncludeSegmentIDs: members of these segments get it too (the audience is the union).
+	IncludeSegmentIDs []int64 `json:"include_segment_ids,omitempty"`
+	// Deadline: don't send after a time of day or after hours late (see Deadline).
+	Deadline *Deadline `json:"deadline,omitempty"`
+	Tags     []string  `json:"tags"`
 }
 
 // ABTest sends 2-5 variants to a test group, then the best one to everyone else.

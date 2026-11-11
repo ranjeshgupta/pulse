@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"regexp"
@@ -36,6 +37,7 @@ import (
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/providers"
+	"pulse/internal/reach"
 	"pulse/internal/replies"
 	"pulse/internal/store/pg"
 	"pulse/internal/tracking"
@@ -78,6 +80,7 @@ type Config struct {
 	Providers    providers.Deps
 	Tracking     *tracking.Codec // email open/click tracking and unsubscribe links; nil disables
 	PushSubject  string          // web push contact (mailto: or https:), required by push services
+	Log          *slog.Logger    // optional
 }
 
 type Dispatcher struct {
@@ -90,7 +93,8 @@ type Dispatcher struct {
 
 	mu        sync.Mutex
 	templates map[[2]int64]cached[model.Template]
-	senders   map[string]cached[providers.Provider]
+	senders   map[string]cached[providers.Provider] // web push
+	vias      map[string]cached[sendVia]            // default providers with their limits
 	rules     map[int64]cached[delivery.Rules]
 	files     map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
 	fileBytes int
@@ -125,7 +129,7 @@ func New(store Store, rdb redis.Cmdable, pub kafka.Publisher, cfg Config) *Dispa
 		rates[ch] = r
 	}
 	d := &Dispatcher{cfg: cfg, store: store, rdb: rdb, limiters: map[string]*Limiter{}, pub: pub, now: time.Now,
-		templates: map[[2]int64]cached[model.Template]{}, senders: map[string]cached[providers.Provider]{},
+		templates: map[[2]int64]cached[model.Template]{}, senders: map[string]cached[providers.Provider]{}, vias: map[string]cached[sendVia]{},
 		rules: map[int64]cached[delivery.Rules]{}, files: map[[2]int64]cached[attachment]{}}
 	for ch, r := range rates {
 		d.limiters[ch] = &Limiter{RDB: rdb, Rate: r, Burst: r, Now: time.Now}
@@ -168,11 +172,14 @@ func (d *Dispatcher) Send(ctx context.Context, m model.Message) error { return d
 // send is Send for a message already tried tries times (a parked retry, see retry.go). A
 // temporary provider failure parks the message for a later try instead of returning an error.
 func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error {
-	sentKey := fmt.Sprintf("sent:%d:%s", m.TenantID, m.ID)
+	sentKey := sentKeyOf(m)
 	if n, err := d.rdb.Exists(ctx, sentKey).Result(); err != nil {
 		return err
 	} else if n == 1 {
 		return nil // already handled (redelivered record or re-run journey step)
+	}
+	if m.TestTo != "" {
+		return d.sendTest(ctx, sentKey, m)
 	}
 	c, err := d.store.ContactByID(ctx, m.TenantID, m.ContactID)
 	if err != nil {
@@ -180,6 +187,10 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	}
 	if len(m.To) > 0 {
 		return d.sendInternal(ctx, sentKey, m, c, tries)
+	}
+	// A message that can no longer go out on time is dropped rather than sent late.
+	if dl, ok := d.deadline(m, c); ok && !d.now().Before(dl) {
+		return d.late(ctx, m, c)
 	}
 	t, err := d.template(ctx, m.TenantID, m.TemplateID)
 	if errors.Is(err, pg.ErrNotFound) {
@@ -291,6 +302,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	// Browser push subscriptions go through Web Push with the workspace's VAPID keys; everything
 	// else through the channel's default provider (fetched only when needed).
 	var p providers.Provider
+	var via sendVia
 	if m.Channel == channel.Inbox {
 		p = &inboxSender{store: d.store, contact: c, msg: m}
 	}
@@ -302,15 +314,33 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 			continue
 		}
 		var err error
-		p, err = d.sender(ctx, m.TenantID, m.Channel)
+		via, err = d.senderVia(ctx, m.TenantID, m.Channel)
 		if errors.Is(err, pg.ErrNotFound) {
 			return d.finish(ctx, sentKey, m, c, "failed", "no "+m.Channel+" provider configured")
 		} else if err != nil {
 			return err
 		}
+		p = via.p
 		break
 	}
+	// The provider's daily quota: over it, the message waits for the next day (or is dropped at
+	// its deadline).
+	quotaTaken := false
+	if via.id != 0 && via.limits.DailyQuota > 0 {
+		ok, next, err := TakeQuota(ctx, d.rdb, via.id, via.limits, d.now())
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return d.holdUntil(ctx, m, c, next, "quota", fmt.Sprintf("the daily quota of %d messages for %s is used up; sends after %s",
+				via.limits.DailyQuota, via.name, next.UTC().Format(time.RFC3339)))
+		}
+		quotaTaken = true
+	}
 	if err := d.limiters[m.Channel].Wait(ctx, "rl:"+m.Channel+":"+strconv.FormatInt(m.TenantID, 10)); err != nil {
+		return err
+	}
+	if err := d.waitProviderRate(ctx, via); err != nil {
 		return err
 	}
 
@@ -344,12 +374,16 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 			lastErr = err
 			if m.Channel == channel.Push {
 				_ = d.store.DeleteDevice(ctx, m.TenantID, tg.to) // dead token
+				d.pushGone(ctx, c)
 			}
 		case errors.Is(err, providers.ErrPermanent):
 			lastErr = err
 		default: // transient: network error, timeout, 429, 5xx
 			lastErr, transient = err, err
 		}
+	}
+	if sent == 0 && quotaTaken {
+		refundQuota(ctx, d.rdb, via.id, via.limits, d.now())
 	}
 	switch {
 	case sent > 0:
@@ -632,6 +666,13 @@ func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact
 		if strings.HasPrefix(reason, SkippedPrefix) {
 			props["skipped"] = "missing_value"
 		}
+		if reason == model.DeadlineReason {
+			if m.Deadline != nil {
+				props["deadline"] = m.Deadline.UTC().Format(time.RFC3339)
+			} else {
+				props["deadline"] = m.DeadlineLocal + " (contact's time)"
+			}
+		}
 	}
 	if m.IsFallback {
 		props["fallback"] = true
@@ -654,8 +695,11 @@ func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact
 
 // ---- delivery rules ----
 
-func capKey(m model.Message) string {
-	return fmt.Sprintf("cap:%d:%d:%s", m.TenantID, m.ContactID, m.Channel)
+func capKey(m model.Message) string { return CapKey(m.TenantID, m.ContactID, m.Channel) }
+
+// CapKey is a contact's sorted set of recent marketing messages on a channel (frequency caps).
+func CapKey(tenant int64, contact uint32, ch string) string {
+	return fmt.Sprintf("cap:%d:%d:%s", tenant, contact, ch)
 }
 
 // recentSends counts the contact's marketing messages on this channel within the cap's window.
@@ -700,6 +744,9 @@ func localZone(c model.Contact, scheduled string) string {
 // holdUntil parks a message until a time (RunDeferred sends it again then) and records a
 // <channel>_deferred event; kind keeps the event ids of different holds apart.
 func (d *Dispatcher) holdUntil(ctx context.Context, m model.Message, c model.Contact, until time.Time, kind, reason string) error {
+	if dl, ok := d.deadline(m, c); ok && until.After(dl) {
+		return d.late(ctx, m, c) // it would go out after its deadline
+	}
 	b, _ := json.Marshal(m)
 	if err := d.rdb.ZAdd(ctx, deferredKey, redis.Z{Score: float64(until.UnixMilli()), Member: string(b)}).Err(); err != nil {
 		return err
@@ -727,11 +774,20 @@ func (d *Dispatcher) RunDeferred(ctx context.Context) error {
 	}
 }
 
-// releaseDue re-publishes every held message that may go now. ZREM decides which worker owns each.
+// releaseDue re-publishes every held message that may go now (up to 20,000 a round, so a day's
+// quota-held messages drain quickly). ZREM decides which worker owns each.
 func (d *Dispatcher) releaseDue(ctx context.Context) {
+	for range 40 {
+		if n := d.releaseBatch(ctx); n < 500 || ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+func (d *Dispatcher) releaseBatch(ctx context.Context) int {
 	due, err := d.rdb.ZRangeByScore(ctx, deferredKey, &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(d.now().UnixMilli(), 10), Count: 500}).Result()
 	if err != nil {
-		return
+		return 0
 	}
 	for _, raw := range due {
 		if n, _ := d.rdb.ZRem(ctx, deferredKey, raw).Result(); n != 1 {
@@ -749,6 +805,7 @@ func (d *Dispatcher) releaseDue(ctx context.Context) {
 			d.rdb.ZAdd(ctx, deferredKey, redis.Z{Score: float64(d.now().UnixMilli()), Member: raw})
 		}
 	}
+	return len(due)
 }
 
 func (d *Dispatcher) deliveryRules(ctx context.Context, tenant int64) (delivery.Rules, error) {
@@ -898,17 +955,42 @@ func (d *Dispatcher) sender(ctx context.Context, tenant int64, ch string) (provi
 }
 
 func (d *Dispatcher) buildSender(ctx context.Context, tenant int64, ch string) (providers.Provider, error) {
+	v, err := d.buildVia(ctx, tenant, ch)
+	return v.p, err
+}
+
+func (d *Dispatcher) buildVia(ctx context.Context, tenant int64, ch string) (sendVia, error) {
 	cfg, sealed, err := d.store.DefaultProvider(ctx, tenant, ch)
 	if errors.Is(err, pg.ErrNotFound) && ch == channel.Email && d.cfg.EmailDefault != nil {
-		return d.cfg.EmailDefault, nil
+		return sendVia{p: d.cfg.EmailDefault, name: "the server's SMTP"}, nil
 	} else if err != nil {
-		return nil, err
+		return sendVia{}, err
 	}
 	secrets, err := OpenSecrets(d.cfg.Box, sealed)
 	if err != nil {
-		return nil, err
+		return sendVia{}, err
 	}
-	return providers.New(cfg.Kind, d.cfg.Providers, cfg.Config, secrets)
+	p, err := providers.New(cfg.Kind, d.cfg.Providers, cfg.Config, secrets)
+	return sendVia{p: p, id: cfg.ID, name: cfg.Name, limits: cfg.Limits}, err
+}
+
+// senderVia is sender with the provider's id and limits (cached like sender).
+func (d *Dispatcher) senderVia(ctx context.Context, tenant int64, ch string) (sendVia, error) {
+	key := strconv.FormatInt(tenant, 10) + ":" + ch
+	d.mu.Lock()
+	c, ok := d.vias[key]
+	d.mu.Unlock()
+	if ok && d.now().Before(c.exp) {
+		return c.v, nil
+	}
+	v, err := d.buildVia(ctx, tenant, ch)
+	if err != nil {
+		return v, err
+	}
+	d.mu.Lock()
+	d.vias[key] = cached[sendVia]{v: v, exp: d.now().Add(cacheTTL)}
+	d.mu.Unlock()
+	return v, nil
 }
 
 // inboxSender "delivers" an inbox message by storing it, carrying the message's ids so reads and
@@ -982,4 +1064,79 @@ func OpenSecrets(box *auth.Box, sealed []byte) (map[string]string, error) {
 		return nil, fmt.Errorf("open provider secrets: %w", err)
 	}
 	return secrets, json.Unmarshal(plain, &secrets)
+}
+
+// pushGone clears the contact's push reachability bit when its last device is gone.
+func (d *Dispatcher) pushGone(ctx context.Context, c model.Contact) {
+	hd, ok := d.store.(interface {
+		HasDevices(ctx context.Context, tenant int64, contact uint32) (bool, error)
+	})
+	if !ok {
+		return
+	}
+	if has, err := hd.HasDevices(ctx, c.TenantID, c.ID); err == nil && !has {
+		_ = reach.SetPush(ctx, d.rdb, c.TenantID, c.ID, false)
+	}
+}
+
+// sendTest sends a test to a saved test contact's bare address (no contact behind it): the template
+// is rendered with the test contact's name, nothing is tracked, consent and caps don't apply, and
+// no events are recorded (the Test inbox and the provider show the result).
+func (d *Dispatcher) sendTest(ctx context.Context, sentKey string, m model.Message) error {
+	t, err := d.template(ctx, m.TenantID, m.TemplateID)
+	if errors.Is(err, pg.ErrNotFound) {
+		return d.mark(ctx, sentKey, "failed")
+	} else if err != nil {
+		return fmt.Errorf("load template %d: %w", m.TemplateID, err)
+	}
+	c := model.Contact{TenantID: m.TenantID, ExternalID: "test-contact", Attrs: map[string]any{}}
+	if m.TestName != "" {
+		first, _, _ := strings.Cut(m.TestName, " ")
+		c.Attrs["name"], c.Attrs["first_name"] = m.TestName, first
+	}
+	tg := target{to: m.TestTo}
+	switch m.Channel {
+	case channel.Email:
+		c.Email = m.TestTo
+		c.Attrs["email"] = m.TestTo
+	case channel.Push:
+		tg.platform = "android"
+		if providers.IsWebPushSubscription(m.TestTo) {
+			tg.platform = "web"
+		}
+	default:
+		c.Attrs["phone"] = m.TestTo
+	}
+	rendered, err := channel.RenderWith(t, c, vars(m, channel.Links{}))
+	if err != nil {
+		d.log("test send failed", m, err)
+		return d.mark(ctx, sentKey, "failed")
+	}
+	var p providers.Provider
+	if m.Channel == channel.Push && tg.platform == "web" {
+		p, err = d.webPusher(ctx, m.TenantID)
+	} else {
+		var v sendVia
+		v, err = d.senderVia(ctx, m.TenantID, m.Channel)
+		p = v.p
+	}
+	if err != nil {
+		d.log("test send failed", m, err)
+		return d.mark(ctx, sentKey, "failed")
+	}
+	if err := d.limiters[m.Channel].Wait(ctx, "rl:"+m.Channel+":"+strconv.FormatInt(m.TenantID, 10)); err != nil {
+		return err
+	}
+	if _, err := p.Send(ctx, providers.Outbound{TenantID: m.TenantID, MessageID: m.ID, Channel: m.Channel, To: tg.to,
+		Platform: tg.platform, From: d.cfg.From, Rendered: rendered}); err != nil {
+		d.log("test send failed", m, err)
+		return d.mark(ctx, sentKey, "failed")
+	}
+	return d.mark(ctx, sentKey, "sent")
+}
+
+func (d *Dispatcher) log(msg string, m model.Message, err error) {
+	if d.cfg.Log != nil {
+		d.cfg.Log.Warn(msg, "tenant", m.TenantID, "message", m.ID, "channel", m.Channel, "err", err)
+	}
 }

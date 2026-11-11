@@ -92,6 +92,10 @@ func main() {
 				fmt.Printf("workspace %s: added the personalised cart-rescue templates and journey\n", *ifExists)
 				added = true
 			}
+			if campaigns() {
+				fmt.Printf("workspace %s: added campaign tags, one-time campaigns, test contacts and SMS limits\n", *ifExists)
+				added = true
+			}
 			if !added {
 				fmt.Printf("workspace %s already exists and %s can sign in: nothing to do\n", *ifExists, *email)
 			}
@@ -111,6 +115,7 @@ func main() {
 	personalisation()
 	time.Sleep(8 * time.Second) // let segments fill before broadcasts pick their audiences
 	broadcasts(c)
+	campaigns()
 	fmt.Printf("seeded %d contacts. Sign in at %s/login with workspace %v (credentials in deploy/dev-seed.md)\n", *contacts, *apiURL, slug)
 }
 
@@ -521,5 +526,77 @@ func personalisation() bool {
 			"product_code": "DEC-310", "product_name": "Brass table lamp", "product_category": "Lighting", "price": 3299, "cart_value": 3299 + 500*i}})
 	}
 	call("POST", "/v1/events", map[string]any{"events": evs})
+	return true
+}
+
+// campaigns (M3) tags the broadcasts and journeys for the Campaigns hub, adds two one-time
+// campaigns written in the wizard (their templates hidden), saved test contacts, sending limits on
+// the SMS sandbox, and a few unsubscribes and bounces so audience estimates show drop-offs. It does
+// nothing when the test contacts are already there, and reports whether it ran.
+func campaigns() bool {
+	for _, t := range call("GET", "/v1/test-contacts", nil)["test_contacts"].([]any) {
+		if t.(map[string]any)["name"] == "Priya (QA)" {
+			return false
+		}
+	}
+	byName := func(path, key string) map[string]float64 {
+		out := map[string]float64{}
+		for _, x := range call("GET", path, nil)[key].([]any) {
+			m := x.(map[string]any)
+			out[m["name"].(string)] = id(m)
+		}
+		return out
+	}
+	tag := func(path string, id float64, tags ...string) {
+		if id > 0 {
+			call("PUT", fmt.Sprintf("%s/%v/tags", path, id), map[string]any{"tags": tags})
+		}
+	}
+	bcs := byName("/v1/broadcasts", "broadcasts")
+	tag("/v1/broadcasts", bcs["Weekend sale (VIPs)"], "Weekend sale")
+	tag("/v1/broadcasts", bcs["Festive preview (Pune)"], "Festive", "Diwali 2026")
+	js := byName("/v1/journeys", "journeys")
+	tag("/v1/journeys", js["Cart rescue"], "Retention")
+	tag("/v1/journeys", js["Cart recovery"], "Retention")
+	tag("/v1/journeys", js["Welcome"], "Onboarding")
+	segs := byName("/v1/segments", "segments")
+
+	// Unsubscribes and bounces among the shoppers, so estimates drop at consent and reachability.
+	var evs []map[string]any
+	for i := 3; i <= 60; i += 7 {
+		evs = append(evs, map[string]any{"external_id": fmt.Sprintf("cust-%04d", i), "name": "unsubscribed", "props": map[string]any{"channel": "email", "source": "email_link"}})
+	}
+	for _, i := range []int{5, 19, 44} {
+		evs = append(evs, map[string]any{"external_id": fmt.Sprintf("cust-%04d", i), "name": "identify", "attrs": map[string]any{"email_bounced": true}})
+	}
+	call("POST", "/v1/events", map[string]any{"events": evs})
+
+	// One-time campaigns made in the wizard: the message is written inside the campaign.
+	sms := id(call("POST", "/v1/templates", map[string]any{"name": "Diwali offer (SMS)", "channel": "sms", "hidden": true,
+		"content": map[string]any{"text": `Happy Diwali {{contact.first_name | default:"there"}}! 20% off lamps and decor till Sunday: https://acme.example.com/diwali`, "sender_id": "ACMERT"}}))
+	diwali := call("POST", "/v1/broadcasts", map[string]any{"name": "Diwali offer", "channel": "sms", "template_id": sms,
+		"segment_id": segs["Pro plan"], "exclude_segment_ids": []float64{segs["VIP tag"]}, "repeat": "none",
+		"start_at": rfc(time.Now().Add(5 * 24 * time.Hour).Truncate(time.Hour)), "tags": []string{"Festive", "Diwali 2026"},
+		"deadline": map[string]any{"at": "21:00", "timezone": "Asia/Kolkata"}})
+	call("POST", fmt.Sprintf("/v1/broadcasts/%v/schedule", id(diwali)), nil)
+	wa := id(call("POST", "/v1/templates", map[string]any{"name": "Monsoon clearance (WhatsApp)", "channel": "whatsapp", "hidden": true,
+		"content": map[string]any{"template_name": "monsoon_clearance", "language": "en", "body_params": []string{`{{contact.first_name | default:"there"}}`},
+			"preview_text": "Hi {{1}}, the monsoon clearance starts tomorrow: up to 40% off."}}))
+	call("POST", "/v1/broadcasts", map[string]any{"name": "Monsoon clearance", "channel": "whatsapp", "template_id": wa,
+		"segment_id": segs["Repeat buyers in Pune"], "repeat": "none", "start_at": rfc(time.Now().Add(10 * 24 * time.Hour).Truncate(time.Hour)),
+		"tags": []string{"Clearance"}})
+
+	// Saved test contacts, offered by every "Send a test" dialog.
+	call("POST", "/v1/test-contacts", map[string]any{"name": "Priya (QA)", "email": "priya.qa@acme-retail.test", "phone": "+919812399001"})
+	call("POST", "/v1/test-contacts", map[string]any{"name": "Dev's phone", "phone": "+919812399002", "push_token": "sandbox-device-dev-0001"})
+	call("POST", "/v1/test-contacts", map[string]any{"name": "Asha (customer)", "external_id": "cust-0001"})
+
+	// The SMS sandbox stands in for a DLT route with a throughput and a daily quota.
+	for _, p := range call("GET", "/v1/channels/providers", nil)["providers"].([]any) {
+		m := p.(map[string]any)
+		if m["channel"] == "sms" {
+			call("PUT", fmt.Sprintf("/v1/channels/providers/%v/limits", id(m)), map[string]any{"rate_per_second": 20, "daily_quota": 5000, "timezone": "Asia/Kolkata"})
+		}
+	}
 	return true
 }

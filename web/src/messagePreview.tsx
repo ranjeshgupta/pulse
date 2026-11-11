@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, CHANNEL_NAMES, type Channel, type ChannelContent, type EventSchema, type Template } from "./api";
 import { ErrorNote, Field, Modal, useToast } from "./ui";
+import { testContactAddress, useTestContacts } from "./campaignUI";
 
 /** A file attached to an email (template preview). */
 export type PreviewAttachment = { id: number; title: string; filename: string; content_type: string; size: number };
@@ -203,6 +204,8 @@ export function PreviewModal({ template, event = "", onClose }: { template: Part
 // with a sample trigger event for {{event.x}}.
 export function TestSendModal({ template, event = "", onClose }: { template: Template; event?: string; onClose: () => void }) {
   const toast = useToast();
+  const tcs = useTestContacts();
+  const [who, setWho] = useState(""); // "tc:<id>" for a saved test contact, else "" (type an external ID)
   const [ext, setExt] = useState("");
   const [fallback, setFallback] = useState("");
   const [evName, setEvName] = useState(event);
@@ -210,17 +213,34 @@ export function TestSendModal({ template, event = "", onClose }: { template: Tem
   const ev = parseEvent(evJson);
   const canFallback = template.channel === "whatsapp" || template.channel === "rcs";
   const sms = useQuery({ queryKey: ["templates", "sms"], queryFn: () => api.get<{ templates: Template[] }>("/v1/templates?channel=sms"), enabled: canFallback });
+  const saved = tcs.data?.test_contacts ?? [];
+  const chosen = who.startsWith("tc:") ? saved.find((t) => t.id === Number(who.slice(3))) : undefined;
+  // A saved contact that is a real contact is personalised with their data; bare addresses use the test contact's name.
+  const sampleFor = chosen?.external_id ?? (chosen ? "" : ext.trim());
+  const ready = chosen ? !!testContactAddress(chosen, template.channel) : !!ext.trim();
   const send = useMutation({
-    mutationFn: () => api.post("/v1/channels/test", { template_id: template.id, external_id: ext.trim(), fallback_template_id: Number(fallback) || 0, event: evName && ev ? ev : undefined }),
+    mutationFn: () => api.post("/v1/channels/test", {
+      template_id: template.id, ...(chosen ? { test_contact_id: chosen.id } : { external_id: ext.trim() }),
+      fallback_template_id: Number(fallback) || 0, event: evName && ev ? ev : undefined,
+    }),
     onSuccess: () => { toast({ text: "Test queued. Check the test inbox or the contact's device." }); onClose(); },
   });
   return (
-    <Modal title={`Send a test: ${template.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!ext.trim() || send.isPending || ev === undefined} onClick={() => send.mutate()}>Send test</button></>}>
+    <Modal title={`Send a test: ${template.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!ready || send.isPending || ev === undefined} onClick={() => send.mutate()}>Send test</button></>}>
       <ErrorNote error={send.error} />
-      <p className="small muted" style={{ marginBottom: 14 }}>Sends the saved version to one contact through your {CHANNEL_NAMES[template.channel]} provider, personalized with their fields and the sample event.</p>
-      <Field label="Contact's external ID"><input className="input" value={ext} onChange={(e) => setExt(e.target.value)} autoFocus /></Field>
-      <SampleEventFields name={evName} setName={setEvName} contact={ext.trim()} json={evJson} setJson={setEvJson} />
-      {canFallback && (
+      <p className="small muted" style={{ marginBottom: 14 }}>Sends the saved version through your {CHANNEL_NAMES[template.channel]} provider, personalized with the contact's fields and the sample event.</p>
+      <Field label="Send to" hint={saved.length === 0 ? <>Save test contacts (yours, your team's) under Settings → Channels → Test contacts to pick them here.</> : chosen && !testContactAddress(chosen, template.channel) ? `${chosen.name} has no address for ${CHANNEL_NAMES[template.channel]}.` : chosen && !chosen.external_id ? "A bare address: personalised with the test contact's name only; nothing is tracked." : undefined}>
+        <select className="select" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Send to">
+          <option value="">A contact (type the external ID)</option>
+          {saved.map((t) => {
+            const a = testContactAddress(t, template.channel);
+            return <option key={t.id} value={`tc:${t.id}`} disabled={!a}>{t.name}{a ? ` (${a})` : " (no address for this channel)"}</option>;
+          })}
+        </select>
+      </Field>
+      {!chosen && <Field label="Contact's external ID"><input className="input" value={ext} onChange={(e) => setExt(e.target.value)} autoFocus /></Field>}
+      <SampleEventFields name={evName} setName={setEvName} contact={sampleFor} json={evJson} setJson={setEvJson} />
+      {canFallback && !(chosen && !chosen.external_id) && (
         <Field label="SMS fallback (optional)" hint="Also tests the fallback: if this contact can't get the message, the SMS goes instead.">
           <select className="select" value={fallback} onChange={(e) => setFallback(e.target.value)}>
             <option value="">No fallback</option>

@@ -259,6 +259,7 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 				return "", false, err
 			}
 			m.FallbackTemplateID = cm.FallbackTemplateID
+			m.Deadline = n.Deadline.After(x.Now())
 			if err := x.Sender.Send(ctx, m); err != nil {
 				return "", false, err
 			}

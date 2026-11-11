@@ -181,6 +181,8 @@ type Node struct {
 	Target           string           `json:"target,omitempty"`            // jump
 	Confirm          string           `json:"confirm,omitempty"`           // delete_contact: "DELETE"
 	IntegrationID    int64            `json:"integration_id,omitempty"`    // push_integration: a CRM connector
+	// Deadline (send steps, send_message): drop the message instead of sending it late.
+	Deadline *model.Deadline `json:"deadline,omitempty"`
 	// UI layout, ignored by the engine.
 	X float64 `json:"x,omitempty"`
 	Y float64 `json:"y,omitempty"`
@@ -301,6 +303,9 @@ func (g Graph) Validate() error {
 			}
 			if n.FallbackTemplateID != 0 && !channel.FallsBackToSMS(sendNodes[n.Type]) {
 				return fmt.Errorf("%s %q: only send_whatsapp and send_rcs take an SMS fallback", n.Type, id)
+			}
+			if err := n.Deadline.Validate(); err != nil {
+				return fmt.Errorf("%s %q: %w", n.Type, id, err)
 			}
 		case NodeWaitUntil:
 			if err := validWaitUntil(n); err != nil {

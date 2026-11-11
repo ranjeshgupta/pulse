@@ -3,7 +3,7 @@
 Pulse is a multi-tenant, real-time marketing automation platform written in Go on Kafka, ClickHouse, Postgres and Redis.
 The design targets 10–100M contacts and 10k–100k events/sec. This document covers the overall design and the
 contracts the code in this repository implements, from Phase 1 through batch 9 and the marketing
-team's milestone M1 (events and segments).
+team's milestones M1 (events and segments), M2 (personalisation) and M3 (campaigns).
 
 ## Pipeline
 
@@ -315,7 +315,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 
 ## Dispatch
 - Per-tenant, per-channel token bucket in Redis (messages/second: email 200, set by `PULSE_EMAIL_RATE`; SMS 100, WhatsApp 80,
-  RCS 50, push 500, inbox 2,000).
+  RCS 50, push 500, inbox 2,000), plus per-provider limits and send deadlines (see "Campaigns (M3)").
 - **SMS bounces.** A provider error for the number itself (`providers.BadNumber`: Twilio 21211/21214/21612/21614, or
   an unreachable recipient, e.g. the sandbox's unreachable suffix) or a failed receipt marked unreachable (Twilio
   30003/30005/30006) records `sms_failed {bounce: true}` with `attrs.sms_bounced = true`; later SMS are
@@ -415,7 +415,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - `events.product_code` and `events.product_category`: MATERIALIZED columns from the props (migration
   005), for product reports.
 
-Migrations: `migrations/postgres/001`–`020` and `migrations/clickhouse/001`–`005`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
+Migrations: `migrations/postgres/001`–`022` and `migrations/clickhouse/001`–`005`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
 migrate one at a time.
 
 ## Public pages and origins
@@ -657,3 +657,72 @@ These run on raw events today and are fine into the hundreds of millions of rows
   properties removed; contacts view) or builds `eventschema.Example(schema)`.
 - **Web.** `web/src/personalize.ts` mirrors the syntax (catalog, tag building, lint, sample fill for live previews);
   `VarPicker.tsx` is the picker and the `TemplatedInput` / `TemplatedText` fields used by every templated field.
+
+## Campaigns (M3)
+
+- **Hub.** `GET /v1/campaigns` lists broadcasts and journeys as one list (`api.CampaignRow`). The category is derived,
+  never stored: a broadcast is `one_time`, a journey with an event or form trigger `trigger`, a segment-entered journey
+  `automation`. Channels come from the journey's send steps and `send_message` rules (a broadcast's channel, plus SMS
+  with a fallback); audience is the trigger or audience segment's `BITCOUNT`; sent and last activity come from one
+  grouped ClickHouse query over `message_events` (`ch.CampaignTotals`). Filters (category, status, channel, tag, name or
+  tag search) run in the API over the workspace's rows, which are few. The route needs no area; the handler lists
+  broadcasts only to roles that view broadcasts and journeys only to roles that view journeys (403 with neither).
+- **Tags.** `broadcasts.tags` and `journeys.tags` (`text[]`, migration 022), normalised by `model.NormalizeTags` (trimmed,
+  case-insensitive duplicates dropped, 20 tags of 40 characters, no commas). `PUT /v1/{broadcasts|journeys}/{id}/tags`
+  changes them in any status; `GET /v1/campaigns/tags` suggests the used ones, most used first.
+- **One-time wizard.** The app saves the content as a template with `hidden = true` (`templates.hidden`: left out of
+  `GET /v1/templates`, so of every picker; "save as reusable" clears it), then an ordinary broadcast; nothing on the
+  server is wizard-specific. A broadcast may name extra audience segments (`include_segment_ids`, union with
+  `segment_id`, at most 10 in all). Duplicating a broadcast copies a hidden template too.
+- **Reachability bitmaps** (`internal/reach`). Per workspace, Redis bitmaps like segment bitmaps (bit N = contact N):
+  `rch:{t}:known`, `email` (an address, not bounced), `phone` (valid E.164), `sms` (and not SMS-bounced), `push` (a
+  device), and `out:{channel}` (opted out of the channel or of everything). The segments role sets a contact's bits from
+  the profile snapshot on every enriched event that creates the contact or changes `email`, `phone`, `optout_*`,
+  `*_bounced` or `merged_into` (`reach.Bits`, the dispatcher's own checks), in the same pass as segment bits. Device
+  registration (API) sets `push`; a dead token removes it when it was the contact's last device. A rebuild from
+  Postgres (`reach.Rebuilder`, keyset pages of 10,000 contacts plus `contact_devices`, bitmaps built in memory, swapped
+  with `SET`+`RENAME`) runs for a workspace without `rch:{t}:built` (new workspaces, after a Redis loss) and then daily
+  (the key's TTL), under a per-workspace `SETNX` lock; contacts changed while it ran (`updated_at`) are applied again
+  after the swap. At 100M contacts the eleven bitmaps take about 140 MB of Redis per workspace.
+- **Exact estimates.** `POST /v1/segments/estimate {include, exclude, channel, transactional}` runs one Redis pipeline of
+  `BITOP`s over the workspace's keys (`reach.Count`): `OR` of the included segments, then the excluded ones removed,
+  then the channel's opt-outs removed, then `AND` with the channel's address bitmap, counting after each step.
+  A AND NOT B is computed as A XOR (A AND B), which pads shorter bitmaps correctly. Every key is built from the
+  caller's workspace, and every segment id is checked to belong to it. With a frequency cap on the channel (and not
+  transactional), the reachable bitmap is read once and each member's cap set counted (`ZCOUNT`, pipelined), exactly up
+  to 50,000 members and from an evenly spread sample of 5,000 above (`approximate: true`). Results are cached for 30 s
+  (`rchest:{t}:{hash}`); cache misses are limited to 60 a minute per workspace (429). `GET /v1/segments/{id}/reach`
+  gives each channel's numbers for one segment (segment builder, journey Start panel), with the same cache and limit.
+- **Per-provider limits** (`channel_providers.limits`: `rate_per_second`, `daily_quota`, `timezone`;
+  `PUT /v1/channels/providers/{id}/limits`, channels edit). The dispatcher caches each workspace's default provider
+  with its limits for 30 s. Before sending it takes one message from the provider's quota with a Lua script on
+  `quota:{provider}:{yyyymmdd}` (the day in the provider's zone; expires after 3 days; shared by every dispatcher), then
+  waits for the workspace's channel bucket and the provider's own bucket (`rlp:{provider}`). Over the quota, the
+  message is held in `deferred:messages` until midnight in that zone (`<channel>_deferred`, kind `quota`); a message
+  that went out to no target gives its unit back. `GET /v1/channels/providers` adds `usage_today`. Held messages are
+  released up to 20,000 per 5-second round (they then meet the rate limits).
+- **Send deadlines.** `model.Deadline{at "HH:MM", hours, timezone}` on broadcasts (`broadcasts.deadline`) and on send
+  steps and `send_message` (`deadline` in the graph). A broadcast run stamps `Message.Deadline` = the earlier of the
+  first `at` after the run's scheduled time and that time plus `hours`; a local-time run stamps `DeadlineLocal`, a clock
+  time read in the contact's zone like `LocalAt`; a journey step stamps it from when the step runs. The dispatcher drops
+  a message at or after its deadline, and any hold (quiet hours, local time, quota) that would release it later, as
+  `<channel>_failed` with `reason: "deadline"` and `props.deadline`. Reports count them (`late`, from the event log).
+- **Pooled SMTP** (`internal/providers/smtppool.go`). Connections are pooled per relay, login (password hashed) and
+  limits in a process-wide registry, so adapters rebuilt every 30 s share them: at most `max_connections` (default 4)
+  open per process, each used for `messages_per_connection` (default 100) messages, idle ones closed after 60 s.
+  STARTTLS whenever offered (implicit TLS on port 465); PLAIN auth only over TLS or to localhost. A reply error is
+  `RSET` and the connection kept; a network error or 421 closes it; a dropped idle connection is retried once on a new
+  one before anything was sent. 5xx replies stay permanent failures. The benchmark against a fake relay with a 3 ms
+  greeting: about 7,800 messages/s pooled against 260 with a connection per message.
+- **Duplicates and paste.** `POST /v1/{broadcasts|journeys|templates|segments}/{id}/duplicate` create drafts named
+  "… (copy)" (a journey copy is checked like a save, so a step needing contacts edit still needs it; static segments
+  can't be duplicated). Journey steps are copied by the app as clipboard JSON (`journey.Clipboard`: `pulse`,
+  `version`, `entry`, `nodes`); `POST /v1/journey-steps/check` decodes it strictly, drops edges and jumps to steps
+  outside it and decisions watching a send step outside it, validates the steps as a journey save would, then clears
+  references (templates, segments, lists, forms, assets, companies, journeys, users) that don't exist in the caller's
+  workspace, with a note each. The app renames and inserts the steps (`web/src/journeyClipboard.ts`). Segment groups are
+  copied as rule JSON and checked in the app against the rule limits (`web/src/segmentClipboard.ts`).
+- **Test contacts** (`test_contacts`, at most 50 per workspace; `/v1/test-contacts`, content area). `POST
+  /v1/channels/test` takes `test_contact_id`: one with an external ID sends to that contact as before; one with bare
+  addresses sends a `Message` with `TestTo` and `TestName` and no contact, which the dispatcher renders with only the
+  name, sends through the channel's provider without consent, caps, tracking or events.

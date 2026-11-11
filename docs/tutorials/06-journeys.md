@@ -200,13 +200,14 @@ A journey created through the API may end a path with a step that has no next st
 
 ## 9. Tidy up and find your way around the canvas
 
-![The canvas toolbar: Undo, Redo, Tidy up, Zoom to fit](img/06-toolbar.png)
+![The canvas toolbar: Undo, Redo, Tidy up, Zoom to fit, Copy, Paste](img/06-toolbar.png)
 
 | Tool | Does |
 |---|---|
 | **Undo** / **Redo** | Undo or redo the last change (Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y; ⌘ on a Mac) |
 | **Tidy up** | Lays the steps out again in neat rows and columns |
 | **Zoom to fit** | Fits the whole journey in the canvas |
+| **Copy** / **Paste** | Copy the selected steps and paste them after the selected step, here or in another journey (Ctrl+C, Ctrl+V), see step 16 |
 | **+** and **–** (bottom left) | Zoom in and out. You can also scroll to zoom and drag the background to move around |
 | Minimap (bottom right) | The whole journey in small; drag in it to move the view. Colours: Start yellow, actions blue, decisions red, conditions purple, waits grey, splits teal |
 | **Show stats** (once saved) | The numbers on each step, see step 13 |
@@ -329,6 +330,42 @@ The **Journeys** list has a button at the end of each row that isn't live:
 Pause a live journey before archiving it. Deleting needs **Journeys: Edit**; archiving and restoring
 need **Journeys: Publish**, like going live. Through the API: `DELETE /v1/journeys/{id}`,
 `POST /v1/journeys/{id}/archive` and `POST /v1/journeys/{id}/unarchive`.
+
+## 16. Send deadlines, copy and paste, duplicate, tags
+
+**Send deadline.** Every send step (and **Send marketing message**) has a box **Send deadline: drop
+messages that would go out late**. A message can be held back after its step runs: quiet hours, a
+provider's daily quota (tutorial 4), retries. With a deadline, Pulse drops it instead of sending it
+late: **Don't send after** a time of day (the first time it comes after the step runs, in the zone
+named under it), **…or more than** a number of hours after the step runs (1 to 168). Dropped messages
+are recorded as failed with the reason `deadline`, and the report counts them.
+
+<img src="img/06-deadline.png" alt="The Send email step's deadline: Don't send after 21:00, or more than 12 hours late" width="420">
+
+**Copy and paste steps.** Select a step (or several: Ctrl-click, or ⌘-click on a Mac, or Shift-drag a
+box round them) and click **Copy** in the canvas toolbar (or press Ctrl+C). **Paste** (Ctrl+V) puts
+the copied steps after the selected step, in this journey or any other, even in another browser tab:
+
+![The canvas toolbar with Copy and Paste highlighted](img/06-copy-paste.png)
+
+![Paste steps: where they go, what is left to choose again, and the copied steps](img/06-paste.png)
+
+- The steps keep their settings and the links between them; they get new names (`email2`), and a
+  decision watching a copied email watches the copy.
+- The first copied step goes where the selected step's path continued, and what came there before
+  follows the copied steps' main path (their first outputs: Next, Yes, path A).
+- Links to steps that weren't copied are left free (the issues list asks you to connect them), as are
+  jumps to them. Templates, segments, forms and other things that don't exist in this workspace (when
+  pasting into another workspace) are cleared, and a note says which steps to fix.
+- If your browser doesn't let Pulse read the clipboard, the box opens empty: paste into it.
+
+![The journey with the pasted Send email step after the first one](img/06-pasted.png)
+
+Nothing is saved until you click **Save draft**: **Undo** takes a paste back.
+
+**Duplicate** (on the journey's page, or the row's **Duplicate** in the list) makes a draft copy,
+"… (copy)", with the same steps, schedule and tags, and nobody in it. **Tags** under the journey's
+name label it in the Campaigns hub (tutorial 14); they can change while it is live.
 
 ## Every step, at a glance
 

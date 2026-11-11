@@ -12,6 +12,8 @@ import { TemplateActions } from "../../messagePreview";
 import { describeWindow, fromLocalInput, ScheduleFields, toLocalInput } from "../../schedule";
 import { filtersFromWhere, OP_LABELS, problems as ruleProblems, rootFromRule, toRule, whereFromFilters, type AttrOp, type Where } from "../../segmentRules";
 import { Field } from "../../ui";
+import { DeadlineFields, ReachByChannel } from "../../campaignUI";
+import { browserZone } from "../Broadcasts";
 import { PersonalizeScopeProvider, TemplatedText, usePersonalizeScope, useVariables } from "../../VarPicker";
 import { GroupEditor, PropertyFilters } from "../SegmentBuilder";
 import type { Pickers } from "./data";
@@ -216,7 +218,10 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
           <ListInput value={n.emails ?? []} placeholder="sales@example.com" onChange={(emails) => setN({ emails: emails.length ? emails : undefined })} />
         </Field>
       </>);
-    case "send_message": return <ChannelRules n={n} setN={setN} templates={templates} event={triggerEvent(graph)} />;
+    case "send_message": return (<>
+      <ChannelRules n={n} setN={setN} templates={templates} event={triggerEvent(graph)} />
+      <DeadlineFields value={n.deadline} onChange={(deadline) => setN({ deadline: deadline ?? undefined })} zone={browserZone()} />
+    </>);
     case "show_focus":
       return (<>
         <Field label="Focus item"><PickSelect value={n.focus_id} items={L.focus} placeholder="Choose a focus item" onChange={(focus_id) => setN({ focus_id })} /></Field>
@@ -340,6 +345,7 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
           </select>
         </Field>
       )}
+      <DeadlineFields value={n.deadline} onChange={(deadline) => setN({ deadline: deadline ?? undefined })} zone={browserZone()} />
     </>);
   }
   return <Note>This step type isn't known to this version of Pulse.</Note>;
@@ -564,6 +570,7 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
           </Field>
           <label className="check"><input type="checkbox" checked={!!t.include_backfill} onChange={(e) => setT({ include_backfill: e.target.checked })} />Also enroll contacts added when the segment is rebuilt</label>
           <p className="xs muted">Off: only people who newly match from now on enter. On: rebuilding a segment can enroll many contacts at once.</p>
+          {!!t.segment_id && <ReachByChannel segmentId={t.segment_id} channels={journeyChannels(graph)} title="Members it can reach now" />}
         </>
       ) : t.type === "form_submitted" ? (
         <>
@@ -906,4 +913,15 @@ function AttrFields({ attrs, onChange }: { attrs: Record<string, unknown>; onCha
 function triggerEvent(g: JourneyGraph): string | undefined {
   const t = g.trigger;
   return t.type === "event" ? t.event || undefined : t.type === "form_submitted" ? "form_submitted" : undefined;
+}
+
+/** journeyChannels lists the channels a journey's send steps use (all channels when it has none yet). */
+function journeyChannels(g: JourneyGraph): Channel[] {
+  const set = new Set<Channel>();
+  for (const n of Object.values(g.nodes)) {
+    const ch = nodeChannel(n.type);
+    if (ch) set.add(ch);
+    for (const r of n.channels ?? []) set.add(r.channel);
+  }
+  return set.size ? CHANNELS.filter((c) => set.has(c)) : CHANNELS;
 }

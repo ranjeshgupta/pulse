@@ -21,7 +21,26 @@ export default async function (browser) {
   await staticSegment(context, page);
   await realTime(context);
   await scoringAndStages(page);
+  await reachAndCopy(context, page);
   await context.close();
+}
+
+/** M3: who each channel reaches, Duplicate, and copying a group of filters (nothing saved). */
+async function reachAndCopy(context, page) {
+  const pro = (await api(context, "GET", "/v1/segments")).segments.find((s) => s.name === "Pro plan");
+  await page.setViewportSize({ width: 1440, height: 1200 });
+  await go(page, `/segments/${pro.id}`);
+  const reach = page.locator(".reach-box");
+  await reach.locator("table").waitFor({ timeout: 30_000 });
+  await settle(page, { quiet: 600 });
+  await shot(page, AREA, "03-reach", { clip: reach, pad: 8 });
+  const head = page.locator("section.fb-group.root > header");
+  await highlight(page.getByRole("button", { name: "Duplicate" }));
+  await highlight(head.getByRole("button", { name: "Copy" }));
+  await highlight(head.getByRole("button", { name: "Paste" }));
+  await shot(page, AREA, "03-copy-group", { clip: top(330) });
+  await clearHighlights(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
 }
 
 const top = (height) => ({ x: 232, y: 0, width: 1440 - 232, height });

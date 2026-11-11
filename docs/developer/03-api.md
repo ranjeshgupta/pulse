@@ -682,7 +682,7 @@ The step types (each one's fields are in `journey.Node`, `internal/journey/graph
 
 | Kind | Types |
 |---|---|
-| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`) |
+| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`). Every send step and `send_message` takes `deadline` (`{"at": "HH:MM", "hours": N, "timezone": …}`, counted from when the step runs): a message held back past it is dropped as `<channel>_failed`, `reason: "deadline"` |
 | Wait | `wait` (`seconds`, up to 365 days), `wait_until` (`until`, or `time_of_day` + `timezone`) |
 | Decision (wait for something, then `yes` / `no`) | `wait_for_event` (`event`, `seconds`), `message_decision` (`step`, `outcome`: opened, clicked, delivered, read, replied; `seconds` ≥ 60; optional `url`), `on_form`, `on_asset`, `on_page`, `on_device`, `on_dwc` |
 | Condition (checked now, `yes` / `no`) | `condition` (`segment_id`), `check` (`rule`: any segment rule), `if_journey`, `if_form_field`, `if_notification`, `if_valid_email`, `if_dnc`, `if_before`, `if_visited` |
@@ -729,9 +729,51 @@ curl -s -X POST $PULSE/v1/broadcasts/6/schedule -H "Authorization: Bearer $KEY"
 | `exclude_segment_ids` | Up to 10 segments whose members are left out, even if they are in `segment_id` |
 | `local_time`, `timezone` | One-time broadcasts: send at `start_at`'s clock time in `timezone` (an IANA zone such as `Asia/Kolkata`, the zone the time was chosen in) in each contact's own zone: their `timezone` attribute, else `geo_timezone`, else `timezone`. The run starts when that clock time comes in UTC+14 (`next_run_at` shows it), and each message is held until it is due (a `<channel>_deferred` event records the wait) |
 
+| `include_segment_ids` | More audience segments (members of any get it; at most 10 segments in all) |
+| `deadline` | `{"at": "21:00", "hours": 6, "timezone": "Asia/Kolkata"}`, either or both: messages that can't go out before the first `at` after the run started (in `timezone`, UTC when empty; in each contact's zone for a local-time broadcast) or within `hours` (1-168) of it are dropped as `<channel>_failed` with `reason: "deadline"`. The report's `late` counts them |
+| `tags` | Free labels (at most 20, 40 characters each); also `PUT /v1/broadcasts/{id}/tags` `{"tags": [...]}` in any status |
+
 A run sends to whoever is in the segment when it starts. `start_at` in the past sends at once.
 `GET /v1/broadcasts/{id}` returns the broadcast and its runs; `POST /v1/broadcasts/{id}/cancel`
 stops the schedule; scheduling a broadcast that is already sending answers 409.
+
+### Campaigns, estimates and one-time campaigns (M3)
+
+`GET /v1/campaigns` lists broadcasts and journeys together, with `category` set by type (`one_time`,
+`trigger`, `automation`), `channels`, `status`, `tags`, schedule, `audience` (the audience segment's
+size now; `null` for trigger-based journeys), `sent` and `last_activity`, and `counts` per category.
+Filter with `?category=&status=&channel=&tag=&q=`. A role sees only the kinds it may view.
+
+The app's one-time wizard is ordinary calls: the content as a template with `"hidden": true` (left out
+of `GET /v1/templates` and every picker until a `PUT` with `"hidden": false`), then a broadcast, then
+`schedule`.
+
+Count exactly who a campaign would reach, step by step:
+
+```bash
+curl -s -X POST $PULSE/v1/segments/estimate -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"include": [14, 15], "exclude": [9], "channel": "email"}'
+# 200 {"audience":1200,"after_exclude":1130,"after_consent":1102,"reachable":1080,"will_send":1074,
+#      "capped":{"capped":6,"approximate":false,"checked":1080},"cap":{"max":3,"hours":24},
+#      "ready":true,"computed_at":"…","cached_until":"…"}
+```
+
+`after_consent` leaves out contacts opted out of the channel or of everything; `reachable` keeps those
+with an address (an email that hasn't bounced, a valid E.164 phone, an SMS number that hasn't bounced,
+a push device); `capped` is how many a frequency cap of the channel would hold back now (not with
+`"transactional": true`), exact up to 50,000 reachable contacts and sampled above. `ready: false`
+means the workspace's reachability is still being built. Answers are cached for 30 seconds; other
+requests are limited to 60 a minute per workspace (429). `GET /v1/segments/{id}/reach` gives each
+channel's `after_consent` and `reachable` for one segment.
+
+Copying journey steps: the app puts `{"pulse": "journey-steps", "version": 1, "entry": "e1", "nodes": {…}}`
+on the clipboard. `POST /v1/journey-steps/check` `{"clipboard": …}` returns it cleaned (edges and jumps
+to steps that weren't copied removed, references this workspace doesn't have cleared) with `notes`, or
+400 when a step's settings are invalid. The app then renames the steps and inserts them.
+
+Duplicates: `POST /v1/broadcasts/{id}/duplicate`, `/v1/journeys/{id}/duplicate`,
+`/v1/templates/{id}/duplicate` and `/v1/segments/{id}/duplicate` (dynamic only) create drafts named
+"… (copy)"; 201 `{"id": …}`.
 
 ---
 
@@ -941,6 +983,9 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/segments/{id}` | Change name, rule and `refresh` (rebuilt) | segments edit |
 | `DELETE` | `/v1/segments/{id}` | Delete (409 while other segments use it) | segments edit |
 | `POST` | `/v1/segments/preview` | Count who a rule matches now, without saving | segments view |
+| `POST` | `/v1/segments/estimate` | Exact audience after exclusions, consent, reachability and caps (`include`, `exclude`, `channel`, `transactional`); cached 30 s, 60/min per workspace | segments view |
+| `GET` | `/v1/segments/{id}/reach` | Members reachable on each channel | segments view |
+| `POST` | `/v1/segments/{id}/duplicate` | Copy a dynamic segment ("… (copy)"); 201 | segments edit |
 
 ### Content
 
@@ -991,6 +1036,11 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/templates/{id}` | Change a template (its channel stays) | content edit |
 | `DELETE` | `/v1/templates/{id}` | Delete a template | content edit |
 | `POST` | `/v1/templates/text` | Plain-text version of an email's HTML | content view |
+| `POST` | `/v1/templates/{id}/duplicate` | Copy a template ("… (copy)", reusable); 201 | content edit |
+| `GET` | `/v1/test-contacts` | Saved test contacts | content view |
+| `POST` | `/v1/test-contacts` | Add one (`name`, and `external_id` or any of `email`, `phone`, `push_token`); at most 50 | content edit |
+| `PUT` | `/v1/test-contacts/{id}` | Change one | content edit |
+| `DELETE` | `/v1/test-contacts/{id}` | Remove one | content edit |
 
 ### Journeys
 
@@ -1003,6 +1053,9 @@ the path, a signature, or nothing).
 | `GET` | `/v1/journeys/{id}` | A journey with its graph | journeys view |
 | `PUT` | `/v1/journeys/{id}` | Change a journey (409 while it's active) | journeys edit |
 | `DELETE` | `/v1/journeys/{id}` | Delete a journey nobody has entered (409 otherwise: archive it) | journeys edit |
+| `PUT` | `/v1/journeys/{id}/tags` | Set its tags (any status) | journeys edit |
+| `POST` | `/v1/journeys/{id}/duplicate` | Copy it as a draft ("… (copy)", same steps and tags); 201 | journeys edit (+ contacts edit for steps that need it) |
+| `POST` | `/v1/journey-steps/check` | Check a clipboard of copied steps before pasting; returns it cleaned with `notes` | journeys edit |
 
 ### Broadcasts
 
@@ -1016,6 +1069,10 @@ the path, a signature, or nothing).
 | `POST` | `/v1/broadcasts/{id}/schedule` | Schedule it (its `start_at`, repeating per `repeat`) | broadcasts publish |
 | `POST` | `/v1/broadcasts/{id}/cancel` | Cancel the schedule | broadcasts publish |
 | `POST` | `/v1/broadcasts/{id}/runs/{run}/winner` | Pick an A/B winner by hand (`variant`) | broadcasts publish |
+| `PUT` | `/v1/broadcasts/{id}/tags` | Set its tags (any status) | broadcasts edit |
+| `POST` | `/v1/broadcasts/{id}/duplicate` | Copy it as a draft (its own hidden template copied too); 201 | broadcasts edit |
+| `GET` | `/v1/campaigns` | Broadcasts and journeys in one list, by category (`?category=&status=&channel=&tag=&q=`) | broadcasts or journeys view (each kind shown only with its own) |
+| `GET` | `/v1/campaigns/tags` | Tags used on broadcasts and journeys, most used first | broadcasts or journeys view |
 
 ### Channels, sandbox and bounces
 
@@ -1025,11 +1082,12 @@ the path, a signature, or nothing).
 | `POST` | `/v1/sandbox/bounce` | Simulate a bounce or complaint (`email`, `type`) | content edit |
 | `POST` | `/v1/channels/providers/{id}/test` | Send a fixed test message through one provider | channels edit + settings edit |
 | `GET` | `/v1/channels/catalog` | Channels and every provider type with its settings fields | channels view |
-| `GET` | `/v1/channels/providers` | Configured providers (secrets never returned) with their webhook URLs | channels view |
+| `GET` | `/v1/channels/providers` | Configured providers (secrets never returned) with their webhook URLs, `limits` and `usage_today` | channels view |
+| `PUT` | `/v1/channels/providers/{id}/limits` | Sending limits: `rate_per_second`, `daily_quota`, `timezone` (0 or empty: none) | channels edit |
 | `POST` | `/v1/channels/providers` | Add a provider (`channel`, `provider`, `name`, `config`, `secrets`, `is_default`) | channels edit + settings edit |
 | `PUT` | `/v1/channels/providers/{id}` | Change a provider (omitted secrets are kept) | channels edit + settings edit |
 | `DELETE` | `/v1/channels/providers/{id}` | Remove a provider | channels edit + settings edit |
-| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id`, optional `event` properties for `{{event.x}}`); 202 | content edit |
+| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `event` properties for `{{event.x}}`); 202 | content edit |
 | `GET` | `/v1/sandbox/messages` | Messages the sandbox providers recorded (test inbox) | content view |
 | `POST` | `/v1/sandbox/receipts` | Simulate a delivery report for a sandbox message | content edit |
 | `POST` | `/v1/sandbox/inbound` | Simulate a reply from a phone number (e.g. STOP) | content edit |

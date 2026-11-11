@@ -422,11 +422,11 @@ func (s *Store) MarkSegmentReady(ctx context.Context, id int64) error {
 
 // ---- templates ----
 
-const templateCols = `id, tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, updated_at`
+const templateCols = `id, tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, hidden, updated_at`
 
 func scanTemplate(row pgx.Row) (model.Template, error) {
 	var t model.Template
-	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Channel, &t.Subject, &t.HTML, &t.Content, &t.Builder, &t.Transactional, &t.MissingValues, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Channel, &t.Subject, &t.HTML, &t.Content, &t.Builder, &t.Transactional, &t.MissingValues, &t.Hidden, &t.UpdatedAt)
 	return t, notFound(err)
 }
 
@@ -455,16 +455,16 @@ func nullJSON(b []byte) any {
 func (s *Store) CreateTemplate(ctx context.Context, t model.Template) (int64, error) {
 	var id int64
 	err := s.db.QueryRow(ctx,
-		`INSERT INTO templates (tenant_id, name, channel, subject, html, content, builder, transactional, missing_values) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-		t.TenantID, t.Name, t.Channel, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues)).Scan(&id)
+		`INSERT INTO templates (tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, hidden) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		t.TenantID, t.Name, t.Channel, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues), t.Hidden).Scan(&id)
 	return id, err
 }
 
 func (s *Store) UpdateTemplate(ctx context.Context, t model.Template) error {
 	tag, err := s.db.Exec(ctx, `
-		UPDATE templates SET name = $3, subject = $4, html = $5, content = $6, builder = $7, transactional = $8, missing_values = $9, updated_at = now()
+		UPDATE templates SET name = $3, subject = $4, html = $5, content = $6, builder = $7, transactional = $8, missing_values = $9, hidden = $10, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2`,
-		t.TenantID, t.ID, t.Name, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues))
+		t.TenantID, t.ID, t.Name, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues), t.Hidden)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}
@@ -475,12 +475,12 @@ func (s *Store) Template(ctx context.Context, tenant, id int64) (model.Template,
 	return scanTemplate(s.db.QueryRow(ctx, `SELECT `+templateCols+` FROM templates WHERE tenant_id = $1 AND id = $2`, tenant, id))
 }
 
-// ListTemplates lists a workspace's templates, optionally for one channel. The (large) builder
-// state is left out of lists.
+// ListTemplates lists a workspace's reusable templates, optionally for one channel. The (large)
+// builder state is left out of lists, and so are templates written inside one-time campaigns.
 func (s *Store) ListTemplates(ctx context.Context, tenant int64, ch string) ([]model.Template, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, tenant_id, name, channel, subject, '', content, NULL::jsonb, transactional, missing_values, updated_at FROM templates
-		WHERE tenant_id = $1 AND ($2 = '' OR channel = $2) ORDER BY updated_at DESC`, tenant, ch)
+		SELECT id, tenant_id, name, channel, subject, '', content, NULL::jsonb, transactional, missing_values, hidden, updated_at FROM templates
+		WHERE tenant_id = $1 AND ($2 = '' OR channel = $2) AND NOT hidden ORDER BY updated_at DESC`, tenant, ch)
 	if err != nil {
 		return nil, err
 	}
@@ -498,11 +498,25 @@ func (s *Store) DeleteTemplate(ctx context.Context, tenant, id int64) error {
 // ---- journeys ----
 
 func (s *Store) CreateJourney(ctx context.Context, tenant int64, name string, graph []byte, w schedule.Window) (int64, error) {
+	return s.CreateJourneyTagged(ctx, tenant, name, graph, w, nil)
+}
+
+// CreateJourneyTagged creates a draft journey with tags (duplicates keep the original's).
+func (s *Store) CreateJourneyTagged(ctx context.Context, tenant int64, name string, graph []byte, w schedule.Window, t []string) (int64, error) {
 	var id int64
 	err := s.db.QueryRow(ctx,
-		`INSERT INTO journeys (tenant_id, name, graph, start_at, end_at) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		tenant, name, graph, w.Start, w.End).Scan(&id)
+		`INSERT INTO journeys (tenant_id, name, graph, start_at, end_at, tags) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		tenant, name, graph, w.Start, w.End, tags(t)).Scan(&id)
 	return id, err
+}
+
+// SetJourneyTags changes a journey's tags in any status (they don't affect what it does).
+func (s *Store) SetJourneyTags(ctx context.Context, tenant, id int64, t []string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE journeys SET tags = $3 WHERE tenant_id = $1 AND id = $2`, tenant, id, tags(t))
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) SetJourneyStatus(ctx context.Context, tenant, id int64, status string) error {

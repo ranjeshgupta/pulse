@@ -206,6 +206,21 @@ export default async function (browser) {
   await shot(page, AREA, "07-cancelled", { clip: page.locator(".page-head"), pad: 8 });
   await page.getByRole("button", { name: "Delete" }).click();
   await page.waitForURL((u) => u.pathname === "/broadcasts");
+
+  // 8. M3: more segments, a send deadline and the exact estimate in the editor (not saved).
+  await page.setViewportSize({ width: 1440, height: 1600 });
+  await go(page, "/broadcasts/new");
+  await field(page, "Name").fill("Festive preview, Pro plan");
+  await field(page, "Send to").selectOption({ label: "Pro plan" });
+  await page.getByLabel("Leave out members of (optional)").selectOption({ label: "VIP tag" });
+  await field(page, "Template").selectOption({ label: "Weekend sale" });
+  await page.getByLabel(/^Send deadline/).check();
+  await page.getByLabel("Don't send after").fill("21:00");
+  await page.locator(".estimate-total").waitFor();
+  await settle(page, { quiet: 800 });
+  await shot(page, AREA, "07-deadline", { clip: page.locator(".deadline-box"), pad: 8 });
+  await shot(page, AREA, "07-estimate", { clip: page.locator(".estimate"), pad: 8 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await context.close();
 }
 

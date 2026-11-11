@@ -1,3 +1,4 @@
+import { DuplicateButton, ReachByChannel } from "../campaignUI";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -185,6 +186,7 @@ function DynamicSegmentEdit() {
         title={<>{isNew ? "New dynamic segment" : name || "Segment"} {!isNew && <SegmentType kind="rule" />}</>}
         actions={<>
           {!isNew && <Link className="btn" to={viewContactsHref(Number(id))}>View contacts</Link>}
+          {!isNew && <DuplicateButton path={`/v1/segments/${id}/duplicate`} open={(nid) => `/segments/${nid}`} invalidate={["segments"]} />}
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this segment? Journeys that use it stop enrolling.") && remove.mutate()}>Delete</button>}
           <button className="btn primary" disabled={!rule || !name || save.isPending} onClick={() => save.mutate()}>{isNew ? "Create segment" : "Save segment"}</button>
         </>}
@@ -223,6 +225,7 @@ function DynamicSegmentEdit() {
               </div>
             )}
             {preview.error && <p className="xs" style={{ color: "var(--danger)", marginTop: 8 }}>{(preview.error as Error).message}</p>}
+            {!isNew && existing.data?.status === "ready" && <ReachByChannel segmentId={Number(id)} />}
           </div>
         </aside>
       </div>

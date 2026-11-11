@@ -6,6 +6,8 @@ import {
   type Segment, type Template,
 } from "../api";
 import { TemplateActions } from "../messagePreview";
+import { deadlineProblem } from "../campaigns";
+import { AudienceEstimate, DeadlineFields, DuplicateButton, TagEditor } from "../campaignUI";
 import { SegmentPicker } from "./InApp";
 import { money } from "../insights";
 import { CountsTable, DailyBars, metricsFor, ReportFigures, ReportPanel, TopLinks, type CountsRow } from "../reports";
@@ -23,7 +25,7 @@ export function BroadcastList() {
   const bs = q.data?.broadcasts ?? [];
   return (
     <div className="page">
-      <PageHead title="Broadcasts" intro="Send one message to everyone in a segment, once or on a repeat. Journeys react to each contact; broadcasts go out on a schedule." actions={<Link className="btn primary" to="/broadcasts/new">New broadcast</Link>} />
+      <PageHead title="Broadcasts" intro={<>Send one message to everyone in a segment, once or on a repeat. Journeys react to each contact; broadcasts go out on a schedule. They are the one-time campaigns of <Link to="/campaigns?tab=one_time">Campaigns</Link>, where the step-by-step wizard writes the message for you.</>} actions={<><Link className="btn" to="/campaigns/new/email">One-time campaign wizard</Link><Link className="btn primary" to="/broadcasts/new">New broadcast</Link></>} />
       <ErrorNote error={q.error} />
       <div className="panel">
         {bs.length === 0 && !q.isLoading ? (
@@ -158,6 +160,7 @@ export function BroadcastEdit() {
         ...b!, end_at: b!.end_at ?? null, fallback_template_id: b!.fallback_template_id || 0,
         template_id: b!.ab ? b!.ab.variants[0]?.template_id ?? 0 : b!.template_id, ab: b!.ab ?? null,
         conversion_event: (b!.conversion_event ?? "").trim(), conversion_days: b!.conversion_days || 3,
+        tags: existing.data?.broadcast.tags ?? b!.tags ?? [], // edited on their own (BroadcastTags)
       };
       return isNew ? api.post<{ id: number }>("/v1/broadcasts", body) : api.put<{ id: number }>(`/v1/broadcasts/${id}`, body);
     },
@@ -199,8 +202,10 @@ export function BroadcastEdit() {
   const problem = !b.name ? "Name the broadcast." : !b.segment_id ? "Choose who receives it."
     : b.ab ? abProblem(b.ab, b.channel)
     : !b.template_id ? "Choose a template." : null;
+  const deadlineIssue = deadlineProblem(b.deadline);
   const fullProblem = problem
     ?? (b.conversion_event?.trim() && !(days >= 1 && days <= 30) ? "Count conversions within 1 to 30 days." : null)
+    ?? deadlineIssue
     ?? scheduleProblem(b.start_at, b.end_at);
   const runs = existing.data?.runs ?? [];
   const saved = existing.data?.broadcast;
@@ -222,6 +227,8 @@ export function BroadcastEdit() {
         actions={<>
           {!isNew && <Status value={status} />}
           {!isNew && !live && <button className="btn danger" onClick={() => confirm("Delete this broadcast?") && remove.mutate()}>Delete</button>}
+          {!isNew && <DuplicateButton path={`/v1/broadcasts/${id}/duplicate`} open={(nid) => `/broadcasts/${nid}`} invalidate={["broadcasts", "campaigns"]} />}
+          {!isNew && !live && <Link className="btn" to={`/campaigns/one-time/${id}`}>Open in the wizard</Link>}
           {live ? <button className="btn" onClick={() => confirm(testing ? "Cancel this broadcast? The winner won't be sent to the rest of the audience." : "Cancel all future sends of this broadcast?") && cancel.mutate()}>Cancel broadcast</button> : (
             <>
               <button className="btn" disabled={saveDraft.isPending} onClick={() => saveDraft.mutate()}>Save draft</button>
@@ -242,8 +249,11 @@ export function BroadcastEdit() {
               {segs.data?.segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </Field>
+          <SegmentPicker label="Also send to members of (optional)" hint="The audience is everyone in any of the chosen segments."
+            segments={(segs.data?.segments ?? []).filter((s) => s.id !== b.segment_id && !(b.exclude_segment_ids ?? []).includes(s.id))} value={b.include_segment_ids ?? []}
+            onChange={(include_segment_ids) => set({ include_segment_ids })} />
           <SegmentPicker label="Leave out members of (optional)" hint="Nobody in these segments gets it, even if they're in the audience."
-            segments={(segs.data?.segments ?? []).filter((s) => s.id !== b.segment_id)} value={b.exclude_segment_ids ?? []}
+            segments={(segs.data?.segments ?? []).filter((s) => s.id !== b.segment_id && !(b.include_segment_ids ?? []).includes(s.id))} value={b.exclude_segment_ids ?? []}
             onChange={(exclude_segment_ids) => set({ exclude_segment_ids })} />
           <Field label="Channel">
             <select className="select" value={b.channel} onChange={(e) => setChannel(e.target.value as Channel)}>
@@ -254,6 +264,7 @@ export function BroadcastEdit() {
             <Field label="Template">
               <select className="select" value={b.template_id || ""} onChange={(e) => set({ template_id: Number(e.target.value) })}>
                 <option value="">Choose a template</option>
+                {b.template_id > 0 && !channelTemplates.some((t) => t.id === b.template_id) && <option value={b.template_id}>Written in this campaign</option>}
                 {channelTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Field>
@@ -292,6 +303,7 @@ export function BroadcastEdit() {
             Each contact gets it at {localClock(b.start_at, b.timezone)} their time, from their <code>timezone</code> attribute (or the zone located from their IP); contacts with neither get it at {localClock(b.start_at, b.timezone)} in {b.timezone || "UTC"}. Sending starts when that time comes in the first time zone (UTC+14), up to a day before; anyone whose time has already passed when you schedule gets it right away.
           </p>
         )}
+        <DeadlineFields value={b.deadline} onChange={(deadline) => set({ deadline })} localTime={b.repeat === "none" && !!b.local_time} zone={b.timezone || browserZone()} />
         <h3 style={{ margin: "18px 0 12px" }}>Conversion goal</h3>
         <div className="grid-2">
           <Field label="Event (optional)" hint="The results count recipients who do this after getting the message, e.g. purchase.">
@@ -305,7 +317,10 @@ export function BroadcastEdit() {
           </Field>
         </div>
         <datalist id="broadcast-event-names">{events.data?.names.map((n) => <option key={n} value={n} />)}</datalist>
+        <h3 style={{ margin: "18px 0 12px" }}>Who it reaches now</h3>
+        {b.segment_id ? <div style={{ maxWidth: 560 }}><AudienceEstimate include={[b.segment_id, ...(b.include_segment_ids ?? [])]} exclude={b.exclude_segment_ids ?? []} channel={b.channel} /></div> : <p className="small muted">Choose who receives it.</p>}
       </fieldset>
+      {!isNew && <BroadcastTags id={id!} tags={saved?.tags ?? []} />}
 
       {!isNew && (
         <section className="section">
@@ -445,6 +460,7 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
               ))}
             </div>
           )}
+          {(r.late ?? 0) > 0 && <div className="alert info">{r.late!.toLocaleString("en-IN")} {r.late === 1 ? "contact's message was" : "contacts' messages were"} dropped by the send deadline instead of going out late (counted in Failed).</div>}
           <p className="xs muted" style={{ margin: "0 0 18px" }}>
             Each contact counts once. Rates are out of messages sent.{bc.conversion_event ? ` Converted means they did ${bc.conversion_event} within ${bc.conversion_days || 3} days of their send.` : ""}
           </p>
@@ -476,6 +492,21 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+/** BroadcastTags edits a saved broadcast's tags; they can change at any time, even while it sends. */
+function BroadcastTags({ id, tags }: { id: string; tags: string[] }) {
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: (t: string[]) => api.put(`/v1/broadcasts/${id}/tags`, { tags: t }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["broadcast", id] }); qc.invalidateQueries({ queryKey: ["campaign-tags"] }); },
+  });
+  return (
+    <section className="section" style={{ maxWidth: 640 }}>
+      <TagEditor value={tags} onChange={(t) => save.mutate(t)} />
+      <ErrorNote error={save.error} />
     </section>
   );
 }

@@ -17,7 +17,9 @@ import {
 } from "../journeyGraph";
 import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { describeWindow, nowISO, scheduleProblem } from "../schedule";
-import { Empty, ErrorNote, LiveNumber, PageHead, Status, useToast } from "../ui";
+import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
+import { DuplicateButton, TagEditor } from "../campaignUI";
+import { copySteps, parseClipboard, pasteSteps, type StepClipboard } from "../journeyClipboard";
 import { CanvasCtx, edgeTypes, nodeTypes, triggerText, whereText, type CanvasCtxValue } from "./journey/Canvas";
 import { usePickers } from "./journey/data";
 import { record, redo, startHistory, undo, type History } from "./journey/history";
@@ -45,6 +47,11 @@ export function JourneyList() {
       toast({ text: action === "delete" ? `Deleted ${j.name}` : action === "archive" ? `Archived ${j.name}` : `Restored ${j.name}` });
     },
   });
+  const nav = useNavigate();
+  const dup = useMutation({
+    mutationFn: (j: Journey) => api.post<{ id: number }>(`/v1/journeys/${j.id}/duplicate`),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["journeys"] }); toast({ text: "Copy created as a draft" }); nav(`/journeys/${r.id}`); },
+  });
   const run = (j: Journey, action: ListAction) => {
     const ask = action === "delete" ? `Delete "${j.name}"? This can't be undone.`
       : action === "archive" ? `Archive "${j.name}"? It's hidden from this list; its history and reports are kept, and you can restore it.` : null;
@@ -60,7 +67,7 @@ export function JourneyList() {
         intro="A journey starts when a contact enters a segment or does something, then waits, checks and sends across channels."
         actions={<Link className="btn primary" to="/journeys/new">New journey</Link>}
       />
-      <ErrorNote error={q.error ?? act.error} />
+      <ErrorNote error={q.error ?? act.error ?? dup.error} />
       {archivedCount > 0 && (
         <label className="check" style={{ marginBottom: 12 }}>
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived ({archivedCount})
@@ -79,7 +86,7 @@ export function JourneyList() {
                 const st = j.stats?.status ?? {};
                 return (
                   <tr key={j.id}>
-                    <td><Link to={`/journeys/${j.id}`}>{j.name}</Link></td>
+                    <td><Link to={`/journeys/${j.id}`}>{j.name}</Link>{(j.tags?.length ?? 0) > 0 && <div className="row" style={{ gap: 4, marginTop: 4 }}>{j.tags!.map((t) => <Link key={t} className="tag-chip tag-link" to={`/campaigns?tag=${encodeURIComponent(t)}`}>{t}</Link>)}</div>}</td>
                     <td><Status value={j.status} />{j.archived_at && <> <span className="badge">Archived</span></>}</td>
                     <td className="muted small">{describeWindow(j.start_at, j.end_at)}</td>
                     <td className="num">{Object.keys(j.graph?.nodes ?? {}).length}</td>
@@ -87,6 +94,7 @@ export function JourneyList() {
                     <td className="num"><LiveNumber value={inProgress(st)} /></td>
                     <td className="num"><LiveNumber value={st.completed ?? 0} /></td>
                     <td className="row-actions">
+                      {canEdit && <button className="btn ghost sm" disabled={dup.isPending} onClick={() => dup.mutate(j)}>Duplicate</button>}
                       {listActions(j).map((a) => (a === "delete" ? canEdit : canPublish) && (
                         <button key={a} className={`btn ghost sm${a === "delete" ? " danger" : ""}`} disabled={act.isPending} onClick={() => run(j, a)}>
                           {a === "delete" ? "Delete" : a === "archive" ? "Archive" : "Restore"}
@@ -143,6 +151,9 @@ function JourneyEditor() {
   const [chooser, setChooser] = useState<{ at: InsertAt; opener: HTMLElement | null } | null>(null);
   const [paletteQ, setPaletteQ] = useState("");
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  // Steps picked together for Copy (Ctrl/Cmd-click or Shift-drag a box), besides the selected one.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [pasting, setPasting] = useState<string | null>(null); // clipboard text to check and paste
   const [, bump] = useState(0);
 
   const status = existing.data?.status ?? "draft";
@@ -185,7 +196,7 @@ function JourneyEditor() {
   // Nodes are rebuilt from the graph on every change, so keep the sizes React Flow measured (the
   // minimap and fit-view need them).
   const measured = useRef(new Map<string, { width: number; height: number }>());
-  const flowNodes: FlowNode<FlowData>[] = nodes.map((n) => ({ ...n, measured: measured.current.get(n.id), selected: n.id === selected, draggable: !locked && n.id !== TRIGGER_ID }));
+  const flowNodes: FlowNode<FlowData>[] = nodes.map((n) => ({ ...n, measured: measured.current.get(n.id), selected: n.id === selected || picked.has(n.id), draggable: !locked && n.id !== TRIGGER_ID }));
   const flowEdges = edges.map((e) => {
     const kind = (e.data as EdgeData).kind;
     return { ...e, selected: e.id === selectedEdge, markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: EDGE_COLORS[kind] }, style: { stroke: EDGE_COLORS[kind] }, deletable: kind !== "jump" && !locked };
@@ -228,6 +239,7 @@ function JourneyEditor() {
       if (c.type === "dimensions" && c.dimensions) { measured.current.set(c.id, c.dimensions); resized = true; }
       if (c.type === "position" && c.position && c.id !== TRIGGER_ID && !locked) { g = moveNode(g, c.id, c.position.x, c.position.y); key = `move:${c.id}`; }
       if (c.type === "select" && c.selected) setSelected(c.id);
+      if (c.type === "select") setPicked((p) => { const n = new Set(p); if (c.selected && c.id !== TRIGGER_ID) n.add(c.id); else n.delete(c.id); return n; });
     }
     if (g !== graph) setGraph(g, key);
     else if (resized) bump((x) => x + 1);
@@ -263,6 +275,52 @@ function JourneyEditor() {
     setSelected(r.id);
     toast({ text: "Step added. Connect it: drag from the bottom dot of the step before it onto it." });
   };
+
+  // ---- copy and paste (the system clipboard holds JSON, so steps move between journeys) ----
+  const copyIds = (ids: string[]) => {
+    const clip = copySteps(graph, ids, journeyId);
+    if (!clip) { toast({ text: "Select the steps to copy first.", error: true }); return; }
+    const text = JSON.stringify(clip);
+    const n = Object.keys(clip.nodes).length;
+    navigator.clipboard?.writeText(text).then(
+      () => toast({ text: `Copied ${n} ${n === 1 ? "step" : "steps"}. Paste them here or in another journey (Ctrl+V).` }),
+      () => { try { localStorage.setItem(CLIP_KEY, text); } catch { /* private window */ } toast({ text: `Copied ${n} ${n === 1 ? "step" : "steps"} (inside Pulse only).` }); },
+    );
+    try { localStorage.setItem(CLIP_KEY, text); } catch { /* private window */ }
+  };
+  const copySelection = () => copyIds(picked.size > 0 ? [...picked, ...(selected && selected !== TRIGGER_ID ? [selected] : [])] : selected ? [selected] : []);
+  const startPaste = () => {
+    if (locked) return;
+    const fallback = () => { let t = ""; try { t = localStorage.getItem(CLIP_KEY) ?? ""; } catch { /* private window */ } setPasting(t); };
+    if (navigator.clipboard?.readText) navigator.clipboard.readText().then((t) => setPasting(t), fallback);
+    else fallback();
+  };
+  const paste = useMutation({
+    mutationFn: async (text: string) => {
+      const p = parseClipboard(text);
+      if (p.error) throw new Error(p.error);
+      return api.post<{ clipboard: StepClipboard; notes: string[] }>("/v1/journey-steps/check", { clipboard: p.clip });
+    },
+    onSuccess: ({ clipboard, notes }) => {
+      const at = defaultInsertPoint(graph, selected);
+      const r = pasteSteps(graph, at, clipboard);
+      setGraph(overlapping(r.graph) ? tidy(r.graph) : r.graph);
+      setSelected(r.entry);
+      setPicked(new Set(r.ids));
+      setPasting(null);
+      toast({ text: `Pasted ${r.ids.length} ${r.ids.length === 1 ? "step" : "steps"}${notes.length ? `. Check: ${notes.join("; ")}` : "."}`, error: notes.length > 0 });
+    },
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || isEditable(e.target) || view !== "canvas" || window.getSelection()?.toString()) return;
+      const k = e.key.toLowerCase();
+      if (k === "c") { e.preventDefault(); copySelection(); }
+      else if (k === "v" && !locked) { e.preventDefault(); startPaste(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const save = useMutation({
     mutationFn: () => {
@@ -306,6 +364,7 @@ function JourneyEditor() {
         title={<input className="input" style={{ fontSize: "var(--fs-xl)", fontWeight: 650, border: 0, padding: 0, background: "transparent" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="Journey name" disabled={locked} />}
         actions={<>
           {!isNew && <Status value={status} />}
+          {!isNew && <DuplicateButton path={`/v1/journeys/${id}/duplicate`} open={(nid) => `/journeys/${nid}`} invalidate={["journeys", "campaigns"]} />}
           {!locked && <button className="btn" disabled={save.isPending} onClick={() => save.mutate()}>Save draft</button>}
           {archived && <button className="btn" disabled={setStatus.isPending} onClick={() => setStatus.mutate("unarchive")}>Restore</button>}
           {!isNew && status !== "active" && !archived && <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and go live</button>}
@@ -313,6 +372,7 @@ function JourneyEditor() {
         </>}
       />
       <ErrorNote error={save.error ?? setStatus.error ?? existing.error} />
+      {!isNew && <JourneyTags id={id!} tags={existing.data?.tags ?? []} />}
       {archived && <div className="alert info">This journey is archived: it's hidden from the journey list and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
       {locked && <div className="alert info">This journey is live, so its steps are locked. Pause it to make changes; contacts already inside wait where they are.</div>}
       {!isNew && (
@@ -339,7 +399,7 @@ function JourneyEditor() {
               onDelete={onDelete}
               onConnect={onConnect}
               isValidConnection={isValidConnection}
-              onPaneClick={() => setSelected(null)}
+              onPaneClick={() => { setSelected(null); setPicked(new Set()); }}
               fitView
               fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
               minZoom={0.2}
@@ -358,6 +418,8 @@ function JourneyEditor() {
                 <button type="button" className="btn sm" onClick={doRedo} disabled={locked || hist.future.length === 0} title="Redo (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z">Redo</button>
                 <button type="button" className="btn sm" disabled={locked} onClick={() => { setGraph(tidy(graph)); window.setTimeout(fit, 50); }}>Tidy up</button>
                 <button type="button" className="btn sm" onClick={fit}>Zoom to fit</button>
+                <button type="button" className="btn sm" onClick={copySelection} disabled={!selected && picked.size === 0} title="Copy the selected steps (Ctrl+C). Ctrl/Cmd-click or Shift-drag to select several." aria-keyshortcuts="Control+C Meta+C">Copy{picked.size > 1 ? ` ${picked.size}` : ""}</button>
+                <button type="button" className="btn sm" onClick={startPaste} disabled={locked} title="Paste copied steps after the selected step (Ctrl+V)" aria-keyshortcuts="Control+V Meta+V">Paste</button>
                 {!isNew && <label className="check j-toolbar-check"><input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} />Show stats</label>}
               </Panel>
               <Panel position="bottom-center" className="j-legend" aria-hidden="true">
@@ -387,6 +449,15 @@ function JourneyEditor() {
             )}
           </aside>
         </div>
+        {pasting !== null && (
+          <Modal title="Paste steps" onClose={() => setPasting(null)} footer={<><button className="btn" onClick={() => setPasting(null)}>Cancel</button><button className="btn primary" disabled={!pasting.trim() || paste.isPending} onClick={() => paste.mutate(pasting)}>Paste</button></>}>
+            <p className="small muted" style={{ marginTop: 0 }}>The steps go {whereText(graph, numbers, defaultInsertPoint(graph, selected))}. Links to steps that weren't copied, and templates or segments from another workspace, are left for you to choose again.</p>
+            <ErrorNote error={paste.error} />
+            <Field label="Copied steps" hint="Filled in from the clipboard when your browser allows it; otherwise paste here (Ctrl+V).">
+              <textarea className="textarea code-editor" style={{ minHeight: 120 }} value={pasting} onChange={(e) => setPasting(e.target.value)} aria-label="Copied steps" spellCheck={false} />
+            </Field>
+          </Modal>
+        )}
         {chooser && (
           <StepChooser graph={graph} at={chooser.at} where={whereText(graph, numbers, chooser.at)} ctx={catCtx} onPick={pickFromChooser} onClose={closeChooser} />
         )}
@@ -547,5 +618,22 @@ function SplitTable({ graph, id, split }: { graph: JourneyGraph; id: string; spl
       </div>
       <p className="xs muted" style={{ padding: "8px 14px" }}>Counts contacts the split sent down each path before a winner was picked.</p>
     </>
+  );
+}
+
+const CLIP_KEY = "pulse.journey-clipboard";
+
+/** JourneyTags edits a journey's tags; they can change at any time, even while it is live. */
+function JourneyTags({ id, tags }: { id: string; tags: string[] }) {
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: (t: string[]) => api.put(`/v1/journeys/${id}/tags`, { tags: t }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journey", id] }); qc.invalidateQueries({ queryKey: ["campaign-tags"] }); },
+  });
+  return (
+    <div style={{ maxWidth: 640, marginBottom: 6 }}>
+      <TagEditor value={tags} onChange={(t) => save.mutate(t)} />
+      <ErrorNote error={save.error} />
+    </div>
   );
 }

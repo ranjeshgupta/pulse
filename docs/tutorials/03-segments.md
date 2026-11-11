@@ -314,6 +314,27 @@ whatever happens in between. The segment's page shows **Next refresh**, and the 
 A contact who starts matching during the day joins at the next refresh; the contact's **· why?**
 says so. Switch back to **Live** and save to follow every event again.
 
+## 10. Who each channel reaches, copy groups, duplicate
+
+A saved segment's page shows **Reachable by channel** under the live count: of its members now, how
+many haven't unsubscribed from each channel, and how many Pulse can actually reach there (an email
+address that hasn't bounced, a valid phone number with its country code, a push device; not Do Not
+Contact).
+
+<img src="img/03-reach.png" alt="Reachable by channel for Pro plan: email 193 not unsubscribed, 192 reachable; SMS, WhatsApp, RCS and app inbox 199; push 0" width="340">
+
+The numbers are exact and redone every 30 seconds. Campaigns use the same counts, step by step
+(tutorial 14).
+
+- **Copy** and **Paste** on every group's header: **Copy** puts the group's filters on the clipboard;
+  **Paste** adds copied filters to a group, in this segment or any other (even in another browser
+  tab). Pasting refuses anything that would make the rule bigger than 200 filters or nest groups
+  too deep. If your browser doesn't let Pulse read the clipboard, a box opens to paste into.
+- **Duplicate** makes a copy of a dynamic segment ("… (copy)") and opens it; the copy is built from
+  scratch. Static segments are lists of people: export one and import the file into a new one instead.
+
+![A segment's page with Duplicate, and Copy and Paste on the group header](img/03-copy-group.png)
+
 ## What you have now
 
 - A dynamic segment, **Pune shoppers to thank**, built with a nested group and a behaviour filter

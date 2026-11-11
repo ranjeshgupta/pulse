@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type AssetList, type Channel, type ChannelContent, type Template } from "../api";
 import { formatBytes, MessagePreview, PreviewModal, TestSendModal } from "../messagePreview";
 import { ChannelLabel, Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { DuplicateButton } from "../campaignUI";
 import { initialEmailMode, replacesLayout, switchWarning, type EmailMode } from "../editorModes";
 import { RichText } from "../RichText";
 import { EMAIL_STYLE, unwrapRichText, wrapRichText } from "../richTextHtml";
@@ -14,7 +15,7 @@ import type { EmailBuilderHandle } from "./EmailBuilder";
 const EmailBuilder = lazy(() => import("./EmailBuilder"));
 
 /** A new rich-text email starts from a greeting. */
-const RICH_STARTER = wrapRichText('<p>Hi {{contact.first_name | default:"there"}},</p><p></p>', EMAIL_STYLE);
+export const RICH_STARTER = wrapRichText('<p>Hi {{contact.first_name | default:"there"}},</p><p></p>', EMAIL_STYLE);
 
 const PERSONALIZE = "Personalize with { } Variable: {{contact.first_name | default:\"there\"}}, {{event.product_name}}, {{campaign.name}}.";
 
@@ -76,7 +77,7 @@ function summary(t: Template) {
   }
 }
 
-const BLANK: Record<Channel, ChannelContent> = {
+export const BLANK: Record<Channel, ChannelContent> = {
   email: {}, sms: { text: "" }, whatsapp: { template_name: "", language: "en", body_params: [] },
   rcs: { text: "", suggestions: [] }, push: { title: "", body: "" }, inbox: { title: "", body: "" },
 };
@@ -109,7 +110,6 @@ export function TemplateEdit() {
   }, [existing.data, isNew, params, t]);
 
   const warnings = useTemplateWarnings(t, scopeEvent);
-  const sample = useSample(scopeEvent, t?.channel ?? "email");
   const save = useMutation({
     mutationFn: async () => {
       let body = { ...t! };
@@ -137,18 +137,52 @@ export function TemplateEdit() {
   });
 
   if (!t) return <div className="page"><ErrorNote error={existing.error} /></div>;
-  const c = t.content;
-  const setC = (patch: Partial<ChannelContent>) => setT({ ...t, content: { ...c, ...patch } });
 
-  /** Switches the email editor, pulling the builder's state in first and warning before its layout is lost. */
-  const switchEmailMode = (to: EmailMode) => {
+  const switchEmailMode = emailModeSwitcher({ t, setT, emailMode, setEmailMode, builder, fresh: isNew });
+
+  return (
+    <PersonalizeScopeProvider value={{ event: scopeEvent || undefined, channel: t.channel }}>
+    <div className="page" style={t.channel === "email" ? { maxWidth: "none" } : undefined}>
+      <PageHead
+        back={<Link className="back" to={`/templates?channel=${t.channel}`}>Message templates</Link>}
+        title={isNew ? `New ${CHANNEL_NAMES[t.channel]} template` : t.name || "Template"}
+        actions={<>
+          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this template? Journey steps that use it will fail to send.") && remove.mutate()}>Delete</button>}
+          {!isNew && <DuplicateButton path={`/v1/templates/${id}/duplicate`} open={(nid) => `/templates/${nid}`} invalidate={["templates"]} />}
+          <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setT({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
+          <button className="btn" disabled={isNew} title={isNew ? "Save the template first" : undefined} onClick={() => setTesting(true)}>Send a test</button>
+          <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save template</button>
+        </>}
+      />
+      <ErrorNote error={save.error ?? remove.error} />
+      {t.hidden && (
+        <div className="alert info">
+          Written inside a one-time campaign, so it isn't in template lists or pickers.{" "}
+          <label className="check" style={{ display: "inline-flex", margin: 0 }}><input type="checkbox" checked={!t.hidden} onChange={() => setT({ ...t, hidden: false })} />Make it a reusable template (when saved)</label>
+        </div>
+      )}
+      <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={switchEmailMode} builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={existing.data?.builder != null} />
+      {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
+      {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}
+    </div>
+    </PersonalizeScopeProvider>
+  );
+}
+
+/** emailModeSwitcher switches the email editor, pulling the builder's state in first and warning
+ * before its layout is lost. fresh: nothing is saved yet (rich text then starts from a greeting). */
+export function emailModeSwitcher({ t, setT, emailMode, setEmailMode, builder, fresh }: {
+  t: Template; setT: (t: Template) => void; emailMode: EmailMode; setEmailMode: (m: EmailMode) => void;
+  builder: RefObject<EmailBuilderHandle | null>; fresh: boolean;
+}) {
+  return (to: EmailMode) => {
     if (to === emailMode) return;
     let next = t;
     if (emailMode === "visual" && builder.current) {
       const r = builder.current.read();
       next = { ...t, html: r.html, builder: r.project };
     }
-    if (isNew && emailMode === "visual" && to === "richtext") {
+    if (fresh && emailMode === "visual" && to === "richtext") {
       // Nothing saved yet: start the rich text email fresh rather than from the builder's layout.
       if (!confirm("Write this email in the rich text editor? What's in the drag-and-drop builder is discarded.")) return;
       next = { ...next, html: RICH_STARTER, builder: undefined };
@@ -159,21 +193,21 @@ export function TemplateEdit() {
     setT(next);
     setEmailMode(to);
   };
+}
 
+/** TemplateBody is the content editor of a template, for every channel: the personalisation bar, the
+ * email builder / rich text / HTML / plain text, and the other channels' fields with a live preview.
+ * Used by the template page and by the one-time campaign wizard. */
+export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, scopeEvent, setScope, hadBuilder }: {
+  t: Template; setT: Dispatch<SetStateAction<Template | null>>; emailMode: EmailMode; switchEmailMode: (m: EmailMode) => void;
+  builder: RefObject<EmailBuilderHandle | null>; scopeEvent: string; setScope: (v: string) => void; hadBuilder: boolean;
+}) {
+  const toast = useToast();
+  const sample = useSample(scopeEvent, t.channel);
+  const c = t.content;
+  const setC = (patch: Partial<ChannelContent>) => setT({ ...t, content: { ...c, ...patch } });
   return (
-    <PersonalizeScopeProvider value={{ event: scopeEvent || undefined, channel: t.channel }}>
-    <div className="page" style={t.channel === "email" ? { maxWidth: "none" } : undefined}>
-      <PageHead
-        back={<Link className="back" to={`/templates?channel=${t.channel}`}>Message templates</Link>}
-        title={isNew ? `New ${CHANNEL_NAMES[t.channel]} template` : t.name || "Template"}
-        actions={<>
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this template? Journey steps that use it will fail to send.") && remove.mutate()}>Delete</button>}
-          <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setT({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
-          <button className="btn" disabled={isNew} title={isNew ? "Save the template first" : undefined} onClick={() => setTesting(true)}>Send a test</button>
-          <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save template</button>
-        </>}
-      />
-      <ErrorNote error={save.error ?? remove.error} />
+    <>
       <div className="vp-toolbar" aria-label="Personalisation">
         <EventScopePicker value={scopeEvent} onChange={setScope} />
         <label className="vp-policy">
@@ -228,7 +262,7 @@ export function TemplateEdit() {
                 </div>
               )}
               {emailMode !== "html" && <BodyProblems html={t.html} />}
-              {replacesLayout(emailMode) && existing.data?.builder != null && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the {emailMode === "html" ? "HTML" : "Rich text"} tab replaces the visual layout with this HTML.</p>}
+              {replacesLayout(emailMode) && hadBuilder && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the {emailMode === "html" ? "HTML" : "Rich text"} tab replaces the visual layout with this HTML.</p>}
               <AttachmentPicker ids={c.attachments ?? []} onChange={(attachments) => setC({ attachments: attachments.length ? attachments : undefined })} />
             </>
           )}
@@ -288,10 +322,7 @@ export function TemplateEdit() {
         </div>
         {t.channel !== "email" && <MessagePreview channel={t.channel} r={{ content: fillContent(c, sample) }} label={`${t.channel === "push" ? "Lock screen" : CHANNEL_NAMES[t.channel]} preview, with sample values`} />}
       </div>
-      {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
-      {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}
-    </div>
-    </PersonalizeScopeProvider>
+    </>
   );
 }
 

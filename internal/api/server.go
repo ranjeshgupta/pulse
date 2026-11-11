@@ -185,6 +185,7 @@ func (s *Server) Handler() http.Handler {
 	s.channelRoutes(mux)
 	s.onsiteRoutes(mux)
 	s.broadcastRoutes(mux)
+	s.campaignRoutes(mux)
 	s.trackingRoutes(mux)
 	s.importRoutes(mux)
 	s.webRoutes(mux)

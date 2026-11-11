@@ -131,6 +131,24 @@ right away.
 
 This tutorial leaves the box unticked.
 
+**Send deadline** (optional): tick **Send deadline: drop messages that would go out late** and fill
+**Don't send after** (a time of day: the first time it comes after the send starts, in the zone named
+under it, or in each contact's own zone for a local-time send) and/or **…or more than** a number of
+hours late. Quiet hours, a provider's daily quota (tutorial 4) or retries can hold messages back; with
+a deadline, those that can't go out in time are dropped instead of arriving late (recorded as failed
+with the reason `deadline`, and counted in the report).
+
+<img src="img/07-deadline.png" alt="Send deadline ticked: Don't send after 21:00 in Asia/Calcutta; hours late empty" width="460">
+
+**Who it reaches now**, at the bottom of the form, counts exactly who would get it if it went now:
+in the segments, after the left-out ones, not unsubscribed from the channel, reachable on it (an
+address that hasn't bounced, not Do Not Contact) and under the frequency cap. **Also send to members
+of** adds more segments to the audience. Tutorial 14 explains each step; the
+[one-time campaign wizard](14-campaigns-hub-and-one-time-campaigns.md) builds a broadcast step by step
+and writes the message for you.
+
+<img src="img/07-estimate.png" alt="Who it reaches now: 199 in the chosen segments, 163 after exclusions, 158 not unsubscribed from email, 157 reachable" width="460">
+
 **Conversion goal** (optional): type an event, e.g. `purchase`, and **Within** `3` days (1 to 30). The
 results then count recipients who did it within that many days of their send, and show the revenue
 from them.
@@ -195,7 +213,11 @@ yourself before then.*).
 | **By day** | Sent, opened and clicked per day |
 
 Each contact counts once. *Delivered* stays at 0 for email sent through plain SMTP (as in local
-development); providers that report delivery (SendGrid, Postmark, Mailgun, SES) fill it in.
+development); providers that report delivery (SendGrid, Postmark, Mailgun, SES) fill it in. When the
+send deadline dropped messages, a note above the figures says how many (they are part of *failed*).
+
+**Duplicate** (top right) makes a draft copy, "… (copy)", and opens it; **Tags**, below the form,
+label the broadcast for the Campaigns hub (tutorial 14) and can change at any time, even while it sends.
 
 To send a completed broadcast again, change what you need and click **Schedule** again; each send is
 listed under **Sends**.

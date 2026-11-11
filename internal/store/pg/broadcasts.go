@@ -15,19 +15,42 @@ import (
 
 const broadcastCols = `id, tenant_id, name, channel, template_id, coalesce(fallback_template_id, 0), segment_id,
 	start_at, end_at, repeat, next_run_at, status, updated_at, ab, conversion_event, conversion_days,
-	exclude_segment_ids, local_time, timezone`
+	exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags`
 
 func scanBroadcast(row pgx.Row) (model.Broadcast, error) {
 	var b model.Broadcast
-	var ab []byte
+	var ab, deadline []byte
 	err := row.Scan(&b.ID, &b.TenantID, &b.Name, &b.Channel, &b.TemplateID, &b.FallbackTemplateID, &b.SegmentID,
 		&b.StartAt, &b.EndAt, &b.Repeat, &b.NextRunAt, &b.Status, &b.UpdatedAt, &ab, &b.ConversionEvent, &b.ConversionDays,
-		&b.ExcludeSegmentIDs, &b.LocalTime, &b.Timezone)
+		&b.ExcludeSegmentIDs, &b.LocalTime, &b.Timezone, &b.IncludeSegmentIDs, &deadline, &b.Tags)
 	if err == nil && len(ab) > 0 && string(ab) != "null" {
 		b.AB = &model.ABTest{}
 		err = json.Unmarshal(ab, b.AB)
 	}
+	if err == nil && len(deadline) > 0 && string(deadline) != "null" {
+		b.Deadline = &model.Deadline{}
+		err = json.Unmarshal(deadline, b.Deadline)
+	}
+	if b.Tags == nil {
+		b.Tags = []string{}
+	}
 	return b, notFound(err)
+}
+
+func deadlineJSON(d *model.Deadline) []byte {
+	if d == nil {
+		return nil
+	}
+	b, _ := json.Marshal(d)
+	return b
+}
+
+// tags is a never-nil list for text[] NOT NULL columns.
+func tags(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 func abJSON(ab *model.ABTest) []byte {
@@ -59,20 +82,23 @@ func (s *Store) SaveBroadcast(ctx context.Context, b model.Broadcast) (int64, er
 	if b.ID == 0 {
 		err := s.db.QueryRow(ctx, `
 			INSERT INTO broadcasts (tenant_id, name, channel, template_id, fallback_template_id, segment_id, start_at, end_at, repeat,
-				ab, conversion_event, conversion_days, exclude_segment_ids, local_time, timezone)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+				ab, conversion_event, conversion_days, exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
 			b.TenantID, b.Name, b.Channel, b.TemplateID, nullID(b.FallbackTemplateID), b.SegmentID, b.StartAt, b.EndAt, b.Repeat,
-			abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone).Scan(&b.ID)
+			abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone,
+			ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags)).Scan(&b.ID)
 		return b.ID, err
 	}
 	tag, err := s.db.Exec(ctx, `
 		UPDATE broadcasts SET name = $3, channel = $4, template_id = $5, fallback_template_id = $6, segment_id = $7,
 			start_at = $8, end_at = $9, repeat = $10, ab = $11, conversion_event = $12, conversion_days = $13,
 			exclude_segment_ids = $14, local_time = $15, timezone = $16,
+			include_segment_ids = $17, deadline = $18, tags = $19,
 			status = 'draft', next_run_at = NULL, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2 AND status NOT IN ('running', 'testing')`,
 		b.TenantID, b.ID, b.Name, b.Channel, b.TemplateID, nullID(b.FallbackTemplateID), b.SegmentID, b.StartAt, b.EndAt, b.Repeat,
-		abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone)
+		abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone,
+		ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags))
 	if err == nil && tag.RowsAffected() == 0 {
 		cur, err := s.GetBroadcast(ctx, b.TenantID, b.ID)
 		if err != nil {
@@ -84,6 +110,15 @@ func (s *Store) SaveBroadcast(ctx context.Context, b model.Broadcast) (int64, er
 		return 0, errorString("this broadcast is sending right now; try again in a moment")
 	}
 	return b.ID, err
+}
+
+// SetBroadcastTags changes a broadcast's tags in any status (they don't affect sending).
+func (s *Store) SetBroadcastTags(ctx context.Context, tenant, id int64, t []string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE broadcasts SET tags = $3 WHERE tenant_id = $1 AND id = $2`, tenant, id, tags(t))
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) GetBroadcast(ctx context.Context, tenant, id int64) (model.Broadcast, error) {

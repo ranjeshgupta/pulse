@@ -57,6 +57,30 @@ func TestRoutePermissions(t *testing.T) {
 		{"DELETE /v1/events/{name}/schema", editor, true},
 		{"GET /v1/contacts/{external_id}/segments/{id}/explain", viewer, true},
 		{"GET /v1/contacts/{external_id}/segments/{id}/explain", auth.Perms{auth.AreaSegments: auth.Edit}, false},
+		// M3 campaigns
+		{"POST /v1/segments/estimate", viewer, true},
+		{"POST /v1/segments/estimate", auth.Perms{auth.AreaBroadcasts: auth.Publish}, false},
+		{"GET /v1/segments/{id}/reach", viewer, true},
+		{"POST /v1/segments/{id}/duplicate", viewer, false},
+		{"POST /v1/segments/{id}/duplicate", auth.Perms{auth.AreaSegments: auth.Edit}, true},
+		{"POST /v1/broadcasts/{id}/duplicate", auth.Perms{auth.AreaBroadcasts: auth.Edit}, true},
+		{"POST /v1/broadcasts/{id}/duplicate", auth.Perms{auth.AreaBroadcasts: auth.View}, false},
+		{"PUT /v1/broadcasts/{id}/tags", auth.Perms{auth.AreaBroadcasts: auth.Edit}, true},
+		{"PUT /v1/broadcasts/{id}/tags", viewer, false},
+		{"POST /v1/journeys/{id}/duplicate", auth.Perms{auth.AreaJourneys: auth.Edit}, true},
+		{"POST /v1/journeys/{id}/duplicate", auth.Perms{auth.AreaJourneys: auth.View}, false},
+		{"PUT /v1/journeys/{id}/tags", auth.Perms{auth.AreaJourneys: auth.Edit}, true},
+		{"POST /v1/journey-steps/check", auth.Perms{auth.AreaJourneys: auth.Edit}, true},
+		{"POST /v1/journey-steps/check", viewer, false},
+		{"POST /v1/templates/{id}/duplicate", auth.Perms{auth.AreaContent: auth.Edit}, true},
+		{"POST /v1/templates/{id}/duplicate", viewer, false},
+		{"PUT /v1/channels/providers/{id}/limits", auth.Perms{auth.AreaChannels: auth.Edit}, true},
+		{"PUT /v1/channels/providers/{id}/limits", auth.Perms{auth.AreaSettings: auth.Edit, auth.AreaChannels: auth.View}, false},
+		{"GET /v1/test-contacts", viewer, true},
+		{"POST /v1/test-contacts", viewer, false},
+		{"POST /v1/test-contacts", auth.Perms{auth.AreaContent: auth.Edit}, true},
+		{"DELETE /v1/test-contacts/{id}", auth.Perms{auth.AreaContent: auth.Edit}, true},
+		{"GET /v1/campaigns", auth.Perms{}, true}, // the handler shows only what the role may view
 	} {
 		method, path, _ := strings.Cut(tc.pattern, " ")
 		r, _ := http.NewRequest(method, path, nil)

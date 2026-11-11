@@ -9,7 +9,7 @@
 .fb-group.root { border-left-width: 1px; border-color: var(--rule); padding: 12px 14px 14px; }
 .fb-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); font-weight: 600; margin-bottom: 8px; }
 .fb-group-head .fb-match { font-weight: 700; min-width: 74px; }
-.fb-remove-group { margin-left: auto; color: var(--danger); }
+.fb-remove-group { color: var(--danger); }
 .fb-empty { margin: 4px 0 8px; }
 .fb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
 .fb-item { display: flex; flex-direction: column; }
@@ -113,3 +113,4 @@
 .fb-join.none { background: var(--fb-none); }
 .fb-none-hint { font-weight: 400; }
 .fb-sweep-note { margin: 4px 0 0; }
+.fb-clip { display: inline-flex; gap: 2px; margin-left: auto; font-weight: 400; }

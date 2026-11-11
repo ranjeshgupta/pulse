@@ -218,5 +218,6 @@ func (s *Server) webDevice(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.pushReachable(r.Context(), t.ID, found[req.ExternalID].ID)
 	w.WriteHeader(http.StatusNoContent)
 }

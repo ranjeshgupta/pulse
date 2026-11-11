@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -104,6 +105,12 @@ func (s *Server) saveBroadcast(w http.ResponseWriter, r *http.Request, tenant in
 	} else if b.ConversionDays == 0 {
 		b.ConversionDays = 3
 	}
+	tags, err := model.NormalizeTags(b.Tags)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	b.Tags = tags
 	if err := s.validBroadcast(r.Context(), b); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -132,9 +139,17 @@ func (s *Server) validBroadcast(ctx context.Context, b model.Broadcast) error {
 	if _, err := s.Store.GetSegment(ctx, b.TenantID, b.SegmentID); err != nil {
 		errs = append(errs, errors.New("choose a segment"))
 	}
-	if len(b.ExcludeSegmentIDs) > 10 {
-		errs = append(errs, errors.New("exclude at most 10 segments"))
+	if len(b.ExcludeSegmentIDs) > 10 || len(b.IncludeSegmentIDs) > 9 {
+		errs = append(errs, errors.New("send to at most 10 segments, and exclude at most 10"))
 	}
+	for _, id := range b.IncludeSegmentIDs {
+		if id == b.SegmentID || slices.Contains(b.ExcludeSegmentIDs, id) {
+			errs = append(errs, errors.New("a segment can be in the audience once, and not also excluded"))
+		} else if _, err := s.Store.GetSegment(ctx, b.TenantID, id); err != nil {
+			errs = append(errs, fmt.Errorf("segment %d doesn't exist", id))
+		}
+	}
+	errs = append(errs, b.Deadline.Validate())
 	for _, id := range b.ExcludeSegmentIDs {
 		if id == b.SegmentID {
 			errs = append(errs, errors.New("a segment can't be both the audience and excluded"))

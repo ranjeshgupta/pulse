@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { Fragment, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider, useParams } from "react-router-dom";
 import { ApiError } from "./api";
 import { RequireAuth } from "./auth";
 import { BroadcastEdit, BroadcastList } from "./pages/Broadcasts";
 import { Channels, TestInbox } from "./pages/Channels";
+import { CampaignHub, OneTimeWizard } from "./pages/Campaigns";
 import { FormEdit, FormList } from "./pages/Forms";
 import { FunnelEdit, FunnelList } from "./pages/Funnels";
 import { CohortEdit, CohortList } from "./pages/Cohorts";
@@ -48,6 +49,12 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Keyed remounts a page when its :id changes (opening a duplicate from its original). */
+function Keyed({ children }: { children: React.ReactNode }) {
+  const { id } = useParams();
+  return <Fragment key={id}>{children}</Fragment>;
+}
+
 /** Moved sends an old address to its new one (bookmarks and links from before the navigation review). */
 function Moved({ to }: { to: (id?: string) => string }) {
   const { id } = useParams();
@@ -68,19 +75,22 @@ const router = createBrowserRouter([
       { path: "companies", element: <CompanyList /> },
       { path: "companies/:id", element: <CompanyDetail /> },
       { path: "segments", element: <SegmentList /> },
-      { path: "segments/:id", element: <SegmentEdit /> },
+      { path: "segments/:id", element: <Keyed><SegmentEdit /></Keyed> },
       { path: "events", element: <EventList /> },
       { path: "events/:name", element: <EventDetail /> },
       { path: "journeys", element: <JourneyList /> },
-      { path: "journeys/:id", element: <JourneyEdit /> },
+      { path: "journeys/:id", element: <Keyed><JourneyEdit /></Keyed> },
       { path: "broadcasts", element: <BroadcastList /> },
-      { path: "broadcasts/:id", element: <BroadcastEdit /> },
+      { path: "campaigns", element: <CampaignHub /> },
+      { path: "campaigns/new/:channel", element: <Keyed><OneTimeWizard /></Keyed> },
+      { path: "campaigns/one-time/:id", element: <Keyed><OneTimeWizard /></Keyed> },
+      { path: "broadcasts/:id", element: <Keyed><BroadcastEdit /></Keyed> },
       { path: "on-site", element: <OnSiteList /> },
       { path: "on-site/focus/:id", element: <FocusEdit /> },
       { path: "on-site/content/:id", element: <DWCEdit /> },
       { path: "on-site/in-app/:id", element: <InAppEdit /> },
       { path: "templates", element: <TemplateList /> },
-      { path: "templates/:id", element: <TemplateEdit /> },
+      { path: "templates/:id", element: <Keyed><TemplateEdit /></Keyed> },
       { path: "landing-pages", element: <LandingPageList /> },
       { path: "landing-pages/:id", element: <LandingPageEdit /> },
       { path: "forms", element: <FormList /> },

@@ -46,7 +46,7 @@ function Icon({ d }: { d: React.ReactNode }) {
   );
 }
 
-type NavItem = { to: string; label: string; icon: React.ReactNode; need?: [Area, Exclude<Level, "none">] };
+type NavItem = { to: string; label: string; icon: React.ReactNode; need?: [Area, Exclude<Level, "none">]; orNeed?: [Area, Exclude<Level, "none">] };
 
 // Each item shows only when the user's role reaches `need`. Groups follow the usual marketing-tool
 // layout: who (Audience), what you send and show (Campaigns), what it's built from (Content), how
@@ -65,6 +65,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
   {
     title: "Campaigns",
     items: [
+      { to: "/campaigns", label: "All campaigns", icon: I.send, need: ["broadcasts", "view"], orNeed: ["journeys", "view"] },
       { to: "/journeys", label: "Journeys", icon: I.flow, need: ["journeys", "view"] },
       { to: "/broadcasts", label: "Broadcasts", icon: I.megaphone, need: ["broadcasts", "view"] },
       { to: "/on-site", label: "On-site & in-app", icon: I.window, need: ["content", "view"] },
@@ -107,7 +108,7 @@ export default function Shell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setMenuOpen(false), [loc.pathname]);
-  const allowed = (it: NavItem) => !it.need || can(me?.permissions, it.need[0], it.need[1]);
+  const allowed = (it: NavItem) => !it.need || can(me?.permissions, it.need[0], it.need[1]) || (!!it.orNeed && can(me?.permissions, it.orNeed[0], it.orNeed[1]));
   return (
     <div className="shell">
       <nav className={`sidebar${menuOpen ? " open" : ""}`} aria-label="Main">

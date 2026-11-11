@@ -231,6 +231,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 				return err
 			}
 			m.FallbackTemplateID = n.FallbackTemplateID
+			m.Deadline = n.Deadline.After(x.Now())
 			if err := x.Sender.Send(ctx, m); err != nil {
 				return err
 			}

@@ -80,6 +80,15 @@ server.
 
 <img src="img/04-add-smtp.png" alt="Add Email provider: SMTP with host, port 587 and a From address filled in; username and password empty" width="420">
 
+Two optional fields tune how Pulse talks to the relay. Each Pulse server keeps a pool of open
+connections to it (TLS stays on: STARTTLS whenever the server offers it, and implicit TLS on port
+465) and reuses them, which is many times faster than connecting for every email:
+
+| Field | Default | What it does |
+|---|---|---|
+| **Max connections** | 4 | Open connections per Pulse server (1 to 50). Ask your relay how many it allows |
+| **Messages per connection** | 100 | Emails sent on one connection before it is closed and a new one opened (1 to 10,000) |
+
 > Before sending to real people, set up SPF, DKIM and DMARC for the From domain at your email
 > service, and point its bounce webhook at Pulse (step 5).
 
@@ -308,9 +317,58 @@ reaching anyone. The tabs filter by channel; the list refreshes every 2 seconds.
 > unsubscribes them from SMS, and a hard bounce really stops their email. Use test numbers and
 > addresses.
 
+## 9. Sending limits and daily quotas
+
+Providers have limits: an SMS route may take 20 messages a second and 5,000 a day. Tell Pulse, and
+every Pulse server keeps to them together.
+
+1. Click **Limits** on the provider's row (you need edit access to channels).
+2. Fill in **Messages per second** and **Daily quota**, and the time zone whose midnight starts a new
+   day. Leave a field empty for no limit.
+
+   <img src="img/04-limits.png" alt="Sending limits for the SMS Sandbox: 20 messages per second, a daily quota of 5000, the day starting at midnight in Asia/Kolkata" width="460">
+3. Click **Save limits**. Dispatchers pick them up within 30 seconds.
+
+The provider's row then shows its limits and how many messages it has sent today:
+
+![The SMS panel: Sandbox, 20/s, 0 of 5,000 today with a bar](img/04-limits-usage.png)
+
+- The rate is on top of the workspace's own rate for the channel; whichever is slower applies.
+- When the day's quota is used up, further messages **wait for the next day** (they show as *held*,
+  `<channel>_deferred`, like quiet hours) and go out after midnight in the quota's time zone. A
+  message whose **send deadline** (tutorials 6, 7 and 14) comes first is dropped instead, recorded as
+  failed with the reason `deadline`.
+- A message that wasn't accepted (the provider was down, the number was wrong) doesn't use the quota.
+
+## 10. Saved test contacts
+
+Under **Test contacts** on the Channels page, keep the people every **Send a test** dialog offers:
+yourself, your team, a QA phone.
+
+![The Test contacts panel: Asha (customer) as a contact, Dev's phone, Priya (QA) with an email and phone](img/04-test-contacts.png)
+
+**Add test contact** takes a name and either:
+
+- **An existing contact** (their external ID): tests to them are personalised with their data and go
+  through the normal delivery path, like any test send.
+- **Addresses**, used as they are: an email, a phone number with its country code (SMS, WhatsApp,
+  RCS) and a push device token. Only the name is filled in (`{{contact.first_name}}`); nothing is
+  tracked or recorded on any contact, and consent and caps don't apply.
+
+<img src="img/04-test-contact-add.png" alt="Add a test contact: Nina (marketing), nina@acme-retail.test, +919812399003" width="420">
+
+In **Send a test** (template editor, journey steps, broadcasts and the campaign wizard), choose one
+under **Send to**. A test contact without an address for the template's channel is greyed out. You can
+still pick a sample trigger event (tutorial 13).
+
+<img src="img/04-send-test-saved.png" alt="Send a test: Cart rescue SMS, sent to Priya (QA) (+919812399001)" width="420">
+
+Adding and editing test contacts needs edit access to content, as sending tests does.
+
 ## What you have now
 
 - A provider (or the sandbox) on every channel you use, checked with a test send
+- Sending limits on providers that have them, and test contacts for everyone who checks messages
 - Delivery rules: caps, quiet hours, reply keywords and reply tracking
 - Bounces and complaints flowing back from your email service
 - The test inbox, for trying everything without messaging anyone

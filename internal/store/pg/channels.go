@@ -4,21 +4,43 @@ package pg
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 
 	"pulse/internal/model"
 )
 
-const providerCols = `id, tenant_id, channel, provider, name, config, secrets_enc IS NOT NULL AND length(secrets_enc) > 0, is_default`
+const providerCols = `id, tenant_id, channel, provider, name, config, secrets_enc IS NOT NULL AND length(secrets_enc) > 0, is_default, limits`
 
 func scanProvider(row pgx.Row) (model.Provider, error) {
 	var p model.Provider
-	err := row.Scan(&p.ID, &p.TenantID, &p.Channel, &p.Kind, &p.Name, &p.Config, &p.HasSecrets, &p.IsDefault)
+	var limits []byte
+	err := row.Scan(&p.ID, &p.TenantID, &p.Channel, &p.Kind, &p.Name, &p.Config, &p.HasSecrets, &p.IsDefault, &limits)
 	if p.Config == nil {
 		p.Config = map[string]string{}
 	}
+	if err == nil {
+		err = scanLimits(limits, &p.Limits)
+	}
 	return p, notFound(err)
+}
+
+func scanLimits(b []byte, l *model.ProviderLimits) error {
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	return json.Unmarshal(b, l)
+}
+
+// SetProviderLimits changes a provider's rate and daily quota.
+func (s *Store) SetProviderLimits(ctx context.Context, tenant, id int64, l model.ProviderLimits) error {
+	b, _ := json.Marshal(l)
+	tag, err := s.db.Exec(ctx, `UPDATE channel_providers SET limits = $3 WHERE tenant_id = $1 AND id = $2`, tenant, id, b)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) ListProviders(ctx context.Context, tenant int64) ([]model.Provider, error) {
@@ -72,11 +94,14 @@ func (s *Store) DeleteProvider(ctx context.Context, tenant, id int64) error {
 // DefaultProvider returns a channel's default provider and its sealed secrets.
 func (s *Store) DefaultProvider(ctx context.Context, tenant int64, ch string) (model.Provider, []byte, error) {
 	var p model.Provider
-	var sealed []byte
+	var sealed, limits []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT id, tenant_id, channel, provider, name, config, coalesce(secrets_enc, ''::bytea), is_default
+		SELECT id, tenant_id, channel, provider, name, config, coalesce(secrets_enc, ''::bytea), is_default, limits
 		FROM channel_providers WHERE tenant_id = $1 AND channel = $2 AND is_default`, tenant, ch).
-		Scan(&p.ID, &p.TenantID, &p.Channel, &p.Kind, &p.Name, &p.Config, &sealed, &p.IsDefault)
+		Scan(&p.ID, &p.TenantID, &p.Channel, &p.Kind, &p.Name, &p.Config, &sealed, &p.IsDefault, &limits)
+	if err == nil {
+		err = scanLimits(limits, &p.Limits)
+	}
 	return p, sealed, notFound(err)
 }
 

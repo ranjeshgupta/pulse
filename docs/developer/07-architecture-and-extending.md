@@ -101,13 +101,14 @@ store function takes the tenant ([architecture, identity and tenancy](../02-arch
 | `internal/kafka` | Producer, consumer loops, DLQ and its replay, topic creation |
 | `internal/profile` | Identity resolution and the profile fold |
 | `internal/segment` | Segment rule AST, the two compilers (`Eval`, `ToSQL`), bitmaps, counters, funnels |
-| `internal/segengine` | Keeps membership current: streaming, backfill, sweeps, dependent segments |
+| `internal/segengine` | Keeps membership current: streaming, backfill, sweeps, dependent segments; keeps reachability bits current |
+| `internal/reach` | Reachability bitmaps per channel (who has an address, who opted out), their daily rebuild, and exact audience estimates with `BITOP` |
 | `internal/journey` | Journey graph, validation, executor, timers, A/B winners |
 | `internal/broadcast` | Scheduled broadcasts and A/B tests |
-| `internal/dispatch` | The send pipeline and rate limiter |
+| `internal/dispatch` | The send pipeline, rate limiters, per-provider quotas and send deadlines |
 | `internal/channel` | Channels, template content, rendering, validation |
 | `internal/personalize` | Standard variables (`{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}`) and pipes, translated into Go templates |
-| `internal/providers` | Provider adapters and their catalog (SMTP, Twilio, MSG91, Meta WhatsApp, Google RBM, FCM, web push, sandbox, custom gateway) |
+| `internal/providers` | Provider adapters and their catalog (SMTP with pooled connections, Twilio, MSG91, Meta WhatsApp, Google RBM, FCM, web push, sandbox, custom gateway) |
 | `internal/consent`, `internal/delivery` | Opt-outs; frequency caps, quiet hours, keywords |
 | `internal/tracking`, `internal/replies`, `internal/bounces` | Open/click/unsubscribe links, reply codes, bounce parsing and IMAP mailboxes |
 | `internal/webhooks` | Outbound webhook worker and signing |

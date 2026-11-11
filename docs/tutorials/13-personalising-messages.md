@@ -128,7 +128,7 @@ Choose **None** to see the message as a broadcast sends it.
 **Send a test** works the same way: the test message carries the event you choose, through the
 channel's real delivery path (the test inbox for sandbox providers).
 
-<img src="img/13-test-send.png" alt="Send a test: the contact's external ID, the trigger event cart_abandoned and its properties" width="520">
+<img src="img/13-test-send.png" alt="Send a test: Send to a contact, the contact's external ID, the trigger event cart_abandoned and its properties" width="520">
 
 ## 7. Check your variables
 

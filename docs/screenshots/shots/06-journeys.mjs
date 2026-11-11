@@ -234,6 +234,34 @@ export default async function (browser) {
   await highlight(page.getByLabel(/Show archived/));
   await shot(page, AREA, "06-archive", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
   await clearHighlights(page);
+
+  // 17. M3: a send deadline on a step, then copy and paste steps (on screen only, not saved).
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await go(page, `/journeys/${id}`);
+  await zoomFit(page);
+  await page.locator(".react-flow__node", { hasText: "Send email" }).first().click();
+  const side = page.locator("aside.inspector");
+  await side.getByLabel(/^Send deadline/).check();
+  await side.getByLabel("Hours late").fill("12");
+  await settle(page);
+  await shot(page, AREA, "06-deadline", { clip: side.locator(".deadline-box"), pad: 8 });
+  const canvasTools = page.locator(".j-toolbar");
+  await highlight(canvasTools.getByRole("button", { name: /^Copy/ }));
+  await highlight(canvasTools.getByRole("button", { name: "Paste" }));
+  await shot(page, AREA, "06-copy-paste", { clip: canvasTools, pad: 8 });
+  await clearHighlights(page);
+  await canvasTools.getByRole("button", { name: /^Copy/ }).click();
+  await canvasTools.getByRole("button", { name: "Paste" }).click();
+  const pasteDialog = page.getByRole("dialog", { name: "Paste steps" });
+  await pasteDialog.waitFor();
+  await settle(page);
+  await shot(page, AREA, "06-paste", { clip: pasteDialog, pad: 0 });
+  await pasteDialog.getByRole("button", { name: "Paste", exact: true }).click();
+  await pasteDialog.waitFor({ state: "hidden" });
+  await zoomFit(page);
+  await settle(page, { quiet: 600 });
+  await shot(page, AREA, "06-pasted", { clip: page.locator(".journey-canvas"), pad: 0 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await context.close();
 }
 

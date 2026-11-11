@@ -15,6 +15,7 @@ import (
 
 	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/reach"
 	"pulse/internal/segment"
 	"pulse/internal/store/ch"
 )
@@ -355,5 +356,36 @@ func TestDailyAndLongRangeSegmentsStayOutOfTheStream(t *testing.T) {
 	}
 	if !equal(got, []int64{1, 6}) {
 		t.Errorf("streamed segments %v, want [1 6]", got)
+	}
+}
+
+// Events that create a contact or change its address, consent or bounces keep its reachability
+// bits (package reach) current; other events don't touch them.
+func TestReachabilityFollowsEvents(t *testing.T) {
+	e, rdb, _ := setup(t)
+	ctx := context.Background()
+	rec := func(ev event.Event) *kgo.Record {
+		b, _ := json.Marshal(ev)
+		return &kgo.Record{Value: b}
+	}
+	bit := func(name string, c int64) int64 { v, _ := rdb.GetBit(ctx, reach.Key(1, name), c).Result(); return v }
+	evs := []*kgo.Record{
+		rec(event.Event{TenantID: 1, ContactID: 3, Name: "identify", NewContact: true,
+			Profile: map[string]any{"email": "a@x.com", "phone": "+919800000001"}}),
+		rec(event.Event{TenantID: 1, ContactID: 4, Name: "page_view", ChangedAttrs: []string{"last_seen"},
+			Profile: map[string]any{"email": "b@x.com"}}),
+	}
+	if err := e.HandleBatch(ctx, evs); err != nil {
+		t.Fatal(err)
+	}
+	if bit(reach.Email, 3) != 1 || bit(reach.SMS, 3) != 1 || bit(reach.Known, 3) != 1 || bit(reach.Email, 4) != 0 {
+		t.Fatalf("bits after create: email3=%d sms3=%d email4=%d", bit(reach.Email, 3), bit(reach.SMS, 3), bit(reach.Email, 4))
+	}
+	if err := e.HandleBatch(ctx, []*kgo.Record{rec(event.Event{TenantID: 1, ContactID: 3, Name: "unsubscribed",
+		ChangedAttrs: []string{"optout_email"}, Profile: map[string]any{"email": "a@x.com", "phone": "+919800000001", "optout_email": true}})}); err != nil {
+		t.Fatal(err)
+	}
+	if bit(reach.OptOut("email"), 3) != 1 || bit(reach.OptOut("sms"), 3) != 0 {
+		t.Fatal("opt-out not recorded")
 	}
 }
