@@ -205,3 +205,37 @@ func TestListAndEnumFields(t *testing.T) {
 		t.Errorf("defs %+v", st.defs)
 	}
 }
+
+func TestChangingEnforcedSchemaNeedsSettingsAccess(t *testing.T) {
+	s, st, _ := newSchemaServer(t)
+	h := s.Handler()
+	st.schemas["login"] = eventschema.Schema{Name: "login", Mode: eventschema.ModeEnforce}
+	hash, _ := auth.HashPassword("long enough pw")
+	st.tenants["acme"] = model.Tenant{ID: 1, Slug: "acme"}
+	st.users = append(st.users, model.User{ID: 7, TenantID: 1, Email: "ed@acme.io", Role: auth.RoleEditor, PasswordHash: hash})
+	cookie := sessionFrom(t, browser(t, h, "POST", "/v1/auth/login", `{"workspace":"acme","email":"ed@acme.io","password":"long enough pw"}`, nil, false))
+	for _, body := range []string{`{"mode":"enforce","props":[{"key":"x","type":"string"}]}`, `{"mode":"warn","props":[]}`} {
+		if w := browser(t, h, "PUT", "/v1/events/login/schema", body, cookie, true); w.Code != http.StatusForbidden {
+			t.Errorf("editor changing an enforced schema (%s): %d", body, w.Code)
+		}
+	}
+	if w := browser(t, h, "DELETE", "/v1/events/login/schema", "", cookie, true); w.Code != http.StatusForbidden {
+		t.Errorf("editor deleting an enforced schema: %d", w.Code)
+	}
+}
+
+func TestNewListFieldNeedsSegmentsAccess(t *testing.T) {
+	s, st, _ := newSchemaServer(t)
+	sc := eventschema.Schema{Name: "order", Props: []eventschema.Prop{{Key: "sku", Type: eventschema.TypeString, AddToList: "skus"}}}
+	contactsOnly := model.Principal{TenantID: 1, Perms: auth.Perms{auth.AreaContacts: auth.Edit}}
+	if err := s.ensureListFields(context.Background(), contactsOnly, sc); err != errNeedsFieldAccess {
+		t.Errorf("contacts edit only: %v", err)
+	}
+	if len(st.defs) != 0 {
+		t.Errorf("field created: %+v", st.defs)
+	}
+	both := model.Principal{TenantID: 1, Perms: auth.Perms{auth.AreaContacts: auth.Edit, auth.AreaSegments: auth.Edit}}
+	if err := s.ensureListFields(context.Background(), both, sc); err != nil || len(st.defs) != 1 {
+		t.Errorf("with segments edit: %v %+v", err, st.defs)
+	}
+}

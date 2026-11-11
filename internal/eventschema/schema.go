@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"pulse/internal/attr"
+	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/segment"
 )
@@ -170,7 +171,7 @@ func (s *Schema) Normalize() error {
 			return fmt.Errorf("property %q: only enums have values", p.Key)
 		}
 		if p.AddToList != "" {
-			if !attr.ValidKey(p.AddToList) || event.EventOnlyAttr(p.AddToList) || p.AddToList == event.AttrTags {
+			if !ListTargetAllowed(p.AddToList) {
 				return fmt.Errorf("property %q: %q can't be a list field", p.Key, p.AddToList)
 			}
 			if p.Type == TypeObject || p.Type == TypeList {
@@ -337,6 +338,21 @@ func (p *Prop) enumList() string {
 		vals = append(vals[:8], "…")
 	}
 	return strings.Join(vals, ", ")
+}
+
+// ListTargetAllowed reports whether an event schema may add values to the contact field key: a
+// custom field only. Pulse's own fields (tags, points, consent, bounces, stage…) and identity
+// fields change only through their own events, never through a schema's list adds.
+func ListTargetAllowed(key string) bool {
+	if !attr.ValidKey(key) || event.EventOnlyAttr(key) || consent.IsReserved(key) {
+		return false
+	}
+	switch key {
+	case event.AttrTags, event.AttrPoints, event.AttrFirstSeen, event.AttrLastSeen, event.AttrLocale,
+		"email", "phone", "name", "first_name", "last_name", "external_id", "anonymous_id", "user_id", "timezone":
+		return false
+	}
+	return true
 }
 
 // ListAdds returns, per contact list field, the values this event adds (the schema's add_to_list

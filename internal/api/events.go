@@ -54,11 +54,11 @@ func (s *Server) eventRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/events/catalog", s.tenant(s.eventCatalog))
 	mux.HandleFunc("GET /v1/events/schemas", s.tenant(s.listEventSchemas))
 	mux.HandleFunc("GET /v1/events/schemas/suggested", s.tenant(s.suggestedSchemas))
-	mux.HandleFunc("POST /v1/events/schemas/suggested", s.tenant(s.addSuggestedSchemas))
+	mux.HandleFunc("POST /v1/events/schemas/suggested", s.authed(s.addSuggestedSchemas))
 	mux.HandleFunc("GET /v1/events/{name}/summary", s.tenant(s.eventSummary))
 	mux.HandleFunc("GET /v1/events/{name}/schema", s.tenant(s.getEventSchema))
 	mux.HandleFunc("PUT /v1/events/{name}/schema", s.authed(s.putEventSchema))
-	mux.HandleFunc("DELETE /v1/events/{name}/schema", s.tenant(s.deleteEventSchema))
+	mux.HandleFunc("DELETE /v1/events/{name}/schema", s.authed(s.deleteEventSchema))
 }
 
 // catalogEntry is one row of the Events page: an event sent in the last 30 days, one with a
@@ -302,20 +302,22 @@ func (s *Server) putEventSchema(w http.ResponseWriter, r *http.Request, p model.
 		s.fail(w, err)
 		return
 	}
+	// An enforced schema decides which events the API accepts, so any change to one (its
+	// properties, or turning enforce on or off) needs settings edit.
+	if (sc.Mode == eventschema.ModeEnforce || old.Mode == eventschema.ModeEnforce) && !p.Perms.Allows(auth.AreaSettings, auth.Edit) {
+		writeErr(w, http.StatusForbidden, "changing an enforced schema needs edit access to settings: it changes which events the API accepts")
+		return
+	}
 	if sc.Mode == eventschema.ModeEnforce && old.Mode != eventschema.ModeEnforce {
-		if !p.Perms.Allows(auth.AreaSettings, auth.Edit) {
-			writeErr(w, http.StatusForbidden, "turning on enforce needs edit access to settings: it changes which events the API accepts")
-			return
-		}
 		if req.Confirm != enforceConfirm {
 			writeErr(w, http.StatusBadRequest, `to refuse events that don't fit, send "confirm": "ENFORCE"`)
 			return
 		}
 	}
-	if err := s.ensureListFields(ctx, tenant, sc); err != nil {
+	if err := s.ensureListFields(ctx, p, sc); err != nil {
 		var bad badRequest
 		if errors.As(err, &bad) {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			writeErr(w, bad.status(http.StatusBadRequest), err.Error())
 			return
 		}
 		s.fail(w, err)
@@ -334,17 +336,29 @@ type badRequest string
 
 func (b badRequest) Error() string { return string(b) }
 
+// errNeedsFieldAccess: a schema would create a contact field, which needs segments edit.
+const errNeedsFieldAccess badRequest = "adding values to a new list field creates that contact field, which needs edit access to segments; create the field first in Settings → Contact fields"
+
+func (b badRequest) status(def int) int {
+	if b == errNeedsFieldAccess {
+		return http.StatusForbidden
+	}
+	return def
+}
+
 // ensureListFields creates the list contact fields a schema adds values to, and refuses a field
 // that exists with another type.
-func (s *Server) ensureListFields(ctx context.Context, tenant int64, sc eventschema.Schema) error {
+// Creating a field needs segments edit (like Settings → Contact fields).
+func (s *Server) ensureListFields(ctx context.Context, p model.Principal, sc eventschema.Schema) error {
+	tenant := p.TenantID
 	as, ok := s.Store.(AudienceStore)
 	if !ok {
 		return nil
 	}
 	var defs []pg.AttributeDef
 	loaded := false
-	for _, p := range sc.Props {
-		if p.AddToList == "" {
+	for _, prop := range sc.Props {
+		if prop.AddToList == "" {
 			continue
 		}
 		if !loaded {
@@ -356,15 +370,18 @@ func (s *Server) ensureListFields(ctx context.Context, tenant int64, sc eventsch
 		}
 		found := false
 		for _, d := range defs {
-			if d.Key == p.AddToList {
+			if d.Key == prop.AddToList {
 				found = true
 				if d.Type != "list" {
-					return badRequest(fmt.Sprintf("property %q adds to %q, which is a %s field; choose a list field", p.Key, d.Key, d.Type))
+					return badRequest(fmt.Sprintf("property %q adds to %q, which is a %s field; choose a list field", prop.Key, d.Key, d.Type))
 				}
 			}
 		}
 		if !found {
-			d := pg.AttributeDef{Key: p.AddToList, Label: labelFor(p.AddToList), Type: "list",
+			if !p.Perms.Allows(auth.AreaSegments, auth.Edit) {
+				return errNeedsFieldAccess
+			}
+			d := pg.AttributeDef{Key: prop.AddToList, Label: labelFor(prop.AddToList), Type: "list",
 				Description: "Values added by the " + sc.Name + " event"}
 			if err := as.PutAttributeDef(ctx, tenant, d); err != nil {
 				return err
@@ -384,10 +401,20 @@ func labelFor(key string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-func (s *Server) deleteEventSchema(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) deleteEventSchema(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	st, ok := s.eventSchemas()
 	if !ok {
 		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	old, err := st.GetEventSchema(r.Context(), tenant, r.PathValue("name"))
+	if err != nil && !errors.Is(err, pg.ErrNotFound) {
+		s.fail(w, err)
+		return
+	}
+	if old.Mode == eventschema.ModeEnforce && !p.Perms.Allows(auth.AreaSettings, auth.Edit) {
+		writeErr(w, http.StatusForbidden, "deleting an enforced schema needs edit access to settings: it changes which events the API accepts")
 		return
 	}
 	if err := st.DeleteEventSchema(r.Context(), tenant, r.PathValue("name")); err != nil {
@@ -424,7 +451,8 @@ func (s *Server) suggestedSchemas(w http.ResponseWriter, r *http.Request, tenant
 
 // addSuggestedSchemas: POST /v1/events/schemas/suggested {"names": [...]} (all when empty) adds
 // the starter schemas the workspace doesn't have yet; existing schemas are never replaced.
-func (s *Server) addSuggestedSchemas(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) addSuggestedSchemas(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	st, ok := s.eventSchemas()
 	if !ok {
 		writeErr(w, http.StatusNotImplemented, "event schemas aren't available")
@@ -459,10 +487,10 @@ func (s *Server) addSuggestedSchemas(w http.ResponseWriter, r *http.Request, ten
 			s.fail(w, err)
 			return
 		}
-		if err := s.ensureListFields(ctx, tenant, sc); err != nil {
+		if err := s.ensureListFields(ctx, p, sc); err != nil {
 			var bad badRequest
 			if errors.As(err, &bad) {
-				writeErr(w, http.StatusConflict, sc.Name+": "+err.Error())
+				writeErr(w, bad.status(http.StatusConflict), sc.Name+": "+err.Error())
 				return
 			}
 			s.fail(w, err)

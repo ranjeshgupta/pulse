@@ -100,7 +100,9 @@ Built as designed, with these choices:
   `scoring:v`). The profile role checks and counts (it sees every event, from every source); the API role only
   refuses, in enforce mode, on `POST /v1/events`. Checks are counted on the day they happen, not the event's time, so
   history sent late shows with today's problems. Turning on enforce needs `"confirm": "ENFORCE"` in the API too (not
-  only the UI's typed confirmation) and settings edit access, because it changes what the API accepts. An enforced
+  only the UI's typed confirmation) and settings edit access, because it changes what the API accepts; so
+  does any change to, or deletion of, an enforced schema. A schema that creates a new list field needs segments
+  edit, and can't target Pulse's own, consent or identity fields. An enforced
   event that doesn't fit refuses its whole request, so a batch is all or nothing.
 - **Events page** is Audience → Events (next to Segments) rather than a new Data group: one more group for one page
   read worse. Pulse's own events (message outcomes, stage changes…) are listed too.

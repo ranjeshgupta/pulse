@@ -581,7 +581,9 @@ These run on raw events today and are fine into the hundreds of millions of rows
   (migration 020). A property: `key`, `path` (a property path, see segment rules), `type` (string,
   number, bool, date, enum, list, object), `required`, enum `values` with labels, `depends_on {prop,
   values}` (applies, and is required, only when another property has one of those values; one level,
-  no list paths), `personal`, `add_to_list` (a list contact field; created by the API when missing).
+  no list paths), `personal`, `add_to_list` (a custom list contact field; created by the API when missing, which needs segments
+  edit; `eventschema.ListTargetAllowed` refuses Pulse's own, consent and identity fields, and the
+  profile role checks it again before adding).
   `Schema.Normalize` validates and is run again by every cache load.
 - **Cache.** `eventschema.Cache` holds every workspace's schemas in the roles that check events
   (profile, api). Like `scoring:v`, it reloads when the Redis key `eventschemas:v` changes (read at
@@ -595,7 +597,8 @@ These run on raw events today and are fine into the hundreds of millions of rows
   cut at 2 KB). Counting is best effort (a retried batch can count twice) and never fails a batch.
   `POST /v1/events` refuses the whole request with 400 when an event doesn't fit a schema in enforce
   mode, counting it as `refused`; browser and SDK routes never refuse. Switching to enforce needs
-  `confirm: "ENFORCE"` and settings edit.
+  `confirm: "ENFORCE"`; any change to, or deletion of, a schema that is or becomes enforced needs
+  settings edit.
 - **List adds.** The profile role adds `add_to_list` values (canonical strings, deduplicated, the
   newest 200 kept) to the event's `attrs` before merging, so the change is ordered with the contact's
   other events like any attribute.

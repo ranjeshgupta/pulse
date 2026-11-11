@@ -151,3 +151,20 @@ func TestBatchAndSummary(t *testing.T) {
 		t.Fatalf("totals %v %v", tot, err)
 	}
 }
+
+func TestListTargetAllowed(t *testing.T) {
+	for _, k := range []string{"tags", "points", "email", "phone", "external_id", "email_bounced", "optout_email", "stage", "company_name", "phone_country"} {
+		if ListTargetAllowed(k) {
+			t.Errorf("%s allowed as a list target", k)
+		}
+	}
+	for _, k := range []string{"products", "skus", "categories_viewed"} {
+		if !ListTargetAllowed(k) {
+			t.Errorf("%s refused", k)
+		}
+	}
+	sc := Schema{Name: "x", Props: []Prop{{Key: "e", Type: TypeString, AddToList: "email"}}}
+	if err := sc.Normalize(); err == nil {
+		t.Error("schema adding to email accepted")
+	}
+}

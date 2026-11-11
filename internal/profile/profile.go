@@ -614,6 +614,9 @@ func internationalPhone(p string) bool {
 // ordered with the contact's other events like any attribute.
 func applyListAdds(cur map[string]any, e *event.Event, adds map[string][]string) {
 	for field, vals := range adds {
+		if !eventschema.ListTargetAllowed(field) { // a schema saved before the rule tightened
+			continue
+		}
 		base, ok := e.Attrs[field]
 		if !ok {
 			base = cur[field]

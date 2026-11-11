@@ -262,8 +262,10 @@ curl -s -X PUT $PULSE/v1/events/signup/schema -H "Authorization: Bearer $KEY" -H
 A property has `key`, optional `path` (where it is when not at the top level: `product.code`,
 `items[].code`), `type` (`string`, `number`, `bool`, `date`, `enum`, `list`, `object`), `required`,
 `values` (enums), `depends_on`, `personal` (hidden in samples and value suggestions) and
-`add_to_list` (a list contact field, created when missing). Switching a schema to `enforce` needs
-`"confirm": "ENFORCE"` in the body and settings edit access.
+`add_to_list` (a custom list contact field, created when missing, which needs segments edit; Pulse's
+own, consent and identity fields such as `email`, `tags` or `points` are refused). Switching a schema
+to `enforce` needs `"confirm": "ENFORCE"` in the body; changing or deleting a schema that is or
+becomes enforced needs settings edit access.
 
 **Events Pulse records itself** can't be sent: `contact_merged`, `merge_requested`,
 `company_linked`, `stage_changed`… are refused with 400 (`… is recorded by Pulse itself`); use the
@@ -882,10 +884,10 @@ the path, a signature, or nothing).
 | `GET` | `/v1/events/{name}/summary` | One event: daily volume, properties seen in a sample, schema, checks (14 days) with samples | contacts view |
 | `GET` | `/v1/events/schemas` | Every event schema | contacts view |
 | `GET` | `/v1/events/schemas/suggested` | The starter schemas, and which exist | contacts view |
-| `POST` | `/v1/events/schemas/suggested` | Add starter schemas (`names`, all when empty); never replaces | contacts edit |
+| `POST` | `/v1/events/schemas/suggested` | Add starter schemas (`names`, all when empty); never replaces | contacts edit (+ segments edit to create a list field) |
 | `GET` | `/v1/events/{name}/schema` | An event's schema | contacts view |
-| `PUT` | `/v1/events/{name}/schema` | Create or replace it; enforce needs `"confirm":"ENFORCE"` | contacts edit (+ settings edit for enforce) |
-| `DELETE` | `/v1/events/{name}/schema` | Delete it | contacts edit |
+| `PUT` | `/v1/events/{name}/schema` | Create or replace it; enforce needs `"confirm":"ENFORCE"` | contacts edit (+ settings edit when enforced; + segments edit to create a list field) |
+| `DELETE` | `/v1/events/{name}/schema` | Delete it | contacts edit (+ settings edit when enforced) |
 | `GET` | `/v1/contacts/{external_id}/segments/{id}/explain` | Why the contact is (or isn't) in a segment, filter by filter | contacts view |
 | `GET` | `/v1/contacts/{external_id}` | Profile and the IDs of the segments the contact is in | contacts view |
 | `GET` | `/v1/contacts` | List or search contacts: `?q=` filters, `limit`, `after` cursor | contacts view |

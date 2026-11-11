@@ -6,8 +6,9 @@ properties from a web page and from a server, find events that don't fit, and us
 segments and journeys.
 
 **You need:** a workspace that receives events (tutorial 1 connects a website), and access to edit
-contacts (the **Admin** or **Editor** role) to change schemas. Turning on **Enforce** also needs
-access to change workspace settings (**Admin**). The examples use the seeded Acme Retail workspace,
+contacts (the **Admin** or **Editor** role) to change schemas. Turning on **Enforce**, and changing
+or deleting a schema that is in Enforce mode, also needs access to change workspace settings
+(**Admin**). The examples use the seeded Acme Retail workspace,
 which already has the suggested schemas and two months of shop events.
 
 ---
@@ -314,7 +315,8 @@ can ask "has bought KIT-101" without counting events.
 ![The item_product_code property of purchase: path items[].product_code, Text, Add to list field products](img/12-schema-items.png)
 
 In a property card, type the field in **Add to list field (optional)**, e.g. `products` (a new name
-creates the list field). Each event then adds its value; for an `items[]` path, every item's value.
+creates the list field, which needs access to edit segments; Pulse's own fields such as `email`,
+`tags` or `points` can't be used). Each event then adds its value; for an `items[]` path, every item's value.
 The suggested **Purchase** schema does this for `product_code` and `items[].product_code`.
 
 The list appears in the contact's profile under **Lists and choices**, and in segments as
