@@ -58,7 +58,7 @@ describe("journey step catalog", () => {
     expect(new Set(JOURNEY_CATALOG.map((it) => it.label)).size).toBe(JOURNEY_CATALOG.length);
     for (const it of JOURNEY_CATALOG) {
       expect(it.description.length).toBeGreaterThan(10);
-      if (it.id !== "push_integration") expect(NODE_TYPES.some((t) => t.type === it.make().type)).toBe(true);
+      expect(NODE_TYPES.some((t) => t.type === it.make().type)).toBe(true);
     }
     // Every stored step type can be made from the chooser.
     for (const t of NODE_TYPES) expect(JOURNEY_CATALOG.some((it) => it.type === t.type)).toBe(true);
@@ -106,9 +106,10 @@ describe("journey step catalog", () => {
     expect(reasonAt(del, g, afterSms, can)).toBe("Ends the path: add it at the end of a path");
   });
 
-  it("never inserts Push contact to integration", () => {
+  it("inserts Push contact to integration anywhere an action goes", () => {
     const it = catalogItem("push_integration")!;
-    for (const at of [afterStart, afterSms, afterWait]) expect(reasonAt(it, g, at, can)).toBe("Coming with integrations (batch 8)");
+    for (const at of [afterStart, afterSms, afterWait]) expect(reasonAt(it, g, at, can)).toBeNull();
+    expect(it.make().type).toBe("push_integration");
   });
 
   it("refuses insertion points that no longer exist", () => {

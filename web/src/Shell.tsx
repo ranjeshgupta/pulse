@@ -30,6 +30,7 @@ const I = {
   file: <><path d="M4 1.5h6l3.5 3.5v10.5h-9.5z" /><path d="M8.5 7v5.5M6.3 10.3l2.2 2.2 2.2-2.2" /></>,
   grid: <><rect x="1.5" y="1.5" width="4" height="4" rx=".6" /><rect x="6.5" y="1.5" width="4" height="4" rx=".6" /><rect x="11.5" y="1.5" width="4" height="4" rx=".6" /><rect x="1.5" y="6.5" width="4" height="4" rx=".6" /><rect x="6.5" y="6.5" width="4" height="4" rx=".6" /><rect x="1.5" y="11.5" width="4" height="4" rx=".6" /></>,
   coin: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M10.6 6.2c-.4-.8-1.2-1.2-2.1-1.2-1.2 0-2.1.7-2.1 1.7 0 2.4 4.4 1.2 4.4 3.6 0 1-1 1.8-2.3 1.8-1 0-1.9-.5-2.3-1.3M8.5 3.8V5M8.5 12.1v1.2" /></>,
+  plug: <><path d="M6 1.5v4M11 1.5v4" /><path d="M3.5 5.5h10v3a5 5 0 0 1-10 0z" /><path d="M8.5 13.5v2" /></>,
   chart: <><path d="M2 15h13" /><rect x="3" y="8" width="2.6" height="5" rx=".5" /><rect x="7.2" y="4" width="2.6" height="9" rx=".5" /><rect x="11.4" y="6.5" width="2.6" height="6.5" rx=".5" /></>,
 };
 
@@ -96,6 +97,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/settings/stages", label: "Stages", icon: I.stairs, need: ["segments", "view"] },
       { to: "/settings/access", label: "Sign-in & keys", icon: I.key, need: ["settings", "edit"] },
       { to: "/settings/webhooks", label: "Webhooks", icon: I.send, need: ["settings", "edit"] },
+      { to: "/settings/integrations", label: "Integrations", icon: I.plug, need: ["settings", "view"] },
       { to: "/settings/data", label: "Data & privacy", icon: I.key, need: ["settings", "view"] },
       { to: "/settings/audit", label: "Audit log", icon: I.log, need: ["settings", "edit"] },
     ],

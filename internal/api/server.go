@@ -192,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	s.assetRoutes(mux)
 	s.landingRoutes(mux)
 	s.insightRoutes(mux)
+	s.integrationRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)

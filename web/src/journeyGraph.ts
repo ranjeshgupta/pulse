@@ -38,6 +38,7 @@ export const NODE_TYPES: TypeInfo[] = [
   { type: "show_focus", label: "Show focus item", group: "action", shape: "next", hint: "Show a popup, bar or slide-in on the contact's next page view." },
   { type: "push_dwc", label: "Push dynamic content", group: "action", shape: "next", hint: "Set this contact's content for a Dynamic Web Content slot." },
   { type: "webhook", label: "Send a webhook", group: "action", shape: "next", hint: "Send the contact to another system." },
+  { type: "push_integration", label: "Push contact to integration", group: "action", shape: "next", hint: "Send the contact to a connected CRM through its field mapping." },
   // Actions: the contact
   { type: "update_attr", label: "Update contact", group: "action", shape: "next", hint: "Set fields on the contact." },
   { type: "update_owner", label: "Update contact owner", group: "action", shape: "next", hint: "Assign the contact to a teammate." },
@@ -436,7 +437,7 @@ const ID_BASE: Record<string, string> = {
   message_decision: "decision", change_stage: "stage", wait_for_event: "event", update_attr: "update", update_tags: "tags",
   adjust_points: "points", update_list: "lists", change_journey: "journeys", delete_contact: "delete", notify_user: "notify",
   send_message: "message", show_focus: "focus", push_dwc: "dwc", update_owner: "owner", update_company: "company",
-  add_company: "addcompany", company_points: "companypoints", condition: "segment",
+  add_company: "addcompany", company_points: "companypoints", condition: "segment", push_integration: "push",
 };
 
 /** newId names a new step uniquely, e.g. email1, email2. */
@@ -766,6 +767,7 @@ export function issues(g: JourneyGraph, opts: { journeyId?: number } = {}): Issu
         break;
       }
       case "show_focus": if (!n.focus_id) add("choose the focus item to show."); break;
+      case "push_integration": if (!n.integration_id) add("choose the CRM to push the contact to."); break;
       case "push_dwc":
         if (!SLOT_RE.test(n.slot ?? "")) add("choose the dynamic content slot (lowercase letters, digits, - and _).");
         if (!(n.html ?? "").trim()) add("enter the content to show.");

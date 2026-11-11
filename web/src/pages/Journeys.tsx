@@ -222,7 +222,6 @@ function JourneyEditor() {
     const item = catalogItem(e.dataTransfer.getData(PALETTE_MIME));
     if (!item || locked) return;
     e.preventDefault();
-    if (item.id === "push_integration") return;
     const p = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const r = addStep(graph, item.make(graph), p.x - 120, p.y - 30);
     setGraph(r.graph);
@@ -381,7 +380,7 @@ function Palette({ q, setQ, locked, graph, at, atText, ctx, onAdd }: {
               <h5 title={grp.hint}>{grp.label}</h5>
               {items.map((it) => {
                 const why = locked ? "The journey is live." : reasonAt(it, graph, at, ctx);
-                const hardOff = it.id === "push_integration" || locked;
+                const hardOff = locked;
                 return (
                   <button
                     key={it.id} type="button" className={`palette-item${why ? " off" : ""}`} disabled={hardOff}

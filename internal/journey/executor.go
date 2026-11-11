@@ -69,6 +69,8 @@ type Executor struct {
 	Deleter Deleter     // permanent contact deletion (the cleanup path)
 	MX      MXChecker   // email domain checks
 	Stats   StepCounter // per-step entered / yes / no counts (best effort)
+	// Integrations pushes contacts to CRM connectors (push_integration).
+	Integrations Pusher
 }
 
 // Run walks the graph from node `from` until the enrollment waits or exits.

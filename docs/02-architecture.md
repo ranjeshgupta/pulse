@@ -34,9 +34,9 @@ and `pulse all` runs every role in one process for local development.
 
 | Topic | Key | Producer → consumer | Payload |
 |---|---|---|---|
-| `events.raw` | `tenant:external_id` | ingest, dispatch → profile | `event.Event` without `contact_id` |
-| `events.enriched` | `tenant:contact_id` | profile → chsink, segments, journeys | `event.Event` with `contact_id` and the merged `attrs` snapshot |
-| `segment.membership` | `tenant:contact_id` | segments → journeys | `segment.Change{tenant, segment, contact, entered, source}` |
+| `events.raw` | `tenant:external_id` | ingest, dispatch, integrations → profile | `event.Event` without `contact_id` |
+| `events.enriched` | `tenant:contact_id` | profile → chsink, segments, journeys, webhooks, integrations | `event.Event` with `contact_id` and the merged `attrs` snapshot |
+| `segment.membership` | `tenant:contact_id` | segments → journeys, chsink, webhooks, integrations | `segment.Change{tenant, segment, contact, entered, source}` |
 | `messages.email` | `tenant:contact_id` | journeys → dispatch | `message.Email{id, tenant, contact, template, ...}` |
 
 Each key keeps one contact's events in order on a single partition. That ordering is what lets the streaming segment path work without locks.
@@ -175,7 +175,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
     member), `company_points` (adds to the company's `score` attribute once per step key, recorded in `journey_effects`),
     `change_journey` (records `journey_change {add, remove}`; the journey engine removes the contact from those journeys —
     status `removed` — and enrolls them in the active ones), `dnc_add` / `dnc_remove` (`unsubscribed` / `resubscribed`
-    with method manual, source journey), `show_focus`, `push_dwc` (see below), `jump`, `delete_contact`.
+    with method manual, source journey), `show_focus`, `push_dwc` (see below), `push_integration` (`integration_id`: a HubSpot or Salesforce connector; see
+    "Integrations"), `jump`, `delete_contact`.
   - **Decisions** (park on `journey_event_waits` with a timeout; Yes when the event comes, No at the timeout):
     `wait_for_event` (any event); `message_decision` (an earlier send step's own message, matched on the message id
     `{enrollment}:{step}`: opened, clicked — optionally a link containing `url` —, delivered, read, replied (email);
@@ -318,6 +319,55 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   non-image data: URLs are removed. A nonce CSP allows only the Pulse SDK scripts.
 - On Pulse-hosted pages the SDK namespaces its stored ids by site key (`storagePrefix`), so workspaces sharing the pages origin
   never share a visitor's identity.
+
+## Integrations (batch 8a)
+
+`internal/integrations` holds the connectors; `internal/api/integrations.go` and `hooks.go` the routes; the
+`integrations` role (in `pulse all`) runs pulls and audience sync. The parity doc's
+[Integrations](05-feature-parity.md#integrations-batch-8a) lists what each connector does and doesn't.
+
+- **Storage** (`migrations/postgres/016_integrations.sql`): `integrations` (kind, name, `config` jsonb shown as is,
+  `secrets` a JSON object sealed with the server key, `mapping` [{remote, attr, dir}], pull schedule and cursor, status,
+  the REST hooks key's SHA-256 and last characters), `integration_log` (pruned to a week), `audience_syncs`,
+  `audience_members` (hashes uploaded per contact) and `audience_queue`. REST hook subscriptions are rows of `webhooks`
+  with `integration_id` (and optional `segment_id` / `form_id` filters); the workspace's own webhook routes never see them.
+- **Secrets.** Read through `Service.OpenSecrets`; the API returns `secrets` masked (`Mask`: the last 4 characters) and
+  `MergeSecrets` keeps a stored value when an edit leaves it empty or sends the masked text back. The audit log redacts
+  the request's `secrets` object like any key containing "secret" or "token".
+- **Outbound calls** use `safehttp.Client` (`PULSE_ALLOW_PRIVATE_WEBHOOKS` lets them reach private addresses, for local
+  mocks). Every remote base URL (HubSpot API, Salesforce My Domain, Shopify admin, Graph API, Google Ads API and token
+  URL) is a connector setting defaulting to the real one.
+- **CRM pulls.** `ClaimDuePulls` claims due connectors with `FOR UPDATE SKIP LOCKED` and moves `next_sync_at` forward,
+  so any number of workers share them. A pull asks for records modified at or after the cursor (`<time> <ids at that
+  time>`, so the last records aren't recorded twice), oldest first, 1,000 at most (more are due at once), and publishes
+  one `crm_synced` event per record into `events.raw` with the mapped attributes plus `hubspot_id` / `salesforce_id`. The
+  event id is a hash of connector, record and modification time, so a retried pull dedupes in the profile role. The
+  mapping refuses attributes Pulse keeps (`consent.IsReserved`, `event.EventOnlyAttr`, `optout_*`) unless they're push
+  only; the profile role would drop them anyway.
+- **Pushes.** `Service.PushContact` (API "Push a contact" and the journey executor's `push_integration`) maps the
+  contact, updates the known record or the one with its email or creates it, retries network errors, 429 and 5xx
+  twice, then records `crm_pushed` (with the record id as an attribute when it's new; the journey's step key is the
+  event id). The executor records `integration_push_failed` on failure and moves on.
+- **Shopify.** `POST /v1/webhooks/shopify/{id}` reads the connector by id, checks the HMAC (base64 HMAC-SHA256 of the
+  raw body) and `X-Shopify-Shop-Domain`, parses the topic (`ParseShopify`) and publishes one event with the customer's
+  attributes on the contact found by email (`ExternalIDByEmail`), else phone, else a new one. The event id is
+  `shopify:<X-Shopify-Webhook-Id>`.
+- **REST hooks.** `/v1/hooks/*` authenticate with the connector's key (`IntegrationByKeyHash`); changes are audited as
+  "Integration: <name>". The webhooks worker delivers subscriptions like any webhook: `Webhook.wants` applies the segment
+  and form filters, and `decode` adds a `contact_created` payload when an enriched event's `changed_attrs` include
+  `date_identified` (once per contact). A 410 answer deletes an integration's subscription (`Unsubscriber`).
+- **Audience sync** (`Syncer`): the `pulse-integrations` consumer group reads `segment.membership` and
+  `events.enriched` and queues (link, contact) rows; `Flush` claims up to 5,000 per link every two seconds, reads
+  membership with pipelined `GETBIT`s, the contacts from Postgres and the hashes already uploaded, then removes and adds
+  the difference (`Platform.Remove` / `Add`, 5,000 per call) and saves `audience_members`. `Wanted` decides: in the
+  segment, not `optout_all`, not merged away, and an email or phone that normalises (`HashFor`: lower-case trimmed email,
+  gmail dots dropped for Google; E.164 phone, with the connector's default country code for national numbers, without
+  "+" for Facebook). `ClaimDueReconciles` starts a full reconcile per link on creation and then every
+  `PULSE_AUDIENCE_RECONCILE_INTERVAL`, walking the segment bitmap and then `audience_members` for contacts no longer in
+  it. Errors put the queue back, mark the link `error` and back off exponentially (2 s to 10 minutes).
+- **Tests.** `internal/integrations` unit tests run every connector against `httptest` mocks; the e2e tests
+  `TestHubSpotIntegration`, `TestRESTHooksE2E` and `TestAudienceSync` run mocks in the compose-network container
+  (`PULSE_HOOK_HOST`), and `TestShopifyWebhooks` signs deliveries itself.
 
 ## Analytics (batch 7)
 

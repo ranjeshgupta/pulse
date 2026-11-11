@@ -1,0 +1,18 @@
+/* Integrations: catalog cards, the field mapping table, long errors and hashes. */
+
+.int-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.int-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.int-card p { margin: 0; flex: 1; }
+
+.int-map td { vertical-align: top; }
+.int-map .input, .int-map .select { min-width: 140px; }
+
+.int-err { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bad, #b42318); }
+.int-err-full { color: var(--bad, #b42318); }
+.int-msg { max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.int-url { max-width: 280px; word-break: break-all; }
+.int-actions { white-space: nowrap; }
+.int-actions .btn { margin-left: 4px; }
+.int-pre { margin-top: 12px; max-height: 320px; }
+.int-hash { margin-top: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.int-key { margin-bottom: 14px; }

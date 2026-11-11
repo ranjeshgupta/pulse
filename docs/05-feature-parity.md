@@ -98,7 +98,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
 | In-app messages (modal, banner, full screen) | ⬜ | ✅ | ✅ campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; editor with phone preview, "see what a contact gets" and test send; rendered by the Flutter SDK; shown/clicked/dismissed stats | |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
-| Facebook / Google audience sync | 🟡 | ✅ | ⬜ | P2 |
+| Facebook / Google audience sync | 🟡 | ✅ | ✅ a segment linked to a Facebook Custom Audience or Google Ads Customer Match list (existing or created by Pulse); SHA-256 of normalised email and E.164 phone in batches; streamed entries/exits, consent and address changes; daily full reconcile; contacts unsubscribed from everything never uploaded; status, counts and errors per link | Google consent signals (EEA), list size from the platform: see [Integrations](#integrations-batch-8a) |
 
 ## On-site
 
@@ -135,7 +135,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Audit log | 🟡 | ✅ | ✅ every change through the app or API (secrets redacted) and every sign-in | Retention settings, export: P2 |
 | REST API with keys | ✅ | ✅ | ✅ | |
 | Outbound webhooks on events | ✅ | ✅ | ✅ any event or segment entry/exit; HMAC-signed; retries over ~7 hours; delivery log; test send | |
-| Integrations (CRM, Zapier, Shopify) | ✅ plugins | ✅ | ⬜ | P2 |
+| Integrations (CRM, Zapier, Shopify) | ✅ plugins | ✅ | ✅ HubSpot and Salesforce (scheduled pull with field mapping, push on demand and from journeys), Shopify webhooks (orders, customers, checkouts), Zapier / Make REST hooks (triggers and actions with the connector's own key); masked secrets, test connection, previews, sync log | See [Integrations](#integrations-batch-8a) |
 | Web, Android, iOS, Flutter SDKs | 🟡 JS | ✅ | ✅ web SDK (track, identify, page views, on-site, forms, web push); Flutter SDK for Android and iOS apps (`sdks/flutter/pulse_sdk`) | Native Kotlin and Swift SDKs: P2 |
 
 ## Order to close the gaps
@@ -188,10 +188,12 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
        source, page title).
      - ✅ **Campaign builder (done 2026-11-11)**, see [Campaign builder](#campaign-builder-batch-7b) for the Mautic
        element mapping. "+" asks Action, Decision, Condition, Wait or Split, then a searchable list with descriptions;
-       every Mautic decision, action and condition is there (push to integration waits for batch 8).
-   - **Batch 8, integrations and reach:** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, native
-     Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file uploads and multi-page
-     forms, audit log export.
+       every Mautic decision, action and condition is there (push to integration came with batch 8a).
+   - **Batch 8, integrations and reach:**
+     - ✅ **Batch 8a (done 2026-11-11):** CRM / Shopify / Zapier-style connectors, Facebook and Google audience sync, the
+       "Push contact to integration" journey step. See [Integrations](#integrations-batch-8a).
+     - **Batch 8b:** native Kotlin and Swift SDKs, RCS replies, SMTP bounce mailbox, web push click tracking, form file
+       uploads and multi-page forms, audit log export.
 
 9. **After batch 8 (requested 2026-11-11), in this order:**
    - **Batch 9, contact views and one clear navigation:**
@@ -248,7 +250,7 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | Jump to Event | Jump to step | `jump` `target` | ends the path; at most 25 jumps per enrollment, then the contact leaves (`journey_jump_limit`) |
 | Modify contact's segments | Modify contact's segments | `update_list` `add_lists` / `remove_lists` | static lists only: dynamic segments follow their rules (the inspector says so) |
 | Modify contact's tags | Modify contact's tags | `update_tags` | |
-| Push contact to integration | Push contact to integration | — | **missing**: shown disabled, "coming with integrations (batch 8)" |
+| Push contact to integration | Push contact to integration | `push_integration` | HubSpot or Salesforce, through the integration's field mapping; a failed push records `integration_push_failed` and the journey carries on |
 | Push dynamic content | Push dynamic content | `push_dwc` slot, HTML, days | per contact, returned by the decide API for that slot (wins over the slot's variants) |
 | Send a webhook | Send a webhook | `webhook` | |
 | Send email | Send email | `send_email` | also SMS, WhatsApp, RCS, push, app inbox steps |
@@ -277,7 +279,7 @@ WebEngage extras in the same chooser: message outcome on any channel (delivered 
 wait until a date or time of day, A/B split with an automatic winner, percentage split, goal exit, frequency caps and
 quiet hours (delivery settings).
 
-**Not covered / approximate:** push to integration (batch 8); Mautic's saved "marketing message" object (the list lives
+**Not covered / approximate:** push to integration goes to CRMs only (HubSpot, Salesforce), not to Mautic's other plugins; Mautic's saved "marketing message" object (the list lives
 on the step); a message decision can't watch a "Send marketing message" step (its channel is chosen per contact); device
 visit uses web page views (not app screens); per-step counts are best effort (a retried step can count twice).
 
@@ -366,3 +368,30 @@ WhatsApp read, SMS delivered, app inbox and in-app engagement, form submissions,
 
 **Not covered:** event windows are "the last 1-365 days" (no absolute date range for behaviour, no "ever"); "currently in
 a journey"; point groups; Mautic's regexp operator.
+
+## Integrations (batch 8a)
+
+**What it is.** Settings → Integrations: a connector registry per workspace. Each connector has a type, settings (shown),
+credentials (sealed with the server key; the API and app show them masked, e.g. `••••••••a1b2`, and a field left empty or
+sent back masked keeps the stored value), a status (new / ok / error with the last error), its last sync and a week of
+sync log. Every type has Test connection (except Zapier / Make, which never calls out) and a preview. Every remote base
+URL is a setting with the real API as default. Creating, changing and deleting connectors needs settings edit access;
+viewing them needs settings view (journey editors pick a CRM for the push step).
+
+| Connector | What Pulse does | Approximate / missing |
+|---|---|---|
+| HubSpot | Pulls contacts changed since the last pull (CRM search API, oldest first, 1,000 per pull, the rest right after) every 15 minutes to 1 day; field mapping (remote field ↔ attribute: both ways, into Pulse only, out to HubSpot only; "Load fields" lists HubSpot's properties); `crm_synced` events with the mapped attributes and `hubspot_id`; the contact with the same email, else a new one named by the email (`hubspot-<id>` without one). Push: update by `hubspot_id`, else by email, else create; empty Pulse values never blank a HubSpot field | Companies, deals and deletions aren't synced; a pull doesn't move consent (map `hs_email_optout` to a plain attribute if needed); private app tokens only (no OAuth app) |
+| Salesforce | The same for Contact or Lead (SOQL on `LastModifiedDate`), with OAuth client credentials against your My Domain URL (token cached 30 minutes); push finds by `salesforce_id` or email, and creates with `[not provided]` for a missing last name (and company, for leads) | No refresh-token / web-server OAuth flow; field names are checked to be plain API names (they go into SOQL) |
+| Shopify | `POST /v1/webhooks/shopify/{id}` (paste it in Shopify admin → Settings → Notifications → Webhooks, JSON): checks `X-Shopify-Hmac-Sha256` with the signing secret and the shop domain; `orders/create` → `order_completed` {order_id, order_number, amount, revenue, currency, discount, items, item_count}, `customers/create` → `customer_created`, `checkouts/create|update` → `cart_updated` {checkout_token, amount, items, url}; the customer's name, phone, `shopify_customer_id`, order count and total spent go on the contact (found by email, else phone). Event ids come from `X-Shopify-Webhook-Id`, so Shopify's retries record once. The page offers to make `order_completed` / `amount` the workspace's revenue event | Webhooks are registered by hand (no OAuth app install); completed checkouts are skipped (the order arrives separately); Shopify's marketing consent isn't mapped to Pulse consent; refunds and fulfilment topics aren't used |
+| Zapier / Make (REST hooks) | The connector's own API key (`pzk_…`, shown once, rotatable; the workspace key isn't needed). Triggers: `POST /v1/hooks/subscriptions {target_url or hookUrl, event, segment_id?, form_id?}` / `DELETE /v1/hooks/subscriptions/{id}`, for `contact_created` (a contact becomes known: `date_identified` is set), `segment_entered` / `segment_exited`, `form_submitted` or any event; deliveries reuse outbound webhooks (signed, retried for 7 hours, delivery log on the connector page), and a 410 answer removes the subscription. `GET /v1/hooks/me`, `/segments`, `/samples?event=` help a Zap's setup. Actions: `POST /v1/hooks/contacts`, `/events`, `/tags`; reserved attributes are ignored and listed back | No published Zapier or Make app yet (use their webhook / API modules with these endpoints); `*` subscriptions don't include `contact_created` |
+| Facebook Custom Audiences | Link a segment to an audience id, or have Pulse create one (`customer_file_source: USER_PROVIDED_ONLY`). Uploads `EMAIL_SHA256` / `PHONE_SHA256` (digits with country code, no +) in batches of 5,000 | Facebook reports match rates only in Ads Manager; unlinking stops syncing but leaves the audience as it is |
+| Google Ads Customer Match | Link a segment to a user list id (or create a CRM-based list). Each batch is an offline user data job (create, add operations, run) with `hashedEmail` (gmail dots removed) and `hashedPhoneNumber` (E.164); OAuth refresh token, developer token, optional manager account | Google matches in the background (hours); EEA consent signals (`adUserData`, `adPersonalization`) aren't sent; failed rows inside a job (partial failure) aren't read back |
+
+**Audience sync.** The `integrations` role keeps a queue per link (`audience_queue`): segment entries and exits come from
+`segment.membership`, and changes of `email`, `phone`, `optout_all` or `merged_into` from `events.enriched`. Every two
+seconds it takes up to 5,000 queued contacts per link and decides each from the current state: a segment member with an
+email or phone who isn't unsubscribed from everything belongs in the audience. `audience_members` keeps the hashes
+sent, so a removal (or a changed address) removes exactly what was added. A full reconcile runs on linking, on "Sync
+now", on resume and every `PULSE_AUDIENCE_RECONCILE_INTERVAL` (24 h): it walks the segment bitmap and everyone uploaded,
+which also removes deleted contacts. A failing link backs off (up to 10 minutes) and shows the error; the counts are
+in the audience now, added, removed, left out (no consent or nothing to match) and waiting.

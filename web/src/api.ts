@@ -93,7 +93,11 @@ export interface AuditEntry {
   id: number; at: string; user_id?: number; actor: string; action: string; object_type: string; object_id: string;
   status: number; ip: string; detail?: unknown;
 }
-export interface Webhook { id: number; name: string; url: string; events: string[]; active: boolean; secret?: string; created_at: string; updated_at: string }
+export interface Webhook {
+  id: number; name: string; url: string; events: string[]; active: boolean; secret?: string; created_at: string; updated_at: string;
+  /** REST hook subscriptions (Zapier, Make) belong to an integration and may narrow to a segment or form. */
+  integration_id?: number; segment_id?: number; form_id?: number;
+}
 export interface WebhookDelivery { id: number; event_id: string; event_name: string; at: string; attempt: number; status: number; error?: string; duration_ms: number; final: boolean }
 export interface Import {
   id: number; filename: string; list_id?: number; status: "uploading" | "queued" | "running" | "done" | "failed" | "cancelled";
@@ -211,6 +215,8 @@ export interface JourneyNode {
   target?: string;
   /** delete_contact: must be "DELETE". */
   confirm?: string;
+  /** push_integration: the CRM integration the contact is pushed to. */
+  integration_id?: number;
 }
 /** A split's A/B test: after after_seconds, once every path has min_per_variant contacts, the best rate of metric wins. */
 export interface SplitWinner { metric: "opened" | "clicked" | "converted"; after_seconds: number; min_per_variant: number }
@@ -384,4 +390,32 @@ export interface Overview {
   counts: { contacts: number; segments: number; active_journeys: number; templates: number };
   days: number;
   activity?: { events_per_minute: { day: string; count: number }[]; events_per_day: { day: string; count: number }[]; top_events: { name: string; count: number }[]; messages: { name: string; count: number }[] };
+}
+
+// ---- integrations (Settings → Integrations) ----
+
+export interface IntegrationField { key: string; label: string; placeholder?: string; hint?: string; default?: string; required: boolean }
+export type IntegrationCategory = "crm" | "ecommerce" | "automation" | "ads";
+/** One remote field ↔ Pulse attribute. dir: both (default), pull (into Pulse) or push (out to the CRM). */
+export interface FieldMap { remote: string; attr: string; dir?: "both" | "pull" | "push" }
+export interface IntegrationKind {
+  id: string; name: string; category: IntegrationCategory; description: string;
+  config: IntegrationField[]; secrets: IntegrationField[];
+  pull: boolean; push: boolean; webhooks: boolean; audiences: boolean; hooks: boolean;
+  default_mapping?: FieldMap[]; remote_id_attr?: string;
+}
+export interface Integration {
+  id: number; kind: string; name: string; config: Record<string, string>;
+  /** Masked: never the full secret. */
+  secrets: Record<string, string>;
+  mapping: FieldMap[]; active: boolean; sync_minutes: number; next_sync_at?: string; cursor?: string;
+  status: "new" | "ok" | "error" | string; last_error?: string; last_sync_at?: string; key_hint?: string;
+  created_at: string; updated_at: string;
+}
+export interface IntegrationLogEntry { id: number; at: string; action: string; ok: boolean; count: number; message?: string }
+export interface AudienceSync {
+  id: number; integration_id: number; segment_id: number; audience_id: string; audience_name: string; active: boolean;
+  status: "new" | "syncing" | "ok" | "error" | string; last_error?: string;
+  uploaded: number; added: number; removed: number; skipped: number; queued: number;
+  last_sync_at?: string; next_full_at: string; created_at: string;
 }

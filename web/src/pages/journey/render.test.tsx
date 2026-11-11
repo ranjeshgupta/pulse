@@ -13,14 +13,13 @@ import { summary } from "./nodeText";
 
 const wrap = (el: React.ReactNode) => renderToString(
   <QueryClientProvider client={new QueryClient()}><MemoryRouter><ReactFlowProvider>{el}</ReactFlowProvider></MemoryRouter></QueryClientProvider>);
-const pickers = { lists: { forms: [], assets: [], pages: [], users: [{ id: 1, name: "Asha" }], companies: [], journeys: [{ id: 2, name: "J" }], templates: [], focus: [], slots: [], stages: ["MQL"], segments: [], staticLists: [] }, names: {} } as never;
+const pickers = { lists: { forms: [], assets: [], pages: [], users: [{ id: 1, name: "Asha" }], companies: [], journeys: [{ id: 2, name: "J" }], templates: [], focus: [], slots: [], stages: ["MQL"], segments: [], staticLists: [], integrations: [] }, names: {} } as never;
 
 describe("smoke", () => {
   it("renders every inspector and node card", () => {
     let g = emptyGraph();
     g = insertStep(g, { source: TRIGGER_ID, handle: "next" }, { type: "send_email", template_id: 1 })!.graph;
     for (const it of JOURNEY_CATALOG) {
-      if (it.id === "push_integration") continue;
       const r = insertStep(g, { source: "email1", handle: "next" }, it.make(g, { source: "email1", handle: "next" })) ?? insertStep(g, { source: "email1", handle: "next" }, { type: "wait", seconds: 60 })!;
       const id = r.id;
       const numbers = stepNumbers(r.graph);

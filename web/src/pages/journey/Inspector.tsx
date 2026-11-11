@@ -219,6 +219,11 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
         <Field label="Focus item"><PickSelect value={n.focus_id} items={L.focus} placeholder="Choose a focus item" onChange={(focus_id) => setN({ focus_id })} /></Field>
         <Note>Shown on the contact's next page view, whatever the item's own targeting. {L.focus.length === 0 && <Link to="/focus-items/new">Create a focus item</Link>}</Note>
       </>);
+    case "push_integration":
+      return (<>
+        <Field label="CRM"><PickSelect value={n.integration_id} items={L.integrations} placeholder="Choose a CRM" onChange={(integration_id) => setN({ integration_id })} /></Field>
+        <Note>Fields go through the integration's field mapping; a failed push is recorded as <code>integration_push_failed</code> and the journey carries on. {L.integrations.length === 0 && <Link to="/settings/integrations">Connect HubSpot or Salesforce</Link>}</Note>
+      </>);
     case "push_dwc":
       return (<>
         <SlotField value={n.slot ?? ""} slots={L.slots} onChange={(slot) => setN({ slot })} />

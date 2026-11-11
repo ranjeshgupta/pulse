@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -43,22 +44,50 @@ const (
 // Backoff is the wait before each retry; after the last, the delivery is given up.
 var Backoff = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
 
-// Webhook is a subscription with its secret opened.
+// Webhook is a subscription with its secret opened. REST hook subscriptions (Zapier, Make) belong
+// to an integration and may narrow segment events to one segment and form_submitted to one form.
 type Webhook struct {
-	ID       int64
-	TenantID int64
-	URL      string
-	Events   []string
-	Secret   string
+	ID            int64
+	TenantID      int64
+	URL           string
+	Events        []string
+	Secret        string
+	IntegrationID int64
+	SegmentID     int64
+	FormID        int64
 }
 
-func (w Webhook) wants(name string) bool {
+// ContactCreated is the event a webhook receives when a contact becomes known: a new identified
+// contact, or an anonymous visitor who identified (the moment date_identified is set).
+const ContactCreated = "contact_created"
+
+func (w Webhook) wants(p Payload) bool {
 	for _, e := range w.Events {
-		if e == "*" || e == name {
+		if e == "*" && p.Event != ContactCreated || e == p.Event {
+			switch {
+			case w.SegmentID != 0 && (p.Event == "segment_entered" || p.Event == "segment_exited") && p.SegmentID != w.SegmentID:
+				return false
+			case w.FormID != 0 && p.Event == "form_submitted" && formID(p.Props) != w.FormID:
+				return false
+			}
 			return true
 		}
 	}
 	return false
+}
+
+func formID(props map[string]any) int64 {
+	switch v := props["form_id"].(type) {
+	case float64:
+		return int64(v)
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	}
+	return 0
 }
 
 type Delivery struct {
@@ -75,6 +104,12 @@ type Delivery struct {
 type Store interface {
 	ActiveWebhooks(ctx context.Context) ([]Webhook, error)
 	RecordDelivery(ctx context.Context, d Delivery) error
+}
+
+// Unsubscriber removes a REST hook subscription whose receiver answered 410 Gone (the REST hooks
+// convention for "this subscription no longer exists").
+type Unsubscriber interface {
+	DeleteHookSubscription(ctx context.Context, webhookID int64) error
 }
 
 type Worker struct {
@@ -118,17 +153,15 @@ func (w *Worker) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	}
 	var jobs []job
 	for _, r := range recs {
-		p, ok := decode(r)
-		if !ok {
-			continue
-		}
-		hooks, err := w.forTenant(ctx, p.Workspace)
-		if err != nil {
-			return err
-		}
-		for _, h := range hooks {
-			if h.wants(p.Event) {
-				jobs = append(jobs, job{h, p})
+		for _, p := range decode(r) {
+			hooks, err := w.forTenant(ctx, p.Workspace)
+			if err != nil {
+				return err
+			}
+			for _, h := range hooks {
+				if h.wants(p) {
+					jobs = append(jobs, job{h, p})
+				}
 			}
 		}
 	}
@@ -147,29 +180,35 @@ func (w *Worker) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	return nil
 }
 
-func decode(r *kgo.Record) (Payload, bool) {
+// decode turns a record into the payloads it means: the event itself, plus contact_created when
+// this event identified the contact.
+func decode(r *kgo.Record) []Payload {
 	switch r.Topic {
 	case event.TopicEnriched:
 		var e event.Event
 		if json.Unmarshal(r.Value, &e) != nil || e.ContactID == 0 {
-			return Payload{}, false
+			return nil
 		}
-		return Payload{ID: e.ID, Event: e.Name, Ts: e.Ts, Workspace: e.TenantID, Props: e.Props,
-			Contact: PayloadContact{ID: e.ContactID, ExternalID: e.ExternalID, Attrs: e.Profile}}, true
+		contact := PayloadContact{ID: e.ContactID, ExternalID: e.ExternalID, Attrs: e.Profile}
+		out := []Payload{{ID: e.ID, Event: e.Name, Ts: e.Ts, Workspace: e.TenantID, Props: e.Props, Contact: contact}}
+		if slices.Contains(e.ChangedAttrs, event.AttrDateIdentified) && e.Profile[event.AttrMergedInto] == nil {
+			out = append(out, Payload{ID: "created:" + e.ID, Event: ContactCreated, Ts: e.Ts, Workspace: e.TenantID, Contact: contact})
+		}
+		return out
 	case event.TopicMembership:
 		var m model.MembershipChange
 		if json.Unmarshal(r.Value, &m) != nil {
-			return Payload{}, false
+			return nil
 		}
 		name := "segment_exited"
 		if m.Entered {
 			name = "segment_entered"
 		}
 		id := fmt.Sprintf("seg:%d:%d:%d:%t", m.SegmentID, m.ContactID, m.At.UnixNano(), m.Entered)
-		return Payload{ID: id, Event: name, Ts: m.At, Workspace: m.TenantID, SegmentID: m.SegmentID,
-			Contact: PayloadContact{ID: m.ContactID}}, true
+		return []Payload{{ID: id, Event: name, Ts: m.At, Workspace: m.TenantID, SegmentID: m.SegmentID,
+			Contact: PayloadContact{ID: m.ContactID}}}
 	}
-	return Payload{}, false
+	return nil
 }
 
 func (w *Worker) forTenant(ctx context.Context, tenant int64) ([]Webhook, error) {
@@ -248,6 +287,17 @@ func (w *Worker) attempt(ctx context.Context, hookID int64, eventID, name string
 	start := w.now()
 	status, err := Send(ctx, w.Client, *hook, eventID, name, body, start)
 	d.Status, d.DurationMS = status, int(time.Since(start).Milliseconds())
+	if status == http.StatusGone && hook.IntegrationID != 0 {
+		if u, ok := w.Store.(Unsubscriber); ok {
+			if derr := u.DeleteHookSubscription(context.WithoutCancel(ctx), hookID); derr != nil {
+				w.Log.Error("remove gone subscription", "webhook", hookID, "err", derr)
+			}
+			w.mu.Lock()
+			w.exp = time.Time{} // reload: stop sending to it now
+			w.mu.Unlock()
+			return
+		}
+	}
 	switch {
 	case err == nil:
 		d.Final = true

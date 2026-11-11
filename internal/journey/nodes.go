@@ -38,19 +38,20 @@ const (
 	NodeIfVisited      = "if_visited"      // has visited a page (ever, or in N days)
 
 	// Actions.
-	NodeNotifyUser    = "notify_user"    // email to workspace users, the owner or fixed addresses
-	NodeSendMessage   = "send_message"   // the first channel of a list the contact can receive
-	NodeShowFocus     = "show_focus"     // show a focus item to this contact on their next page view
-	NodePushDWC       = "push_dwc"       // this contact's content for a DWC slot
-	NodeUpdateOwner   = "update_owner"   // assign (or unassign) the contact's owner
-	NodeUpdateCompany = "update_company" // set attributes of the contact's company
-	NodeAddCompany    = "add_company"    // link the contact to a company
-	NodeCompanyPoints = "company_points" // add to the company's score
-	NodeChangeJourney = "change_journey" // enroll in / remove from other journeys
-	NodeJump          = "jump"           // continue at another step (terminal; capped)
-	NodeDNCAdd        = "dnc_add"        // add Do Not Contact
-	NodeDNCRemove     = "dnc_remove"     // remove Do Not Contact
-	NodeDeleteContact = "delete_contact" // permanently delete the contact (terminal)
+	NodeNotifyUser      = "notify_user"      // email to workspace users, the owner or fixed addresses
+	NodeSendMessage     = "send_message"     // the first channel of a list the contact can receive
+	NodeShowFocus       = "show_focus"       // show a focus item to this contact on their next page view
+	NodePushDWC         = "push_dwc"         // this contact's content for a DWC slot
+	NodeUpdateOwner     = "update_owner"     // assign (or unassign) the contact's owner
+	NodeUpdateCompany   = "update_company"   // set attributes of the contact's company
+	NodeAddCompany      = "add_company"      // link the contact to a company
+	NodeCompanyPoints   = "company_points"   // add to the company's score
+	NodeChangeJourney   = "change_journey"   // enroll in / remove from other journeys
+	NodeJump            = "jump"             // continue at another step (terminal; capped)
+	NodeDNCAdd          = "dnc_add"          // add Do Not Contact
+	NodeDNCRemove       = "dnc_remove"       // remove Do Not Contact
+	NodeDeleteContact   = "delete_contact"   // permanently delete the contact (terminal)
+	NodePushIntegration = "push_integration" // send the contact to a CRM integration (mapped fields)
 
 	// MaxJumps is how many jump steps one enrollment may take; the next one ends the journey for it.
 	MaxJumps = 25
@@ -70,6 +71,7 @@ const (
 	EventDWCRequested  = event.DWCRequested
 	EventJourneyChange = event.JourneyChange // the engine enrolls / removes (props add, remove)
 	EventJumpLimit     = event.JourneyJumpLimit
+	EventPushFailed    = "integration_push_failed" // a push_integration step couldn't reach the CRM: props integration_id, error
 )
 
 // ChannelMessage is one channel of a send_message step.
@@ -94,7 +96,7 @@ var kinds = map[string]kind{
 	NodeIfDNC: kindCondition, NodeIfBefore: kindCondition, NodeIfVisited: kindCondition,
 	NodeNotifyUser: kindAction, NodeSendMessage: kindAction, NodeShowFocus: kindAction, NodePushDWC: kindAction,
 	NodeUpdateOwner: kindAction, NodeUpdateCompany: kindAction, NodeAddCompany: kindAction, NodeCompanyPoints: kindAction,
-	NodeChangeJourney: kindAction, NodeDNCAdd: kindAction, NodeDNCRemove: kindAction,
+	NodeChangeJourney: kindAction, NodeDNCAdd: kindAction, NodeDNCRemove: kindAction, NodePushIntegration: kindAction,
 	NodeJump: kindTerminal, NodeDeleteContact: kindTerminal,
 }
 
@@ -403,6 +405,10 @@ func (g Graph) validNew(id string, n Node) (bool, error) {
 	case NodeDeleteContact:
 		if n.Confirm != DeleteConfirm {
 			return fail("type DELETE to confirm: this permanently deletes the contact")
+		}
+	case NodePushIntegration:
+		if n.IntegrationID <= 0 {
+			return fail("choose the integration to push the contact to")
 		}
 	default:
 		return false, nil

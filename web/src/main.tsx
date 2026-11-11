@@ -26,6 +26,7 @@ import { Access, Attributes, Scoring, Team } from "./pages/Settings";
 import { Roles } from "./pages/Roles";
 import { AuditLog } from "./pages/Audit";
 import { WebhookEdit, WebhookList } from "./pages/Webhooks";
+import { IntegrationEdit, IntegrationList } from "./pages/Integrations";
 import { Imports } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
@@ -97,6 +98,8 @@ const router = createBrowserRouter([
       { path: "settings/data", element: <DataPrivacy /> },
       { path: "settings/webhooks", element: <WebhookList /> },
       { path: "settings/webhooks/:id", element: <WebhookEdit /> },
+      { path: "settings/integrations", element: <IntegrationList /> },
+      { path: "settings/integrations/:id", element: <IntegrationEdit /> },
       { path: "imports", element: <Imports /> },
     ],
   },

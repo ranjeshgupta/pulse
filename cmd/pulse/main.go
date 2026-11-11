@@ -7,6 +7,8 @@
 //	pulse segments  events.enriched -> segment membership (+ backfills and sweeps)
 //	pulse journeys  segment.membership, events.enriched -> journey steps (+ timers)
 //	pulse dispatch  messages.email -> SMTP
+//	pulse webhooks  events -> customers' outbound webhooks (and Zapier / Make subscriptions)
+//	pulse integrations  CRM pulls on a schedule, ad audience sync (segment.membership, events.enriched)
 //	pulse all       migrate, then every role in one process (local development)
 //
 // In production each role is its own deployment and scales on its own Kafka consumer group.
@@ -14,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -37,6 +40,7 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/geoip"
 	"pulse/internal/importer"
+	"pulse/internal/integrations"
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
 	"pulse/internal/maintenance"
@@ -55,21 +59,22 @@ import (
 )
 
 var roles = map[string]func(context.Context, *deps) error{
-	"migrate":  runMigrate,
-	"api":      runAPI,
-	"profile":  runProfile,
-	"chsink":   runCHSink,
-	"segments": runSegments,
-	"journeys": runJourneys,
-	"dispatch": runDispatch,
-	"webhooks": runWebhooks,
-	"all":      runAll,
+	"migrate":      runMigrate,
+	"api":          runAPI,
+	"profile":      runProfile,
+	"chsink":       runCHSink,
+	"segments":     runSegments,
+	"journeys":     runJourneys,
+	"dispatch":     runDispatch,
+	"webhooks":     runWebhooks,
+	"integrations": runIntegrations,
+	"all":          runAll,
 }
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if len(os.Args) < 2 || roles[os.Args[1]] == nil {
-		fmt.Fprintln(os.Stderr, "usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|all")
+		fmt.Fprintln(os.Stderr, "usage: pulse migrate|api|profile|chsink|segments|journeys|dispatch|webhooks|integrations|all")
 		os.Exit(2)
 	}
 	role := os.Args[1]
@@ -143,6 +148,31 @@ func (d *deps) box() (*auth.Box, error) {
 		return nil, nil
 	}
 	return auth.NewBox(d.cfg.SecretKey)
+}
+
+// integrations builds the integrations service (CRM pulls and pushes) with the SSRF-safe client.
+func (d *deps) integrations(ctx context.Context, box *auth.Box) (*integrations.Service, error) {
+	pgs, err := d.pg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prod, err := d.producer()
+	if err != nil {
+		return nil, err
+	}
+	var open func([]byte) (map[string]string, error)
+	if box != nil {
+		open = func(sealed []byte) (map[string]string, error) {
+			b, err := box.Open(sealed)
+			if err != nil {
+				return nil, err
+			}
+			var m map[string]string
+			return m, json.Unmarshal(b, &m)
+		}
+	}
+	return &integrations.Service{Store: pgs, Open: open, HTTP: safehttp.Client(30*time.Second, d.cfg.AllowPrivateWebhooks),
+		Pub: prod, Log: d.log, Now: time.Now}, nil
 }
 
 // tracking builds the email link codec (nil without a secret key: emails then go out untracked).
@@ -330,6 +360,14 @@ func runJourneys(ctx context.Context, d *deps) error {
 	}
 	sender := journey.KafkaSender{Pub: prod}
 	rdb := d.redis()
+	box, err := d.box()
+	if err != nil {
+		return err
+	}
+	ints, err := d.integrations(ctx, box)
+	if err != nil {
+		return err
+	}
 	chs, err := d.ch(ctx)
 	if err != nil {
 		return err
@@ -339,13 +377,14 @@ func runJourneys(ctx context.Context, d *deps) error {
 		Counters: func(tenant int64, contact uint32, asOf time.Time) segment.Counter {
 			return segment.NewRedisCounter(rdb, tenant, contact, asOf)
 		},
-		HTTP:    safehttp.Client(10*time.Second, d.cfg.AllowPrivateWebhooks),
-		Data:    pgs,
-		Onsite:  onsite.Pushes{RDB: rdb},
-		History: chs,
-		Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
-		MX:      &journey.DNSChecker{},
-		Stats:   journey.RedisStepStats{RDB: rdb},
+		HTTP:         safehttp.Client(10*time.Second, d.cfg.AllowPrivateWebhooks),
+		Data:         pgs,
+		Onsite:       onsite.Pushes{RDB: rdb},
+		History:      chs,
+		Deleter:      &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
+		MX:           &journey.DNSChecker{},
+		Stats:        journey.RedisStepStats{RDB: rdb},
+		Integrations: ints,
 	}, d.log)
 	if err := eng.Refresh(ctx); err != nil {
 		return err
@@ -510,6 +549,33 @@ func runWebhooks(ctx context.Context, d *deps) error {
 	return g.Wait()
 }
 
+// runIntegrations pulls CRM contacts on schedule and keeps ad audiences in step with segments.
+func runIntegrations(ctx context.Context, d *deps) error {
+	pgs, err := d.pg(ctx)
+	if err != nil {
+		return err
+	}
+	box, err := d.box()
+	if err != nil {
+		return err
+	}
+	svc, err := d.integrations(ctx, box)
+	if err != nil {
+		return err
+	}
+	syncer := &integrations.Syncer{Store: pgs, Members: integrations.RedisMembers{RDB: d.redis()}, Service: svc, Log: d.log}
+	c, err := d.consumer("pulse-integrations", integrations.AudienceTopics()...)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return c.RunPartitionBatches(ctx, syncer.HandleBatch) })
+	g.Go(func() error { return syncer.Run(ctx, d.cfg.AudienceReconcile) })
+	g.Go(func() error { return svc.RunPulls(ctx, 10*time.Second) })
+	return g.Wait()
+}
+
 func runAll(ctx context.Context, d *deps) error {
 	if err := runMigrate(ctx, d); err != nil {
 		return err
@@ -520,6 +586,7 @@ func runAll(ctx context.Context, d *deps) error {
 	}{
 		{"api", runAPI}, {"profile", runProfile}, {"chsink", runCHSink},
 		{"segments", runSegments}, {"journeys", runJourneys}, {"dispatch", runDispatch}, {"webhooks", runWebhooks},
+		{"integrations", runIntegrations},
 	}
 	g, ctx := errgroup.WithContext(ctx)
 	for _, w := range workers {

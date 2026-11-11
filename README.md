@@ -74,9 +74,32 @@ and journeys within seconds, not on a 15-minute cron.
   change campaigns, jump to step (25 jumps per enrollment at most), Do Not Contact, delete contact (typed confirmation),
   where deleting, removing DNC and owner / company steps need contacts edit access, and conditions on campaigns, form fields, notifications, valid email (MX), DNC, a date and page
   history. The canvas has Yes/No colours, step numbers, Tidy up, zoom to fit, minimap, undo/redo and per-step counts.
-  Mapping: [docs/05-feature-parity.md](docs/05-feature-parity.md#campaign-builder-batch-7b). Push to integration waits for
-  batch 8.
-- **Still to build:** the campaign builder part of batch 7b, then the rest of P2 in the feature-parity doc (batch 8).
+  Mapping: [docs/05-feature-parity.md](docs/05-feature-parity.md#campaign-builder-batch-7b).
+- **Batch 8a, integrations and audience sync (done):** Settings → Integrations, a connector registry per workspace
+  (credentials sealed with `PULSE_SECRET_KEY` and only ever shown masked, a status, last sync, a sync log, Test connection
+  and previews):
+  - **HubSpot** (private app token) and **Salesforce** (connected app, client credentials; Contact or Lead): contacts
+    pulled on a schedule (15 minutes to a day) through a field mapping (remote field ↔ attribute, both ways, into Pulse or
+    out to the CRM; reserved attributes can only be pushed), as `crm_synced` events keeping `hubspot_id` /
+    `salesforce_id`; a contact is pushed on demand (`POST /v1/integrations/{id}/push`) or by the journey step
+    **Push contact to integration** (`push_integration`; a failed push records `integration_push_failed` and the journey
+    carries on).
+  - **Shopify**: `POST /v1/webhooks/shopify/{id}` takes orders/create, customers/create and checkouts/create|update,
+    verified with Shopify's HMAC, as `order_completed` (amount, revenue, currency, items: set Analyze → Revenue to
+    `order_completed` / `amount`), `customer_created` and `cart_updated` (abandoned carts) on the contact with that email
+    or phone.
+  - **Zapier / Make** (REST hooks): the connector has its own API key (`pzk_…`); `/v1/hooks/subscriptions` subscribes a
+    URL to `contact_created`, `segment_entered` / `segment_exited` (optionally one segment), `form_submitted` (optionally
+    one form) or any event, delivered like outbound webhooks (signed, retried, a 410 unsubscribes); actions
+    `/v1/hooks/contacts`, `/v1/hooks/events`, `/v1/hooks/tags`.
+  - **Audience sync**: link a segment to a Facebook Custom Audience or a Google Ads Customer Match list (existing, or
+    created by Pulse). Members go up as SHA-256 hashes of the normalised email and phone (E.164), in batches; entries and
+    exits stream from `segment.membership`, consent and address changes from `events.enriched`, with a full reconcile
+    every `PULSE_AUDIENCE_RECONCILE_INTERVAL`. Contacts unsubscribed from everything are never uploaded. Linking needs
+    settings and segments edit access.
+  Every remote base URL is a setting (the real one by default), and every call goes through the SSRF-guarded client.
+- **Still to build:** the rest of batch 8 (native SDKs, RCS replies, bounce mailbox, push click tracking, form uploads,
+  audit export), then batch 9 in the feature-parity doc.
 
 ## Run it
 
@@ -120,7 +143,8 @@ with `attrs.company` from your server), consent (`unsubscribed` / `resubscribed`
 | `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links, webhook secrets and download links (form-gated assets, attachment links for the custom gateway need it) |
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
-| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks and the custom gateway call private addresses (development only) |
+| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks, the custom gateway and integrations (CRM, Shopify, ad platform APIs) call private addresses (development only) |
+| `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | How often each ad audience sync re-checks its whole segment (entries and exits stream in between) |
 | `PULSE_GEOIP_DB` | none | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file (download with a free MaxMind licence key, e.g. via `geoipupdate`); unset turns geolocation off |
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often retention cleanup runs |
 | `PULSE_PAGES_URL` | none | A separate origin for landing pages, asset downloads and hosted forms, e.g. `https://pages.example.com`. **Set it in production**: workspace-authored pages then never share an origin or cookies with the app (no lookalike login pages on the app's domain); those paths redirect there, and that host serves nothing else |
@@ -154,13 +178,15 @@ curl -s localhost:7080/v1/contacts/u1 -H "Authorization: Bearer $KEY"   # profil
 ## Layout
 
 ```
-cmd/pulse/          one binary, one role per argument (migrate, api, profile, chsink, segments, journeys, dispatch, all)
+cmd/pulse/          one binary, one role per argument (migrate, api, profile, chsink, segments, journeys, dispatch,
+                    webhooks, integrations, all)
 internal/segment/   rule AST, Go evaluator, ClickHouse SQL compiler, Redis bitmaps and day counters
 internal/segengine/ streaming membership, backfill, sweep
 internal/journey/   graph validation, executor, triggers and durable timers
 internal/dispatch/  email: idempotency, token bucket, templates, SMTP
 internal/profile/   identity resolution, attribute merge
 internal/chsink/    events.enriched -> ClickHouse
+internal/integrations/ CRM, Shopify, REST hook and ad audience connectors; audience sync
 internal/api/       HTTP API
 internal/store/     Postgres and ClickHouse stores
 migrations/         embedded SQL

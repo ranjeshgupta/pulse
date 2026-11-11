@@ -11,6 +11,7 @@ export type Names = {
   segments?: Record<number, string>; templates?: Record<number, string>; forms?: Record<number, string>;
   assets?: Record<number, string>; pages?: Record<number, string>; focus?: Record<number, string>;
   users?: Record<number, string>; companies?: Record<number, string>; journeys?: Record<number, string>;
+  integrations?: Record<number, string>;
   /** Dynamic Web Content slot names by slot key. */
   slots?: Record<string, string>;
   refs?: RefNames;
@@ -87,6 +88,7 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
       return cs.length ? `Send by ${cs.join(", then ")}` : "Choose channels";
     }
     case "show_focus": return n.focus_id ? `Show ${name(names.focus, n.focus_id, "focus item")} on their next page view` : "Choose a focus item";
+    case "push_integration": return n.integration_id ? `Push to ${name(names.integrations, n.integration_id, "integration")}` : "Choose a CRM";
     case "push_dwc": return n.slot ? `Set ${q(names.slots?.[n.slot] ?? n.slot)} for ${n.days ?? 30} days` : "Choose a slot";
     case "update_attr": return Object.entries(n.attrs ?? {}).map(([k, v]) => `${k} = ${String(v)}`).join(", ") || "Set fields";
     case "update_owner": return n.owner_id === undefined ? "Choose an owner" : n.owner_id === 0 ? "Remove the owner" : `Assign to ${names.users?.[n.owner_id] ?? `user ${n.owner_id}`}`;

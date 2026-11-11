@@ -66,6 +66,12 @@ type MXChecker interface {
 	AcceptsMail(ctx context.Context, domain string) bool
 }
 
+// Pusher sends a contact to an integration (a CRM) through its field mapping and returns the
+// remote record's id. eventID makes the recorded crm_pushed event idempotent.
+type Pusher interface {
+	PushContact(ctx context.Context, tenant, integration int64, c model.Contact, eventID string) (string, error)
+}
+
 // StepCounter counts contacts per step and output: "entered", "yes", "no", "v0".. (best effort).
 type StepCounter interface {
 	Count(ctx context.Context, tenant, journey int64, step, output string)
@@ -345,6 +351,22 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 		}
 		en.Jumps = jumps
 		return n.Target, false, nil
+
+	case NodePushIntegration:
+		if err := need(x.Integrations != nil); err != nil {
+			return "", false, err
+		}
+		// Like the webhook step, a failed push is recorded and the journey carries on: one CRM
+		// outage must never stall everyone behind it.
+		_, err := x.Integrations.PushContact(ctx, en.TenantID, n.IntegrationID, *c, "jpush:"+StepKey(*en, id))
+		if err != nil {
+			if ctx.Err() != nil {
+				return "", false, ctx.Err()
+			}
+			return n.Next, false, x.publish(ctx, *en, id, c, 0, EventPushFailed,
+				map[string]any{"integration_id": n.IntegrationID, "error": err.Error()})
+		}
+		return n.Next, false, nil
 
 	case NodeDeleteContact:
 		if err := need(x.Deleter != nil); err != nil {

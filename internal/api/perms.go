@@ -25,6 +25,7 @@ var areaByPrefix = map[string]string{
 	"revenue":  auth.AreaReports,
 	"channels": auth.AreaChannels, "sandbox": auth.AreaChannels,
 	"settings": auth.AreaSettings, "users": auth.AreaSettings, "roles": auth.AreaSettings, "audit": auth.AreaSettings,
+	"integrations": auth.AreaSettings, // audience links also need segments edit (checked in the handler)
 }
 
 // special lists routes whose need differs from the method rule.
@@ -64,6 +65,7 @@ var special = map[string]need{
 	"GET /v1/events/{name}/values":                    {auth.AreaContacts, auth.View},
 	"GET /v1/audit":                                   {auth.AreaSettings, auth.Edit},
 	"GET /v1/channels/catalog":                        {auth.AreaChannels, auth.View},
+	"GET /v1/integrations/{id}/fields":                {auth.AreaSettings, auth.Edit}, // calls the CRM with the stored credentials
 }
 
 type need struct {

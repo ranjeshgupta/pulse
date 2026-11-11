@@ -1,7 +1,7 @@
 package api
 
 // Checks of what a journey refers to that only the workspace knows: stages, users, other journeys,
-// focus items, companies, email templates; and who may save a journey that deletes contacts, removes
+// focus items, companies, email templates, integrations; and who may save a journey that deletes contacts, removes
 // Do Not Contact or changes owners and companies.
 
 import (
@@ -14,6 +14,7 @@ import (
 
 	"pulse/internal/auth"
 	"pulse/internal/channel"
+	"pulse/internal/integrations"
 	"pulse/internal/journey"
 	"pulse/internal/model"
 	"pulse/internal/store/pg"
@@ -158,6 +159,20 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 				} else if err != nil {
 					return err
 				}
+			}
+		case journey.NodePushIntegration:
+			is, ok := s.Store.(IntegrationStore)
+			if !ok {
+				continue
+			}
+			c, err := is.GetIntegration(ctx, tenant, n.IntegrationID)
+			if errors.Is(err, pg.ErrNotFound) {
+				return bad(id, "integration %d doesn't exist", n.IntegrationID)
+			} else if err != nil {
+				return err
+			}
+			if k, _ := integrations.Lookup(c.Kind); !k.Push {
+				return bad(id, "%s can't receive contacts; choose a CRM integration", k.Name)
 			}
 		}
 	}

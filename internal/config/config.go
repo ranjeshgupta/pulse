@@ -40,6 +40,8 @@ type Config struct {
 	GeoIPDB string
 	// MaintenanceInterval is how often retention cleanup runs.
 	MaintenanceInterval time.Duration
+	// AudienceReconcile is how often each audience sync re-checks its whole segment (ad audiences).
+	AudienceReconcile time.Duration
 }
 
 func Load() Config {
@@ -67,6 +69,7 @@ func Load() Config {
 		GeoIPDB:              env("PULSE_GEOIP_DB", ""),
 		PagesURL:             env("PULSE_PAGES_URL", ""),
 		MaintenanceInterval:  envDuration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
+		AudienceReconcile:    envDuration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
 	}
 }
 

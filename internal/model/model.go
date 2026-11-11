@@ -431,6 +431,11 @@ type Webhook struct {
 	Sealed    []byte    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// REST hook subscriptions (Zapier, Make) belong to an integration and may narrow segment
+	// events to one segment and form_submitted to one form.
+	IntegrationID int64 `json:"integration_id,omitempty"`
+	SegmentID     int64 `json:"segment_id,omitempty"`
+	FormID        int64 `json:"form_id,omitempty"`
 }
 
 type WebhookDelivery struct {

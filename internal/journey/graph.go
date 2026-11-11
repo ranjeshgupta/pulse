@@ -175,6 +175,7 @@ type Node struct {
 	RemoveJourneys   []int64          `json:"remove_journeys,omitempty"`   // change_journey
 	Target           string           `json:"target,omitempty"`            // jump
 	Confirm          string           `json:"confirm,omitempty"`           // delete_contact: "DELETE"
+	IntegrationID    int64            `json:"integration_id,omitempty"`    // push_integration: a CRM connector
 	// UI layout, ignored by the engine.
 	X float64 `json:"x,omitempty"`
 	Y float64 `json:"y,omitempty"`

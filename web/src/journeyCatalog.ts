@@ -22,7 +22,7 @@ export type JourneyItem = {
   id: string; category: StepGroup; label: string; description: string; icon: JIconName;
   /** Extra words search matches. */
   keywords?: string;
-  /** The step type it inserts (for the canvas colour); push_integration never inserts. */
+  /** The step type it inserts (for the canvas colour). */
   type: string;
   /** The new step's fields; given the graph and insertion point it can preselect, e.g. the email to watch. */
   make: (g?: JourneyGraph, at?: InsertAt) => Partial<JourneyNode> & { type: string };
@@ -165,8 +165,7 @@ const DEFS: Def[] = [
     description: "Permanently delete the contact and all their data.",
     disabled: (g, at, ctx) => needsContacts(g, at, ctx) ?? endsPath("delete_contact")(g, at) },
   { id: "push_integration", category: "action", type: "push_integration", label: "Push contact to integration", icon: "plug", keywords: "crm salesforce hubspot",
-    description: "Send the contact to a connected CRM or tool.", make: () => ({ type: "push_integration" }),
-    disabled: () => "Coming with integrations (batch 8)" },
+    description: "Send the contact to a connected CRM (HubSpot, Salesforce) through its field mapping." },
   { id: "exit", category: "action", type: "exit", label: "Exit journey", icon: "exit", keywords: "end stop finish", description: "End the journey here." },
 
   // ---- Waits ----
