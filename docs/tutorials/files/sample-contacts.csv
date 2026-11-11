@@ -1,0 +1,9 @@
+customer_id,email,first_name,last_name,mobile,city,plan,lifetime_value,loyalty_member,tags,notes
+store-1001,kavya.iyer@example.com,Kavya,Iyer,+91 98200 11001,Pune,pro,18450,yes,store-pune;diwali-2026,Asked about gift cards
+store-1002,rohan.desai@example.com,Rohan,Desai,+91 98200 11002,Pune,free,2300,no,store-pune,
+store-1003,ananya.kulkarni@example.com,Ananya,Kulkarni,+91 98200 11003,Mumbai,team,40210,yes,store-mumbai;diwali-2026,
+store-1004,vikram.joshi@example.com,Vikram,Joshi,+91 98200 11004,Pune,pro,9875,yes,store-pune,
+store-1005,farah.khan@example.com,Farah,Khan,+91 98200 11005,Mumbai,free,unknown,no,store-mumbai,Paid in cash
+store-1006,kabir.sethi@example.com,Kabir,Sethi,+91 98200 11006,Pune,free,1200,no,store-pune,
+store-1007,kabir.sethi@example.com,Kabir,Sethi,,Pune,free,,no,store-pune,Signed up again at the till
+,,Guest,,,Pune,,,,store-pune,No contact details
