@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"pulse/internal/attr"
+	"pulse/internal/auth"
 	"pulse/internal/model"
 	"pulse/internal/segment"
 )
@@ -262,6 +263,10 @@ func ownerFilter(val string, lk viewLookup, users *[]model.User, loaded *bool) (
 		}
 		return lk.Me, "me", nil
 	}
+	if lk.Users == nil {
+		// The team list needs view access to settings; don't let the filter look teammates up.
+		return 0, "", errors.New("filtering by a teammate needs view access to settings; use owner:me or owner:none")
+	}
 	if !*loaded {
 		var err error
 		if *users, err = lk.Users(); err != nil {
@@ -354,11 +359,14 @@ func contains(list []string, v string) bool {
 
 // parseViewRequest reads ?q= for the signed-in principal.
 func (s *Server) parseViewRequest(r *http.Request, p model.Principal) (contactView, error) {
-	return parseContactView(r.URL.Query().Get("q"), viewLookup{
+	lk := viewLookup{
 		Segments: func() ([]model.Segment, error) { return s.Store.ListSegments(r.Context(), p.TenantID) },
-		Users:    func() ([]model.User, error) { return s.Store.ListUsers(r.Context(), p.TenantID) },
 		Me:       p.UserID,
-	})
+	}
+	if p.Perms.Allows(auth.AreaSettings, auth.View) { // the same access GET /v1/users needs
+		lk.Users = func() ([]model.User, error) { return s.Store.ListUsers(r.Context(), p.TenantID) }
+	}
+	return parseContactView(r.URL.Query().Get("q"), lk)
 }
 
 // searchContacts: GET /v1/contacts?q=&after=&limit=. Without filters or text it pages through

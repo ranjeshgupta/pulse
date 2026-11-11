@@ -92,6 +92,22 @@ func TestParseContactViewErrors(t *testing.T) {
 }
 
 // Every view compiles to a valid rule, and the free-text search becomes no part of it.
+func TestOwnerFilterWithoutTeamAccess(t *testing.T) {
+	lk := testLookup()
+	lk.Users = nil // no view access to settings
+	for _, q := range []string{"owner:me", "owner:none"} {
+		if _, err := parseContactView(q, lk); err != nil {
+			t.Errorf("%s: %v", q, err)
+		}
+	}
+	for _, q := range []string{"owner:ravi@example.com", "owner:Ravi", "owner:7"} {
+		_, err := parseContactView(q, lk)
+		if err == nil || !strings.Contains(err.Error(), "view access to settings") || strings.Contains(err.Error(), "ravi") {
+			t.Errorf("%s looked up a teammate without team access: %v", q, err)
+		}
+	}
+}
+
 func TestContactViewRuleCompiles(t *testing.T) {
 	v, err := parseContactView(`is:dnc segment:4 tag:vip stage:Lead company:Acme owner:7 points:>=10 email:x name:"asha k" free`, testLookup())
 	if err != nil {
