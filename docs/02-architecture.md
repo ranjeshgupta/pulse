@@ -336,7 +336,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   the request's `secrets` object like any key containing "secret" or "token".
 - **Outbound calls** use `safehttp.Client` (`PULSE_ALLOW_PRIVATE_WEBHOOKS` lets them reach private addresses, for local
   mocks). Every remote base URL (HubSpot API, Salesforce My Domain, Shopify admin, Graph API, Google Ads API and token
-  URL) is a connector setting defaulting to the real one.
+  URL) is a connector setting defaulting to the real one 
+  (`Field.Hosts`, `CheckHosts`): outside local development (`PULSE_ALLOW_PRIVATE_WEBHOOKS`) it must be https on the vendor's own hosts (api.hubapi.com, *.salesforce.com, *.myshopify.com, graph.facebook.com, googleads / oauth2.googleapis.com), and changing any URL or the shop domain discards the stored credentials, so they must be entered again (`EndpointsChanged`).
 - **CRM pulls.** `ClaimDuePulls` claims due connectors with `FOR UPDATE SKIP LOCKED` and moves `next_sync_at` forward,
   so any number of workers share them. A pull asks for records modified at or after the cursor (`<time> <ids at that
   time>`, so the last records aren't recorded twice), oldest first, 1,000 at most (more are due at once), and publishes

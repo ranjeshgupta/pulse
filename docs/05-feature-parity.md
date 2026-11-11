@@ -375,7 +375,8 @@ a journey"; point groups; Mautic's regexp operator.
 credentials (sealed with the server key; the API and app show them masked, e.g. `••••••••a1b2`, and a field left empty or
 sent back masked keeps the stored value), a status (new / ok / error with the last error), its last sync and a week of
 sync log. Every type has Test connection (except Zapier / Make, which never calls out) and a preview. Every remote base
-URL is a setting with the real API as default. Creating, changing and deleting connectors needs settings edit access;
+URL is a setting with the real API as default, limited to the vendor's hosts outside local development; changing it
+means entering the credentials again. Creating, changing and deleting connectors needs settings edit access;
 viewing them needs settings view (journey editors pick a CRM for the push step).
 
 | Connector | What Pulse does | Approximate / missing |

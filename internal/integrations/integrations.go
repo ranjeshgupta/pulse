@@ -46,6 +46,9 @@ type Field struct {
 	Hint        string `json:"hint,omitempty"`
 	Default     string `json:"default,omitempty"`
 	Required    bool   `json:"required"`
+	// Hosts pins a URL setting to the vendor's hosts: an exact name, or ".suffix" for any subdomain.
+	// Credentials are sent there, so other hosts are allowed only in local development.
+	Hosts []string `json:"-"`
 }
 
 // Kind is one connector type in the catalog the web app renders.
@@ -81,7 +84,7 @@ var kinds = []Kind{
 		ID: KindHubSpot, Name: "HubSpot", Category: "crm",
 		Description: "Pull HubSpot contacts on a schedule and push Pulse contacts to HubSpot. Uses a private app access token with the crm.objects.contacts read and write scopes.",
 		Config: []Field{
-			{Key: "base_url", Label: "API base URL", Default: "https://api.hubapi.com", Hint: "Change only for testing."},
+			{Key: "base_url", Label: "API base URL", Default: "https://api.hubapi.com", Hint: "Change only for testing.", Hosts: []string{"api.hubapi.com", "api.hubspot.com"}},
 		},
 		Secrets: []Field{{Key: "access_token", Label: "Private app access token", Placeholder: "pat-na1-…", Required: true}},
 		Pull:    true, Push: true, RemoteID: "hubspot_id",
@@ -93,7 +96,7 @@ var kinds = []Kind{
 		Description: "Pull Salesforce contacts or leads on a schedule and push Pulse contacts to Salesforce. Uses a connected app with the OAuth client credentials flow.",
 		Config: []Field{
 			{Key: "login_url", Label: "My Domain URL", Placeholder: "https://yourcompany.my.salesforce.com", Required: true,
-				Hint: "The client credentials flow needs your My Domain URL, not login.salesforce.com."},
+				Hint: "The client credentials flow needs your My Domain URL, not login.salesforce.com.", Hosts: []string{".salesforce.com"}},
 			{Key: "object", Label: "Object", Default: "Contact", Hint: "Contact or Lead."},
 			{Key: "api_version", Label: "API version", Default: "v60.0"},
 		},
@@ -110,7 +113,7 @@ var kinds = []Kind{
 		Description: "Turn Shopify orders, new customers and checkouts into Pulse events: order_completed (with revenue), customer_created and cart_updated for abandoned-cart journeys.",
 		Config: []Field{
 			{Key: "shop", Label: "Shop domain", Placeholder: "your-store.myshopify.com", Required: true},
-			{Key: "base_url", Label: "Admin API base URL", Hint: "Empty uses https://<shop domain>. Change only for testing."},
+			{Key: "base_url", Label: "Admin API base URL", Hint: "Empty uses https://<shop domain>. Change only for testing.", Hosts: []string{".myshopify.com"}},
 			{Key: "api_version", Label: "Admin API version", Default: "2024-10"},
 		},
 		Secrets: []Field{
@@ -131,7 +134,7 @@ var kinds = []Kind{
 		Config: []Field{
 			{Key: "ad_account_id", Label: "Ad account ID", Placeholder: "act_1234567890 or 1234567890", Required: true},
 			{Key: "default_country", Label: "Default country calling code", Placeholder: "91", Hint: "For phone numbers saved without +country."},
-			{Key: "base_url", Label: "Graph API base URL", Default: "https://graph.facebook.com/v21.0", Hint: "Change only for testing."},
+			{Key: "base_url", Label: "Graph API base URL", Default: "https://graph.facebook.com/v21.0", Hint: "Change only for testing.", Hosts: []string{"graph.facebook.com"}},
 		},
 		Secrets:   []Field{{Key: "access_token", Label: "System user access token", Required: true, Hint: "Needs ads_management on the ad account."}},
 		Audiences: true,
@@ -143,8 +146,8 @@ var kinds = []Kind{
 			{Key: "customer_id", Label: "Customer ID", Placeholder: "123-456-7890", Required: true},
 			{Key: "login_customer_id", Label: "Manager account ID (optional)", Hint: "When you reach the account through a manager account."},
 			{Key: "default_country", Label: "Default country calling code", Placeholder: "91", Hint: "For phone numbers saved without +country."},
-			{Key: "base_url", Label: "Google Ads API base URL", Default: "https://googleads.googleapis.com/v18", Hint: "Change only for testing."},
-			{Key: "token_url", Label: "OAuth token URL", Default: "https://oauth2.googleapis.com/token", Hint: "Change only for testing."},
+			{Key: "base_url", Label: "Google Ads API base URL", Default: "https://googleads.googleapis.com/v18", Hint: "Change only for testing.", Hosts: []string{"googleads.googleapis.com"}},
+			{Key: "token_url", Label: "OAuth token URL", Default: "https://oauth2.googleapis.com/token", Hint: "Change only for testing.", Hosts: []string{"oauth2.googleapis.com"}},
 		},
 		Secrets: []Field{
 			{Key: "developer_token", Label: "Developer token", Required: true},
@@ -267,6 +270,55 @@ func MappableAttr(a string) string {
 }
 
 // Validate checks a connector before it's saved; secrets are the merged (stored + edited) ones.
+// CheckHosts refuses URL settings outside their vendor's hosts (see Field.Hosts), and plain http,
+// unless anyHost (local development, PULSE_ALLOW_PRIVATE_WEBHOOKS) allows test servers.
+func CheckHosts(c Connector, anyHost bool) error {
+	k, ok := Lookup(c.Kind)
+	if !ok || anyHost {
+		return nil
+	}
+	for _, f := range k.Config {
+		v := strings.TrimSpace(c.Config[f.Key])
+		if v == "" || len(f.Hosts) == 0 {
+			continue
+		}
+		u, err := url.Parse(v)
+		if err != nil || u.Scheme != "https" || !HostAllowed(u.Hostname(), f.Hosts) {
+			return fmt.Errorf("%s must be an https URL on %s", f.Label, strings.Join(f.Hosts, " or "))
+		}
+	}
+	return nil
+}
+
+// HostAllowed matches host against exact names and ".suffix" patterns.
+func HostAllowed(host string, hosts []string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, h := range hosts {
+		if strings.HasPrefix(h, ".") && strings.HasSuffix(host, h) && len(host) > len(h) || host == h {
+			return true
+		}
+	}
+	return false
+}
+
+// EndpointsChanged reports whether any setting that decides where credentials go (URLs, the shop)
+// differs between two configs: stored secrets must then be entered again.
+func EndpointsChanged(before, after map[string]string) bool {
+	keys := map[string]bool{}
+	for k := range before {
+		keys[k] = true
+	}
+	for k := range after {
+		keys[k] = true
+	}
+	for k := range keys {
+		if (strings.HasSuffix(k, "_url") || k == "shop") && strings.TrimSpace(before[k]) != strings.TrimSpace(after[k]) {
+			return true
+		}
+	}
+	return false
+}
+
 func Validate(c Connector, secrets map[string]string) error {
 	k, ok := Lookup(c.Kind)
 	if !ok {

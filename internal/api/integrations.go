@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -240,6 +241,7 @@ func (s *Server) saveIntegration(w http.ResponseWriter, r *http.Request, p model
 		}
 	}
 	k, _ := integrations.Lookup(c.Kind)
+	prevConfig := maps.Clone(c.Config)
 	if req.Name != "" || r.Method == http.MethodPost {
 		c.Name = strings.TrimSpace(req.Name)
 	}
@@ -268,6 +270,14 @@ func (s *Server) saveIntegration(w http.ResponseWriter, r *http.Request, p model
 	}
 	if !k.Pull {
 		c.SyncMinutes = 0
+	}
+	if r.Method == http.MethodPut && integrations.EndpointsChanged(prevConfig, c.Config) {
+		// Never send stored credentials to a new address: whoever changes it enters them again.
+		c.Secrets = map[string]string{}
+	}
+	if err := integrations.CheckHosts(c, s.AllowPrivateWebhooks); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	merged := integrations.MergeSecrets(c.Secrets, req.Secrets)
 	if err := integrations.Validate(c, merged); err != nil {

@@ -81,6 +81,41 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestEndpointHosts(t *testing.T) {
+	hs := Connector{Kind: KindHubSpot, Name: "H", Config: map[string]string{"base_url": "https://evil.test"}}
+	if err := CheckHosts(hs, false); err == nil || !strings.Contains(err.Error(), "api.hubapi.com") {
+		t.Errorf("a HubSpot token could go to another host: %v", err)
+	}
+	if CheckHosts(hs, true) != nil {
+		t.Error("local development may use test servers")
+	}
+	for _, tc := range []struct {
+		kind, key, url string
+		ok             bool
+	}{
+		{KindHubSpot, "base_url", "https://api.hubapi.com", true},
+		{KindHubSpot, "base_url", "http://api.hubapi.com", false},
+		{KindSalesforce, "login_url", "https://acme.my.salesforce.com", true},
+		{KindSalesforce, "login_url", "https://evilsalesforce.com", false},
+		{KindSalesforce, "login_url", "https://salesforce.com.evil.test", false},
+		{KindShopify, "base_url", "https://shop.myshopify.com", true},
+		{KindFacebook, "base_url", "https://graph.facebook.com/v21.0", true},
+		{KindGoogleAds, "token_url", "https://oauth2.googleapis.com.evil.test/token", false},
+	} {
+		c := Connector{Kind: tc.kind, Config: map[string]string{tc.key: tc.url}}
+		if err := CheckHosts(c, false); (err == nil) != tc.ok {
+			t.Errorf("%s %s: err %v", tc.kind, tc.url, err)
+		}
+	}
+	if EndpointsChanged(map[string]string{"base_url": "https://a"}, map[string]string{"base_url": "https://a", "object": "Lead"}) {
+		t.Error("other settings don't touch the credentials")
+	}
+	if !EndpointsChanged(map[string]string{}, map[string]string{"base_url": "https://b"}) ||
+		!EndpointsChanged(map[string]string{"shop": "a.myshopify.com"}, map[string]string{"shop": "b.myshopify.com"}) {
+		t.Error("a new address must ask for the credentials again")
+	}
+}
+
 func TestSecretsMasking(t *testing.T) {
 	stored := map[string]string{"access_token": "pat-na1-abcdefgh1234"}
 	masked := MaskAll(stored)

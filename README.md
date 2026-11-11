@@ -97,7 +97,8 @@ and journeys within seconds, not on a 15-minute cron.
     exits stream from `segment.membership`, consent and address changes from `events.enriched`, with a full reconcile
     every `PULSE_AUDIENCE_RECONCILE_INTERVAL`. Contacts unsubscribed from everything are never uploaded. Linking needs
     settings and segments edit access.
-  Every remote base URL is a setting (the real one by default), and every call goes through the SSRF-guarded client.
+  Every remote base URL is a setting (the real one by default, only the vendor's own hosts outside local
+  development; changing it asks for the credentials again), and every call goes through the SSRF-guarded client.
 - **Still to build:** the rest of batch 8 (native SDKs, RCS replies, bounce mailbox, push click tracking, form uploads,
   audit export), then batch 9 in the feature-parity doc.
 
