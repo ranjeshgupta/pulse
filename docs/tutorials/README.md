@@ -18,3 +18,7 @@ Step-by-step guides for using Pulse, written against the app as it is. Each one 
 | 11 | Admin and privacy | Consent, retention and cleanup, audit log export, single sign-on |
 
 The examples use a local Pulse at `http://localhost:7080`. On your own server, use its address instead.
+
+The screenshots come from a real Pulse and are retaken with `make docs-shots` (see
+[docs/screenshots](../screenshots/README.md)). People who install or integrate Pulse: see the
+[developer docs](../developer/README.md).

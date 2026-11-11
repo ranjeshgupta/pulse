@@ -21,6 +21,8 @@ workspaces.
    - **Password**: at least 10 characters
 3. Click **Create workspace**.
 
+   ![The Create a workspace form, filled in, with the Create workspace button highlighted](img/01-signup.png)
+
 You see **Your workspace is ready** with two things to keep:
 
 - **Your workspace ID**, e.g. `acme-retail`: made from the name. You and your team type it when
@@ -28,7 +30,14 @@ You see **Your workspace is ready** with two things to keep:
 - **Server API key** (starts with `pk_`): **copy it now, it is shown only once.** Your servers use it
   to send data to Pulse (step 8). If you lose it, you can replace it later.
 
+![Your workspace is ready: the workspace ID and the server API key (hidden in this picture)](img/01-workspace-ready.png)
+
+In this picture the ID ends in a short suffix (`acme-retail-…`): another workspace already had
+`acme-retail`, so Pulse made the new one unique.
+
 4. Click **Open Pulse**. You land on **Overview**, which is empty for now: no events, no contacts.
+
+   ![The empty Overview of a new workspace](img/01-overview-empty.png)
 
 > **Self-hosting?** Your operator may have turned sign-up off (`PULSE_ALLOW_SIGNUP=false`). Then
 > they create the workspace for you and send you the workspace ID and sign-in details.
@@ -43,6 +52,8 @@ If your workspace uses single sign-on, choose **Sign in with SSO** instead and e
 
 The sidebar groups everything into:
 
+<img src="img/01-navigation.png" alt="The sidebar: Overview, then Audience, Campaigns, Content and Analytics, and Settings at the bottom" width="232" align="right">
+
 | Group | Pages | For |
 |---|---|---|
 | | **Overview** | Live activity: events this minute, contacts, running journeys |
@@ -52,18 +63,24 @@ The sidebar groups everything into:
 | **Analytics** | Reports, Funnels, Cohorts, Revenue | How it is going |
 | | **Settings** (bottom) | Team, sign-in, contact data, channels, connections |
 
+<br clear="right">
+
 You only see the pages your role allows (step 5). On a narrow screen the sidebar folds behind the
 **Menu** button.
 
 ## 4. Add your teammates
 
 1. Go to **Settings → Team** (under *Workspace*). You are listed as **Admin**.
+
+   ![Settings → Team with three teammates, and the Add teammate button highlighted](img/01-team.png)
 2. Click **Add teammate** and fill in:
    - **Email** and **Name**
    - **Role**: **Admin**, **Editor** or **Viewer** (see the table below)
    - **Temporary password (optional)**: at least 10 characters. Pulse doesn't email anyone, so share
      the workspace ID, their email and this password with them privately. Leave it empty if they
      will only sign in with SSO.
+   ![The Add a teammate form](img/01-add-teammate.png)
+
 3. Click **Add teammate**. They appear in the list with **Last sign-in: never** until they sign in.
 
 To change someone's role later, pick a new one in their **Role** column. **Remove** takes their access
@@ -79,13 +96,17 @@ away. (You can't remove yourself.)
 
 When the built-in roles don't fit, say a copywriter who should only touch content:
 
-1. Go to **Settings → Roles** and click **New role**.
+1. Go to **Settings → Roles** and click **New role**. The page first compares the built-in roles.
+
+   ![Settings → Roles: the built-in roles compared area by area, and the New role button](img/01-roles.png)
 2. Enter a **Name** (e.g. `Content writer`) and a **Description**.
 3. **Start from** copies a built-in role's access, which you can then change.
 4. Under **Access**, choose a level for each area: **None**, **View**, **Edit**, and for Journeys and
    Broadcasts also **Publish**, which is what lets someone go live, pause, schedule or cancel. Each level
    includes the ones before it. For a content writer: **Content: Edit**, **Reports: View**, the rest
    **None**.
+   <img src="img/01-new-role.png" alt="The New role panel for a Content writer: Content Edit, Reports View, everything else None" width="420">
+
 5. Click **Create role**. It now appears in the **Role** list on **Settings → Team**.
 
 > Some journey steps need more than journey access. A journey that deletes contacts, removes Do Not
@@ -96,6 +117,8 @@ When the built-in roles don't fit, say a copywriter who should only touch conten
 This lets Pulse record page views, recognise visitors when they sign in, and show on-site content.
 
 1. Go to **Settings → Sign-in & keys** and scroll to **Your website**.
+
+   ![The Your website section with the install snippet, and the Open the test page link highlighted](img/01-website-snippet.png)
 2. Copy the snippet. It looks like this, with your own site key:
 
    ```html
@@ -134,13 +157,25 @@ Using the test page (or your site):
 1. Open the page. It says **Events are recorded as: anon-…**: you are an anonymous visitor.
 2. Type an ID such as `cust-0001` in the box and click **Identify**, then **Track purchase**. It now
    says **Events are recorded as: cust-0001**.
+
+   ![The Pulse SDK test page after identifying as cust-0001](img/01-test-page.png)
 3. In Pulse, go to **Contacts**. Within a few seconds you see **cust-0001**.
+
+   ![The contact list with cust-0001](img/01-contacts-first.png)
 4. Type `is:anonymous` in the search box and press Enter: **0 contacts**. Your anonymous visit wasn't
    lost: when you identified, Pulse merged the anonymous visitor into `cust-0001`, so its page views
    are now part of that contact's history. Click **×** on the chip to clear the filter.
-5. Click **cust-0001** to open the profile: attributes (browser, device, first seen), the messages they
-   agreed to, tags, points, segments and the **Activity** list of events.
+
+   ![The Anonymous visitors filter chip and 0 contacts](img/01-contacts-anonymous.png)
+5. Click **cust-0001** to open the profile: segments, owner, stage and company, tags and points, the
+   messages they agreed to, attributes (device, locale, first seen…) and the **Activity** list of
+   events, including the merge of the anonymous visitor.
+
+   <img src="img/01-contact-profile.png" alt="The cust-0001 profile panel, from segments down to its activity" width="420">
+
 6. **Overview** now shows the events under **Live**.
+
+   ![Overview with the first events under Live and Most frequent events](img/01-overview-live.png)
 
 Anonymous tracking is on by default. To turn it off, or to change how long idle anonymous visitors are
 kept (they are deleted after a period without activity), go to **Settings → Data & privacy**.

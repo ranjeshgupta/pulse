@@ -4,6 +4,17 @@ Real-time, multi-tenant marketing automation in Go on Kafka, ClickHouse, Postgre
 It aims for Mautic/WebEngage features at Listmonk speed: events move contacts into segments
 and journeys within seconds, not on a 15-minute cron.
 
+## Documentation
+
+- **[Tutorials](docs/tutorials/README.md)**: step-by-step guides for using Pulse, with screenshots
+  (start with [Getting started](docs/tutorials/01-getting-started.md)).
+- **[Developer docs](docs/developer/README.md)**: [installation](docs/developer/01-installation.md) (local
+  and production), configuration, API, SDKs, integrations, architecture.
+- Screenshots in the docs are taken from the running app by scripts: `make docs-shots`
+  ([how](docs/screenshots/README.md)).
+
+Design notes:
+
 - [docs/01-review.md](docs/01-review.md): what Mautic and Listmonk do, and why Mautic is slow
 - [docs/02-architecture.md](docs/02-architecture.md): pipeline, topics, segment and journey design
 - [docs/03-load-test.md](docs/03-load-test.md): measured throughput and latency, bottlenecks fixed
@@ -144,6 +155,7 @@ Only Docker is required. Go runs inside the `golang` image when it isn't install
 ```bash
 make up        # Kafka, ClickHouse, Postgres, Redis, Mailpit, Keycloak + pulse (all roles, web app included)
 make seed      # demo workspace with data (credentials: deploy/dev-seed.md)
+make docs-seed # the "Acme Retail" workspace for documentation screenshots; make docs-shots retakes them
 make test      # Go unit tests (no infrastructure)
 make it        # SQL-vs-Go segment agreement test against ClickHouse (needs `make up`)
 make e2e       # end-to-end (needs `make up`); webhook tests run in a container on the compose network
@@ -234,7 +246,7 @@ curl -s localhost:7080/v1/contacts/u1 -H "Authorization: Bearer $KEY"   # profil
 ```
 cmd/pulse/          one binary, one role per argument (migrate, api, profile, chsink, segments, journeys, dispatch,
                     webhooks, integrations, all)
-cmd/seed/           demo workspace for `make seed`; cmd/loadgen/: the load generator for `make load`
+cmd/seed/           demo workspaces for `make seed` and `make docs-seed`; cmd/loadgen/: the load generator for `make load`
 internal/segment/   rule AST, Go evaluator, ClickHouse SQL compiler, Redis bitmaps and day counters
 internal/segengine/ streaming membership, backfill, sweep
 internal/journey/   graph validation, executor, triggers and durable timers

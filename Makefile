@@ -14,8 +14,8 @@ it load: DOCKER_NET = --network pulse_default
 it: DOCKER_ENV = -e PULSE_CH_ADDR=clickhouse:9000 -e PULSE_REDIS_ADDR=redis:6379
 e2e: DOCKER_NET = --network host
 e2e: DOCKER_ENV = -e PULSE_API=http://localhost:7080 -e PULSE_MAILPIT=http://localhost:18025 -e PULSE_ADMIN_TOKEN=dev-admin-token
-seed: DOCKER_NET = --network host
-it e2e load seed: GO = $(DOCKER_GO) go
+seed docs-seed: DOCKER_NET = --network host
+it e2e load seed docs-seed: GO = $(DOCKER_GO) go
 
 # make load ARGS="-contacts 100000 -rate 5000 -duration 60s"
 load: DOCKER_ENV =
@@ -26,7 +26,30 @@ load:
 seed:
 	$(GO) run ./cmd/seed -api http://localhost:7080 $(ARGS)
 
-.PHONY: tidy build test vet it e2e load seed up down logs ps
+# make docs-seed: the "Acme Retail" workspace the documentation screenshots use (once; later runs
+# see it exists and stop). Credentials: deploy/dev-seed.md.
+DOCS_WORKSPACE ?= acme-retail
+DOCS_EMAIL ?= docs.admin@pulse.test
+DOCS_PASSWORD ?= pulse-docs-pass-1
+docs-seed:
+	$(GO) run ./cmd/seed -api http://localhost:7080 -workspace "Acme Retail" -email $(DOCS_EMAIL) \
+		-password $(DOCS_PASSWORD) -if-exists $(DOCS_WORKSPACE) $(ARGS)
+
+# make docs-shots (every guide) or make docs-shots SHOT=01 (scripts in docs/screenshots/shots/ whose
+# name starts with 01). Playwright runs in its own image as a client of http://localhost:7080; the npm
+# package (same version as the image) is cached in .cache/docs-shots. See docs/screenshots/README.md.
+PLAYWRIGHT_VERSION ?= 1.49.1
+PULSE_URL ?= http://localhost:7080
+# docs-seed signs in to check the workspace exists, and Pulse allows 10 sign-ins per 15 minutes, so
+# it runs only until the scripts have a saved session (.cache/docs-shots/sessions).
+docs-shots: $(if $(wildcard .cache/docs-shots/sessions/$(DOCS_WORKSPACE)-*.json),,docs-seed)
+	docker run --rm --network host --shm-size 1g -u $(shell id -u):$(shell id -g) -v $(CURDIR):/src -w /src/docs/screenshots \
+		-e HOME=/tmp -e npm_config_update_notifier=false -e npm_config_cache=/src/.cache/npm -e PLAYWRIGHT_VERSION=$(PLAYWRIGHT_VERSION) \
+		-e PULSE_URL=$(PULSE_URL) -e PULSE_DOCS_WORKSPACE=$(DOCS_WORKSPACE) -e PULSE_DOCS_EMAIL=$(DOCS_EMAIL) \
+		-e PULSE_DOCS_PASSWORD=$(DOCS_PASSWORD) -e SHOT=$(SHOT) \
+		mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-jammy sh run.sh
+
+.PHONY: tidy build test vet it e2e load seed docs-seed docs-shots up down logs ps
 
 tidy:
 	$(GO) mod tidy
