@@ -8,8 +8,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -73,6 +76,17 @@ func (s *Server) draftProvider(ctx context.Context, tenant int64, d providerDraf
 			if stored, err = s.storedSecrets(ctx, tenant, d.ProviderID); err != nil {
 				return nil, providers.Kind{}, nil, http.StatusInternalServerError, err
 			}
+			// Saved secrets are write-only. Changed settings (a body template, a token regex…)
+			// could steer them into an answer the test shows, so a test of changed settings
+			// takes every secret entered again.
+			if !maps.Equal(cur.Config, d.Config) {
+				for k := range stored {
+					if d.Secrets[k] == "" {
+						return nil, providers.Kind{}, nil, http.StatusBadRequest,
+							errors.New("these settings differ from the saved ones: save them first, or enter every secret again to test them")
+					}
+				}
+			}
 		}
 	}
 	kind, ok := providers.Lookup(d.Kind)
@@ -102,7 +116,7 @@ func (s *Server) checkProviderAuth(w http.ResponseWriter, r *http.Request, pr mo
 		writeErr(w, http.StatusTooManyRequests, "too many connection tests; try again in a minute")
 		return
 	}
-	p, _, _, code, err := s.draftProvider(r.Context(), pr.TenantID, d)
+	p, _, secrets, code, err := s.draftProvider(r.Context(), pr.TenantID, d)
 	if err != nil {
 		writeErr(w, code, err.Error())
 		return
@@ -122,7 +136,7 @@ func (s *Server) checkProviderAuth(w http.ResponseWriter, r *http.Request, pr mo
 		} else if errors.Is(err, httpauth.ErrConfig) {
 			meaning = "the answer didn't have the token where the settings say"
 		}
-		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error(), "meaning": meaning})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": scrubSecrets(err.Error(), secrets), "meaning": meaning})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
@@ -200,4 +214,19 @@ func (s *Server) previewOutbound(ctx context.Context, pr model.Principal, ch str
 	}
 	o.Vars = &personalize.Vars{Contact: contact, Event: v.Event, Campaign: v.Campaign}
 	return o, nil
+}
+
+// scrubSecrets removes every secret value (as written, URL-encoded and JSON-escaped) from text
+// shown to the user: an upstream error can echo the request that carried them.
+func scrubSecrets(text string, secrets map[string]string) string {
+	for _, v := range secrets {
+		if len(v) < 4 {
+			continue
+		}
+		j, _ := json.Marshal(v)
+		for _, form := range []string{v, url.QueryEscape(v), url.PathEscape(v), string(j[1 : len(j)-1])} {
+			text = strings.ReplaceAll(text, form, "••••")
+		}
+	}
+	return text
 }

@@ -451,6 +451,10 @@ Each milestone adds what it needs here.
 - Screenshots: new `15-*.mjs`; retake 02, 04, 07, 10, 14 and every shot showing the sidebar.
 
 **M5:**
+- Provider requests that carry credentials (custom auth logins and token requests, the gateway,
+  Gupshup) never follow a redirect to another site (`safehttp.SameOrigin`). Test connection with saved
+  secrets works only for the saved settings (changed settings need every secret entered again), and
+  its error text never contains a secret.
 - README: M5 features; provider list (Gmail, Google Workspace, Workspace relay, Gupshup SMS/WhatsApp/RCS, gateway
   custom request and authentication); the new settings page with every field, default and range; retention moved
   off Data & privacy and now daily per workspace; provider secrets merged key by key and cleared on a host change.

@@ -84,7 +84,7 @@ func authFor(d Deps, c, s map[string]string, client *http.Client) (*httpauth.Aut
 }
 
 func newGateway(d Deps, c, s map[string]string) (Provider, error) {
-	client := safehttp.Client(15*time.Second, d.AllowPrivate)
+	client := safehttp.SameOrigin(safehttp.Client(15*time.Second, d.AllowPrivate)) // requests carry the provider's credentials
 	a, err := authFor(d, c, s, client)
 	if err != nil {
 		return nil, fmt.Errorf("gateway: %w", err)

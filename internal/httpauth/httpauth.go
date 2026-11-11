@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"pulse/internal/safehttp"
 	"regexp"
 	"sort"
 	"strconv"
@@ -393,6 +394,8 @@ func New(cfg Config, secrets map[string]string, opt Options) (*Auth, error) {
 	if opt.HTTP == nil {
 		opt.HTTP = &http.Client{Timeout: 15 * time.Second}
 	}
+	// Login and token requests carry secrets: never follow a redirect to another site.
+	opt.HTTP = safehttp.SameOrigin(opt.HTTP)
 	if opt.Now == nil {
 		opt.Now = time.Now
 	}

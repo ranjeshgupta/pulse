@@ -55,7 +55,9 @@ func gupshupBaseURL(kind, configured, def string) (string, error) {
 
 // gupshupClient is the HTTP client for user-editable endpoints: it refuses private addresses
 // (SSRF) unless the deployment allows them.
-func gupshupClient(d Deps) *http.Client { return safehttp.Client(15*time.Second, d.AllowPrivate) }
+func gupshupClient(d Deps) *http.Client {
+	return safehttp.SameOrigin(safehttp.Client(15*time.Second, d.AllowPrivate)) // the API key is a header
+}
 
 // checkGupshupToken verifies the webhook token from ?token= or X-Pulse-Token, in constant time.
 // No saved token refuses everything.

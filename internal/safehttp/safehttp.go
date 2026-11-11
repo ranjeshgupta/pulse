@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -64,4 +65,27 @@ func Client(timeout time.Duration, allowPrivate bool) *http.Client {
 			return nil // each redirect dials again, through the same check
 		},
 	}
+}
+
+// SameOrigin returns a copy of c that follows redirects only within the request's own scheme and
+// host. Requests that carry credentials (custom auth headers, a login body with a password) must
+// never be re-sent to another origin: Go drops Authorization on such a redirect, but not custom
+// headers, and a 307/308 sends the body again.
+func SameOrigin(c *http.Client) *http.Client {
+	cp := *c
+	prev := c.CheckRedirect
+	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		first := via[0].URL
+		if !strings.EqualFold(req.URL.Scheme, first.Scheme) || !strings.EqualFold(req.URL.Host, first.Host) {
+			return fmt.Errorf("refused a redirect from %s to another site (%s)", first.Host, req.URL.Host)
+		}
+		if prev != nil {
+			return prev(req, via)
+		}
+		if len(via) >= 3 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	}
+	return &cp
 }

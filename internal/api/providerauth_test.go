@@ -166,4 +166,21 @@ func TestProviderCheckAuthAndPreview(t *testing.T) {
 	if logins != 2 {
 		t.Errorf("preview logged in: %d logins", logins)
 	}
+	// Saved secrets are write-only: testing changed settings needs every secret entered again.
+	w = do(t, h, "POST", "/v1/channels/providers", "key-1", `{"channel":"sms",`+body[1:])
+	if w.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	saved := strings.Replace(body, `{"provider":"http_sms",`, fmt.Sprintf(`{"provider_id":%d,`, created.ID), 1)
+	if w := do(t, h, "POST", "/v1/channels/providers/check-auth", "key-1", strings.Replace(saved, `{"pw":"secret-pw"}`, `{}`, 1)); w.Code != http.StatusOK {
+		t.Errorf("saved settings with saved secrets: %d %s", w.Code, w.Body)
+	}
+	changed := strings.Replace(strings.Replace(saved, `{"pw":"secret-pw"}`, `{}`, 1), `data.token`, `data`, 1)
+	if w := do(t, h, "POST", "/v1/channels/providers/check-auth", "key-1", changed); w.Code != http.StatusBadRequest {
+		t.Errorf("changed settings with saved secrets: %d %s", w.Code, w.Body)
+	}
 }
