@@ -84,12 +84,21 @@ func TestProviderSecretsMergeAndHostPinning(t *testing.T) {
 		t.Fatalf("create: %d %s", w.Code, w.Body)
 	}
 	// Changing one secret keeps the others; the response never carries secrets.
-	w = do(t, h, "PUT", "/v1/channels/providers/1", "key-1", `{"config":{"url":"https://gw.example.com/b","auth":"{\"type\":\"basic\"}"},"secrets":{"auth_password":"p2"}}`)
+	w = do(t, h, "PUT", "/v1/channels/providers/1", "key-1", `{"config":{"url":"https://gw.example.com/a","auth":"{\"type\":\"basic\"}"},"secrets":{"auth_password":"p2"}}`)
 	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "p2") {
 		t.Fatalf("update: %d %s", w.Code, w.Body)
 	}
 	if got := pm.secrets(t, s, 1); got["auth_username"] != "u" || got["auth_password"] != "p2" || got["signing_secret"] != "sig" {
 		t.Errorf("merged secrets %v", got)
+	}
+	// Any setting that can steer a secret (here the URL's path) needs every secret again.
+	w = do(t, h, "PUT", "/v1/channels/providers/1", "key-1", `{"config":{"url":"https://gw.example.com/b","auth":"{\"type\":\"basic\"}"},"secrets":{"auth_password":"p3"}}`)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("path change with saved secrets: %d %s", w.Code, w.Body)
+	}
+	w = do(t, h, "PUT", "/v1/channels/providers/1", "key-1", `{"config":{"url":"https://gw.example.com/b","auth":"{\"type\":\"basic\"}"},"secrets":{"signing_secret":"sig","auth_username":"u","auth_password":"p2"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("path change with every secret: %d %s", w.Code, w.Body)
 	}
 	// A new host clears the saved secrets: without new ones the save is refused.
 	w = do(t, h, "PUT", "/v1/channels/providers/1", "key-1", `{"config":{"url":"https://evil.example.net/b","auth":"{\"type\":\"basic\"}"},"secrets":{}}`)

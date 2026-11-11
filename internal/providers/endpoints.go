@@ -69,17 +69,26 @@ func EndpointsChanged(before, after map[string]string) bool {
 	return strings.Join(Endpoints(before), " ") != strings.Join(Endpoints(after), " ")
 }
 
-// credentialSettings are the settings that decide where and how secrets are put into requests
-// (the custom authentication, the custom request template).
-var credentialSettings = []string{"auth", "request"}
+// harmlessSettings can change without touching how or where secrets are sent: sender names and
+// numbers, pool sizes, registration ids that only label a message. Every other setting (URLs, hosts,
+// ports, modes, the custom authentication and request templates, receipt mappings, user names…)
+// can steer a saved secret, so changing one means entering every secret again.
+var harmlessSettings = map[string]bool{
+	"from": true, "sender_id": true, "mask": true, "source": true, "app_name": true,
+	"max_connections": true, "messages_per_connection": true, "helo_domain": true,
+	"principal_entity_id": true, "dlt_template_id": true, "flow_template_id": true,
+	"unreachable_suffix": true, "messaging_service_sid": true,
+}
 
-// CredentialSettingsChanged reports whether settings that shape how secrets are sent changed. Saved
-// secrets are write-only, so whoever changes these enters every secret again: otherwise they could
-// steer a saved password into a request field or an answer they can read.
+// CredentialSettingsChanged reports whether any setting other than the harmless ones changed.
+// Saved secrets are write-only, so whoever changes such a setting enters every secret again:
+// otherwise they could steer a saved password into a request field or an answer they can read.
 func CredentialSettingsChanged(before, after map[string]string) bool {
-	for _, k := range credentialSettings {
-		if strings.TrimSpace(before[k]) != strings.TrimSpace(after[k]) {
-			return true
+	for _, m := range []map[string]string{before, after} {
+		for k := range m {
+			if !harmlessSettings[k] && strings.TrimSpace(before[k]) != strings.TrimSpace(after[k]) {
+				return true
+			}
 		}
 	}
 	return false
