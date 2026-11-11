@@ -1,0 +1,59 @@
+package live
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+
+	"pulse/internal/event"
+)
+
+func TestFeedIsCappedAndTenantScoped(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	now := time.Unix(1_800_000_000, 0)
+	f := Feed{RDB: rdb, Now: func() time.Time { return now }}
+	var evs []event.Event
+	for i := range MaxPerSecond + 10 {
+		evs = append(evs, event.Event{ID: fmt.Sprint("a", i), TenantID: 1, Name: "page_view", ExternalID: "u1", Ts: now,
+			Props: map[string]any{"url": "/x"}})
+	}
+	evs = append(evs, event.Event{ID: "b1", TenantID: 2, Name: "purchase", ExternalID: "u9", Ts: now})
+	if err := f.Push(ctx, evs); err != nil {
+		t.Fatal(err)
+	}
+	items, cur, err := Read(ctx, rdb, 1, "", 500)
+	if err != nil || len(items) != MaxPerSecond {
+		t.Fatalf("tenant 1 got %d items (%v), want the cap %d", len(items), err, MaxPerSecond)
+	}
+	if items[len(items)-1].ID != fmt.Sprint("a", MaxPerSecond+9) || string(items[0].Props) != `{"url":"/x"}` {
+		t.Errorf("the newest events are kept: %+v", items[len(items)-1])
+	}
+	for _, it := range items {
+		if it.Name != "page_view" {
+			t.Fatalf("another workspace's event leaked: %+v", it)
+		}
+	}
+	// Same second: the cap is used up.
+	_ = f.Push(ctx, []event.Event{{ID: "late", TenantID: 1, Name: "x", Ts: now}})
+	if more, _, _ := Read(ctx, rdb, 1, cur, 10); len(more) != 0 {
+		t.Errorf("over the per-second cap: %v", more)
+	}
+	now = now.Add(time.Second)
+	_ = f.Push(ctx, []event.Event{{ID: "next", TenantID: 1, Name: "signup", Ts: now, Props: map[string]any{"big": string(make([]byte, MaxProps))}}})
+	more, cur2, _ := Read(ctx, rdb, 1, cur, 10)
+	if len(more) != 1 || more[0].ID != "next" || !more[0].Truncated || cur2 == cur {
+		t.Errorf("after the cursor: %+v", more)
+	}
+	if other, _, _ := Read(ctx, rdb, 2, "", 10); len(other) != 1 || other[0].ID != "b1" {
+		t.Errorf("tenant 2: %+v", other)
+	}
+	if !ValidCursor("1800000000000-3") || ValidCursor("1-x") || ValidCursor("+") {
+		t.Error("cursor check")
+	}
+}

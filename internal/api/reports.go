@@ -68,6 +68,12 @@ func (s *Server) journeyReport(w http.ResponseWriter, r *http.Request, tenant in
 		s.fail(w, err)
 		return
 	}
+	rep.Funnel = ch.BuildFunnel(rep)
+	var enrolled int64
+	for _, n := range stats["status"] {
+		enrolled += int64(n)
+	}
+	rep.Funnel.Enrolled = &enrolled
 	out := map[string]any{"messages": rep, "enrollments": stats}
 	if s.RDB != nil {
 		steps, err := journey.ReadStepStats(r.Context(), s.RDB, tenant, id)

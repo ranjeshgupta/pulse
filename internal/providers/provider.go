@@ -53,6 +53,10 @@ type Outbound struct {
 	From      string // email sender
 	Rendered  channel.Rendered
 	Headers   map[string]string // email: extra headers (List-Unsubscribe)
+	// Ref is the message's signed reference (tracking.Codec.Ref): email carries it in X-Pulse-Ref,
+	// the Message-ID and the sending service's metadata header, so bounces, complaints and delivery
+	// reports can be matched to the message and its campaign. Empty without tracking.
+	Ref string
 	// email: files to attach (SMTP sends them in multipart/mixed; the custom gateway gets URLs)
 	Attachments []Attachment
 }
@@ -80,11 +84,17 @@ type Provider interface {
 // as a STOP reply.
 type Receipt struct {
 	ProviderMessageID string `json:"provider_message_id"`
-	Status            string `json:"status"`      // delivered | failed | read | inbound
+	Status            string `json:"status"`      // delivered | failed | read | inbound; email also bounced | complained
 	Unreachable       bool   `json:"unreachable"` // the recipient isn't reachable on the channel (triggers fallback)
 	Reason            string `json:"reason,omitempty"`
-	From              string `json:"from,omitempty"` // inbound: the sender's E.164 number
-	Text              string `json:"text,omitempty"` // inbound: the message text
+	// Code is the normalised reason of a failed receipt (package reasons), when the adapter knows
+	// it from the provider's error code; otherwise it is derived from Reason.
+	Code string `json:"code,omitempty"`
+	// Kind qualifies email receipts from the custom gateway: status "bounced" with kind hard|soft,
+	// or status "complained".
+	Kind string `json:"kind,omitempty"`
+	From string `json:"from,omitempty"` // inbound: the sender's E.164 number
+	Text string `json:"text,omitempty"` // inbound: the message text
 	// inbound RCS: a tapped suggestion ("reply" or "action") and its postback data
 	Suggestion string `json:"suggestion,omitempty"`
 	Postback   string `json:"postback,omitempty"`
@@ -257,4 +267,19 @@ func ParseRetryAfter(v string, now time.Time) time.Duration {
 		return t.Sub(now)
 	}
 	return 0
+}
+
+// ReportsDelivery says whether a provider of this kind tells Pulse a message was delivered:
+// providers with delivery webhooks (Twilio, Meta WhatsApp, Google RBM, the custom gateway, the
+// sandbox through its simulated receipts), and SMTP relays of the sending services whose
+// webhooks Pulse reads (bounces package). Plain SMTP relays, MSG91, FCM and web push don't.
+func ReportsDelivery(kind string, config map[string]string) bool {
+	switch {
+	case kind == "smtp":
+		svc, err := smtpService(config["service"], config["host"])
+		return err == nil && svc != ServiceOther
+	case kind == "twilio", kind == "meta_whatsapp", kind == "google_rbm", strings.HasPrefix(kind, "http_"), strings.HasPrefix(kind, "sandbox_"):
+		return true
+	}
+	return false
 }

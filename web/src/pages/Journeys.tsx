@@ -16,6 +16,7 @@ import {
   listActions, visibleJourneys, type ListAction,
 } from "../journeyGraph";
 import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsRow } from "../reports";
+import { FunnelPanel, StepReasons } from "../funnel";
 import { describeWindow, nowISO, scheduleProblem } from "../schedule";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
 import { DuplicateButton, TagEditor } from "../campaignUI";
@@ -568,6 +569,15 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
       ))}
       {m && (
         <>
+          {m.funnel && <div style={{ marginBottom: 24 }}><FunnelPanel funnel={{ ...m.funnel, audience: undefined, enrolled: m.funnel.enrolled ?? entered }} channels={channels} /></div>}
+          <div style={{ marginBottom: 24 }}>
+            <StepReasons byNode={m.reasons_by_node} order={numbers} onStep={onStep} canOpen={(sid: string) => !!graph.nodes[sid]} label={(sid: string) => {
+              const n = graph.nodes[sid];
+              if (!n) return <span className="muted">Removed step</span>;
+              const ch = nodeChannel(n.type);
+              return <><span className="faint xs">{numbers[sid]}.</span> {ch ? <span className={`chan chan-${ch}`}>{stepLabel(graph, n)}</span> : stepLabel(graph, n)}</>;
+            }} />
+          </div>
           <div style={{ marginBottom: 24 }}>
             <ReportPanel title="Messages by step" aside={<span className="xs muted">Each contact counts once. Rates are out of messages sent.</span>} body={stepRows.length === 0}>
               {stepRows.length === 0 ? <p className="muted small">No messages sent yet. Counts show up here as contacts reach send steps.</p> : (

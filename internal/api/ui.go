@@ -398,6 +398,8 @@ func (s *Server) deleteJourney(w http.ResponseWriter, r *http.Request, tenant in
 
 // ---- contacts and dashboard ----
 
+// contactEvents: GET /v1/contacts/{external_id}/events — the contact's timeline, newest first;
+// filters ?name=a,b, ?kind=activity|pulse, ?before=<time>, ?limit=N (default 100, at most 200).
 func (s *Server) contactEvents(w http.ResponseWriter, r *http.Request, tenant int64) {
 	if s.Analytics == nil {
 		writeErr(w, http.StatusServiceUnavailable, "analytics unavailable")
@@ -408,7 +410,25 @@ func (s *Server) contactEvents(w http.ResponseWriter, r *http.Request, tenant in
 		s.fail(w, err)
 		return
 	}
-	evs, err := s.Analytics.ContactEvents(r.Context(), tenant, c.ID, 100)
+	names, cond, err := eventFilter(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	before, limit, err := pageParams(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if r.URL.Query().Get("limit") == "" {
+		limit = 100
+	}
+	var evs []ch.EventRow
+	if ca, ok := s.Analytics.(ContactAnalytics); ok && (len(names) > 0 || cond != "" || !before.IsZero() || limit != 100) {
+		evs, err = ca.ContactEventsFiltered(r.Context(), tenant, c.ID, names, cond, before, limit)
+	} else {
+		evs, err = s.Analytics.ContactEvents(r.Context(), tenant, c.ID, limit)
+	}
 	if err != nil {
 		s.fail(w, err)
 		return

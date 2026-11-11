@@ -305,6 +305,7 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
       )}
       {contact && (
         <div className="row" style={{ marginBottom: 18 }}>
+          <Link className="btn sm primary" to={`/contacts/${id}`}>Open full page</Link>
           {!merged && <button className="btn sm" onClick={() => setMerging(true)}>Merge into…</button>}
           {canEdit && <a className="btn sm" href={`/v1/contacts/${id}/data`} download
             title="Everything Pulse keeps about this person (profile, consent, segments, events) as a JSON file, for a data access request">Download data</a>}
@@ -365,7 +366,7 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
 
 // DeleteContactModal permanently deletes a contact (an erasure request): the profile, events,
 // segment memberships, devices, inbox, journey progress and form uploads. Typing DELETE confirms it.
-function DeleteContactModal({ contact, onClose, onDeleted }: { contact: Contact; onClose: () => void; onDeleted: () => void }) {
+export function DeleteContactModal({ contact, onClose, onDeleted }: { contact: Contact; onClose: () => void; onDeleted: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [typed, setTyped] = useState("");
@@ -395,7 +396,7 @@ function DeleteContactModal({ contact, onClose, onDeleted }: { contact: Contact;
 
 // StageAndCompany shows and changes the contact's lifecycle stage and company. Both change through
 // events (stage_changed, company_linked), so the activity list records every change.
-function StageAndCompany({ contact }: { contact: Contact }) {
+export function StageAndCompany({ contact }: { contact: Contact }) {
   const qc = useQueryClient();
   const toast = useToast();
   const stages = useStages().data ?? [];
@@ -467,7 +468,7 @@ function StageAndCompany({ contact }: { contact: Contact }) {
 }
 
 // MergeModal merges this contact (the loser) into another one the user finds by ID, email or name.
-function MergeModal({ loser, onClose }: { loser: Contact; onClose: () => void }) {
+export function MergeModal({ loser, onClose }: { loser: Contact; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [q, setQ] = useState(loser.email || "");
@@ -518,7 +519,7 @@ function MergeModal({ loser, onClose }: { loser: Contact; onClose: () => void })
 
 // TagsAndPoints shows the contact's tags and score and changes them. Both change through events
 // (tag_added, points_changed), so the activity list records every change.
-function TagsAndPoints({ contact }: { contact: Contact }) {
+export function TagsAndPoints({ contact }: { contact: Contact }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [tag, setTag] = useState("");
@@ -576,7 +577,7 @@ const optedOut = (c: Contact, ch: Channel | "all") => ["true", "1", "yes"].inclu
 
 // ConsentPanel shows and changes what this contact has agreed to receive. Changes are recorded as
 // events, so the contact's history shows who changed it and when.
-function ConsentPanel({ contact }: { contact: Contact }) {
+export function ConsentPanel({ contact }: { contact: Contact }) {
   const qc = useQueryClient();
   const toast = useToast();
   const change = useMutation({

@@ -121,6 +121,9 @@ type Server struct {
 	sso *ssoProviders
 	ui  http.Handler
 
+	// snsCerts fetches SNS signing certificates (nil: from Amazon; tests set their own).
+	snsCerts bounces.CertFetcher
+
 	// bg runs background work (fan-out of company and stage changes); tests run it inline.
 	bg func(func())
 
@@ -211,6 +214,8 @@ func (s *Server) Handler() http.Handler {
 	s.contactDataRoutes(mux)
 	s.eventRoutes(mux)
 	s.personalizeRoutes(mux)
+	s.dashboardRoutes(mux)
+	s.contactPageRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)

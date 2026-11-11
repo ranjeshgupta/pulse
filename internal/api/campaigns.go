@@ -166,7 +166,42 @@ func (s *Server) listCampaigns(w http.ResponseWriter, r *http.Request, p model.P
 		writeErr(w, http.StatusForbidden, "your role doesn't allow this (view access to broadcasts or journeys is needed)")
 		return
 	}
-	ctx, tenant := r.Context(), p.TenantID
+	rows, err := s.campaignRows(r.Context(), p.TenantID, canB, canJ)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	q := r.URL.Query()
+	f := CampaignFilter{Category: q.Get("category"), Status: q.Get("status"), Channel: q.Get("channel"), Tag: q.Get("tag"), Q: q.Get("q")}
+	counts := map[string]int{CategoryOneTime: 0, CategoryTrigger: 0, CategoryAutomation: 0}
+	out := []CampaignRow{}
+	tabless := f
+	tabless.Category = ""
+	for _, row := range rows {
+		if row.Status == "archived" && f.Status != "archived" {
+			continue // archived journeys only on request, like the journeys list
+		}
+		if tabless.Match(row) {
+			counts[row.Category]++
+		}
+		if f.Match(row) {
+			out = append(out, row)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].LastActivity, out[j].LastActivity
+		if a == nil || b == nil {
+			return b == nil && a != nil
+		}
+		return a.After(*b)
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"campaigns": out, "counts": counts})
+}
+
+// campaignRows lists the workspace's broadcasts (withB) and journeys (withJ) as hub rows with
+// their totals.
+func (s *Server) campaignRows(ctx context.Context, tenant int64, withB, withJ bool) ([]CampaignRow, error) {
+	canB, canJ := withB, withJ
 	var rows []CampaignRow
 	sizes := map[int64]*int64{}
 	size := func(seg int64) *int64 {
@@ -186,8 +221,7 @@ func (s *Server) listCampaigns(w http.ResponseWriter, r *http.Request, p model.P
 	if canB {
 		bs, err := s.bcStore().ListBroadcasts(ctx, tenant)
 		if err != nil {
-			s.fail(w, err)
-			return
+			return nil, err
 		}
 		for _, b := range bs {
 			row := CampaignRow{Kind: "broadcast", ID: b.ID, Name: b.Name, Category: CategoryOneTime, Channels: []string{b.Channel},
@@ -204,8 +238,7 @@ func (s *Server) listCampaigns(w http.ResponseWriter, r *http.Request, p model.P
 	if canJ {
 		js, err := s.uiStore().ListJourneys(ctx, tenant)
 		if err != nil {
-			s.fail(w, err)
-			return
+			return nil, err
 		}
 		for _, j := range js {
 			var g journey.Graph
@@ -244,31 +277,7 @@ func (s *Server) listCampaigns(w http.ResponseWriter, r *http.Request, p model.P
 			s.Log.Warn("campaign totals", "err", err)
 		}
 	}
-	q := r.URL.Query()
-	f := CampaignFilter{Category: q.Get("category"), Status: q.Get("status"), Channel: q.Get("channel"), Tag: q.Get("tag"), Q: q.Get("q")}
-	counts := map[string]int{CategoryOneTime: 0, CategoryTrigger: 0, CategoryAutomation: 0}
-	out := []CampaignRow{}
-	tabless := f
-	tabless.Category = ""
-	for _, row := range rows {
-		if row.Status == "archived" && f.Status != "archived" {
-			continue // archived journeys only on request, like the journeys list
-		}
-		if tabless.Match(row) {
-			counts[row.Category]++
-		}
-		if f.Match(row) {
-			out = append(out, row)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i].LastActivity, out[j].LastActivity
-		if a == nil || b == nil {
-			return b == nil && a != nil
-		}
-		return a.After(*b)
-	})
-	writeJSON(w, http.StatusOK, map[string]any{"campaigns": out, "counts": counts})
+	return rows, nil
 }
 
 // campaignTags suggests tags: those used on broadcasts and journeys, most used first.

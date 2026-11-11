@@ -35,6 +35,10 @@ const I = {
   plug: <><path d="M6 1.5v4M11 1.5v4" /><path d="M3.5 5.5h10v3a5 5 0 0 1-10 0z" /><path d="M8.5 13.5v2" /></>,
   gear: <><circle cx="8.5" cy="8.5" r="2.4" /><path d="M8.5 1.5v2M8.5 13.5v2M1.5 8.5h2M13.5 8.5h2M3.5 3.5l1.4 1.4M12.1 12.1l1.4 1.4M3.5 13.5l1.4-1.4M12.1 4.9l1.4-1.4" /></>,
   bolt: <path d="M9.5 1.5 3 9.5h5l-1 6 6.5-8h-5z" />,
+  users: <><circle cx="8.5" cy="5" r="2.6" /><path d="M3.5 15c.6-3 2.5-4.6 5-4.6s4.4 1.6 5 4.6" /><path d="M1.5 9.5h2M13.5 9.5h2" /></>,
+  box: <><path d="M2 5 8.5 2l6.5 3v7l-6.5 3L2 12z" /><path d="M2 5l6.5 3 6.5-3M8.5 8v7" /></>,
+  live: <><circle cx="8.5" cy="8.5" r="2" /><path d="M4.5 4.5a5.7 5.7 0 0 0 0 8M12.5 4.5a5.7 5.7 0 0 1 0 8M2.3 2.3a8.8 8.8 0 0 0 0 12.4M14.7 2.3a8.8 8.8 0 0 1 0 12.4" /></>,
+  trend: <><path d="M2 15h13" /><path d="m2.5 11 4-4 3 2.5 5-5.5" /><path d="M11 4h3.5v3.5" /></>,
   chart: <><path d="M2 15h13" /><rect x="3" y="8" width="2.6" height="5" rx=".5" /><rect x="7.2" y="4" width="2.6" height="9" rx=".5" /><rect x="11.4" y="6.5" width="2.6" height="6.5" rx=".5" /></>,
 };
 
@@ -83,6 +87,10 @@ const NAV: { title?: string; items: NavItem[] }[] = [
   {
     title: "Analytics",
     items: [
+      { to: "/analytics/users", label: "Users", icon: I.users, need: ["reports", "view"] },
+      { to: "/analytics/campaigns", label: "Campaign performance", icon: I.trend, need: ["reports", "view"] },
+      { to: "/analytics/products", label: "Products", icon: I.box, need: ["reports", "view"] },
+      { to: "/analytics/live", label: "Live events", icon: I.live, need: ["contacts", "view"] },
       { to: "/reports", label: "Reports", icon: I.chart, need: ["reports", "view"] },
       { to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] },
       { to: "/cohorts", label: "Cohorts", icon: I.grid, need: ["reports", "view"] },

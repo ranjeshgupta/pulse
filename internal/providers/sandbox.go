@@ -46,7 +46,7 @@ func (s *Sandbox) Send(ctx context.Context, o Outbound) (Result, error) {
 	}
 	payload, err := json.Marshal(map[string]any{
 		"subject": o.Rendered.Subject, "html": o.Rendered.HTML, "content": o.Rendered.Content, "platform": o.Platform,
-		"attachments": files,
+		"attachments": files, "ref": o.Ref,
 	})
 	if err != nil {
 		return Result{}, err

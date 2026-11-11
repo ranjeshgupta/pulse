@@ -33,7 +33,7 @@ func (s *schemaContent) GetEventSchema(_ context.Context, _ int64, name string) 
 	return s.schema, nil
 }
 func (s *schemaContent) PutEventSchema(context.Context, int64, eventschema.Schema) error { return nil }
-func (s *schemaContent) DeleteEventSchema(context.Context, int64, string) error         { return nil }
+func (s *schemaContent) DeleteEventSchema(context.Context, int64, string) error          { return nil }
 
 // latestEvents answers LatestEvent from a fixed row.
 type latestEvents struct{ props string }
@@ -42,7 +42,9 @@ func (latestEvents) SegmentCount(context.Context, segment.Query) (uint64, error)
 func (latestEvents) ContactEvents(context.Context, int64, uint32, int) ([]ch.EventRow, error) {
 	return nil, nil
 }
-func (latestEvents) Overview(context.Context, int64, int) (ch.Overview, error) { return ch.Overview{}, nil }
+func (latestEvents) Overview(context.Context, int64, int) (ch.Overview, error) {
+	return ch.Overview{}, nil
+}
 func (l latestEvents) LatestEvent(_ context.Context, _ int64, contact uint32, name string) (ch.EventRow, bool, error) {
 	if contact != 1 || name != "cart_abandoned" {
 		return ch.EventRow{}, false, nil
@@ -54,10 +56,10 @@ func TestTemplateVariablesAreValidated(t *testing.T) {
 	s, _, _ := contentServer(t)
 	h := s.Handler()
 	for body, want := range map[string]string{
-		`{"name":"t","channel":"sms","content":{"text":"Hi {{contact.first_name | shout}}"}}`:        "unknown pipe",
-		`{"name":"t","channel":"sms","content":{"text":"Hi {{campaign.owner}}"}}`:                    "campaign has",
-		`{"name":"t","channel":"sms","content":{"text":"Hi"},"missing_values":"maybe"}`:               "missing_values",
-		`{"name":"t","channel":"push","content":{"title":"{{contact.x | truncate}}","body":"b"}}`:    "truncate needs",
+		`{"name":"t","channel":"sms","content":{"text":"Hi {{contact.first_name | shout}}"}}`:     "unknown pipe",
+		`{"name":"t","channel":"sms","content":{"text":"Hi {{campaign.owner}}"}}`:                 "campaign has",
+		`{"name":"t","channel":"sms","content":{"text":"Hi"},"missing_values":"maybe"}`:           "missing_values",
+		`{"name":"t","channel":"push","content":{"title":"{{contact.x | truncate}}","body":"b"}}`: "truncate needs",
 	} {
 		if w := do(t, h, "POST", "/v1/templates", "key-1", body); w.Code != 400 || !strings.Contains(w.Body.String(), want) {
 			t.Errorf("%s: %d %s", body, w.Code, w.Body)
@@ -207,12 +209,14 @@ func (s *inappWeb) TenantBySiteKey(_ context.Context, key string) (model.Tenant,
 	}
 	return s.tenant, nil
 }
-func (s *inappWeb) ListInApp(context.Context, int64, bool) ([]model.InAppMessage, error) { return s.msgs, nil }
+func (s *inappWeb) ListInApp(context.Context, int64, bool) ([]model.InAppMessage, error) {
+	return s.msgs, nil
+}
 func (s *inappWeb) GetInApp(context.Context, int64, int64) (model.InAppMessage, error) {
 	return s.msgs[0], nil
 }
 func (s *inappWeb) SaveInApp(context.Context, model.InAppMessage) (int64, error) { return 1, nil }
-func (s *inappWeb) DeleteInApp(context.Context, int64, int64) error            { return nil }
+func (s *inappWeb) DeleteInApp(context.Context, int64, int64) error              { return nil }
 
 // In-app text shows a contact's own data only to a verified identity (identity secret + user hash):
 // anyone can send someone else's ID, or an anon- ID.

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,6 +50,7 @@ import (
 	"pulse/internal/integrations"
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
+	"pulse/internal/live"
 	"pulse/internal/maintenance"
 	"pulse/internal/onsite"
 	"pulse/internal/profile"
@@ -186,6 +188,14 @@ func (d *deps) integrations(ctx context.Context, box *auth.Box) (*integrations.S
 	}
 	return &integrations.Service{Store: pgs, Open: open, HTTP: safehttp.Client(30*time.Second, d.cfg.AllowPrivateWebhooks),
 		Pub: prod, Log: d.log, Now: time.Now}, nil
+}
+
+// smtpHost is the host part of host:port.
+func smtpHost(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return h
+	}
+	return addr
 }
 
 // tracking builds the email link codec (nil without a secret key: emails then go out untracked).
@@ -337,7 +347,9 @@ func runCHSink(ctx context.Context, d *deps) error {
 		return err
 	}
 	defer c.Close()
-	return c.RunBatch(ctx, chsink.New(chs, d.log).Handle)
+	sink := chsink.New(chs, d.log)
+	sink.Live = live.Feed{RDB: d.redis()}
+	return c.RunBatch(ctx, sink.Handle)
 }
 
 func runSegments(ctx context.Context, d *deps) error {
@@ -452,7 +464,8 @@ func runBroadcasts(ctx context.Context, pgs *pg.Store, d *deps, pub kafka.Publis
 	if err != nil {
 		return err
 	}
-	r := &broadcast.Runner{Store: pgs, Members: segment.Membership{RDB: d.redis()}, Stats: chs, Pub: pub, Log: d.log, Now: time.Now}
+	r := &broadcast.Runner{Store: pgs, Members: segment.Membership{RDB: d.redis()}, Stats: chs, Pub: pub, Log: d.log, Now: time.Now,
+		Snapshot: broadcast.ReachSnapshot(d.redis(), time.Now)}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
@@ -482,7 +495,7 @@ func runDispatch(ctx context.Context, d *deps) error {
 	}
 	disp := dispatch.New(pgs, d.redis(), prod, dispatch.Config{
 		From:         d.cfg.SMTPFrom,
-		EmailDefault: &providers.SMTP{Addr: d.cfg.SMTPAddr},
+		EmailDefault: &providers.SMTP{Addr: d.cfg.SMTPAddr, Service: providers.DetectService(smtpHost(d.cfg.SMTPAddr))},
 		Rates:        map[string]float64{channel.Email: d.cfg.EmailRate},
 		Box:          box,
 		Providers:    providers.Deps{Sandbox: pgs, AllowPrivate: d.cfg.AllowPrivateWebhooks},
@@ -611,7 +624,8 @@ func runIntegrations(ctx context.Context, d *deps) error {
 			return err
 		}
 		mail := &bounces.Poller{Store: pgs, Open: bounces.IMAPOpener(d.cfg.AllowPrivateWebhooks), Pub: bounces.KafkaPublisher{Pub: prod},
-			Unseal: func(b []byte) (string, error) { p, err := box.Open(b); return string(p), err }, Log: d.log}
+			Unseal: func(b []byte) (string, error) { p, err := box.Open(b); return string(p), err }, Log: d.log,
+			Refs: d.tracking(box)}
 		g.Go(func() error { return mail.Run(ctx, 10*time.Second) })
 	}
 	return g.Wait()

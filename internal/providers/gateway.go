@@ -58,6 +58,9 @@ type gatewayMessage struct {
 	Text      string            `json:"text,omitempty"` // email: the plain-text part
 	Content   channel.Content   `json:"content"`
 	Headers   map[string]string `json:"headers,omitempty"`
+	// Ref is the email's message reference: a gateway that relays to a sending service should pass
+	// it on (X-Pulse-Ref) so bounce emails can be matched.
+	Ref string `json:"ref,omitempty"`
 	// email: attachments as signed download links (valid 7 days), not inline bytes, so requests
 	// stay small whatever the files' size.
 	Attachments []gatewayAttachment `json:"attachments,omitempty"`
@@ -72,7 +75,7 @@ type gatewayAttachment struct {
 
 func (g *Gateway) Send(ctx context.Context, o Outbound) (Result, error) {
 	msg := gatewayMessage{MessageID: o.MessageID, Channel: o.Channel, To: o.To, Platform: o.Platform,
-		Subject: o.Rendered.Subject, HTML: o.Rendered.HTML, Content: o.Rendered.Content, Headers: o.Headers}
+		Subject: o.Rendered.Subject, HTML: o.Rendered.HTML, Content: o.Rendered.Content, Headers: o.Headers, Ref: o.Ref}
 	if o.Channel == channel.Email {
 		msg.Text = o.Rendered.Content.Text
 	}
@@ -125,6 +128,8 @@ func (g *Gateway) ParseReceipts(r *http.Request) ([]Receipt, error) {
 		Status      string `json:"status"`
 		Unreachable bool   `json:"unreachable"`
 		Reason      string `json:"reason"`
+		Code        string `json:"reason_code"`
+		Kind        string `json:"kind"`
 		From        string `json:"from"`
 		Text        string `json:"text"`
 	}
@@ -134,10 +139,19 @@ func (g *Gateway) ParseReceipts(r *http.Request) ([]Receipt, error) {
 	if in.Status == Inbound {
 		return []Receipt{{ProviderMessageID: in.ID, Status: Inbound, From: in.From, Text: in.Text}}, nil
 	}
-	if in.ID == "" || (in.Status != "delivered" && in.Status != "failed" && in.Status != "read") {
-		return nil, errors.New("gateway receipt needs id and status (delivered, failed, read or inbound)")
+	switch in.Status {
+	case "delivered", "failed", "read", "complained":
+	case "bounced":
+		if in.Kind != "hard" && in.Kind != "soft" {
+			in.Kind = "hard"
+		}
+	default:
+		in.ID = ""
 	}
-	return []Receipt{{ProviderMessageID: in.ID, Status: in.Status, Unreachable: in.Unreachable, Reason: in.Reason}}, nil
+	if in.ID == "" {
+		return nil, errors.New("gateway receipt needs id and status (delivered, failed, read, bounced, complained or inbound)")
+	}
+	return []Receipt{{ProviderMessageID: in.ID, Status: in.Status, Unreachable: in.Unreachable, Reason: in.Reason, Code: in.Code, Kind: in.Kind}}, nil
 }
 
 // VerifySignature checks "t=<unix>,v1=<hex hmac>" over "<t>.<body>", within 5 minutes of now.

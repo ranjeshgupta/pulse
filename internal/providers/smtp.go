@@ -35,6 +35,7 @@ func init() {
 			{Key: "from", Label: "From address", Placeholder: "Acme <hello@acme.com>", Required: true},
 			{Key: "max_connections", Label: "Max connections", Placeholder: "4"},
 			{Key: "messages_per_connection", Label: "Messages per connection", Placeholder: "100"},
+			{Key: "service", Label: "Sending service (for delivery reports)", Placeholder: "auto: sendgrid, mailgun, postmark, ses, sparkpost or other"},
 		},
 		Secrets: []Field{{Key: "username", Label: "Username"}, {Key: "password", Label: "Password"}},
 		New: func(_ Deps, c, s map[string]string) (Provider, error) {
@@ -46,7 +47,11 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			p := &SMTP{Addr: net.JoinHostPort(c["host"], c["port"]), From: c["from"], MaxConns: maxConns, MessagesPerConn: perConn}
+			svc, err := smtpService(c["service"], c["host"])
+			if err != nil {
+				return nil, err
+			}
+			p := &SMTP{Addr: net.JoinHostPort(c["host"], c["port"]), From: c["from"], MaxConns: maxConns, MessagesPerConn: perConn, Service: svc}
 			if s["username"] != "" {
 				p.Auth = smtp.PlainAuth("", s["username"], s["password"], c["host"])
 				sum := sha256.Sum256([]byte(s["password"]))
@@ -80,6 +85,9 @@ type SMTP struct {
 	From string // overrides Outbound.From when set
 	// Pool limits; 0 means the defaults (4 connections, 100 messages each).
 	MaxConns, MessagesPerConn int
+	// Service is the sending service behind the relay (EmailServices), which decides the metadata
+	// header that carries the message reference into its webhooks.
+	Service string
 
 	username, passSum string                                                            // identify the login in the pool key (passSum: SHA-256 of the password)
 	tlsConfig         *tls.Config                                                       // tests: trust a test CA (production uses the system roots)
@@ -92,7 +100,7 @@ func (s *SMTP) Send(ctx context.Context, o Outbound) (Result, error) {
 		from = s.From
 	}
 	msg, err := BuildMessage(Mail{ID: o.MessageID, From: from, To: o.To, Subject: o.Rendered.Subject, HTML: o.Rendered.HTML,
-		Text: o.Rendered.Content.Text, Headers: o.Headers, Attachments: o.Attachments, Date: time.Now()})
+		Text: o.Rendered.Content.Text, Headers: o.Headers, Attachments: o.Attachments, Date: time.Now(), Ref: o.Ref, Service: s.Service})
 	if err != nil {
 		return Result{}, Permanent(err.Error())
 	}
@@ -120,6 +128,92 @@ type Mail struct {
 	Headers               map[string]string // extra headers (List-Unsubscribe)
 	Attachments           []Attachment
 	Date                  time.Time
+	// Ref is the message reference (X-Pulse-Ref and the Message-ID); Service adds the sending
+	// service's own metadata header with it (RefHeaders).
+	Ref, Service string
+}
+
+// Sending services whose webhooks Pulse reads (package bounces).
+const (
+	ServiceSendGrid  = "sendgrid"
+	ServiceMailgun   = "mailgun"
+	ServicePostmark  = "postmark"
+	ServiceSES       = "ses"
+	ServiceSparkPost = "sparkpost"
+	ServiceOther     = "other"
+)
+
+// EmailServices lists the services RefHeaders knows.
+var EmailServices = []string{ServiceSendGrid, ServiceMailgun, ServicePostmark, ServiceSES, ServiceSparkPost, ServiceOther}
+
+// DetectService names the sending service of an SMTP relay host ("other" when unknown).
+func DetectService(host string) string {
+	h := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	switch {
+	case h == "smtp.sendgrid.net":
+		return ServiceSendGrid
+	case strings.HasSuffix(h, ".mailgun.org"):
+		return ServiceMailgun
+	case strings.HasSuffix(h, ".postmarkapp.com"):
+		return ServicePostmark
+	case strings.HasPrefix(h, "email-smtp.") && strings.HasSuffix(h, ".amazonaws.com"):
+		return ServiceSES
+	case strings.HasSuffix(h, ".sparkpostmail.com"):
+		return ServiceSparkPost
+	}
+	return ServiceOther
+}
+
+// smtpService is the configured service, or the one the host belongs to.
+func smtpService(configured, host string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(configured))
+	if v == "" || v == "auto" {
+		return DetectService(host), nil
+	}
+	for _, s := range EmailServices {
+		if v == s {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("sending service must be auto, %s", strings.Join(EmailServices, ", "))
+}
+
+// RefHeaders are the headers that carry a message reference: X-Pulse-Ref always (bounce emails
+// quote the original headers), plus the service's own metadata header, which its webhooks echo:
+// SendGrid unique_args (X-SMTPAPI), Mailgun variables, Postmark metadata (80 characters a value, so
+// longer references are split over pulse_ref and pulse_ref2), SES message tags, SparkPost metadata.
+func RefHeaders(service, ref string) map[string]string {
+	if ref == "" {
+		return nil
+	}
+	h := map[string]string{"X-Pulse-Ref": ref}
+	switch service {
+	case ServiceSendGrid:
+		h["X-SMTPAPI"] = `{"unique_args":{"pulse_ref":"` + ref + `"}}`
+	case ServiceMailgun:
+		h["X-Mailgun-Variables"] = `{"pulse_ref":"` + ref + `"}`
+	case ServicePostmark:
+		if len(ref) <= 80 {
+			h["X-PM-Metadata-pulse_ref"] = ref
+		} else {
+			h["X-PM-Metadata-pulse_ref"], h["X-PM-Metadata-pulse_ref2"] = ref[:80], ref[80:]
+		}
+	case ServiceSES:
+		h["X-SES-MESSAGE-TAGS"] = "pulse_ref=" + ref
+	case ServiceSparkPost:
+		h["X-MSYS-API"] = `{"metadata":{"pulse_ref":"` + ref + `"}}`
+	}
+	return h
+}
+
+// refChars are the only characters a reference has; anything else is refused (no header injection).
+func refOK(ref string) bool {
+	for _, c := range ref {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return false
+		}
+	}
+	return len(ref) <= 300
 }
 
 // BuildMessage produces the RFC 5322 message bytes. Addresses are parsed, so header injection
@@ -144,18 +238,38 @@ func BuildMessage(m Mail) ([]byte, error) {
 	header("To", to.String())
 	header("Subject", mime.QEncoding.Encode("utf-8", m.Subject))
 	header("Date", m.Date.Format(time.RFC1123Z))
-	header("Message-ID", "<"+m.ID+"@pulse>")
+	extra := m.Headers
+	if m.Ref != "" {
+		if !refOK(m.Ref) {
+			return nil, errors.New("invalid message reference")
+		}
+		// The reference names the message for bounces and complaints that quote only its Message-ID.
+		domain := "pulse"
+		if _, d, ok := strings.Cut(from.Address, "@"); ok && d != "" && !strings.ContainsAny(d, "<>[] ") {
+			domain = d
+		}
+		header("Message-ID", "<"+m.Ref+"@"+domain+">")
+		extra = map[string]string{}
+		for k, v := range m.Headers {
+			extra[k] = v
+		}
+		for k, v := range RefHeaders(m.Service, m.Ref) {
+			extra[k] = v
+		}
+	} else {
+		header("Message-ID", "<"+m.ID+"@pulse>")
+	}
 	header("X-Pulse-Message-Id", m.ID)
-	keys := make([]string, 0, len(m.Headers))
-	for k := range m.Headers {
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		if strings.ContainsAny(k+m.Headers[k], "\r\n") {
+		if strings.ContainsAny(k+extra[k], "\r\n") {
 			return nil, errors.New("header contains a line break")
 		}
-		header(k, m.Headers[k])
+		header(k, extra[k])
 	}
 	header("MIME-Version", "1.0")
 

@@ -11,6 +11,11 @@ import { FormEdit, FormList } from "./pages/Forms";
 import { FunnelEdit, FunnelList } from "./pages/Funnels";
 import { CohortEdit, CohortList } from "./pages/Cohorts";
 import { Revenue } from "./pages/Revenue";
+import { UsersDashboard } from "./pages/UsersDashboard";
+import { CampaignsDashboard } from "./pages/CampaignsDashboard";
+import { ProductsDashboard } from "./pages/ProductsDashboard";
+import { LiveFeed } from "./pages/LiveFeed";
+import { ContactPage } from "./pages/ContactPage";
 import { ReportEdit, ReportList } from "./pages/Reports";
 import Contacts from "./pages/Contacts";
 import { CompanyDetail, CompanyList } from "./pages/Companies";
@@ -72,6 +77,7 @@ const router = createBrowserRouter([
       { path: "contacts", element: <Contacts /> },
       { path: "contacts/duplicates", element: <Duplicates /> },
       { path: "contacts/import", element: <ImportPage /> },
+      { path: "contacts/:id", element: <Keyed><ContactPage /></Keyed> },
       { path: "companies", element: <CompanyList /> },
       { path: "companies/:id", element: <CompanyDetail /> },
       { path: "segments", element: <SegmentList /> },
@@ -103,6 +109,10 @@ const router = createBrowserRouter([
       { path: "cohorts", element: <CohortList /> },
       { path: "cohorts/:id", element: <CohortEdit /> },
       { path: "revenue", element: <Revenue /> },
+      { path: "analytics/users", element: <UsersDashboard /> },
+      { path: "analytics/campaigns", element: <CampaignsDashboard /> },
+      { path: "analytics/products", element: <ProductsDashboard /> },
+      { path: "analytics/live", element: <LiveFeed /> },
       {
         path: "settings",
         element: <SettingsLayout />,

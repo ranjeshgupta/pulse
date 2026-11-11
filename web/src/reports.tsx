@@ -10,6 +10,7 @@ export type CountKey = keyof MessageCounts;
 export const COUNT_LABELS: Record<CountKey, string> = {
   sent: "Sent", delivered: "Delivered", read: "Read", opened: "Opened", clicked: "Clicked", converted: "Converted",
   unsubscribed: "Unsubscribed", failed: "Failed", fallback: "Sent as SMS", suppressed: "Opted out", capped: "Over limit", deferred: "Held for quiet hours",
+  bounced: "Bounced", complained: "Spam complaints", downloaded: "Downloads",
 };
 
 /** Outcomes shown as a share of sent. */
@@ -17,6 +18,7 @@ const RATE_KEYS = new Set<CountKey>(["opened", "clicked", "read", "converted"]);
 
 export const EMPTY_COUNTS: MessageCounts = {
   sent: 0, delivered: 0, read: 0, failed: 0, fallback: 0, suppressed: 0, capped: 0, deferred: 0, opened: 0, clicked: 0, unsubscribed: 0, converted: 0,
+  bounced: 0, complained: 0, downloaded: 0,
 };
 
 /** pct formats n as a share of `of`: "24%", "3.5%", or "–" when there is nothing to divide by. */

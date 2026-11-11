@@ -89,7 +89,9 @@ func (s *imapSession) Unseen(ctx context.Context, max int) ([]Message, error) {
 	section := &imap.BodySectionName{Peek: true}
 	ch := make(chan *imap.Message, 16)
 	done := make(chan error, 1)
-	go func() { done <- s.c.UidFetch(set, []imap.FetchItem{imap.FetchUid, imap.FetchRFC822Size, section.FetchItem()}, ch) }()
+	go func() {
+		done <- s.c.UidFetch(set, []imap.FetchItem{imap.FetchUid, imap.FetchRFC822Size, section.FetchItem()}, ch)
+	}()
 	var out []Message
 	for msg := range ch {
 		if msg.Size > maxMessageBytes {

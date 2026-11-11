@@ -88,6 +88,7 @@ func (c *Codec) UnsubscribeURL(token string) string { return c.base + "/u/" + to
 func (c *Codec) PreferencesURL(token string) string {
 	return c.base + "/u/" + token + "?view=preferences"
 }
+
 // PushTrackKey is the push payload data key holding the message's PushURL.
 const PushTrackKey = "pulse_track"
 

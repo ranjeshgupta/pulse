@@ -41,6 +41,12 @@ func addCount(c *model.MessageCounts, kind string, n uint64) {
 		c.Clicked = n
 	case "unsubscribed":
 		c.Unsubscribed = n
+	case "bounced":
+		c.Bounced = n
+	case "complained":
+		c.Complained = n
+	case "downloaded":
+		c.Downloaded = n
 	}
 }
 
@@ -66,8 +72,10 @@ func (sc Scope) Where() (string, []any) {
 // groupCounts runs "SELECT <key>, kind, uniqExact(contact_id) ... GROUP BY <key>, kind".
 func (s *Store) groupCounts(ctx context.Context, sc Scope, key string) (map[string]model.MessageCounts, error) {
 	w, args := sc.Where()
-	rows, err := s.conn.Query(ctx, "SELECT "+key+" AS k, kind, uniqExact(contact_id) FROM message_events WHERE "+w+
-		" GROUP BY k, kind", args...)
+	// A click on a file link also counts as a download (kk), in the same pass.
+	rows, err := s.conn.Query(ctx, "SELECT "+key+" AS k, kk, uniqExact(contact_id) FROM message_events"+
+		" ARRAY JOIN if(kind = 'clicked' AND match(url, ?), ['clicked', 'downloaded'], [kind]) AS kk WHERE "+w+
+		" GROUP BY k, kk", append([]any{DownloadURL}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +124,12 @@ type Report struct {
 	Revenue *RevenueReport `json:"revenue,omitempty"`
 	// Late: contacts whose message was dropped by the send deadline (counted in Failed too).
 	Late uint64 `json:"late"`
+	// M4: why messages failed, bounced, were skipped or complained about (contacts per reason
+	// code), overall and per journey step; Targeted: contacts with any outcome.
+	Reasons       []ReasonCount            `json:"reasons"`
+	ReasonsByNode map[string][]ReasonCount `json:"reasons_by_node,omitempty"`
+	Targeted      uint64                   `json:"targeted"`
+	Funnel        Funnel                   `json:"funnel"`
 }
 
 // RevenueReport is the revenue of a broadcast's or journey's recipients: revenue events they did
@@ -172,6 +186,9 @@ func (s *Store) MessageReport(ctx context.Context, sc Scope, conversionEvent str
 	}
 
 	if rep.Late, err = s.lateCount(ctx, sc); err != nil {
+		return rep, err
+	}
+	if err := s.reasons(ctx, sc, &rep); err != nil {
 		return rep, err
 	}
 

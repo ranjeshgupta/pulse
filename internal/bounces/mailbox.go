@@ -21,6 +21,8 @@ import (
 	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
+	"pulse/internal/model"
+	"pulse/internal/tracking"
 )
 
 // TLS modes of a mailbox connection.
@@ -116,6 +118,7 @@ type MailboxStore interface {
 	ClaimDueMailboxes(ctx context.Context, limit int, every time.Duration) ([]Mailbox, [][]byte, error)
 	FinishMailboxCheck(ctx context.Context, tenant int64, processed, skipped int, lastErr string) error
 	ExternalIDByEmail(ctx context.Context, tenant int64, email string) (string, error)
+	ContactByID(ctx context.Context, tenant int64, id uint32) (model.Contact, error)
 }
 
 // Publisher records events (into events.raw).
@@ -130,6 +133,8 @@ type Poller struct {
 	Unseal func([]byte) (string, error)
 	Pub    Publisher
 	Log    *slog.Logger
+	// Refs checks the message references bounce emails quote (nil: they are recorded unlinked).
+	Refs RefParser
 }
 
 // Run checks due mailboxes every tick until ctx ends.
@@ -201,10 +206,7 @@ func (p *Poller) Check(ctx context.Context, m Mailbox, sealedPassword []byte) (p
 		}
 		all = append(all, bs...)
 	}
-	evs, err := Events(all, func(email string) (string, bool) {
-		ext, err := p.Store.ExternalIDByEmail(ctx, m.TenantID, email)
-		return ext, err == nil && ext != ""
-	})
+	evs, err := Events(all, Link(ctx, m.TenantID, p.Refs, p.Store))
 	if err != nil {
 		return 0, 0, err
 	}
@@ -227,36 +229,109 @@ func (p *Poller) Check(ctx context.Context, m Mailbox, sealedPassword []byte) (p
 // AttrEmailBounced marks a contact whose address hard-bounced: email to them is suppressed.
 const AttrEmailBounced = consent.AttrEmailBounced
 
-// Events turns bounces into events on the contacts with those addresses (externalID looks one up;
-// unknown addresses are skipped): a hard bounce records email_bounced and marks the address
-// bounced (no more email); a soft bounce only records email_bounced; a complaint records
-// email_complained and unsubscribes the contact from email.
-func Events(bs []Bounce, externalID func(email string) (string, bool)) ([]event.Event, error) {
+// Target is the contact a report is recorded on.
+type Target struct {
+	ExternalID string
+	// Props are the ids of the message the report is about (message_id, template_id, journey_id or
+	// broadcast_id, run, variant), when it quoted a valid reference.
+	Props map[string]any
+	// SameAddress: the contact's address is still the one the report is about (a hard bounce of an
+	// address the contact has since replaced doesn't mark the new one).
+	SameAddress bool
+}
+
+// Resolver finds a report's contact; false skips the report.
+type Resolver func(b Bounce) (Target, bool)
+
+// reasonCodes of the reports (package reasons).
+var reasonCodes = map[string]string{Hard: "hard_bounce", Soft: "soft_bounce", Complaint: "complaint"}
+
+// Events turns reports into events on their contacts (resolve finds them; unknown addresses are
+// skipped): a hard bounce records email_bounced and marks the address bounced (no more email); a
+// soft bounce only records email_bounced; a complaint records email_complained and unsubscribes
+// the contact from email; a delivery report records email_delivered (linked reports only).
+// Linked reports carry the message's ids and get ids derived from the message, so a webhook the
+// service repeats records one event.
+func Events(bs []Bounce, resolve Resolver) ([]event.Event, error) {
 	var evs []event.Event
 	for _, b := range bs {
-		ext, ok := externalID(b.Email)
-		if !ok {
+		t, ok := resolve(b)
+		if !ok || t.ExternalID == "" {
 			continue
 		}
-		props := map[string]any{"kind": b.Kind, "reason": b.Reason, "source": b.Source, "email": b.Email}
+		mid, _ := t.Props["message_id"].(string)
+		if b.Kind == Delivered && mid == "" {
+			continue
+		}
+		props := map[string]any{"kind": b.Kind, "reason": clip(b.Reason), "source": b.Source, "email": b.Email}
+		if c := reasonCodes[b.Kind]; c != "" {
+			props["reason_code"] = c
+		}
+		for k, v := range t.Props {
+			props[k] = v
+		}
 		id := func(suffix string) string {
-			if b.Key == "" {
-				return ""
+			switch {
+			case mid != "":
+				return "fb:" + mid + ":" + b.Kind + suffix
+			case b.Key != "":
+				return b.Key + suffix
 			}
-			return b.Key + suffix
+			return ""
 		}
 		switch b.Kind {
 		case Hard:
-			evs = append(evs, event.Event{ID: id(":b"), ExternalID: ext, Name: "email_bounced", Props: props,
-				Attrs: map[string]any{AttrEmailBounced: true}})
+			ev := event.Event{ID: id(":b"), ExternalID: t.ExternalID, Name: "email_bounced", Props: props}
+			if t.SameAddress {
+				ev.Attrs = map[string]any{AttrEmailBounced: true}
+			}
+			evs = append(evs, ev)
 		case Soft:
-			evs = append(evs, event.Event{ID: id(":b"), ExternalID: ext, Name: "email_bounced", Props: props})
+			evs = append(evs, event.Event{ID: id(":b"), ExternalID: t.ExternalID, Name: "email_bounced", Props: props})
 		case Complaint:
-			evs = append(evs, event.Event{ID: id(":c"), ExternalID: ext, Name: "email_complained", Props: props},
-				event.Event{ID: id(":u"), ExternalID: ext, Name: consent.Unsubscribed, Props: map[string]any{"channel": "email", "source": "complaint"}})
+			evs = append(evs, event.Event{ID: id(":c"), ExternalID: t.ExternalID, Name: "email_complained", Props: props},
+				event.Event{ID: id(":u"), ExternalID: t.ExternalID, Name: consent.Unsubscribed, Props: map[string]any{"channel": "email", "source": "complaint"}})
+		case Delivered:
+			delete(props, "kind")
+			evs = append(evs, event.Event{ID: id(""), ExternalID: t.ExternalID, Name: "email_delivered", Props: props})
 		}
 	}
 	return evs, nil
+}
+
+// RefParser checks message references (tracking.Codec).
+type RefParser interface {
+	ParseRef(s string) (tracking.Ref, error)
+}
+
+// Contacts looks contacts up for Link.
+type Contacts interface {
+	ExternalIDByEmail(ctx context.Context, tenant int64, email string) (string, error)
+	ContactByID(ctx context.Context, tenant int64, id uint32) (model.Contact, error)
+}
+
+// Link resolves a report of a workspace: a reference signed by this server for this workspace
+// names the message and its contact (the tenant in a report body is never trusted on its own);
+// otherwise the contact with the address. refs may be nil (no server key: nothing is linked).
+func Link(ctx context.Context, tenant int64, refs RefParser, cs Contacts) Resolver {
+	return func(b Bounce) (Target, bool) {
+		if b.Ref != "" && refs != nil {
+			if r, err := refs.ParseRef(b.Ref); err == nil && r.TenantID == tenant {
+				if c, err := cs.ContactByID(ctx, tenant, r.ContactID); err == nil && c.ExternalID != "" {
+					return Target{ExternalID: c.ExternalID, Props: r.Props(),
+						SameAddress: b.Email == "" || strings.EqualFold(c.Email, b.Email)}, true
+				}
+			}
+		}
+		if b.Kind == Delivered || b.Email == "" {
+			return Target{}, false
+		}
+		ext, err := cs.ExternalIDByEmail(ctx, tenant, b.Email)
+		if err != nil || ext == "" {
+			return Target{}, false
+		}
+		return Target{ExternalID: ext, SameAddress: true}, true
+	}
 }
 
 // KafkaPublisher records events into events.raw.

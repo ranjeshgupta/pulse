@@ -22,7 +22,8 @@ var areaByPrefix = map[string]string{
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
 	"assets": auth.AreaContent, "landing-pages": auth.AreaContent, "test-contacts": auth.AreaContent,
 	"stats": auth.AreaReports, "funnels": auth.AreaReports, "cohorts": auth.AreaReports, "reports": auth.AreaReports,
-	"revenue":  auth.AreaReports,
+	"revenue": auth.AreaReports, "analytics": auth.AreaReports, // M4 dashboards
+	"live":     auth.AreaContacts, // the live event feed shows people's events
 	"channels": auth.AreaChannels, "sandbox": auth.AreaChannels,
 	"settings": auth.AreaSettings, "users": auth.AreaSettings, "roles": auth.AreaSettings, "audit": auth.AreaSettings,
 	"integrations": auth.AreaSettings, // audience links also need segments edit (checked in the handler)

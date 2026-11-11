@@ -290,8 +290,10 @@ func (s *Server) sandboxReceipt(w http.ResponseWriter, r *http.Request, tenant i
 	if !decode(w, r, &rc) {
 		return
 	}
-	if rc.ProviderMessageID == "" || (rc.Status != "delivered" && rc.Status != "failed" && rc.Status != "read") {
-		writeErr(w, http.StatusBadRequest, "provider_message_id and status (delivered|failed|read) are required")
+	ok := rc.Status == "delivered" || rc.Status == "failed" || rc.Status == "read" || rc.Status == "complained" ||
+		rc.Status == "bounced" && (rc.Kind == "hard" || rc.Kind == "soft")
+	if rc.ProviderMessageID == "" || !ok || rc.Status == providers.Inbound {
+		writeErr(w, http.StatusBadRequest, "provider_message_id and status (delivered|failed|read|complained, or bounced with kind hard|soft) are required")
 		return
 	}
 	if err := s.publishReceipts(r.Context(), tenant, []providers.Receipt{rc}); err != nil {

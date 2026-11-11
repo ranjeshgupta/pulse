@@ -189,3 +189,39 @@ func TestGatewaySendsTextAndAttachmentLinks(t *testing.T) {
 		t.Error("an attachment without a link was sent")
 	}
 }
+
+func TestRefHeaders(t *testing.T) {
+	for host, want := range map[string]string{"smtp.sendgrid.net": ServiceSendGrid, "smtp.eu.mailgun.org": ServiceMailgun,
+		"smtp.postmarkapp.com": ServicePostmark, "email-smtp.ap-south-1.amazonaws.com": ServiceSES, "smtp.sparkpostmail.com": ServiceSparkPost,
+		"mail.example.com": ServiceOther} {
+		if got := DetectService(host); got != want {
+			t.Errorf("DetectService(%s) = %s, want %s", host, got, want)
+		}
+	}
+	if _, err := smtpService("bogus", "x"); err == nil {
+		t.Error("an unknown service was accepted")
+	}
+	ref := "p1AbC-_d.SiG"
+	msg, err := BuildMessage(Mail{ID: "bc1:2:3", From: "Acme <news@acme.test>", To: "a@x.co", Subject: "Hi", HTML: "<p>x</p>",
+		Date: time.Unix(0, 0), Ref: ref, Service: ServiceSendGrid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"Message-ID: <" + ref + "@acme.test>", "X-Pulse-Ref: " + ref, `X-SMTPAPI: {"unique_args":{"pulse_ref":"` + ref + `"}}`} {
+		if !strings.Contains(string(msg), h+"\r\n") {
+			t.Errorf("missing %q in\n%s", h, msg)
+		}
+	}
+	long := strings.Repeat("a", 90)
+	if h := RefHeaders(ServicePostmark, long); h["X-PM-Metadata-pulse_ref"] != long[:80] || h["X-PM-Metadata-pulse_ref2"] != long[80:] {
+		t.Errorf("postmark metadata split: %v", h)
+	}
+	for _, svc := range []string{ServiceMailgun, ServiceSES, ServiceSparkPost} {
+		if len(RefHeaders(svc, ref)) != 2 {
+			t.Errorf("%s: %v", svc, RefHeaders(svc, ref))
+		}
+	}
+	if _, err := BuildMessage(Mail{ID: "x", From: "a@b.co", To: "c@d.co", Ref: "p1\r\nBcc: evil@x.co"}); err == nil {
+		t.Error("a reference with a line break was accepted")
+	}
+}

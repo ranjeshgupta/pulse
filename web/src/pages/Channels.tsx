@@ -271,13 +271,14 @@ const BOUNCE_SERVICES: Record<string, string> = {
   postmark: "Postmark (Bounce and Spam Complaint webhooks)",
   mailgun: "Mailgun (Permanent Failure, Temporary Failure and Spam Complaint webhooks)",
   ses: "Amazon SES (an SNS topic with an HTTPS subscription; Pulse confirms it for you)",
+  sparkpost: "SparkPost (Bounce, Out of Band and Spam Complaint events)",
   generic: 'Anything else: post JSON like {"email": "…", "type": "hard"} (or a list of them). type is hard, soft or complaint.',
 };
 
 // BouncesPanel shows where the email service should report bounces and complaints, and what each does.
 function BouncesPanel() {
   const toast = useToast();
-  const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<{ url: string; formats: string[]; reply_url?: string }>("/v1/settings/bounces") });
+  const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<BounceSettings>("/v1/settings/bounces") });
   const copy = (text: string) =>
     navigator.clipboard.writeText(text).then(() => toast({ text: "URL copied" }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
   const formats = q.data?.formats ?? Object.keys(BOUNCE_SERVICES);
@@ -320,8 +321,125 @@ function BouncesPanel() {
             </dl>
           </div>
         </div>
+        {q.data && q.data.linking === false && (
+          <div className="alert info" style={{ marginTop: 14 }}>
+            Reports can't be matched to the messages they're about: the server has no secret key (PULSE_SECRET_KEY). Contacts are still updated, but bounces and complaints don't show in campaign reports.
+          </div>
+        )}
+        {q.data?.signing && <BounceSigning url={q.data.url} signing={q.data.signing} />}
       </div>
     </section>
+  );
+}
+
+interface SigningStatus { sendgrid: boolean; mailgun: boolean; ses: boolean; basic: boolean; basic_user?: string }
+interface BounceSettings { url: string; formats: string[]; reply_url?: string; signing?: SigningStatus; linking?: boolean }
+type SigningKey = "sendgrid" | "mailgun" | "basic";
+
+function Checked({ on, basic }: { on: boolean; basic?: boolean }) {
+  return on
+    ? <span className="badge ok">{basic ? "Password checked" : "Signature checked"}</span>
+    : <span className="badge warn" title="Anyone who knows the URL can post reports">URL secret only</span>;
+}
+
+// BounceSigning sets the keys each email service's webhook posts are checked with. Secrets are
+// never shown again; empty fields keep what is saved. Once a key is saved, unsigned posts are refused.
+function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [sendgrid, setSendgrid] = useState("");
+  const [mailgun, setMailgun] = useState("");
+  const [user, setUser] = useState(signing.basic_user ?? "");
+  const [password, setPassword] = useState("");
+  const done = (r: { signing: SigningStatus }, text: string) => {
+    qc.setQueryData<BounceSettings>(["bounce-settings"], (old) => (old ? { ...old, signing: r.signing } : old));
+    qc.invalidateQueries({ queryKey: ["bounce-settings"] });
+    toast({ text });
+  };
+  const save = useMutation({
+    mutationFn: () => api.put<{ signing: SigningStatus }>("/v1/settings/bounces/signing", {
+      ...(sendgrid.trim() ? { sendgrid_public_key: sendgrid.trim() } : {}),
+      ...(mailgun.trim() ? { mailgun_signing_key: mailgun.trim() } : {}),
+      ...(password ? { basic_user: user.trim(), basic_password: password } : {}),
+    }),
+    onSuccess: (r) => { setSendgrid(""); setMailgun(""); setPassword(""); setUser(r.signing.basic_user ?? user.trim()); done(r, "Webhook keys saved"); },
+  });
+  const clear = useMutation({
+    mutationFn: (k: SigningKey) => api.put<{ signing: SigningStatus }>("/v1/settings/bounces/signing", { clear: [k] }),
+    onSuccess: (r, k) => { if (k === "basic") setUser(""); done(r, "Key removed: those posts are accepted on the URL alone again"); },
+  });
+  const userChanged = user.trim() !== (signing.basic_user ?? "");
+  const basicProblem = password && !user.trim() ? "Enter a user name too."
+    : password && password.length < 12 ? "The password needs at least 12 characters."
+    : !password && userChanged && user.trim() ? "Enter the password to change the user name."
+    : "";
+  const anything = !!(sendgrid.trim() || mailgun.trim() || password);
+  const remove = (k: SigningKey, name: string) =>
+    confirm(`Remove the ${name} key? Posts in that format are then accepted on the URL alone.`) && clear.mutate(k);
+  const exampleUser = encodeURIComponent(user.trim() || "user");
+  const basicURL = url.replace(/^(https?:\/\/)/, `$1${exampleUser}:<password>@`);
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <h4 className="small" style={{ marginBottom: 6 }}>Webhook signatures</h4>
+      <p className="small muted" style={{ marginBottom: 12 }}>
+        Without a key, anyone who learns the URL can report bounces. Once a key is saved, posts in that format without a valid signature are refused. Saved keys are never shown again; leave a field empty to keep what's saved.
+      </p>
+      <form onSubmit={(e) => { e.preventDefault(); if (anything && !basicProblem) save.mutate(); }}>
+        <div className="table-scroll">
+          <table className="table">
+            <thead><tr><th scope="col">Service</th><th scope="col">Checked</th><th scope="col">Key</th><th scope="col" /></tr></thead>
+            <tbody>
+              <tr>
+                <td>SendGrid</td>
+                <td><Checked on={signing.sendgrid} /></td>
+                <td>
+                  <Field label="Signed Event Webhook verification key" hint="The base64 public key SendGrid shows when you turn on the signed Event Webhook.">
+                    <textarea className="textarea" rows={2} value={sendgrid} onChange={(e) => setSendgrid(e.target.value)} placeholder={signing.sendgrid ? "Saved. Paste a new key to replace it" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE…"} spellCheck={false} autoComplete="off" />
+                  </Field>
+                </td>
+                <td className="num">{signing.sendgrid && <button type="button" className="btn ghost sm danger" disabled={clear.isPending} onClick={() => remove("sendgrid", "SendGrid")}>Remove</button>}</td>
+              </tr>
+              <tr>
+                <td>Mailgun</td>
+                <td><Checked on={signing.mailgun} /></td>
+                <td>
+                  <Field label="HTTP webhook signing key" hint="Mailgun → Sending → Webhooks. Each signature is accepted once.">
+                    <input className="input" type="password" value={mailgun} onChange={(e) => setMailgun(e.target.value)} placeholder={signing.mailgun ? "Saved. Enter a new key to replace it" : ""} autoComplete="new-password" />
+                  </Field>
+                </td>
+                <td className="num">{signing.mailgun && <button type="button" className="btn ghost sm danger" disabled={clear.isPending} onClick={() => remove("mailgun", "Mailgun")}>Remove</button>}</td>
+              </tr>
+              <tr>
+                <td>Amazon SES</td>
+                <td><Checked on={signing.ses} /></td>
+                <td className="small muted">Through SNS: every notification's SNS signature is checked. Nothing to set.</td>
+                <td />
+              </tr>
+              <tr>
+                <td>Postmark, SparkPost and other posts</td>
+                <td><Checked on={signing.basic} basic /></td>
+                <td>
+                  <div className="grid-2">
+                    <Field label="Basic auth user"><input className="input" value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" /></Field>
+                    <Field label="Password" hint="At least 12 characters.">
+                      <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={signing.basic ? "Saved. Enter a new one to replace it" : ""} autoComplete="new-password" />
+                    </Field>
+                  </div>
+                  <p className="xs muted" style={{ margin: 0 }}>Put them in the webhook URL: <code style={{ wordBreak: "break-all" }}>{basicURL}</code></p>
+                  {basicProblem && <p className="xs" style={{ color: "var(--danger)", margin: "4px 0 0" }} role="alert">{basicProblem}</p>}
+                </td>
+                <td className="num">{signing.basic && <button type="button" className="btn ghost sm danger" disabled={clear.isPending} onClick={() => remove("basic", "basic auth")}>Remove</button>}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn primary sm" disabled={!anything || !!basicProblem || save.isPending}>{save.isPending ? "Saving…" : "Save keys"}</button>
+        </div>
+      </form>
+      <ErrorNote error={save.error ?? clear.error} />
+    </div>
   );
 }
 

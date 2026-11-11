@@ -215,7 +215,7 @@ func (s *Store) Exec(ctx context.Context, sql string, args ...any) error {
 
 // DeleteContacts removes contacts' events, profile snapshots and membership rows (lightweight deletes).
 func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) error {
-	for _, table := range []string{"events", "message_events", "segment_members"} {
+	for _, table := range []string{"events", "message_events", "segment_members", "first_active"} {
 		if err := s.conn.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = ? AND contact_id IN ?", uint64(tenant), ids); err != nil {
 			return fmt.Errorf("%s: %w", table, err)
 		}

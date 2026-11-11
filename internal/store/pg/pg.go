@@ -808,3 +808,26 @@ func notFound(err error) error {
 	}
 	return err
 }
+
+// ContactJourney is a journey a contact is in, or was in.
+type ContactJourney struct {
+	JourneyID int64     `json:"journey_id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"` // active | waiting | completed | exited …
+	Node      string    `json:"node"`   // the step they are at (or left from)
+	Graph     []byte    `json:"-"`
+	EnteredAt time.Time `json:"entered_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ContactJourneys lists a contact's journey enrollments, latest first (at most limit).
+func (s *Store) ContactJourneys(ctx context.Context, tenant int64, contact uint32, limit int) ([]ContactJourney, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT e.journey_id, j.name, e.status, e.node, j.graph, e.created_at, e.updated_at
+		FROM journey_enrollments e JOIN journeys j ON j.id = e.journey_id
+		WHERE e.tenant_id = $1 AND e.contact_id = $2 ORDER BY e.updated_at DESC LIMIT $3`, tenant, int64(contact), limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[ContactJourney])
+}

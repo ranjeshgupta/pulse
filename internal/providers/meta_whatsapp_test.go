@@ -129,8 +129,8 @@ func TestMetaWhatsAppReceipts(t *testing.T) {
 	want := []Receipt{
 		{ProviderMessageID: "wamid.A", Status: "delivered"},
 		{ProviderMessageID: "wamid.B", Status: "read"},
-		{ProviderMessageID: "wamid.C", Status: "failed", Unreachable: true, Reason: "meta whatsapp 131026: Message undeliverable"},
-		{ProviderMessageID: "wamid.D", Status: "failed", Reason: "meta whatsapp 131049: Ecosystem limit"},
+		{ProviderMessageID: "wamid.C", Status: "failed", Unreachable: true, Reason: "meta whatsapp 131026: Message undeliverable", Code: "blocked"},
+		{ProviderMessageID: "wamid.D", Status: "failed", Reason: "meta whatsapp 131049: Ecosystem limit", Code: "spam_policy"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %+v", got)

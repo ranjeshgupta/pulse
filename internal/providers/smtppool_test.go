@@ -498,7 +498,7 @@ func TestSMTPPoolConfigValidation(t *testing.T) {
 			t.Errorf("%s is required", f.Key)
 		}
 	}
-	if strings.Join(keys, ",") != "host,port,from,max_connections,messages_per_connection" {
+	if strings.Join(keys, ",") != "host,port,from,max_connections,messages_per_connection,service" {
 		t.Errorf("config fields = %v", keys)
 	}
 }

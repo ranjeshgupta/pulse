@@ -11,6 +11,7 @@ import { AudienceEstimate, DeadlineFields, DuplicateButton, TagEditor } from "..
 import { SegmentPicker } from "./InApp";
 import { money } from "../insights";
 import { CountsTable, DailyBars, metricsFor, ReportFigures, ReportPanel, TopLinks, type CountsRow } from "../reports";
+import { FunnelPanel, ReasonsPanel } from "../funnel";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ChannelLabel, Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
 
@@ -464,6 +465,8 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
           <p className="xs muted" style={{ margin: "0 0 18px" }}>
             Each contact counts once. Rates are out of messages sent.{bc.conversion_event ? ` Converted means they did ${bc.conversion_event} within ${bc.conversion_days || 3} days of their send.` : ""}
           </p>
+          {r.funnel && <div style={{ marginBottom: 24 }}><FunnelPanel funnel={r.funnel} channels={channels} /></div>}
+          <div style={{ marginBottom: 24 }}><ReasonsPanel reasons={r.reasons} /></div>
           {variantRows.length > 0 && (
             <div style={{ marginBottom: 24 }}>
               <ReportPanel title="Variants" aside={winnerStep && ab?.metric !== "manual" ? <span className="xs muted">Winner by {METRIC_TEXT[ab!.metric]}</span> : undefined}>

@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -282,7 +283,39 @@ func (s *Server) broadcastReport(w http.ResponseWriter, r *http.Request, tenant 
 		s.fail(w, err)
 		return
 	}
+	rep.Funnel = ch.BuildFunnel(rep)
+	runs, err := s.bcStore().BroadcastRuns(r.Context(), tenant, id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	rep.Funnel.Audience = audienceAtSend(runs, run)
 	writeJSON(w, http.StatusOK, rep)
+}
+
+// audienceAtSend sums the audience snapshots of a broadcast's runs (one run when run is set).
+func audienceAtSend(runs []model.BroadcastRun, run int64) *ch.AudienceAtSend {
+	var a ch.AudienceAtSend
+	a.Ready = true
+	for _, r := range runs {
+		if len(r.Audience) == 0 || (run != 0 && r.ScheduledAt.Unix() != run) {
+			continue
+		}
+		var snap broadcast.AudienceSnapshot
+		if json.Unmarshal(r.Audience, &snap) != nil {
+			continue
+		}
+		a.Audience += snap.Audience
+		a.AfterExclude += snap.AfterExclude
+		a.AfterConsent += snap.AfterConsent
+		a.Reachable += snap.Reachable
+		a.Ready = a.Ready && snap.Ready
+		a.Runs++
+	}
+	if a.Runs == 0 {
+		return nil
+	}
+	return &a
 }
 
 func (s *Server) scheduleBroadcast(w http.ResponseWriter, r *http.Request, tenant int64) {

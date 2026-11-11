@@ -246,3 +246,16 @@ func (s *Store) SetVAPIDKeys(ctx context.Context, tenant int64, pub string, seal
 	cur, _, err := s.VAPIDKeys(ctx, tenant)
 	return cur, err
 }
+
+// EmailWebhookKeys returns a workspace's sealed email webhook keys (nil when none were saved).
+func (s *Store) EmailWebhookKeys(ctx context.Context, tenant int64) ([]byte, error) {
+	var b []byte
+	err := s.db.QueryRow(ctx, `SELECT email_webhook_keys FROM tenants WHERE id = $1`, tenant).Scan(&b)
+	return b, notFound(err)
+}
+
+// SetEmailWebhookKeys stores a workspace's sealed email webhook keys (nil clears them).
+func (s *Store) SetEmailWebhookKeys(ctx context.Context, tenant int64, sealed []byte) error {
+	_, err := s.db.Exec(ctx, `UPDATE tenants SET email_webhook_keys = $2 WHERE id = $1`, tenant, sealed)
+	return err
+}

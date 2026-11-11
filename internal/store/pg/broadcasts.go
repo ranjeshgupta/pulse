@@ -179,6 +179,12 @@ func (s *Store) StartRun(ctx context.Context, broadcast int64, scheduledAt time.
 	return id, err
 }
 
+// SetRunAudience stores a run's audience when it started (the report's funnel).
+func (s *Store) SetRunAudience(ctx context.Context, run int64, audience []byte) error {
+	_, err := s.db.Exec(ctx, `UPDATE broadcast_runs SET audience = $2 WHERE id = $1`, run, audience)
+	return err
+}
+
 func (s *Store) FinishRun(ctx context.Context, run int64, recipients, testRecipients int, winnerDue *time.Time) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE broadcast_runs SET finished_at = now(), recipients = $2, test_recipients = $3, winner_due_at = $4
@@ -256,7 +262,7 @@ func (s *Store) PickWinner(ctx context.Context, tenant, broadcastID, run int64, 
 func (s *Store) BroadcastRuns(ctx context.Context, tenant, id int64) ([]model.BroadcastRun, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT r.id, r.scheduled_at, r.started_at, r.finished_at, r.recipients,
-			r.test_recipients, r.winner_due_at, coalesce(r.winner, ''), r.winner_reason, r.winner_sent_at, r.winner_recipients
+			r.test_recipients, r.winner_due_at, coalesce(r.winner, ''), r.winner_reason, r.winner_sent_at, r.winner_recipients, r.audience
 		FROM broadcast_runs r
 		JOIN broadcasts b ON b.id = r.broadcast_id WHERE b.tenant_id = $1 AND b.id = $2 ORDER BY r.scheduled_at DESC LIMIT 50`,
 		tenant, id)

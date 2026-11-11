@@ -43,6 +43,10 @@ type Sink struct {
 	w   Writer
 	log *slog.Logger
 	now func() time.Time
+	// Live, when set, gets every stored event for the live event feed (package live).
+	Live interface {
+		Push(ctx context.Context, evs []event.Event) error
+	}
 }
 
 func New(w Writer, log *slog.Logger) *Sink { return &Sink{w: w, log: log, now: time.Now} }
@@ -98,6 +102,11 @@ func (s *Sink) Handle(ctx context.Context, recs []*kgo.Record) error {
 	}
 	if err := s.w.InsertEvents(ctx, b.Events); err != nil {
 		return err
+	}
+	if s.Live != nil && len(b.Events) > 0 {
+		if err := s.Live.Push(ctx, b.Events); err != nil { // best effort: the feed is only a view
+			s.log.Warn("live feed", "err", err)
+		}
 	}
 	for _, m := range b.Merges {
 		if err := s.w.CopyEvents(ctx, m.TenantID, m.From, m.To); err != nil {

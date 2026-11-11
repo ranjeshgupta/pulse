@@ -37,6 +37,7 @@ import (
 	"pulse/internal/model"
 	"pulse/internal/providers"
 	"pulse/internal/reach"
+	"pulse/internal/reasons"
 	"pulse/internal/replies"
 	"pulse/internal/safehttp"
 	"pulse/internal/store/pg"
@@ -249,13 +250,16 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if len(targets) == 0 {
 		return d.unreachable(ctx, sentKey, m, c, "contact has no "+addressName(m.Channel))
 	}
-	var token string
+	var token, ref string
 	var headers map[string]string
 	unsub := ""
 	if m.Channel == channel.Email && d.cfg.Tracking != nil {
-		token = d.cfg.Tracking.Encode(tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID,
+		tok := tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID,
 			Channel: m.Channel, TemplateID: m.TemplateID, JourneyID: m.JourneyID,
-			BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant})
+			BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant}
+		token = d.cfg.Tracking.Encode(tok)
+		// The message reference links bounces, complaints and delivery reports back to this message.
+		ref = d.cfg.Tracking.Ref(tracking.RefFromToken(tok, c.ID))
 		unsub, headers = d.cfg.Tracking.UnsubscribeURL(token), d.cfg.Tracking.Headers(token)
 		if err := d.replyTo(ctx, m, token, headers); err != nil {
 			return err
@@ -361,7 +365,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 		}
 		res, err := via.Send(ctx, providers.Outbound{
 			TenantID: m.TenantID, MessageID: m.ID, Channel: m.Channel, To: tg.to, Platform: tg.platform,
-			From: d.cfg.From, Rendered: rendered, Headers: headers, Attachments: files,
+			From: d.cfg.From, Rendered: rendered, Headers: headers, Attachments: files, Ref: ref,
 		})
 		switch {
 		case err == nil:
@@ -660,7 +664,18 @@ func (d *Dispatcher) eventRecord(id string, m model.Message, c model.Contact, ou
 
 // eventRecordWith is eventRecord; bounce marks an SMS bounce (props.bounce, attribute sms_bounced).
 func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact, outcome, reason string, bounce bool) (*kgo.Record, error) {
+	return d.eventRecordCode(id, m, c, outcome, reason, "", bounce)
+}
+
+// eventRecordCode is eventRecordWith with a known reason code (else it is derived from the reason).
+func (d *Dispatcher) eventRecordCode(id string, m model.Message, c model.Contact, outcome, reason, code string, bounce bool) (*kgo.Record, error) {
 	props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID}
+	if code == "" || !reasons.Valid(code) {
+		code = reasons.Classify(m.Channel, outcome, reason)
+	}
+	if code != "" {
+		props["reason_code"] = code
+	}
 	if reason != "" {
 		props["reason"] = reason
 		if strings.HasPrefix(reason, SkippedPrefix) {
@@ -868,13 +883,57 @@ func (d *Dispatcher) handleReceipt(ctx context.Context, r *kgo.Record) error {
 	case rr.Receipt.Status == "delivered" || rr.Receipt.Status == "failed" || rr.Receipt.Status == "read":
 		// The id makes it one event per (message, status), even if the provider repeats the webhook.
 		bounce := m.Channel == channel.SMS && rr.Receipt.Status == "failed" && rr.Receipt.Unreachable
-		rec, err := d.eventRecordWith("rcpt:"+m.ID+":"+rr.Receipt.Status, m, c, rr.Receipt.Status, rr.Receipt.Reason, bounce)
+		rec, err := d.eventRecordCode("rcpt:"+m.ID+":"+rr.Receipt.Status, m, c, rr.Receipt.Status, rr.Receipt.Reason, rr.Receipt.Code, bounce)
 		if err != nil {
 			return err
 		}
 		return d.pub.Publish(ctx, rec)
+	case m.Channel == channel.Email && (rr.Receipt.Status == "bounced" || rr.Receipt.Status == "complained"):
+		return d.emailFeedback(ctx, m, c, rr.Receipt)
 	}
 	return nil
+}
+
+// emailFeedback records a bounce or complaint receipt (the custom gateway, the sandbox) like the
+// bounce webhooks do (package bounces): email_bounced (a hard bounce also marks the address
+// bounced), or email_complained plus an email unsubscribe.
+func (d *Dispatcher) emailFeedback(ctx context.Context, m model.Message, c model.Contact, rc providers.Receipt) error {
+	props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID,
+		"reason": rc.Reason, "source": "receipt", "email": c.Email}
+	if m.BroadcastID != 0 {
+		props["broadcast_id"], props["run"] = m.BroadcastID, m.Run
+		if m.Variant != "" {
+			props["variant"] = m.Variant
+		}
+	}
+	now := d.now().UTC()
+	var evs []event.Event
+	if rc.Status == "complained" {
+		props["kind"], props["reason_code"] = "complaint", reasons.Complaint
+		evs = append(evs, event.Event{ID: "rcpt:" + m.ID + ":complained", Name: "email_complained", Props: props},
+			event.Event{ID: "rcpt:" + m.ID + ":unsub", Name: consent.Unsubscribed, Props: map[string]any{"channel": "email", "source": "complaint"}})
+	} else {
+		kind := rc.Kind
+		if kind != "soft" {
+			kind = "hard"
+		}
+		props["kind"], props["reason_code"] = kind, kind+"_bounce"
+		ev := event.Event{ID: "rcpt:" + m.ID + ":bounced", Name: "email_bounced", Props: props}
+		if kind == "hard" {
+			ev.Attrs = map[string]any{consent.AttrEmailBounced: true}
+		}
+		evs = append(evs, ev)
+	}
+	recs := make([]*kgo.Record, 0, len(evs))
+	for _, ev := range evs {
+		ev.TenantID, ev.ExternalID, ev.Ts = m.TenantID, c.ExternalID, now
+		rec, err := kafka.JSON(event.TopicRaw, ev.RawKey(), ev)
+		if err != nil {
+			return err
+		}
+		recs = append(recs, rec)
+	}
+	return d.pub.Publish(ctx, recs...)
 }
 
 // ---- caches ----

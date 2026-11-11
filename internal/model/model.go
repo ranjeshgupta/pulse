@@ -378,6 +378,9 @@ type BroadcastRun struct {
 	WinnerReason     string     `json:"winner_reason,omitempty"`
 	WinnerSentAt     *time.Time `json:"winner_sent_at,omitempty"`
 	WinnerRecipients int        `json:"winner_recipients"`
+	// Audience is the run's audience when it started (reach counts for its channel: audience,
+	// after_exclude, after_consent, reachable), for the report's funnel. Empty for runs before M4.
+	Audience json.RawMessage `json:"audience,omitempty"`
 }
 
 // MessageCounts are unique contacts per outcome of a set of messages (a broadcast run, a variant,
@@ -395,6 +398,11 @@ type MessageCounts struct {
 	Clicked      uint64 `json:"clicked"`
 	Unsubscribed uint64 `json:"unsubscribed"`
 	Converted    uint64 `json:"converted"`
+	// M4: email bounces and spam complaints linked to the message, and clicks on links to files
+	// (Pulse assets and documents: counted in Clicked too).
+	Bounced    uint64 `json:"bounced"`
+	Complained uint64 `json:"complained"`
+	Downloaded uint64 `json:"downloaded"`
 }
 
 // Form collects contact details on a hosted page or a customer's website (web SDK).

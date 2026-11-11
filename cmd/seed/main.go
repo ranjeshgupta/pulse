@@ -96,6 +96,10 @@ func main() {
 				fmt.Printf("workspace %s: added campaign tags, one-time campaigns, test contacts and SMS limits\n", *ifExists)
 				added = true
 			}
+			if delivery() {
+				fmt.Printf("workspace %s: added delivery reports, bounces, complaints, failures, product views and app activity\n", *ifExists)
+				added = true
+			}
 			if !added {
 				fmt.Printf("workspace %s already exists and %s can sign in: nothing to do\n", *ifExists, *email)
 			}
@@ -116,6 +120,7 @@ func main() {
 	time.Sleep(8 * time.Second) // let segments fill before broadcasts pick their audiences
 	broadcasts(c)
 	campaigns()
+	delivery()
 	fmt.Printf("seeded %d contacts. Sign in at %s/login with workspace %v (credentials in deploy/dev-seed.md)\n", *contacts, *apiURL, slug)
 }
 
@@ -599,4 +604,201 @@ func campaigns() bool {
 		}
 	}
 	return true
+}
+
+// delivery (M4) sends a catalogue email and a WhatsApp preview now and gives them what providers
+// would report: deliveries, opens, clicks (some on the PDF), hard and soft bounces and a spam
+// complaint for the email (recorded as the linked events the provider webhooks record), and
+// delivered, read and failed receipts (one "undeliverable (possibly blocked)") for WhatsApp through
+// the sandbox's receipts. It also adds product views and app screen views for the dashboards. It
+// does nothing when the "Spring catalogue" broadcast exists, and reports whether it ran.
+func delivery() bool {
+	existing := map[string]map[string]any{}
+	for _, b := range call("GET", "/v1/broadcasts", nil)["broadcasts"].([]any) {
+		existing[b.(map[string]any)["name"].(string)] = b.(map[string]any)
+	}
+	if b, ok := existing["Spring catalogue"]; ok { // done unless an earlier run stopped before the outcomes
+		rep := call("GET", fmt.Sprintf("/v1/broadcasts/%v/report", id(b)), nil)
+		if tot, _ := rep["totals"].(map[string]any); tot != nil && tot["delivered"].(float64) > 0 {
+			return false
+		}
+	}
+	segs := map[string]float64{}
+	for _, x := range call("GET", "/v1/segments", nil)["segments"].([]any) {
+		m := x.(map[string]any)
+		segs[m["name"].(string)] = id(m)
+	}
+	rng := rand.New(rand.NewSource(11))
+	now := time.Now()
+	clamp := func(t time.Time) time.Time {
+		if t.After(now) {
+			return now
+		}
+		return t
+	}
+	var tpl, bc, wbc float64
+	if b, ok := existing["Spring catalogue"]; ok {
+		bc, tpl = id(b), b["template_id"].(float64)
+		if w, ok := existing["Monsoon preview"]; ok {
+			wbc = id(w)
+		}
+	} else {
+		tpl, bc, wbc = sendDeliveryBroadcasts(segs, now)
+	}
+
+	// Wait for the sends to be recorded.
+	for i := 0; i < 60; i++ {
+		rep := call("GET", fmt.Sprintf("/v1/broadcasts/%v/report", bc), nil)
+		if tot, _ := rep["totals"].(map[string]any); tot != nil && tot["sent"].(float64) > 0 {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	time.Sleep(5 * time.Second)
+
+	// Email outcomes, as the sending service's webhooks (or bounce emails) record them.
+	var evs []map[string]any
+	flush := func() {
+		if len(evs) > 0 {
+			call("POST", "/v1/events", map[string]any{"events": evs})
+			evs = nil
+		}
+	}
+	complained := 0
+	for i := 1; i <= *contacts; i++ {
+		ext := fmt.Sprintf("cust-%04d", i)
+		msgs, code, _ := try("GET", "/v1/contacts/"+ext+"/messages?limit=20", nil)
+		if code != http.StatusOK {
+			continue
+		}
+		for _, x := range msgs["messages"].([]any) {
+			m := x.(map[string]any)
+			if m["source"] != "broadcast" || m["source_id"].(float64) != bc || m["status"] != "sent" {
+				continue
+			}
+			mid := m["message_id"].(string)
+			var run int64
+			if parts := strings.Split(mid, ":"); len(parts) == 3 {
+				fmt.Sscan(parts[1], &run)
+			}
+			props := func(extra map[string]any) map[string]any {
+				p := map[string]any{"message_id": mid, "template_id": tpl, "journey_id": 0, "broadcast_id": bc, "run": run}
+				for k, v := range extra {
+					p[k] = v
+				}
+				return p
+			}
+			at := now.Add(-time.Duration(30+rng.Intn(30)) * time.Second)
+			add := func(name string, ts time.Time, p map[string]any, attrs map[string]any) {
+				ev := map[string]any{"id": "seed:" + mid + ":" + name, "external_id": ext, "name": name, "ts": rfc(clamp(ts)), "props": p}
+				if attrs != nil {
+					ev["attrs"] = attrs
+				}
+				evs = append(evs, ev)
+			}
+			switch r := rng.Intn(100); {
+			case r < 4: // hard bounce
+				add("email_bounced", at, props(map[string]any{"kind": "hard", "reason_code": "hard_bounce", "source": "sendgrid",
+					"reason": "550 5.1.1 The email account that you tried to reach does not exist"}), map[string]any{"email_bounced": true})
+			case r < 7: // soft bounce
+				add("email_bounced", at, props(map[string]any{"kind": "soft", "reason_code": "soft_bounce", "source": "sendgrid",
+					"reason": "452 4.2.2 Mailbox full"}), nil)
+			default:
+				add("email_delivered", at, props(map[string]any{"source": "sendgrid", "reason": "250 2.0.0 OK"}), nil)
+				if rng.Intn(100) < 45 {
+					add("email_opened", at.Add(time.Duration(1+rng.Intn(10))*time.Second), props(nil), nil)
+					if rng.Intn(100) < 35 {
+						url := "https://acme.example.com/spring"
+						if rng.Intn(2) == 0 {
+							url = catalogPDF
+						}
+						add("email_clicked", at.Add(time.Duration(12+rng.Intn(10))*time.Second), props(map[string]any{"url": url}), nil)
+					}
+				}
+				if complained < 2 && rng.Intn(100) < 3 {
+					complained++
+					add("email_complained", at.Add(25*time.Second), props(map[string]any{"kind": "complaint", "reason_code": "complaint", "source": "postmark"}), nil)
+					evs = append(evs, map[string]any{"external_id": ext, "name": "unsubscribed", "props": map[string]any{"channel": "email", "source": "complaint"}})
+				}
+			}
+		}
+		if len(evs) > 400 {
+			flush()
+		}
+	}
+	flush()
+
+	// WhatsApp receipts through the sandbox (the same path as Meta's status webhooks).
+	sb := call("GET", "/v1/sandbox/messages?channel=whatsapp", nil)
+	n := 0
+	for _, x := range sb["messages"].([]any) {
+		m := x.(map[string]any)
+		mid, _ := m["message_id"].(string)
+		if !strings.HasPrefix(mid, fmt.Sprintf("bc%v:", wbc)) {
+			continue
+		}
+		n++
+		pmid := "sandbox-" + mid
+		switch {
+		case n%9 == 0:
+			call("POST", "/v1/sandbox/receipts", map[string]any{"provider_message_id": pmid, "status": "failed",
+				"reason": "meta whatsapp 131026: Message undeliverable", "code": "blocked"})
+		case n%13 == 0:
+			call("POST", "/v1/sandbox/receipts", map[string]any{"provider_message_id": pmid, "status": "failed",
+				"reason": "meta whatsapp 131049: This message was not delivered to maintain healthy ecosystem engagement.", "code": "spam_policy"})
+		default:
+			call("POST", "/v1/sandbox/receipts", map[string]any{"provider_message_id": pmid, "status": "delivered"})
+			if n%3 != 0 {
+				call("POST", "/v1/sandbox/receipts", map[string]any{"provider_message_id": pmid, "status": "read"})
+			}
+		}
+	}
+
+	// Product views (the Products dashboard) and app screen views (Users by platform), recent weeks.
+	products := []struct{ code, category string }{{"KIT-101", "Kitchen"}, {"KIT-204", "Kitchen"}, {"DEC-310", "Lighting"},
+		{"DEC-115", "Home decor"}, {"BED-220", "Bedding"}, {"BED-404", "Bedding"}}
+	sources := []string{"google", "instagram", "newsletter", "", ""}
+	for i := 1; i <= *contacts; i++ {
+		ext := fmt.Sprintf("cust-%04d", i)
+		for k := rng.Intn(6); k > 0; k-- {
+			p := products[rng.Intn(len(products))]
+			ts := now.Add(-time.Duration(rng.Int63n(int64(28 * 24 * time.Hour))))
+			evs = append(evs, map[string]any{"external_id": ext, "name": "product_viewed", "ts": rfc(ts), "props": map[string]any{
+				"product_code": p.code, "product_category": p.category, "platform": "web", "utm_source": sources[rng.Intn(len(sources))]}})
+		}
+		if i%3 == 0 {
+			platform := []string{"android", "ios"}[rng.Intn(2)]
+			for k := 2 + rng.Intn(8); k > 0; k-- {
+				ts := now.Add(-time.Duration(rng.Int63n(int64(45 * 24 * time.Hour))))
+				evs = append(evs, map[string]any{"external_id": ext, "name": "screen_view", "ts": rfc(ts),
+					"props": map[string]any{"platform": platform, "screen": []string{"home", "product", "cart", "orders"}[rng.Intn(4)]}})
+			}
+		}
+		if len(evs) > 400 {
+			flush()
+		}
+	}
+	flush()
+	return true
+}
+
+const catalogPDF = "https://acme.example.com/files/spring-catalogue.pdf"
+
+// sendDeliveryBroadcasts creates and sends the M4 seed's email and WhatsApp broadcasts.
+func sendDeliveryBroadcasts(segs map[string]float64, now time.Time) (tpl, bc, wbc float64) {
+	pdf := catalogPDF
+	tpl = id(call("POST", "/v1/templates", map[string]any{"name": "Spring catalogue", "channel": "email", "hidden": true,
+		"subject": `{{contact.first_name | default:"Hi"}}, the spring catalogue is here`,
+		"html": `<div style="font-family:Arial;padding:24px"><h1>Spring at Acme</h1><p>New lamps, rugs and bedding.</p>` +
+			`<p><a href="https://acme.example.com/spring">Shop the collection</a> · <a href="` + pdf + `">Download the catalogue (PDF)</a></p></div>`}))
+	bc = id(call("POST", "/v1/broadcasts", map[string]any{"name": "Spring catalogue", "channel": "email", "template_id": tpl,
+		"segment_id": segs["Pro plan"], "repeat": "none", "start_at": rfc(now.Add(-time.Minute)), "tags": []string{"Catalogue"}}))
+	call("POST", fmt.Sprintf("/v1/broadcasts/%v/schedule", bc), nil)
+	wtpl := id(call("POST", "/v1/templates", map[string]any{"name": "Monsoon preview (WhatsApp)", "channel": "whatsapp", "hidden": true,
+		"content": map[string]any{"template_name": "monsoon_preview", "language": "en", "body_params": []string{`{{contact.first_name | default:"there"}}`},
+			"preview_text": "Hi {{1}}, a first look at the monsoon range."}}))
+	wbc = id(call("POST", "/v1/broadcasts", map[string]any{"name": "Monsoon preview", "channel": "whatsapp", "template_id": wtpl,
+		"segment_id": segs["Repeat buyers in Pune"], "repeat": "none", "start_at": rfc(now.Add(-time.Minute)), "tags": []string{"Clearance"}}))
+	call("POST", fmt.Sprintf("/v1/broadcasts/%v/schedule", wbc), nil)
+	return tpl, bc, wbc
 }

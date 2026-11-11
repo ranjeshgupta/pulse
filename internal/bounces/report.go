@@ -160,49 +160,89 @@ func clip(s string) string {
 	return s
 }
 
+// originalRef reads the message reference from the original message (or its headers) that a
+// report quotes: X-Pulse-Ref, else a Message-ID Pulse made.
+func originalRef(p []byte) (ref string, to []string) {
+	m, err := mail.ReadMessage(bytes.NewReader(append(p, '\r', '\n', '\r', '\n')))
+	if err != nil {
+		return "", nil
+	}
+	ref = strings.TrimSpace(m.Header.Get("X-Pulse-Ref"))
+	if ref == "" {
+		ref = msgIDRef(m.Header.Get("Message-ID"))
+	}
+	if as, err := m.Header.AddressList("To"); err == nil {
+		for _, a := range as {
+			to = append(to, strings.ToLower(a.Address))
+		}
+	}
+	return ref, to
+}
+
+func quotesOriginal(ct string) bool {
+	switch ct {
+	case "message/rfc822", "text/rfc822-headers", "message/global", "message/global-headers":
+		return true
+	}
+	return false
+}
+
 func parseDSN(mr *multipart.Reader) ([]Bounce, error) {
+	var groups []textproto.MIMEHeader
+	found := false
+	ref := ""
 	for {
 		p, err := mr.NextPart()
 		if err != nil {
-			return nil, ErrNotReport
+			break
 		}
 		ct, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
-		if ct != "message/delivery-status" && ct != "message/global-delivery-status" {
+		switch {
+		case ct == "message/delivery-status" || ct == "message/global-delivery-status":
+			if !found {
+				groups, found = fieldGroups(partBody(p)), true
+			}
+		case quotesOriginal(ct):
+			if r, _ := originalRef(partBody(p)); r != "" && ref == "" {
+				ref = r
+			}
+		}
+	}
+	if !found {
+		return nil, ErrNotReport
+	}
+	var out []Bounce
+	for _, g := range groups {
+		rcpt := g.Get("Final-Recipient")
+		if rcpt == "" {
+			rcpt = g.Get("Original-Recipient")
+		}
+		email := address(rcpt)
+		if email == "" { // the per-message block, or a recipient we can't read
 			continue
 		}
-		groups := fieldGroups(partBody(p))
-		var out []Bounce
-		for _, g := range groups {
-			rcpt := g.Get("Final-Recipient")
-			if rcpt == "" {
-				rcpt = g.Get("Original-Recipient")
-			}
-			email := address(rcpt)
-			if email == "" { // the per-message block, or a recipient we can't read
-				continue
-			}
-			status := strings.TrimSpace(g.Get("Status"))
-			b := Bounce{Email: email, Source: "dsn", Reason: clip(strings.TrimSpace(status + " " + g.Get("Diagnostic-Code")))}
-			switch strings.ToLower(strings.TrimSpace(g.Get("Action"))) {
-			case "failed":
-				b.Kind = Hard
-				if strings.HasPrefix(status, "4") {
-					b.Kind = Soft
-				}
-			case "delayed":
+		status := strings.TrimSpace(g.Get("Status"))
+		b := Bounce{Email: email, Source: "dsn", Ref: ref, Reason: clip(strings.TrimSpace(status + " " + g.Get("Diagnostic-Code")))}
+		switch strings.ToLower(strings.TrimSpace(g.Get("Action"))) {
+		case "failed":
+			b.Kind = Hard
+			if strings.HasPrefix(status, "4") {
 				b.Kind = Soft
-			default: // delivered, relayed, expanded
-				continue
 			}
-			out = append(out, b)
+		case "delayed":
+			b.Kind = Soft
+		default: // delivered, relayed, expanded
+			continue
 		}
-		return out, nil
+		out = append(out, b)
 	}
+	return out, nil
 }
 
 func parseARF(mr *multipart.Reader) ([]Bounce, error) {
 	var report textproto.MIMEHeader
 	var original []string // recipients from the original message's headers
+	ref := ""             // the original message's reference
 	for {
 		p, err := mr.NextPart()
 		if err != nil {
@@ -215,12 +255,10 @@ func parseARF(mr *multipart.Reader) ([]Bounce, error) {
 				report = gs[0]
 			}
 		case "message/rfc822", "text/rfc822-headers", "message/global", "message/global-headers":
-			if m, err := mail.ReadMessage(bytes.NewReader(append(partBody(p), '\r', '\n', '\r', '\n'))); err == nil {
-				if as, err := m.Header.AddressList("To"); err == nil {
-					for _, a := range as {
-						original = append(original, strings.ToLower(a.Address))
-					}
-				}
+			r, to := originalRef(partBody(p))
+			original = append(original, to...)
+			if ref == "" {
+				ref = r
 			}
 		}
 	}
@@ -246,7 +284,7 @@ func parseARF(mr *multipart.Reader) ([]Bounce, error) {
 	}
 	out := make([]Bounce, 0, len(rcpts))
 	for _, a := range rcpts {
-		out = append(out, Bounce{Email: a, Kind: Complaint, Reason: clip(reason), Source: "arf"})
+		out = append(out, Bounce{Email: a, Kind: Complaint, Reason: clip(reason), Source: "arf", Ref: ref})
 	}
 	return out, nil
 }

@@ -14,6 +14,7 @@ package broadcast
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -21,12 +22,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"pulse/internal/channel"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
+	"pulse/internal/reach"
 	"pulse/internal/schedule"
 	"pulse/internal/segment"
 )
@@ -76,6 +79,14 @@ type Runner struct {
 	Pub     kafka.Publisher
 	Log     *slog.Logger
 	Now     func() time.Time
+	// Snapshot, when set, counts the run's audience as it starts (reach counts for the broadcast's
+	// channel), stored with the run when the Store can keep it (AudienceStore).
+	Snapshot func(ctx context.Context, b model.Broadcast) ([]byte, error)
+}
+
+// AudienceStore keeps a run's audience snapshot.
+type AudienceStore interface {
+	SetRunAudience(ctx context.Context, run int64, audience []byte) error
 }
 
 // RunDue sends every broadcast run, and every A/B winner, that is due now.
@@ -125,6 +136,14 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 	runID, err := r.Store.StartRun(ctx, b.ID, at)
 	if err != nil {
 		return err
+	}
+	if as, ok := r.Store.(AudienceStore); ok && r.Snapshot != nil {
+		// Best effort: a report without the snapshot still has every other step of its funnel.
+		if snap, err := r.Snapshot(ctx, b); err != nil {
+			r.Log.Warn("broadcast audience snapshot", "broadcast", b.ID, "err", err)
+		} else if err := as.SetRunAudience(ctx, runID, snap); err != nil {
+			r.Log.Warn("broadcast audience snapshot", "broadcast", b.ID, "err", err)
+		}
 	}
 	members, err := r.audience(ctx, b)
 	if err != nil {
@@ -451,4 +470,29 @@ func FirstRun(b model.Broadcast, now time.Time) (time.Time, bool) {
 		return now, w.End == nil || now.Before(*w.End)
 	}
 	return schedule.Next(w, b.Repeat, now)
+}
+
+// AudienceSnapshot is a run's audience when it started.
+type AudienceSnapshot struct {
+	reach.Counts
+	Channel string    `json:"channel"`
+	Ready   bool      `json:"ready"` // reachability was built (else the last two steps read 0)
+	At      time.Time `json:"at"`
+}
+
+// ReachSnapshot counts a broadcast's audience with the reachability bitmaps (package reach): its
+// segments, after exclusions, after consent for its channel, reachable on it.
+func ReachSnapshot(rdb redis.Cmdable, now func() time.Time) func(ctx context.Context, b model.Broadcast) ([]byte, error) {
+	return func(ctx context.Context, b model.Broadcast) ([]byte, error) {
+		include := append([]int64{b.SegmentID}, b.IncludeSegmentIDs...)
+		counts, _, err := reach.Count(ctx, rdb, reach.Query{Tenant: b.TenantID, Include: include, Exclude: b.ExcludeSegmentIDs, Channel: b.Channel}, false)
+		if err != nil {
+			return nil, err
+		}
+		ready, err := reach.Ready(ctx, rdb, b.TenantID)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(AudienceSnapshot{Counts: counts, Channel: b.Channel, Ready: ready, At: now().UTC()})
+	}
 }

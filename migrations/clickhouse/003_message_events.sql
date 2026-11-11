@@ -23,29 +23,11 @@ ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (tenant_id, source, source_id, kind, contact_id, id);
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS message_events_mv TO message_events AS
-SELECT
-    tenant_id,
-    multiIf(JSONExtractUInt(props, 'broadcast_id') > 0, 'broadcast', JSONExtractUInt(props, 'journey_id') > 0, 'journey', 'other') AS source,
-    if(JSONExtractUInt(props, 'broadcast_id') > 0, JSONExtractUInt(props, 'broadcast_id'), JSONExtractUInt(props, 'journey_id')) AS source_id,
-    JSONExtractUInt(props, 'run') AS run,
-    JSONExtractString(props, 'variant') AS variant,
-    if(JSONExtractUInt(props, 'broadcast_id') = 0 AND JSONExtractUInt(props, 'journey_id') > 0,
-       arrayElement(splitByChar(':', JSONExtractString(props, 'message_id')), 2), '') AS node,
-    if(name = 'unsubscribed', JSONExtractString(props, 'channel'), splitByChar('_', name)[1]) AS channel,
-    if(name = 'unsubscribed', 'unsubscribed', splitByChar('_', name)[2]) AS kind,
-    contact_id,
-    ts,
-    JSONExtractString(props, 'message_id') AS message_id,
-    JSONExtractString(props, 'url') AS url,
-    id
-FROM events
-WHERE JSONHas(props, 'message_id')
-  AND (match(name, '^(email|sms|whatsapp|rcs|push)_(sent|failed|delivered|read|fallback|opened|clicked|suppressed|capped|deferred)$')
-       OR name = 'unsubscribed');
+-- The materialized view that fills it is in 006_delivery_and_dashboards.sql (message_events_mv3;
+-- the earlier message_events_mv and _mv2 are dropped there).
 
 -- One-time backfill of events recorded before this table existed (skipped once it has rows).
-INSERT INTO message_events
+INSERT INTO message_events (tenant_id, source, source_id, run, variant, node, channel, kind, contact_id, ts, message_id, url, id)
 SELECT
     tenant_id,
     multiIf(JSONExtractUInt(props, 'broadcast_id') > 0, 'broadcast', JSONExtractUInt(props, 'journey_id') > 0, 'journey', 'other'),

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"pulse/internal/event"
+	"pulse/internal/model"
 )
 
 func sample(t *testing.T, name string) []byte {
@@ -84,7 +85,10 @@ func (f *fakeSession) MarkSeen(_ context.Context, uids []uint32) error {
 }
 func (f *fakeSession) Close() error { f.closed = true; return nil }
 
-type fakeMailStore struct{ known map[string]string }
+type fakeMailStore struct {
+	known map[string]string // email → external id
+	ids   map[string]uint32 // external id → contact id
+}
 
 func (f fakeMailStore) ClaimDueMailboxes(context.Context, int, time.Duration) ([]Mailbox, [][]byte, error) {
 	return nil, nil, nil
@@ -92,6 +96,14 @@ func (f fakeMailStore) ClaimDueMailboxes(context.Context, int, time.Duration) ([
 func (f fakeMailStore) FinishMailboxCheck(context.Context, int64, int, int, string) error { return nil }
 func (f fakeMailStore) ExternalIDByEmail(_ context.Context, _ int64, email string) (string, error) {
 	return f.known[email], nil
+}
+func (f fakeMailStore) ContactByID(_ context.Context, _ int64, id uint32) (model.Contact, error) {
+	for email, ext := range f.known {
+		if f.ids[ext] == id {
+			return model.Contact{ID: id, ExternalID: ext, Email: email}, nil
+		}
+	}
+	return model.Contact{}, errors.New("not found")
 }
 
 type fakePub struct {
@@ -115,7 +127,7 @@ func TestPollerCheck(t *testing.T) {
 	var gotPassword string
 	p := &Poller{Store: fakeMailStore{known: map[string]string{"gone@example.org": "u1", "angry@example.com": "u2"}}, Pub: pub,
 		Unseal: func(b []byte) (string, error) { return strings.TrimPrefix(string(b), "sealed:"), nil },
-		Open: func(_ context.Context, m Mailbox, pw string) (Session, error) { gotPassword = pw; return sess, nil }}
+		Open:   func(_ context.Context, m Mailbox, pw string) (Session, error) { gotPassword = pw; return sess, nil }}
 	m := Mailbox{TenantID: 7, Host: "imap.example.com", Port: 993, TLS: TLSImplicit, Username: "bounces", Folder: "INBOX"}
 
 	processed, skipped, err := p.Check(context.Background(), m, []byte("sealed:pw-1"))

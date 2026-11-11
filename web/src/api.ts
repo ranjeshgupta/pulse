@@ -368,6 +368,8 @@ export interface BroadcastRun {
 export interface MessageCounts {
   sent: number; delivered: number; read: number; failed: number; fallback: number; suppressed: number; capped: number;
   deferred: number; opened: number; clicked: number; unsubscribed: number; converted: number;
+  /** M4: email bounces and spam complaints linked to the message; clicks on file links (also in clicked). */
+  bounced: number; complained: number; downloaded: number;
 }
 export interface MessageReport {
   totals: MessageCounts;
@@ -381,6 +383,88 @@ export interface MessageReport {
   revenue?: RevenueCounts & { by_variant?: Record<string, RevenueCounts>; event: string; currency: string; days: number };
   /** Contacts whose message was dropped by the send deadline (also counted in failed). */
   late?: number;
+  /** M4: contacts per outcome reason, overall and per journey step; contacts with any outcome. */
+  reasons: ReasonCount[];
+  reasons_by_node?: Record<string, ReasonCount[]>;
+  targeted: number;
+  funnel: MessageFunnel;
+}
+
+// ---- M4: delivery truth and dashboards ----
+
+export type ReasonKind = "failed" | "bounced" | "complained" | "suppressed" | "capped";
+export type SkipGroup = "consent" | "reachability" | "cap" | "missing_value" | "deadline";
+/** Contacts whose message ended for one normalised reason (package reasons in the server). */
+export interface ReasonCount { kind: ReasonKind; code: string; label: string; group?: SkipGroup; contacts: number }
+/** A broadcast's audience when its runs started (summed over runs). */
+export interface AudienceAtSend { audience: number; after_exclude: number; after_consent: number; reachable: number; runs: number; ready: boolean }
+/** A campaign's path from audience to engagement. */
+export interface MessageFunnel {
+  audience?: AudienceAtSend; // broadcasts
+  enrolled?: number; // journeys
+  targeted: number;
+  skipped: Record<SkipGroup, number>;
+  sent: number; delivered: number; opened: number; read: number; clicked: number; downloaded: number; converted: number;
+  bounced: number; hard_bounced: number; soft_bounced: number; complained: number; failed: number; unsubscribed: number;
+}
+
+/** GET /v1/analytics/users */
+export interface UsersDay { day: string; dau: number; wau: number; mau: number; new: number; returning: number; stickiness: number }
+export interface KeyCount { key: string; count: number }
+export interface UsersReport {
+  days: UsersDay[]; active: number; dau: number; wau: number; mau: number; stickiness: number; new: number; returning: number;
+  by_platform: KeyCount[]; by_source: KeyCount[];
+}
+export interface UsersDashboard { from: string; to: string; report: UsersReport; computed_at: string }
+
+/** GET /v1/analytics/campaigns */
+export interface CampaignDashRow extends CampaignRowBase {
+  counts: MessageCounts; reasons: ReasonCount[]; revenue: number; buyers: number;
+}
+export interface CampaignRowBase {
+  kind: "broadcast" | "journey"; id: number; name: string; category: "one_time" | "trigger" | "automation"; channels: string[];
+  status: string; tags: string[]; audience: number | null; sent: number; last_activity?: string;
+}
+export interface CampaignsDashboard {
+  from: string; to: string; campaigns: CampaignDashRow[]; reasons: ReasonCount[]; revenue_event: string; currency: string;
+  window_days: number; delivery_reports: Record<string, boolean>; computed_at: string;
+}
+
+/** GET /v1/analytics/products */
+export interface ProductRow {
+  code: string; category?: string; views: number; viewers: number; carts: number; carters: number; purchases: number; buyers: number;
+  revenue: number; abandoned: number;
+}
+export interface ProductsDashboard {
+  from: string; to: string; currency: string; computed_at: string;
+  events: { view: string; cart: string; purchase: string; amount: string };
+  report: { totals: ProductRow; products: ProductRow[]; categories: ProductRow[]; days: { day: string; views: number; carts: number; purchases: number; revenue: number }[] };
+}
+
+/** GET /v1/live/events */
+export interface LiveEvent { cursor: string; id: string; name: string; ts: string; external_id: string; contact_id: number; props?: Record<string, unknown>; truncated?: boolean }
+export interface LiveFeed { events: LiveEvent[]; cursor: string; max_per_second: number }
+
+/** GET /v1/contacts/{id}/profile */
+export interface ChannelReach { channel: string; address?: string; has_address: boolean; opted_out: boolean; bounced: boolean; reachable: boolean; why?: string }
+export interface ContactProfile {
+  contact: Contact;
+  devices: { platform: string; token: string }[];
+  reach: ChannelReach[];
+  products?: unknown;
+  journeys: { journey_id: number; name: string; status: string; step: string; step_type: string; current: boolean; entered_at: string; updated_at: string }[];
+  activity?: {
+    events: Record<"1" | "7" | "30" | "365", number>; messages: Record<"1" | "7" | "30" | "365", number>;
+    opens: Record<"1" | "7" | "30" | "365", number>; clicks: Record<"1" | "7" | "30" | "365", number>;
+    top_events: { name: string; count: number }[]; last_active?: string;
+  };
+  purchases?: { items: { id: string; ts: string; amount: number; product_code?: string; product_category?: string }[]; count: number; total: number; event: string; currency: string };
+}
+/** GET /v1/contacts/{id}/messages */
+export interface ContactMessage {
+  message_id: string; channel: string; source: "broadcast" | "journey" | "other"; source_id: number; node?: string; variant?: string;
+  template_id: number; at: string; last: string; status: string; kinds: string[]; reason_code?: string; reason_label?: string; reason?: string;
+  opened: boolean; clicked: boolean; clicks: number; campaign?: string;
 }
 export interface RevenueCounts { revenue: number; orders: number; buyers: number }
 /** A split step in the journey report: contacts (and, for A/B tests, hits of the metric) per path. */

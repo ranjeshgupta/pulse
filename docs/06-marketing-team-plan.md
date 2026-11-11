@@ -31,33 +31,33 @@ Gupshup gets SMS, WhatsApp and RCS.
 |---|---|---|---|
 | 1 | Campaign types | ✅ M3: Campaigns hub with One-time / Trigger based / Automation (automatic) and free tags | M3 ✅ |
 | 2 | One-time campaign per channel, audience inside | ✅ M3: a wizard per channel, content written inside the campaign | M3 ✅ |
-| 3 | Dashboard by campaign / communication | Partial: per-campaign reports only | M4 |
-| 4 | Reporting of everything | Partial: no failure reasons, deliverability, segment growth | M4 |
+| 3 | Dashboard by campaign / communication | ✅ M4: Analytics → Campaign performance compares every campaign; each report has a funnel | M4 ✅ |
+| 4 | Reporting of everything | ✅ M4: failure reasons, deliverability (delivered, bounces, complaints) per campaign and per contact; segment growth not built | M4 ✅ |
 | 5 | Publish / unpublish times | Already (broadcasts, journeys, on-site, landing pages); ✅ M3: send deadlines on broadcasts and send steps | M3 ✅ |
 | 6 | Wrong users get emails | Already (real-time membership, two compilers checked against each other) | M1 ✅ adds "why is this contact in this segment" |
-| 7 | Audience vs sent vs bounced | Partial: bounces aren't linked to campaigns; no breakdown | M4 |
-| 8 | Delivered / read / click / download / spam | Partial: no email delivered, complaints not in reports | M4 |
+| 7 | Audience vs sent vs bounced | ✅ M4: audience at send time → targeted → sent → delivered → opened → clicked, with skips, bounces and failures by reason | M4 ✅ |
+| 8 | Delivered / read / click / download / spam | ✅ M4: email delivered from SendGrid / Mailgun / Postmark / SES / SparkPost webhooks, downloads (file-link clicks), complaints in reports | M4 ✅ |
 | 9 | Segment date from–to | ✅ M1: between / since dates on behaviour, "is between" on date fields | M1 ✅ |
-| 10 | Reachable channels | ✅ M3: reachable by channel per segment and per campaign; M4 adds the per-contact matrix | M3 ✅, M4 |
+| 10 | Reachable channels | ✅ M3: reachable by channel per segment and per campaign; ✅ M4: the per-contact matrix on the contact page | M3 ✅, M4 ✅ |
 | 11 | Standard variable names | ✅ M2: `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}` with defaults and formats, a picker on every templated field | M2 ✅ |
 | 12 | Web push / personalisation activation | Already | M6 adds a no-code opt-in prompt and install check |
-| 13 | Deliverability per campaign | Partial (as row 7) | M4 |
+| 13 | Deliverability per campaign | ✅ M4 (as row 7) | M4 ✅ |
 | 14 | Live segment | Already | |
 | 15 | Exclude in segmentation | Already | M1 ✅ adds a "none of" group |
 | 16 | Audience count after every filter | ✅ M3: exact count after exclusions, consent, reachability and caps | M3 ✅ |
 | 17 | Test WhatsApp / push | Already; ✅ M3: saved test contacts in every Send a test | M3 ✅ |
 | 18 | Timely delivery, daily quota | ✅ M3: per-provider rates and daily quotas, send deadlines, pooled SMTP | M3 ✅ |
 | 19 | A/B testing | Already | |
-| 20 | DAU / WAU / MAU | Missing | M4 |
-| 21 | Real-time activity | Partial: no live feed | M4 |
-| 22 | WhatsApp / push delivered, read, blocked | Partial: no blocked class or reasons | M4 |
-| 23 | Complete user profile | Partial | M4 |
+| 20 | DAU / WAU / MAU | ✅ M4: Analytics → Users (DAU / WAU / MAU, stickiness, new vs returning, platform, source) | M4 ✅ |
+| 21 | Real-time activity | ✅ M4: Analytics → Live events | M4 ✅ |
+| 22 | WhatsApp / push delivered, read, blocked | ✅ M4: WhatsApp delivered / read / failed with reason classes ("undeliverable (possibly blocked)"); push failures classed (FCM reports no delivery) | M4 ✅ |
+| 23 | Complete user profile | ✅ M4: full contact page | M4 ✅ |
 | 24 | Tags in segmentation | Already | |
 | 25 | Daily refresh time for segments | ✅ M1: Refresh daily at HH:MM in a time zone | M1 ✅ |
 | 27 | Copy blocks | ✅ M3: copy/paste journey steps and segment groups; duplicate broadcasts, journeys, templates, segments | M3 ✅ |
 | 28 | Web content by audience without overlap | Partial: first match wins, no ordering or overlap view | M6 |
 | 29 | AMP mailers | Missing | M6 |
-| 30 | User and product dashboards | Missing | M4 |
+| 30 | User and product dashboards | ✅ M4: Analytics → Users and Products | M4 ✅ |
 
 (The sheet has no row 26.)
 
@@ -80,7 +80,7 @@ with screenshots, and committed on its own.
    consent and reachability), duplicate and copy/paste of journey steps and segment groups, per-provider
    rates and daily quotas, a send deadline instead of late bursts, pooled SMTP connections, test
    contacts.
-4. **M4 Delivery truth and dashboards.** Bounces and complaints linked to the message and campaign,
+4. **M4 Delivery truth and dashboards (done).** Bounces and complaints linked to the message and campaign,
    email delivered from provider webhooks, failure reasons, the audience → sent → bounced breakdown,
    User / Campaign / Product dashboards with DAU/WAU/MAU, a live event feed, a full contact page
    (1/7/30/365-day activity, reachability, purchases, journeys, messages).
@@ -220,6 +220,100 @@ Built as designed, with these choices:
   addresses carry `TestTo`, are personalised with the name only, skip consent, caps and tracking, and record no
   events (no contact to record them on). At most 50 per workspace; content edit access, like test sends.
 - Docs: [tutorial 14](tutorials/14-campaigns-hub-and-one-time-campaigns.md), tutorials 3, 4, 6, 7, the API guide.
+
+## M4 as built
+
+Built as designed, with these choices:
+
+- **Message references.** Every email with tracking on carries a signed reference (`tracking.Codec.Ref`: `p1` +
+  base64url of varint ids — workspace, contact, template, journey, broadcast, run, variant, message id (rebuilt for
+  broadcasts) — + 10 bytes of HMAC; usually 45-70 characters). It is the Message-ID's local part
+  (`<ref@sender-domain>`), `X-Pulse-Ref`, and the sending service's own metadata header, chosen by the SMTP
+  provider's new **Sending service** setting (auto-detected from the host: `smtp.sendgrid.net`, `*.mailgun.org`,
+  `*.postmarkapp.com`, `email-smtp.*.amazonaws.com`, `*.sparkpostmail.com`): SendGrid `X-SMTPAPI` unique_args, Mailgun
+  `X-Mailgun-Variables`, Postmark `X-PM-Metadata-pulse_ref` (split into `pulse_ref2` past 80 characters), SES
+  `X-SES-MESSAGE-TAGS`, SparkPost `X-MSYS-API`. Signed, not sealed: it holds ids only. The custom gateway gets `ref` in
+  its JSON. Chosen over VERP: no return-path domain to set up, and every service echoes one of these.
+- **Linking.** `bounces.Link`: a reference signed by this server *for the workspace whose secret URL received the
+  report* names the message and its contact (tenant ids in bodies are never trusted); otherwise the contact with that
+  address, unlinked. A hard bounce marks `email_bounced` only when the contact still has the bounced address. Linked
+  events get ids from the message (`fb:{message}:{kind}`), so repeated webhooks record once. Deliveries without a
+  reference are dropped (they would count nowhere). Bounce emails (DSN) and feedback loops (ARF) are linked from the
+  quoted original's `X-Pulse-Ref` or Message-ID. **Bounces from before M4 stay unlinked** (no reference was sent).
+- **Delivered.** SendGrid `delivered`, Postmark `Delivery`, Mailgun `delivered`, SES `Delivery`, SparkPost `delivery`
+  and generic `{"type":"delivered"}` record `email_delivered`; SparkPost bounces/complaints were added (hard classes 10,
+  25, 30, 90). Plain SMTP relays report no delivery: `providers.ReportsDelivery` says so per provider, and the Campaign
+  performance page shows "—" ("not reported by this provider"). FCM and web push report no delivery either; push
+  failures are classed.
+- **Webhook verification.** The per-workspace secret URL picks the workspace. On top: SES through SNS is always
+  verified (SNS signature v1/v2, certificate only from `sns.<region>.amazonaws.com`, cached); SendGrid's signed event
+  webhook (ECDSA over timestamp + body, ±24 h) once its verification key is saved; Mailgun's HMAC (timestamp + token,
+  ±24 h) once its signing key is saved — Mailgun doesn't sign the body, so each token is accepted once (Redis, 25 h);
+  Postmark, SparkPost, generic posts and SES-without-SNS need HTTP basic auth once a user/password is saved. Keys live
+  sealed in `tenants.email_webhook_keys` (migration 023), set with `PUT /v1/settings/bounces/signing` (settings edit;
+  never returned). Deviation: a provider without a saved key is still accepted on the secret URL alone (as before M4),
+  so existing setups keep working; the settings page shows "URL secret only" for those.
+- **Reason codes** (`internal/reasons`): every `<channel>_failed`, `_suppressed`, `_capped`, `email_bounced` and
+  `email_complained` carries `props.reason_code` next to the raw `props.reason`. Codes: invalid_number, invalid_email,
+  no_address, not_on_channel, blocked ("Undeliverable (possibly blocked)", WhatsApp 131026), invalid_token, hard_bounce,
+  soft_bounce, complaint, consent, bounced_before, capped, deadline, missing_value, template, no_provider, provider_auth,
+  provider_rejected, spam_policy (WhatsApp 131048/131049, Twilio 30007), rate_limited, timeout, provider_error, unknown.
+  They're derived from the dispatcher's and adapters' own error texts (and Meta/Twilio codes); receipts may carry a
+  code (`Receipt.Code`; Meta receipts set it). Skips group as consent, reachability, cap, missing_value, deadline.
+  Old rows read "Not recorded".
+- **ClickHouse** (migration 006): `message_events.reason_code`, `message_events_mv3` (adds `complained`; the old
+  views' CREATE statements were removed from 003/004 and 003's backfill names its columns), `active_users_daily`
+  (AggregatingMergeTree of `uniqState(contact_id)` per workspace, UTC day, platform, UTM source) and `first_active`
+  (min day per contact), both backfilled once (400 days) and fed by views. WAU/MAU merge 7/30 days of states in one
+  `ARRAY JOIN range(30)` query. Active = `analytics.ActiveCondition` (not identify, message outcomes/engagement or
+  bookkeeping; a test checks the migration uses the same text). `first_active` rows go with deleted contacts; the
+  uniq states can't drop one contact, so DAU history keeps counting deleted contacts.
+- **Funnel.** Reports return `funnel` (`ch.BuildFunnel`) and `reasons` (and `reasons_by_node` for journeys): audience
+  at send time (broadcasts: `reach.Count` for the broadcast's channel stored on `broadcast_runs.audience` when a run
+  starts; summed over runs; journeys: enrolled), targeted, skipped by group, sent, delivered, opened/read, clicked,
+  downloads (clicks on `/a/{key}` assets or links ending in .pdf, .zip, .docx…, counted in clicked too), bounced
+  (hard/soft), complaints, failed (tried), unsubscribed. Gateway and sandbox receipts may be `bounced` (kind hard/soft)
+  or `complained`.
+- **Dashboards** (`/v1/analytics/users|campaigns|products`, reports view; cached a minute, 60 misses/min per
+  workspace). Campaign performance credits revenue within 7 days of a recipient's first message. Products read
+  `product_code` / `product_category` with view event `product_viewed` and cart `add_to_cart` (changeable on the page)
+  and the revenue event; abandoned = added to cart, didn't buy it in the range; "Segment of buyers" posts a segment
+  rule (`event`/`where product_code`/`from`/`to`). New vs returning isn't split by platform or source. CSV exports are
+  built in the browser.
+- **Live feed.** The ClickHouse sink appends stored events to a capped Redis stream per workspace (`live:{tenant}`,
+  ~1,000 entries, at most 50 events/s per workspace, props over 4 KB dropped); `GET /v1/live/events?cursor=` reads it
+  (contacts view, 120 polls/min per workspace) and removes schema-personal properties. Polling every 2 s rather than
+  SSE: no long-lived connections through proxies, and the cursor makes it lossless within the cap.
+- **Contact page** `/contacts/:id` (contacts view): `GET /v1/contacts/{id}/profile` (reach matrix by the dispatcher's
+  rules, devices, journeys with step, 1/7/30/365-day activity, purchases, products), `/messages` (one row per message
+  from the event log with status, reason, campaign, opens/clicks) and `/events?name=&kind=activity|pulse&before=`.
+  Index `journey_enrollments (tenant_id, contact_id, updated_at)` (migration 023).
+- **Seed.** `make docs-seed` adds (once) the "Spring catalogue" email with delivered / bounced / complained / opened /
+  clicked outcomes (written as the linked events webhooks record), a WhatsApp "Monsoon preview" with sandbox receipts
+  (delivered, read, blocked, spam policy), product views and app screen views.
+- **Docs** are deferred to the final docs pass (product owner, after M6); see the M4 report for the list.
+
+## Docs for the final pass
+
+From M4 on, docs and screenshots are updated in one pass after M6 (owner's decision, 2026-11-11).
+Each milestone adds what it needs here.
+
+**M4:**
+- README: M4 features; SMTP "Sending service" setting.
+- docs/02-architecture.md: message references and linking, webhook verification, reason codes,
+  ClickHouse `message_events.reason_code`, `message_events_mv3`, `active_users_daily`, `first_active`,
+  migrations pg 023 / ch 006, live feed stream, dashboard caching; mark DAU pre-aggregation done.
+- docs/05-feature-parity.md: delivered, complaints, DAU/WAU/MAU, live feed, contact page, failure reasons.
+- Developer 03 (API): `/v1/analytics/users|campaigns|products`, `/v1/live/events`,
+  `/v1/contacts/{id}/profile|messages`, `/events` filters, `PUT /v1/settings/bounces/signing`, report
+  fields `funnel`, `reasons`, `reasons_by_node`, `targeted` and counts `bounced`/`complained`/`downloaded`,
+  sandbox receipt statuses `bounced`/`complained` and `code`.
+- Developer 06 (webhooks/providers): per-provider webhook set-up and signatures, reference headers,
+  SparkPost, gateway `ref` and receipt `bounced`/`complained`/`kind`/`reason_code`, plain SMTP reports
+  no delivered.
+- Tutorials: 2 (full contact page), 4 (delivery webhooks, signing keys), 7 and 14 (funnel and reasons),
+  10 (Users, Campaign performance, Products, Live events); new 15 "Delivery and dashboards" in the index.
+- Screenshots: new `15-*.mjs`; retake 02, 04, 07, 10, 14 and every shot showing the sidebar.
 
 ## Risks
 

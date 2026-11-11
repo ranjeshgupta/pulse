@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"pulse/internal/reasons"
 	"strings"
 
 	"pulse/internal/channel"
@@ -209,6 +210,7 @@ func (m *MetaWhatsApp) ParseReceipts(r *http.Request) ([]Receipt, error) {
 						rc.Unreachable = rc.Unreachable || metaUnreachable[er.Code]
 						if rc.Reason == "" {
 							rc.Reason = fmt.Sprintf("meta whatsapp %d: %s", er.Code, er.Title)
+							rc.Code = reasons.MetaCode(er.Code)
 						}
 					}
 				default: // sent (accepted by WhatsApp), or a status Pulse doesn't track

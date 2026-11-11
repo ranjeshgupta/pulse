@@ -81,6 +81,21 @@ func TestRoutePermissions(t *testing.T) {
 		{"POST /v1/test-contacts", auth.Perms{auth.AreaContent: auth.Edit}, true},
 		{"DELETE /v1/test-contacts/{id}", auth.Perms{auth.AreaContent: auth.Edit}, true},
 		{"GET /v1/campaigns", auth.Perms{}, true}, // the handler shows only what the role may view
+		// M4 delivery and dashboards
+		{"GET /v1/analytics/users", viewer, true},
+		{"GET /v1/analytics/users", auth.Perms{auth.AreaReports: auth.View}, true},
+		{"GET /v1/analytics/campaigns", auth.Perms{auth.AreaBroadcasts: auth.Publish, auth.AreaJourneys: auth.Publish}, false},
+		{"GET /v1/analytics/campaigns", auth.Perms{auth.AreaReports: auth.View}, true},
+		{"GET /v1/analytics/products", auth.Perms{auth.AreaContacts: auth.Edit}, false},
+		{"GET /v1/analytics/products", auth.Perms{auth.AreaReports: auth.View}, true},
+		{"GET /v1/live/events", auth.Perms{auth.AreaReports: auth.Edit}, false}, // people's events: contacts access
+		{"GET /v1/live/events", auth.Perms{auth.AreaContacts: auth.View}, true},
+		{"GET /v1/contacts/{external_id}/profile", auth.Perms{auth.AreaContacts: auth.View}, true},
+		{"GET /v1/contacts/{external_id}/profile", auth.Perms{auth.AreaReports: auth.Edit}, false},
+		{"GET /v1/contacts/{external_id}/messages", auth.Perms{auth.AreaContacts: auth.View}, true},
+		{"GET /v1/contacts/{external_id}/messages", auth.Perms{auth.AreaBroadcasts: auth.Edit}, false},
+		{"PUT /v1/settings/bounces/signing", editor, false},
+		{"PUT /v1/settings/bounces/signing", auth.Perms{auth.AreaSettings: auth.Edit}, true},
 	} {
 		method, path, _ := strings.Cut(tc.pattern, " ")
 		r, _ := http.NewRequest(method, path, nil)
