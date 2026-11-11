@@ -5,7 +5,6 @@ package pg
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -101,15 +100,13 @@ func (s *Store) DeleteJourney(ctx context.Context, tenant, id int64) error {
 	return nil
 }
 
-// SearchContacts lists contacts newest first, filtered by external id, email or name.
-// afterID pages through results (pass the last id of the previous page).
-func (s *Store) SearchContacts(ctx context.Context, tenant int64, q string, afterID uint32, limit int) ([]model.Contact, error) {
-	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(q)) + "%"
+// ListContacts lists contacts newest first, through the primary key. afterID pages through them
+// (pass the last id of the previous page). Filtered views run in ClickHouse (see api/contactview.go).
+func (s *Store) ListContacts(ctx context.Context, tenant int64, afterID uint32, limit int) ([]model.Contact, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT `+contactCols+` FROM contacts
 		WHERE tenant_id = $1 AND ($2 = 0 OR id < $2)
-		  AND ($3 = '%%' OR external_id ILIKE $3 OR email ILIKE $3 OR attrs->>'name' ILIKE $3 OR attrs->>'phone' ILIKE $3)
-		ORDER BY id DESC LIMIT $4`, tenant, int64(afterID), like, limit)
+		ORDER BY id DESC LIMIT $3`, tenant, int64(afterID), limit)
 	if err != nil {
 		return nil, err
 	}

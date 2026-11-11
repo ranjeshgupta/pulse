@@ -18,16 +18,27 @@ type Query struct {
 // ToSQL compiles the rule into a query returning the ids of every matching contact of the tenant.
 // asOf fixes "today" for event windows, so results are reproducible and match Eval with the same clock.
 func ToSQL(r Rule, tenantID int64, asOf time.Time) (Query, error) {
-	if err := r.Validate(); err != nil {
+	where, args, err := WhereSQL(r, tenantID, asOf)
+	if err != nil {
 		return Query{}, err
 	}
-	b := &sqlBuilder{tenant: uint64(tenantID), asOf: asOf.UTC()}
-	where := b.rule(r)
 	return Query{
 		// Contacts merged into another profile keep their row but never match anything.
 		SQL:  "SELECT id FROM contacts FINAL WHERE tenant_id = ? AND NOT mapContains(attrs, 'merged_into') AND " + where + " ORDER BY id",
-		Args: append([]any{uint64(tenantID)}, b.args...),
+		Args: append([]any{uint64(tenantID)}, args...),
 	}, nil
+}
+
+// WhereSQL compiles the rule into the condition ToSQL uses, over one row of the contacts table,
+// with its arguments. Other queries over contacts (the Contacts list's filtered views) reuse it, so
+// they match exactly what a segment with this rule would.
+func WhereSQL(r Rule, tenantID int64, asOf time.Time) (string, []any, error) {
+	if err := r.Validate(); err != nil {
+		return "", nil, err
+	}
+	b := &sqlBuilder{tenant: uint64(tenantID), asOf: asOf.UTC()}
+	where := b.rule(r)
+	return where, b.args, nil
 }
 
 type sqlBuilder struct {

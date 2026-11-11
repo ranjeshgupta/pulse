@@ -1,7 +1,9 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { can, type Area, type Level } from "./api";
 import { useMe, useSignOut } from "./auth";
 import { roleName, useRoles } from "./pages/Roles";
+import { useSettingsNav } from "./SettingsLayout";
 
 const I = {
   pulse: <path d="M2 9h3l2-5 3 10 2-5h4" />,
@@ -31,6 +33,7 @@ const I = {
   grid: <><rect x="1.5" y="1.5" width="4" height="4" rx=".6" /><rect x="6.5" y="1.5" width="4" height="4" rx=".6" /><rect x="11.5" y="1.5" width="4" height="4" rx=".6" /><rect x="1.5" y="6.5" width="4" height="4" rx=".6" /><rect x="6.5" y="6.5" width="4" height="4" rx=".6" /><rect x="1.5" y="11.5" width="4" height="4" rx=".6" /></>,
   coin: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M10.6 6.2c-.4-.8-1.2-1.2-2.1-1.2-1.2 0-2.1.7-2.1 1.7 0 2.4 4.4 1.2 4.4 3.6 0 1-1 1.8-2.3 1.8-1 0-1.9-.5-2.3-1.3M8.5 3.8V5M8.5 12.1v1.2" /></>,
   plug: <><path d="M6 1.5v4M11 1.5v4" /><path d="M3.5 5.5h10v3a5 5 0 0 1-10 0z" /><path d="M8.5 13.5v2" /></>,
+  gear: <><circle cx="8.5" cy="8.5" r="2.4" /><path d="M8.5 1.5v2M8.5 13.5v2M1.5 8.5h2M13.5 8.5h2M3.5 3.5l1.4 1.4M12.1 12.1l1.4 1.4M3.5 13.5l1.4-1.4M12.1 4.9l1.4-1.4" /></>,
   chart: <><path d="M2 15h13" /><rect x="3" y="8" width="2.6" height="5" rx=".5" /><rect x="7.2" y="4" width="2.6" height="9" rx=".5" /><rect x="11.4" y="6.5" width="2.6" height="6.5" rx=".5" /></>,
 };
 
@@ -44,7 +47,9 @@ function Icon({ d }: { d: React.ReactNode }) {
 
 type NavItem = { to: string; label: string; icon: React.ReactNode; need?: [Area, Exclude<Level, "none">] };
 
-// Each item shows only when the user's role reaches `need`.
+// Each item shows only when the user's role reaches `need`. Groups follow the usual marketing-tool
+// layout: who (Audience), what you send and show (Campaigns), what it's built from (Content), how
+// it did (Analytics), then one Settings entry with its own menu (SettingsLayout.tsx).
 const NAV: { title?: string; items: NavItem[] }[] = [
   { items: [{ to: "/", label: "Overview", icon: I.pulse }] },
   {
@@ -53,53 +58,32 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/contacts", label: "Contacts", icon: I.people, need: ["contacts", "view"] },
       { to: "/companies", label: "Companies", icon: I.building, need: ["contacts", "view"] },
       { to: "/segments", label: "Segments", icon: I.funnel, need: ["segments", "view"] },
-      { to: "/lists", label: "Lists", icon: I.list, need: ["segments", "view"] },
-      { to: "/forms", label: "Forms", icon: I.form, need: ["content", "view"] },
-      { to: "/imports", label: "Imports", icon: I.list, need: ["contacts", "edit"] },
     ],
   },
   {
-    title: "Engage",
+    title: "Campaigns",
     items: [
       { to: "/journeys", label: "Journeys", icon: I.flow, need: ["journeys", "view"] },
       { to: "/broadcasts", label: "Broadcasts", icon: I.megaphone, need: ["broadcasts", "view"] },
-      { to: "/templates", label: "Templates", icon: I.doc, need: ["content", "view"] },
-      { to: "/focus-items", label: "Focus items", icon: I.window, need: ["content", "view"] },
-      { to: "/web-content", label: "Web content", icon: I.slot, need: ["content", "view"] },
-      { to: "/in-app", label: "In-app messages", icon: I.phone, need: ["content", "view"] },
+      { to: "/on-site", label: "On-site & in-app", icon: I.window, need: ["content", "view"] },
+    ],
+  },
+  {
+    title: "Content",
+    items: [
+      { to: "/templates", label: "Message templates", icon: I.doc, need: ["content", "view"] },
       { to: "/landing-pages", label: "Landing pages", icon: I.page, need: ["content", "view"] },
+      { to: "/forms", label: "Forms", icon: I.form, need: ["content", "view"] },
       { to: "/assets", label: "Assets", icon: I.file, need: ["content", "view"] },
     ],
   },
   {
-    title: "Analyze",
+    title: "Analytics",
     items: [
+      { to: "/reports", label: "Reports", icon: I.chart, need: ["reports", "view"] },
       { to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] },
       { to: "/cohorts", label: "Cohorts", icon: I.grid, need: ["reports", "view"] },
       { to: "/revenue", label: "Revenue", icon: I.coin, need: ["reports", "view"] },
-      { to: "/reports", label: "Reports", icon: I.chart, need: ["reports", "view"] },
-    ],
-  },
-  {
-    title: "Delivery",
-    items: [
-      { to: "/channels", label: "Channels", icon: I.send, need: ["channels", "view"] },
-      { to: "/test-inbox", label: "Test inbox", icon: I.inbox, need: ["channels", "view"] },
-    ],
-  },
-  {
-    title: "Workspace",
-    items: [
-      { to: "/settings/team", label: "Team", icon: I.team, need: ["settings", "view"] },
-      { to: "/settings/roles", label: "Roles", icon: I.shield, need: ["settings", "view"] },
-      { to: "/settings/attributes", label: "Attributes", icon: I.tag, need: ["segments", "view"] },
-      { to: "/settings/scoring", label: "Scoring", icon: I.star, need: ["segments", "view"] },
-      { to: "/settings/stages", label: "Stages", icon: I.stairs, need: ["segments", "view"] },
-      { to: "/settings/access", label: "Sign-in & keys", icon: I.key, need: ["settings", "edit"] },
-      { to: "/settings/webhooks", label: "Webhooks", icon: I.send, need: ["settings", "edit"] },
-      { to: "/settings/integrations", label: "Integrations", icon: I.plug, need: ["settings", "view"] },
-      { to: "/settings/data", label: "Data & privacy", icon: I.key, need: ["settings", "view"] },
-      { to: "/settings/audit", label: "Audit log", icon: I.log, need: ["settings", "edit"] },
     ],
   },
 ];
@@ -117,32 +101,44 @@ export default function Shell() {
   const me = useMe().data;
   const signOut = useSignOut();
   const roles = useRoles();
+  const settings = useSettingsNav();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const loc = useLocation();
+  useEffect(() => setMenuOpen(false), [loc.pathname]);
   const allowed = (it: NavItem) => !it.need || can(me?.permissions, it.need[0], it.need[1]);
   return (
     <div className="shell">
-      <nav className="sidebar" aria-label="Main">
+      <nav className={`sidebar${menuOpen ? " open" : ""}`} aria-label="Main">
         <div className="brand">
           <Logo />
           <div>
             Pulse
             <div className="workspace-name">{me?.workspace.name}</div>
           </div>
+          <button className="menu-toggle" aria-expanded={menuOpen} aria-controls="main-nav" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? "Close" : "Menu"}</button>
         </div>
-        {NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length > 0).map((g, i) => (
-          <div className="nav-group nav" key={g.title ?? i}>
-            {g.title && <div className="nav-group-title">{g.title}</div>}
-            {g.items.map((it) => (
-              <NavLink key={it.to} to={it.to} end={it.to === "/"}>
-                <Icon d={it.icon} />
-                {it.label}
-              </NavLink>
-            ))}
+        <div className="sidebar-nav" id="main-nav">
+          {NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length > 0).map((g, i) => (
+            <div className="nav-group nav" key={g.title ?? i}>
+              {g.title && <div className="nav-group-title">{g.title}</div>}
+              {g.items.map((it) => (
+                <NavLink key={it.to} to={it.to} end={it.to === "/"}>
+                  <Icon d={it.icon} />
+                  {it.label}
+                </NavLink>
+              ))}
+            </div>
+          ))}
+          {settings.length > 0 && (
+            <div className="nav-group nav">
+              <NavLink to="/settings"><Icon d={I.gear} />Settings</NavLink>
+            </div>
+          )}
+          <div className="sidebar-foot">
+            <div>{me?.user?.name || me?.user?.email}</div>
+            <div className="xs" style={{ color: "#8e9bb3", margin: "2px 0 8px" }}>{roleName(me?.role, roles.data)}</div>
+            <button onClick={signOut}>Sign out</button>
           </div>
-        ))}
-        <div className="sidebar-foot">
-          <div>{me?.user?.name || me?.user?.email}</div>
-          <div className="xs" style={{ color: "#8e9bb3", margin: "2px 0 8px" }}>{roleName(me?.role, roles.data)}</div>
-          <button onClick={signOut}>Sign out</button>
         </div>
       </nav>
       <main className="main">

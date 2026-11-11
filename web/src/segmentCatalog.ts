@@ -120,7 +120,7 @@ const FIXED: Omit<CatalogItem, "icon">[] = [
   { id: "stage_recent", group: "points", label: "Changed stage recently", hint: "Moved to their stage in the last 7 days", make: () => newAttr("stage_changed_at", "within_days", "7") },
   // Segments and tags
   { id: "tag", group: "segments", label: "Tags", hint: "Is tagged, or isn't", make: newTag },
-  { id: "segment", group: "segments", label: "Segment membership", hint: "In a segment or a static list, or not in it", make: newSegmentRef },
+  { id: "segment", group: "segments", label: "Segment membership", hint: "In a segment (dynamic or static), or not in it", make: newSegmentRef },
   // Company
   { id: "company_attr", group: "company", label: "Other company field", hint: "Any field of their company, e.g. industry", make: () => newAttr("company_", "eq", "") },
 ];

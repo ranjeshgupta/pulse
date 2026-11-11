@@ -105,10 +105,10 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
       const add = n.list_id && n.list_action !== "remove" ? [n.list_id] : n.add_lists ?? [];
       const rm = n.list_id && n.list_action === "remove" ? [n.list_id] : n.remove_lists ?? [];
       const parts = [
-        add.length ? `add to list ${add.map((l) => name(names.segments, l, "list")).join(", ")}` : "",
-        rm.length ? `remove from ${rm.map((l) => name(names.segments, l, "list")).join(", ")}` : "",
+        add.length ? `add to ${add.map((l) => name(names.segments, l, "segment")).join(", ")}` : "",
+        rm.length ? `remove from ${rm.map((l) => name(names.segments, l, "segment")).join(", ")}` : "",
       ].filter(Boolean);
-      return parts.length ? capital(parts.join(", ")) : "Choose lists";
+      return parts.length ? capital(parts.join(", ")) : "Choose static segments";
     }
     case "change_journey": {
       const parts = [

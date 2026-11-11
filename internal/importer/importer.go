@@ -1,7 +1,7 @@
 // Package importer turns a contacts CSV into identify events (and list_joined, with a list).
 //
 // The header row names the columns: external_id (or id / user_id), email (the id when there's no
-// external_id), phone, and any attribute. Rows become events on the live pipeline, so imported
+// external_id), phone, and any attribute; a column with an empty heading is skipped. Rows become events on the live pipeline, so imported
 // contacts move segments and journeys like any other data. Event ids come from the import id and
 // the contact, so re-running the same import never counts twice.
 package importer
@@ -114,6 +114,8 @@ func Run(ctx context.Context, pub kafka.Publisher, src io.Reader, o Options) (Re
 			idCol = i
 		case h == "email":
 			emailCol = i
+		case h == "":
+			// An empty heading skips the column (the app's column mapping uses it for "Don't import").
 		case !attr.ValidKey(h):
 			bad = append(bad, header[i])
 		}

@@ -217,7 +217,7 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
     case "show_focus":
       return (<>
         <Field label="Focus item"><PickSelect value={n.focus_id} items={L.focus} placeholder="Choose a focus item" onChange={(focus_id) => setN({ focus_id })} /></Field>
-        <Note>Shown on the contact's next page view, whatever the item's own targeting. {L.focus.length === 0 && <Link to="/focus-items/new">Create a focus item</Link>}</Note>
+        <Note>Shown on the contact's next page view, whatever the item's own targeting. {L.focus.length === 0 && <Link to="/on-site/focus/new">Create a focus item</Link>}</Note>
       </>);
     case "push_integration":
       return (<>
@@ -271,9 +271,9 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
       const set = (a: number[], r: number[]) => setN({ list_id: undefined, list_action: undefined, add_lists: a, remove_lists: r.length ? r : undefined });
       const items = L.staticLists.map((s) => ({ value: s.id, label: s.name }));
       return (<>
-        <CheckList label="Add to lists" items={items} value={add} onChange={(a) => set(a, rm.filter((x) => !a.includes(x)))} empty="No static lists yet." />
-        <CheckList label="Remove from lists" items={items} value={rm} onChange={(r) => set(add.filter((x) => !r.includes(x)), r)} empty="" />
-        <Note>Dynamic segments follow their rules and can't take members — use a static list. {L.staticLists.length === 0 && <Link to="/lists">Create a list</Link>}</Note>
+        <CheckList label="Add to static segments" items={items} value={add} onChange={(a) => set(a, rm.filter((x) => !a.includes(x)))} empty="No static segments yet." />
+        <CheckList label="Remove from static segments" items={items} value={rm} onChange={(r) => set(add.filter((x) => !r.includes(x)), r)} empty="" />
+        <Note>Dynamic segments follow their rules and can't take members, so only static segments are listed. {L.staticLists.length === 0 && <Link to="/segments?type=static">Create a static segment</Link>}</Note>
       </>);
     }
     case "change_journey": {
@@ -649,7 +649,7 @@ function CheckFields({ n, setN, pickers }: { n: JourneyNode; setN: SetN; pickers
       const s = parseStage(n.rule);
       if (!s) break;
       return (<>
-        <CheckList label="Yes if the contact's stage is one of" items={pickers.lists.stages.map((x) => ({ value: x, label: x }))} value={s} onChange={(v) => set(stageRule(v))} empty="No stages yet: add them under Workspace, Stages." />
+        <CheckList label="Yes if the contact's stage is one of" items={pickers.lists.stages.map((x) => ({ value: x, label: x }))} value={s} onChange={(v) => set(stageRule(v))} empty="No stages yet: add them under Settings, Stages." />
       </>);
     }
     case "points": {

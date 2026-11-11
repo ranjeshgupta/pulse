@@ -46,7 +46,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let config = try! PulseConfig(
             host: "https://pulse.example.com",
-            siteKey: "sk_...",                 // Settings → Website in Pulse
+            siteKey: "sk_...",                 // Settings → Sign-in & keys → Your website in Pulse
             flushInterval: 10,
             maxBatch: 50,                      // events per request, 1-50
             debug: false,                      // true prints every step

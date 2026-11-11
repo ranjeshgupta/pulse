@@ -14,3 +14,13 @@
 .rule-menu-item small { font-size: var(--fs-xs); color: var(--muted); line-height: 1.35; }
 .rule-menu-item:hover { background: var(--cobalt-wash); }
 .rule-menu-item:focus-visible { outline: none; box-shadow: var(--focus); }
+
+/* "New segment": Dynamic or Static first. Also used by "New on-site or in-app item". */
+.seg-kind { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.seg-kind button {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; cursor: pointer;
+  border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--surface); font: inherit; color: var(--text);
+}
+.seg-kind button span { font-size: var(--fs-xs); color: var(--muted); line-height: 1.4; }
+.seg-kind button:hover { border-color: var(--ink-3); }
+.seg-kind button.on { border-color: var(--cobalt); box-shadow: var(--focus); }

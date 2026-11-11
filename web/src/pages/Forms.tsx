@@ -395,9 +395,9 @@ export function FormEdit() {
               <Field label="Message"><input className="input" value={d.settings.success_message ?? ""} onChange={(e) => setS({ success_message: e.target.value })} placeholder="Thanks! We got it." /></Field>
             )}
             <div className="field">
-              <span>Add them to these lists</span>
+              <span>Add them to these static segments</span>
               {lists.length === 0 ? (
-                <small>You have no lists yet. <Link to="/lists">Create one</Link> to collect sign-ups in it.</small>
+                <small>You have no static segments yet. <Link to="/segments?type=static">Create one</Link> to collect sign-ups in it.</small>
               ) : (
                 <div className="checks-box">
                   {lists.map((l) => {

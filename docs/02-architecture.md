@@ -212,7 +212,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   `push_dwc` sets `odwc:{tenant}:{contact}` slot → HTML for N days (default 30); the decide API returns it for that slot
   instead of the slot's own content. The decide API also records `dwc_requested {slot, url}` for each requested slot of a
   known contact, which `on_dwc` decisions wait for.
-- **Inbound replies** (`internal/replies`). Set Channels → Delivery → "Reply tracking address" (`reply_to`, e.g.
+- **Inbound replies** (`internal/replies`). Set Settings → Channels → Delivery → "Reply tracking address" (`reply_to`, e.g.
   `replies@inbound.example.com`; point that domain's MX at the email provider's inbound parse). Every tracked email then
   gets `Reply-To: replies+r<code>@inbound.example.com`: a random 16-character lower-case code stored in Redis
   (`rtok:<code>`, 30 days) with the message's tracking token. The provider posts replies to the workspace's
@@ -236,7 +236,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - Rule types: attribute comparisons (`eq`, `ne`, `contains`, `not_contains`, `starts_with`, `ends_with`, `in`, `not_in`,
   `exists`, `not_exists`, `gt`/`gte`/`lt`/`lte`, `between` [low, high], and dates: `on`, `before`, `after`, `within_days`,
   `older_than_days`), event counts in a window with property filters (the same ops except the relative dates), tags,
-  and membership of another segment or list. A missing attribute reads as "" in both compilers, so "is empty" is `eq ""`.
+  and membership of another segment, dynamic or static. A missing attribute reads as "" in both compilers, so "is empty" is `eq ""`.
 - The web builder (`web/src/segmentRules.ts` editing model and `treeReducer`, `web/src/segmentCatalog.ts` filter
   catalog, `web/src/pages/SegmentBuilder.tsx` and `FilterPicker.tsx`) is described in the parity doc's "Segment builder".
   Value suggestions come from `GET /v1/attributes/{key}/values` and `GET /v1/events/{name}/values?prop=` (top 25
@@ -244,6 +244,24 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - Every profile keeps `first_seen` (first event time) and `last_seen` (UTC date of the latest event) for recency rules.
 - Rules that depend on today (event windows, relative dates) are swept periodically; the Go evaluator and the ClickHouse compiler
   must agree on every rule (`make it`).
+
+## Contact views and imports (batch 9)
+- **Views.** `GET /v1/contacts?q=&after=&limit=` (contacts view) parses `q` (`internal/api/contactview.go`): `key:value`
+  filters (`is:`, `segment:` / `list:`, `tag:`, `stage:`, `company:`, `owner:`, `points:`, `email:`, `name:`) become one
+  `all` segment rule, resolved against the workspace's segments and users; other words are free text. Without either,
+  contacts page through Postgres by primary key. Otherwise ClickHouse (`store/ch/contactview.go`) selects ids from
+  `contacts FINAL` with `segment.WhereSQL` (the condition `ToSQL` uses, so a view matches a segment with the same rule)
+  and a case-insensitive `positionCaseInsensitiveUTF8` over external ID, email, name, first/last name and phone,
+  `ORDER BY id DESC LIMIT n` below the `after` id; the page's contacts then load from Postgres by id. The first page adds
+  `count` (exact up to 10,000 via a `LIMIT 10001` subquery, else `uniq(id)` without `FINAL`, flagged `approximate`),
+  `filters` (`{token, label}` for the chips) and `rule` (for "Save as segment", which posts it to `/v1/segments`). Bad
+  filters answer 400 with the reason. `GET /v1/contacts/export?q=&columns=` (contacts edit) streams the same view as
+  CSV, 1,000 ids per ClickHouse page, cells through `csvSafe`. Details and approximations: the parity doc's "Contact views".
+- **Imports.** The app's one import flow (`/contacts/import`) reads the header and a few rows in the browser
+  (`web/src/importMapping.ts`), lets the user map each column (External ID, Email, Phone, Tags, a contact field, a new
+  field, or Don't import) and uploads a new header row followed by `file.slice(end of the old header)` (a Blob, so a
+  10 GB file is never read into memory) to `POST /v1/imports` with `list_id` for a static segment. The importer skips
+  columns with an empty heading. `POST /v1/contacts/import` (synchronous, 200 MB) stays for API clients.
 
 ## Dispatch
 - Per-tenant token bucket in Redis (`EMAIL_RATE_PER_SEC`).

@@ -4,18 +4,13 @@ package api
 
 import (
 	"context"
-	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"pulse/internal/attr"
 	"pulse/internal/auth"
 	"pulse/internal/importer"
 	"pulse/internal/model"
@@ -29,13 +24,13 @@ const (
 )
 
 type ExportStore interface {
-	SearchContacts(ctx context.Context, tenant int64, q string, afterID uint32, limit int) ([]model.Contact, error)
+	ListContacts(ctx context.Context, tenant int64, afterID uint32, limit int) ([]model.Contact, error)
 	AttrKeys(ctx context.Context, tenant int64) ([]string, error)
 }
 
 func (s *Server) importRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/contacts/import", s.tenant(s.importContacts))
-	mux.HandleFunc("GET /v1/contacts/export", s.tenant(s.exportContacts))
+	mux.HandleFunc("GET /v1/contacts/export", s.authed(s.exportContacts))
 }
 
 type rowError = importer.RowError
@@ -111,51 +106,6 @@ func (s *Server) attrTypes(ctx context.Context, tenant int64) (map[string]string
 		}
 	}
 	return types, nil
-}
-
-// exportContacts streams every contact as CSV: fixed columns, then one column per attribute.
-func (s *Server) exportContacts(w http.ResponseWriter, r *http.Request, tenant int64) {
-	st := s.Store.(ExportStore)
-	keys, err := st.AttrKeys(r.Context(), tenant)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	sort.Strings(keys)
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="contacts-%s.csv"`, s.now().Format("2006-01-02")))
-	cw := csv.NewWriter(w)
-	_ = cw.Write(append([]string{"external_id", "email", "created_at", "updated_at"}, keys...))
-	var after uint32
-	for {
-		page, err := st.SearchContacts(r.Context(), tenant, "", after, 1000)
-		if err != nil {
-			s.Log.Error("export", "err", err) // headers are sent: the file ends early
-			return
-		}
-		for _, c := range page {
-			row := []string{csvSafe(c.ExternalID), csvSafe(c.Email), c.CreatedAt.UTC().Format(time.RFC3339), c.UpdatedAt.UTC().Format(time.RFC3339)}
-			for _, k := range keys {
-				v, ok := c.Attrs[k]
-				if !ok {
-					row = append(row, "")
-					continue
-				}
-				if m, isMap := v.(map[string]any); isMap {
-					b, _ := json.Marshal(m)
-					row = append(row, string(b))
-					continue
-				}
-				row = append(row, csvSafe(attr.String(v)))
-			}
-			_ = cw.Write(row)
-		}
-		cw.Flush()
-		if len(page) < 1000 {
-			return
-		}
-		after = page[len(page)-1].ID
-	}
 }
 
 // csvSafe defuses spreadsheet formula injection: a cell starting with = + - @ is prefixed with '.

@@ -45,7 +45,7 @@ export const NODE_TYPES: TypeInfo[] = [
   { type: "update_tags", label: "Modify contact's tags", group: "action", shape: "next", hint: "Add or remove tags." },
   { type: "adjust_points", label: "Adjust contact points", group: "action", shape: "next", hint: "Add or take away points." },
   { type: "change_stage", label: "Change contact's stage", group: "action", shape: "next", hint: "Move the contact to a lifecycle stage, e.g. MQL." },
-  { type: "update_list", label: "Modify contact's segments", group: "action", shape: "next", hint: "Add to or remove from static lists." },
+  { type: "update_list", label: "Modify contact's segments", group: "action", shape: "next", hint: "Add to or remove from static segments." },
   { type: "change_journey", label: "Change campaigns", group: "action", shape: "next", hint: "Add the contact to other journeys, or take them out." },
   { type: "dnc_add", label: "Add Do Not Contact", group: "action", shape: "next", hint: "Stop a channel (or everything) for this contact." },
   { type: "dnc_remove", label: "Remove Do Not Contact", group: "action", shape: "next", hint: "Allow a channel again." },
@@ -706,9 +706,9 @@ export function issues(g: JourneyGraph, opts: { journeyId?: number } = {}): Issu
       case "update_list": {
         const a = n.add_lists ?? [], r = n.remove_lists ?? [];
         if (n.list_id !== undefined || n.list_action !== undefined) {
-          if (!n.list_id || (n.list_action !== "add" && n.list_action !== "remove")) add("choose a list.");
-        } else if (a.length + r.length === 0) add("choose at least one list to add to or remove from.");
-        else if (a.some((x) => r.includes(x))) add("a list can't be both added to and removed from.");
+          if (!n.list_id || (n.list_action !== "add" && n.list_action !== "remove")) add("choose a static segment.");
+        } else if (a.length + r.length === 0) add("choose at least one static segment to add to or remove from.");
+        else if (a.some((x) => r.includes(x))) add("a static segment can't be both added to and removed from.");
         break;
       }
       case "change_stage": if (!n.stage?.trim()) add("choose the stage to move the contact to."); break;

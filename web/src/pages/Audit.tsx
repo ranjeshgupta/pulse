@@ -81,14 +81,14 @@ function actionLabel(action: string): string {
 
 // Where an object type's items open in the app.
 const OBJECT_PATH: Record<string, string> = {
-  segments: "/segments", lists: "/lists", journeys: "/journeys", broadcasts: "/broadcasts", templates: "/templates",
-  "focus-items": "/focus-items", dwc: "/web-content", forms: "/forms", funnels: "/funnels",
+  segments: "/segments", lists: "/segments", journeys: "/journeys", broadcasts: "/broadcasts", templates: "/templates",
+  "focus-items": "/on-site/focus", dwc: "/on-site/content", forms: "/forms", funnels: "/funnels",
 };
 
 const OBJECT_TYPES: { value: string; label: string }[] = [
   { value: "auth", label: "Sign-ins" },
   { value: "segments", label: "Segments" },
-  { value: "lists", label: "Lists" },
+  { value: "lists", label: "Static segments" },
   { value: "journeys", label: "Journeys" },
   { value: "broadcasts", label: "Broadcasts" },
   { value: "templates", label: "Templates" },

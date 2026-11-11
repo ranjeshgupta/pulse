@@ -10,7 +10,7 @@ type By = "email" | "phone";
 
 // Duplicates: contacts that share an email address or phone number, with a merge that keeps the
 // contact you pick and folds the others into it (their attributes fill gaps, history, tags, points
-// and lists carry over).
+// and static segments carry over).
 export function Duplicates() {
   const [by, setBy] = useState<By>("email");
   const q = useQuery({
@@ -23,7 +23,7 @@ export function Duplicates() {
       <PageHead
         back={<Link className="back" to="/contacts">Contacts</Link>}
         title="Duplicates"
-        intro="Contacts that share an email address or phone number. Pick the one to keep and merge the others into it: the kept contact's values win, the others fill in what it lacks, and their history, tags, points and lists move to it. Merged contacts leave every segment; their later events go to the kept contact."
+        intro="Contacts that share an email address or phone number. Pick the one to keep and merge the others into it: the kept contact's values win, the others fill in what it lacks, and their history, tags, points and static segments move to it. Merged contacts leave every segment; their later events go to the kept contact."
       />
       <div className="tabs" role="tablist" style={{ marginBottom: 14 }}>
         {(["email", "phone"] as By[]).map((b) => (

@@ -191,19 +191,19 @@ func overlap(a, b []int64) bool {
 func validList(n Node) error {
 	if n.ListID != 0 || n.ListAction != "" {
 		if n.ListID <= 0 || (n.ListAction != "add" && n.ListAction != "remove") || len(n.AddLists)+len(n.RemoveLists) > 0 {
-			return errors.New("choose a list and whether to add or remove")
+			return errors.New("choose a static segment and whether to add or remove")
 		}
 		return nil
 	}
 	switch {
 	case len(n.AddLists)+len(n.RemoveLists) == 0:
-		return errors.New("choose a list to add to or remove from")
+		return errors.New("choose a static segment to add to or remove from")
 	case len(n.AddLists) > maxRefs || len(n.RemoveLists) > maxRefs:
-		return fmt.Errorf("up to %d lists each", maxRefs)
+		return fmt.Errorf("up to %d static segments each", maxRefs)
 	case !positive(n.AddLists) || !positive(n.RemoveLists):
-		return errors.New("choose a list to add to or remove from")
+		return errors.New("choose a static segment to add to or remove from")
 	case overlap(n.AddLists, n.RemoveLists):
-		return errors.New("a list can't be both added to and removed from")
+		return errors.New("a static segment can't be both added to and removed from")
 	}
 	return nil
 }

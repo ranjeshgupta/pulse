@@ -1,68 +1,155 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Segment, type User } from "../api";
+import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Rule, type Segment, type User } from "../api";
 import { contactCompany, isAccountAttr } from "../accounts";
+import { useCan } from "../auth";
+import { currentWord, freeText, joinQuery, splitQuery, suggest, takeChip, type Suggestion } from "../contactFilters";
 import { Drawer, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { useCompanyOptions } from "./Companies";
 import { ContactInbox } from "./InApp";
 import { useStages } from "./Stages";
-import { formatBytes, MAX_IMPORT_BYTES, uploadImport, type UploadProgress } from "./Imports";
+import { useAttributes, useSegments } from "./segmentData";
+import "./contacts.css";
+
+type ViewPage = { contacts: Contact[]; next: string; filters?: { token: string; label: string }[]; rule?: Rule; text?: string; count?: number; approximate?: boolean };
+
+/** Columns the list can show; External ID is always first. Attribute definitions are offered too. */
+const BUILTIN_COLUMNS: { key: string; label: string }[] = [
+  { key: "email", label: "Email" }, { key: "name", label: "Name" }, { key: "phone", label: "Phone" }, { key: "city", label: "City" },
+  { key: "points", label: "Points" }, { key: "stage", label: "Stage" }, { key: "company_name", label: "Company" },
+  { key: "owner_name", label: "Owner" }, { key: "tags", label: "Tags" }, { key: "last_seen", label: "Last seen" },
+  { key: "date_added", label: "Date added" }, { key: "updated_at", label: "Last updated" },
+];
+const DEFAULT_COLUMNS = ["email", "name", "city", "updated_at"];
+const COLUMNS_KEY = "pulse.contacts.columns";
+
+function loadColumns(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? "null");
+    if (Array.isArray(v) && v.every((x) => typeof x === "string")) return v;
+  } catch { /* storage unavailable */ }
+  return DEFAULT_COLUMNS;
+}
+
+function cell(c: Contact, key: string): ReactNode {
+  if (key === "email") return c.email || <span className="faint">none</span>;
+  if (key === "updated_at") return <span className="muted">{timeAgo(c.updated_at)}</span>;
+  if (key === "name") {
+    const n = c.attrs.name ?? [c.attrs.first_name, c.attrs.last_name].filter(Boolean).join(" ");
+    return String(n ?? "");
+  }
+  const v = c.attrs[key];
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.join(", ");
+  if (key === "last_seen" || key === "date_added") return <span className="muted">{timeAgo(String(v))}</span>;
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
 
 export default function Contacts() {
-  const [q, setQ] = useState("");
-  const query = useDeferredValue(q);
   const [params, setParams] = useSearchParams();
+  const initial = useMemo(() => splitQuery(params.get("q") ?? ""), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [chips, setChips] = useState<string[]>(initial.chips);
+  const [text, setText] = useState(initial.text);
+  const query = joinQuery(chips, freeText(text));
+  // Typing waits 300 ms before asking the server; adding or removing a chip applies at once.
+  const [debounced, setDebounced] = useState(query);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
   const [open, setOpenState] = useState<string | null>(params.get("open"));
-  const setOpen = (ext: string | null) => {
-    setOpenState(ext);
-    if (params.has("open")) setParams({}, { replace: true });
-  };
-  const [importing, setImporting] = useState(false);
+  useEffect(() => {
+    // Keep the view in the address bar, so it can be bookmarked and shared.
+    const next = new URLSearchParams(params);
+    if (debounced) next.set("q", debounced); else next.delete("q");
+    next.delete("open");
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+  }, [debounced]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // A link to another view while this page is open (the sidebar, "View contacts") replaces the search.
+    const q = params.get("q") ?? "";
+    if (q !== debounced) {
+      const v = splitQuery(q);
+      setChips(v.chips); setText(v.text); setDebounced(q);
+    }
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setOpen = (ext: string | null) => setOpenState(ext);
+  const applyNow = (c: string[], t: string) => { setChips(c); setText(t); setDebounced(joinQuery(c, freeText(t))); };
+
   const list = useInfiniteQuery({
-    queryKey: ["contacts", query],
-    queryFn: ({ pageParam }) => api.get<{ contacts: Contact[]; next: string }>(`/v1/contacts?q=${encodeURIComponent(query)}&after=${pageParam}&limit=50`),
+    queryKey: ["contacts", debounced],
+    queryFn: ({ pageParam }) => api.get<ViewPage>(`/v1/contacts?q=${encodeURIComponent(debounced)}&after=${pageParam}&limit=50`),
     initialPageParam: "",
     getNextPageParam: (last) => last.next || undefined,
+    placeholderData: (prev) => prev,
   });
+  const first = list.data?.pages[0];
   const contacts = list.data?.pages.flatMap((p) => p.contacts) ?? [];
+  const labels = new Map(first?.filters?.map((f) => [f.token, f.label]));
+  const [columns, setColumnsState] = useState<string[]>(loadColumns);
+  const setColumns = (c: string[]) => { setColumnsState(c); try { localStorage.setItem(COLUMNS_KEY, JSON.stringify(c)); } catch { /* storage unavailable */ } };
+  const attrs = useAttributes().data;
+  const columnChoices = [...BUILTIN_COLUMNS, ...(attrs?.attributes ?? []).filter((d) => !BUILTIN_COLUMNS.some((b) => b.key === d.key)).map((d) => ({ key: d.key, label: d.label || d.key }))];
+  const colLabel = (k: string) => columnChoices.find((c) => c.key === k)?.label ?? k;
+  const [choosing, setChoosing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const canExport = useCan("contacts", "edit");
+  const canSave = useCan("segments", "edit");
+  const filtered = !!debounced;
+  const exportCols = columns.filter((c) => c !== "name" && c !== "updated_at" && c !== "email");
+  if (columns.includes("name")) exportCols.unshift("name", "first_name", "last_name");
+  const exportHref = `/v1/contacts/export?${new URLSearchParams({ ...(debounced ? { q: debounced } : {}), columns: exportCols.join(",") })}`;
+  const countText = first?.count == null ? "" : first.approximate
+    ? `About ${first.count.toLocaleString("en-IN")} contacts`
+    : `${first.count.toLocaleString("en-IN")} ${first.count === 1 ? "contact" : "contacts"}`;
 
   return (
     <div className="page">
       <PageHead
         title="Contacts"
-        intro="Everyone Pulse has seen an event or profile for. Contacts are created automatically by the first event with a new external ID."
+        intro="Everyone Pulse has seen an event or profile for. Filter with is:, segment:, tag:, stage:, company:, owner:, points:, email: and name:, or type to find someone."
         actions={<>
           <Link className="btn" to="/contacts/duplicates">Duplicates</Link>
-          <a className="btn" href="/v1/contacts/export" download>Export CSV</a>
-          <button className="btn primary" onClick={() => setImporting(true)}>Import CSV</button>
+          {canExport && <Link className="btn primary" to="/contacts/import">Import</Link>}
         </>}
       />
-      {importing && <ImportModal onClose={() => setImporting(false)} />}
-      <div className="row" style={{ marginBottom: 14 }}>
-        <input className="input" style={{ maxWidth: 380 }} placeholder="Search by ID, email, name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search contacts" />
+      <ContactSearch chips={chips} text={text} labels={labels} onText={setText} onChips={(c, t) => applyNow(c, t)} />
+      <div className="cv-bar">
+        <span className="small muted" aria-live="polite">
+          {list.isFetching && !list.isFetchingNextPage ? "Searching…" : filtered ? countText : ""}
+        </span>
+        <div className="row">
+          {filtered && canSave && (
+            <button className="btn sm" disabled={!first?.rule || !!first?.text} title={first?.text ? "Free text can't be saved; use email: or name: instead" : !first?.rule ? "Add a filter first" : undefined}
+              onClick={() => setSaving(true)}>Save as segment</button>
+          )}
+          <button className="btn sm" onClick={() => setChoosing(true)} aria-haspopup="dialog">Columns</button>
+          {canExport && <a className="btn sm" href={exportHref} download>Export CSV</a>}
+        </div>
       </div>
+      {choosing && <ColumnChooser columns={columns} choices={columnChoices} onChange={setColumns} onClose={() => setChoosing(false)} />}
+      {saving && first?.rule && <SaveSegmentModal rule={first.rule} labels={first.filters?.map((f) => f.label) ?? []} onClose={() => setSaving(false)} />}
       <ErrorNote error={list.error} />
       <div className="panel">
         {contacts.length === 0 && !list.isLoading ? (
-          <Empty title={query ? "No contacts match" : "No contacts yet"}>
-            {query ? "Try part of an email address or external ID." : "Send an identify event from your app or server, and the contact appears here immediately."}
+          <Empty title={filtered ? "No contacts match" : "No contacts yet"}>
+            {filtered ? "Remove a filter, or try part of an email address or external ID." : "Send an identify event from your app or server, or import a CSV, and contacts appear here."}
           </Empty>
         ) : (
-          <table className="table">
-            <thead><tr><th>External ID</th><th>Email</th><th>Name</th><th>City</th><th>Last updated</th></tr></thead>
-            <tbody>
-              {contacts.map((c) => (
-                <tr key={c.id} className="clickable" onClick={() => setOpen(c.external_id)}>
-                  <td>{c.external_id}</td>
-                  <td>{c.email || <span className="faint">none</span>}</td>
-                  <td>{String(c.attrs.name ?? c.attrs.first_name ?? "")}</td>
-                  <td>{String(c.attrs.city ?? "")}</td>
-                  <td className="muted">{timeAgo(c.updated_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="table">
+              <thead><tr><th>External ID</th>{columns.map((k) => <th key={k}>{colLabel(k)}</th>)}</tr></thead>
+              <tbody>
+                {contacts.map((c) => (
+                  <tr key={c.id} className="clickable" onClick={() => setOpen(c.external_id)}>
+                    <td>{c.external_id}</td>
+                    {columns.map((k) => <td key={k}>{cell(c, k)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
       {list.hasNextPage && (
@@ -70,6 +157,128 @@ export default function Contacts() {
       )}
       {open && <ContactDrawer externalId={open} onClose={() => setOpen(null)} />}
     </div>
+  );
+}
+
+/** ContactSearch is the search box: chips for filters, free text, and suggestions as you type. */
+function ContactSearch({ chips, text, labels, onText, onChips }: {
+  chips: string[]; text: string; labels: Map<string, string>; onText: (t: string) => void; onChips: (chips: string[], text: string) => void;
+}) {
+  const segs = useSegments(0).data?.segments ?? [];
+  const tags = useQuery({ queryKey: ["tags"], queryFn: () => api.get<{ tags: string[] }>("/v1/tags"), staleTime: 30_000 }).data?.tags ?? [];
+  const stages = useStages().data ?? [];
+  const companies = useCompanyOptions().data ?? [];
+  const users = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: User[] }>("/v1/users"), staleTime: 60_000, retry: false }).data?.users ?? [];
+  const segName = new Map(segs.map((s) => [String(s.id), s.name]));
+  const [focused, setFocused] = useState(false);
+  const [active, setActive] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const options = focused ? suggest(text, {
+    segments: segs, tags, stages: stages.map((s) => s.name), companies: companies.map((c) => c.name), users,
+  }) : [];
+  const pick = (s: Suggestion) => {
+    if (s.chip) onChips([...chips.filter((c) => c !== s.chip), s.chip], currentWord(text).before.trimEnd());
+    else if (s.fill !== undefined) onText(s.fill);
+    setActive(0);
+    input.current?.focus();
+  };
+  const change = (t: string) => {
+    const taken = takeChip(t);
+    if (taken) onChips([...chips.filter((c) => c !== taken.chip), taken.chip], taken.rest);
+    else onText(t);
+    setActive(0);
+  };
+  const key = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" && options.length) { e.preventDefault(); setActive((active + 1) % options.length); }
+    else if (e.key === "ArrowUp" && options.length) { e.preventDefault(); setActive((active - 1 + options.length) % options.length); }
+    else if ((e.key === "Enter" || e.key === "Tab") && options[active] && currentWord(text).word) { e.preventDefault(); pick(options[active]); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const taken = takeChip(text, true);
+      if (taken) onChips([...chips.filter((c) => c !== taken.chip), taken.chip], taken.rest);
+      else onChips(chips, text);
+    } else if (e.key === "Backspace" && text === "" && chips.length) onChips(chips.slice(0, -1), "");
+    else if (e.key === "Escape") setFocused(false);
+  };
+  const chipLabel = (c: string) => {
+    if (labels.has(c)) return labels.get(c)!;
+    const m = c.match(/^(segment|list):(\d+)$/);
+    return m && segName.has(m[2]) ? `Segment: ${segName.get(m[2])}` : c;
+  };
+  return (
+    <div className="cv-search-wrap">
+      <div className={`cv-search${focused ? " focused" : ""}`} onClick={() => input.current?.focus()}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="7" cy="7" r="4.8" /><path d="m10.6 10.6 3.6 3.6" /></svg>
+        {chips.map((c) => (
+          <span className="tag-chip" key={c} title={c}>
+            {chipLabel(c)}
+            <button aria-label={`Remove filter ${chipLabel(c)}`} onClick={(e) => { e.stopPropagation(); onChips(chips.filter((x) => x !== c), text); }}>×</button>
+          </span>
+        ))}
+        <input ref={input} value={text} onChange={(e) => change(e.target.value)} onKeyDown={key}
+          onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => setFocused(false), 150)}
+          placeholder={chips.length ? "Add a filter or search" : "Search, or filter: is:anonymous, segment:, tag:, points:>50…"}
+          aria-label="Search and filter contacts" role="combobox" aria-expanded={options.length > 0} aria-controls="cv-suggestions" aria-autocomplete="list"
+          aria-activedescendant={options.length ? `cv-opt-${active}` : undefined} />
+        {(chips.length > 0 || text) && <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); onChips([], ""); }}>Clear</button>}
+      </div>
+      {options.length > 0 && (
+        <ul className="cv-suggest" id="cv-suggestions" role="listbox">
+          {options.map((o, i) => (
+            <li key={o.label + i} id={`cv-opt-${i}`} role="option" aria-selected={i === active} className={i === active ? "active" : ""}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }} onMouseEnter={() => setActive(i)}>
+              <strong>{o.label}</strong>{o.hint && <span className="muted xs">{o.hint}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ColumnChooser({ columns, choices, onChange, onClose }: { columns: string[]; choices: { key: string; label: string }[]; onChange: (c: string[]) => void; onClose: () => void }) {
+  // Columns keep the chooser's order, whatever order they were ticked in.
+  const toggle = (k: string, on: boolean) => onChange(choices.map((c) => c.key).filter((c) => (c === k ? on : columns.includes(c))));
+  return (
+    <Modal title="Columns" onClose={onClose} footer={<>
+      <button className="btn" onClick={() => onChange(DEFAULT_COLUMNS)}>Reset</button>
+      <button className="btn primary" onClick={onClose}>Done</button>
+    </>}>
+      <p className="small muted" style={{ marginBottom: 12 }}>External ID always shows. The export uses the same columns. Your choice is remembered in this browser.</p>
+      <div className="cv-columns">
+        {choices.map((c) => (
+          <label className="check" key={c.key}>
+            <input type="checkbox" checked={columns.includes(c.key)} onChange={(e) => toggle(c.key, e.target.checked)} />
+            {c.label} {c.label !== c.key && <code className="xs muted">{c.key}</code>}
+          </label>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** SaveSegmentModal stores the view's filters as a dynamic segment with the same rule. */
+function SaveSegmentModal({ rule, labels, onClose }: { rule: Rule; labels: string[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const toast = useToast();
+  const [name, setName] = useState(labels.join(", ").slice(0, 80));
+  const save = useMutation({
+    mutationFn: () => api.post<{ id: number }>("/v1/segments", { name: name.trim(), rule }),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Segment created. Pulse is filling it now." }); nav(`/segments/${r.id}`); },
+  });
+  return (
+    <Modal title="Save as segment" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Create segment</button>
+    </>}>
+      <p className="small muted" style={{ marginBottom: 12 }}>
+        Creates a dynamic segment with these filters. Contacts then join and leave it on their own as they start or stop matching.
+      </p>
+      <Field label="Name"><input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <ul className="small">{labels.map((l) => <li key={l}>{l}</li>)}</ul>
+      <ErrorNote error={save.error} />
+    </Modal>
   );
 }
 
@@ -95,8 +304,8 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
         </div>
       )}
       {merging && contact && <MergeModal loser={contact} onClose={() => setMerging(false)} />}
-      <h3 style={{ marginBottom: 10 }}>Segments and lists</h3>
-      {c.data && c.data.segments.length === 0 && <p className="muted small">Not in any segment or list right now.</p>}
+      <h3 style={{ marginBottom: 10 }}>Segments</h3>
+      {c.data && c.data.segments.length === 0 && <p className="muted small">Not in any segment right now.</p>}
       <div className="row" style={{ marginBottom: 22 }}>
         {c.data?.segments.map((s) => <span className="badge info" key={s}>{names.get(s) ?? `Segment ${s}`}</span>)}
       </div>
@@ -230,7 +439,7 @@ function MergeModal({ loser, onClose }: { loser: Contact; onClose: () => void })
       <button className="btn primary" disabled={!winner || merge.isPending} onClick={() => merge.mutate()}>Merge</button>
     </>}>
       <p className="small muted" style={{ marginBottom: 12 }}>
-        The contact you pick is kept: its values win, and this contact's other attributes, history, tags, points and lists move to it. This contact then leaves every segment and its later events go to the kept one. A merge can't be undone.
+        The contact you pick is kept: its values win, and this contact's other attributes, history, tags, points and static segments move to it. This contact then leaves every segment and its later events go to the kept one. A merge can't be undone.
       </p>
       <Field label="Find the contact to keep"><input className="input" autoFocus value={q} onChange={(e) => { setQ(e.target.value); setWinner(""); }} placeholder="ID, email, name or phone" /></Field>
       {query && candidates.length === 0 && !found.isLoading && <p className="small muted">No other contact matches.</p>}
@@ -348,89 +557,5 @@ function ConsentPanel({ contact }: { contact: Contact }) {
       {!all && <button className="btn ghost sm danger" style={{ marginTop: 6 }} onClick={() => confirm("Stop all messages to this contact?") && change.mutate({ ch: "all", sub: false })}>Unsubscribe from everything</button>}
       <ErrorNote error={change.error} />
     </section>
-  );
-}
-
-/** The quick import's limit; bigger files go to a background import. */
-const QUICK_MAX_BYTES = 200 * 1024 * 1024;
-
-type ImportResult = { rows: number; imported: number; skipped: number; errors: { row: number; error: string }[]; columns: string[] };
-
-/** ImportModal uploads a CSV of contacts; with a list, every imported contact is also added to it. */
-export function ImportModal({ onClose, list }: { onClose: () => void; list?: { id: number; name: string } }) {
-  const qc = useQueryClient();
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string[][]>([]);
-  const [agreed, setAgreed] = useState(false);
-  const nav = useNavigate();
-  const toast = useToast();
-  const [bgProgress, setBgProgress] = useState<UploadProgress | null>(null);
-  const bgAbort = useRef<(() => void) | null>(null);
-  useEffect(() => () => bgAbort.current?.(), []);
-  const background = useMutation({
-    mutationFn: async () => {
-      setBgProgress({ loaded: 0, total: file!.size });
-      const up = uploadImport(file!, list?.id, setBgProgress);
-      bgAbort.current = up.abort;
-      try { return await up.promise; } finally { bgAbort.current = null; setBgProgress(null); }
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["imports"] }); toast({ text: "Uploaded. The import runs in the background." }); nav("/imports"); },
-  });
-  const upload = useMutation({
-    mutationFn: async () => {
-      const fd = new FormData();
-      fd.append("file", file!);
-      const res = await fetch(`/v1/contacts/import${list ? `?list_id=${list.id}` : ""}`, { method: "POST", body: fd, credentials: "same-origin", headers: { "X-Pulse-CSRF": "1" } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      return data as ImportResult;
-    },
-    onSuccess: () => window.setTimeout(() => { qc.invalidateQueries({ queryKey: ["contacts"] }); qc.invalidateQueries({ queryKey: ["lists"] }); }, 1500),
-  });
-  const pick = async (f: File | null) => {
-    setFile(f);
-    upload.reset();
-    background.reset();
-    if (!f) return setPreview([]);
-    const head = (await f.slice(0, 4096).text()).split(/\r?\n/).slice(0, 4);
-    setPreview(head.filter(Boolean).map((l) => l.split(",").slice(0, 6)));
-  };
-  const r = upload.data;
-  const big = !!file && file.size > QUICK_MAX_BYTES;
-  const busy = upload.isPending || background.isPending;
-  const pct = bgProgress && bgProgress.total ? Math.min(100, Math.round((bgProgress.loaded / bgProgress.total) * 100)) : 0;
-  return (
-    <Modal title={list ? `Import contacts into ${list.name}` : "Import contacts"} onClose={onClose} footer={r ? <button className="btn primary" onClick={onClose}>Done</button> : <>
-      <button className="btn" onClick={() => { bgAbort.current?.(); onClose(); }}>Cancel</button>
-      <button className={`btn${big ? " primary" : ""}`} disabled={!file || !agreed || busy || file.size > MAX_IMPORT_BYTES} onClick={() => background.mutate()}>{background.isPending ? `Uploading… ${pct}%` : "Run in the background"}</button>
-      {!big && <button className="btn primary" disabled={!file || !agreed || busy} onClick={() => upload.mutate()}>{upload.isPending ? "Importing…" : "Import contacts"}</button>}
-    </>}>
-      {r ? (
-        <>
-          <div className="alert ok">{r.imported.toLocaleString("en-IN")} of {r.rows.toLocaleString("en-IN")} rows imported. They appear in {list ? "the list and in segments" : "segments"} within seconds.</div>
-          {r.skipped > 0 && <p className="small" style={{ marginBottom: 8 }}>{r.skipped} rows were skipped{r.errors.length ? ":" : "."}</p>}
-          {r.errors.length > 0 && <ul className="small muted">{r.errors.map((e) => <li key={e.row}>Row {e.row}: {e.error}</li>)}</ul>}
-        </>
-      ) : (
-        <>
-          <p className="small muted" style={{ marginBottom: 12 }}>
-            The first row names the columns. Use <code>external_id</code> (or <code>email</code>, which then becomes the ID), and optionally <code>email</code>, <code>phone</code> in international format (+91…) and any attributes, such as <code>city</code> or <code>plan</code>. A <code>tags</code> column takes tags separated by semicolons. Attributes defined as numbers or yes/no are checked and converted. Existing contacts are updated; empty cells leave values as they are.
-          </p>
-          <p className="small muted" style={{ marginBottom: 12 }}>
-            Very large file (over 200 MB or 2 million rows)? Choose <strong>Run in the background</strong>: it takes up to 10 GB and you can follow it on <Link to="/imports">Imports</Link>.
-          </p>
-          <input type="file" accept=".csv,text/csv" onChange={(e) => pick(e.target.files?.[0] ?? null)} aria-label="CSV file" />
-          {big && <div className="alert info" style={{ marginTop: 12 }}>This file is {formatBytes(file!.size)}, too big for a quick import. Run it in the background instead.</div>}
-          {bgProgress && <p className="xs muted" style={{ marginTop: 10 }}>Uploading {formatBytes(bgProgress.loaded)} of {formatBytes(bgProgress.total)}. Keep this window open until it finishes.</p>}
-          {preview.length > 0 && (
-            <div className="table-scroll" style={{ marginTop: 12 }}>
-              <table className="table"><tbody>{preview.map((row, i) => <tr key={i}>{row.map((c, j) => <td key={j} className={i === 0 ? "" : "muted"} style={i === 0 ? { fontWeight: 600 } : undefined}>{c}</td>)}</tr>)}</tbody></table>
-            </div>
-          )}
-          <label className="check" style={{ marginTop: 14 }}><input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />These people agreed to hear from us. Unsubscribe columns like <code>optout_email</code> are respected.</label>
-          <ErrorNote error={upload.error ?? background.error} />
-        </>
-      )}
-    </Modal>
   );
 }

@@ -4,8 +4,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type DWCSlot, type FocusItem, type Segment } from "../api";
 import { useMe } from "../auth";
 import { RichText } from "../RichText";
-import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
-import { Empty, ErrorNote, Field, PageHead, Status, useToast } from "../ui";
+import { nowISO, ScheduleFields, scheduleProblem } from "../schedule";
+import { ErrorNote, Field, PageHead, useToast } from "../ui";
 
 const KIND_LABEL = { modal: "Pop-up", bar: "Banner bar", slide: "Slide-in" };
 const TRIGGER_LABEL: Record<string, string> = { load: "As the page loads", exit_intent: "When they're about to leave", scroll: "After scrolling", delay: "After a delay" };
@@ -66,36 +66,6 @@ function ContactCheck({ slot, focusId }: { slot?: string; focusId?: number }) {
 
 // ---------- focus items ----------
 
-export function FocusList() {
-  const q = useQuery({ queryKey: ["focus"], queryFn: () => api.get<{ focus_items: FocusItem[] }>("/v1/focus-items") });
-  const items = q.data?.focus_items ?? [];
-  return (
-    <div className="page">
-      <PageHead title="Focus items" intro="Pop-ups, banner bars and slide-ins on your website, targeted by segment and page." actions={<Link className="btn primary" to="/focus-items/new">New focus item</Link>} />
-      <ErrorNote error={q.error} />
-      <div className="panel">
-        {items.length === 0 && !q.isLoading ? (
-          <Empty title="No focus items yet" action={<Link className="btn primary" to="/focus-items/new">Create one</Link>}>An exit-intent offer for first-time visitors is a good start.</Empty>
-        ) : (
-          <table className="table">
-            <thead><tr><th>Name</th><th>Type</th><th>Shows</th><th>Schedule</th><th>Status</th></tr></thead>
-            <tbody>{items.map((f) => (
-              <tr key={f.id}>
-                <td><Link to={`/focus-items/${f.id}`}>{f.name}</Link></td>
-                <td>{KIND_LABEL[f.kind]}</td>
-                <td className="muted">{TRIGGER_LABEL[f.targeting.trigger]}, {FREQ_LABEL[f.targeting.frequency].toLowerCase()}</td>
-                <td className="muted small">{describeWindow(f.start_at, f.end_at)}</td>
-                <td><Status value={f.status} /></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
-      </div>
-      <SdkNote />
-    </div>
-  );
-}
-
 const NEW_FOCUS: FocusItem = {
   id: 0, name: "", kind: "modal", status: "draft",
   content: { title: "", body_html: "", cta_text: "", cta_url: "", background: "#ffffff", text_color: "#152238", button_color: "#2747d6", position: "bottom" },
@@ -118,11 +88,11 @@ export function FocusEdit() {
     onSuccess: (r, item) => {
       qc.invalidateQueries({ queryKey: ["focus"] });
       toast({ text: item.status === "active" ? "Published. Visitors see it within seconds." : "Saved as draft" });
-      if (isNew) nav(`/focus-items/${r.id}`, { replace: true });
+      if (isNew) nav(`/on-site/focus/${r.id}`, { replace: true });
       setF(item);
     },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/focus-items/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["focus"] }); nav("/focus-items"); } });
+  const remove = useMutation({ mutationFn: () => api.del(`/v1/focus-items/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["focus"] }); nav("/on-site?channel=website"); } });
   if (!f) return <div className="page"><ErrorNote error={existing.error} /></div>;
   const c = f.content, t = f.targeting;
   const setC = (p: Partial<FocusItem["content"]>) => setF({ ...f, content: { ...c, ...p } });
@@ -131,7 +101,7 @@ export function FocusEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/focus-items">Focus items</Link>}
+        back={<Link className="back" to="/on-site?channel=website">On-site &amp; in-app</Link>}
         title={isNew ? "New focus item" : f.name}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this focus item?") && remove.mutate()}>Delete</button>}
@@ -246,38 +216,6 @@ function SegmentPicker({ label, hint, segments, value, onChange }: { label: stri
 
 // ---------- dynamic web content ----------
 
-export function DWCList() {
-  const q = useQuery({ queryKey: ["dwc"], queryFn: () => api.get<{ slots: DWCSlot[] }>("/v1/dwc") });
-  const slots = q.data?.slots ?? [];
-  return (
-    <div className="page">
-      <PageHead title="Web content" intro="Placeholders on your pages that show different content to different segments: a hero banner for loyal customers, another for first-time visitors." actions={<Link className="btn primary" to="/web-content/new">New content slot</Link>} />
-      <ErrorNote error={q.error} />
-      <div className="panel">
-        {slots.length === 0 && !q.isLoading ? (
-          <Empty title="No content slots yet" action={<Link className="btn primary" to="/web-content/new">Create a slot</Link>}>
-            Add <code>{'<div data-pulse-slot="home-hero"></div>'}</code> to a page, then create the slot here.
-          </Empty>
-        ) : (
-          <table className="table">
-            <thead><tr><th>Name</th><th>Slot key</th><th className="num">Variants</th><th>Schedule</th><th>Status</th></tr></thead>
-            <tbody>{slots.map((d) => (
-              <tr key={d.id}>
-                <td><Link to={`/web-content/${d.id}`}>{d.name}</Link></td>
-                <td><code>{d.slot}</code></td>
-                <td className="num">{d.variants.length}</td>
-                <td className="muted small">{describeWindow(d.start_at, d.end_at)}</td>
-                <td><Status value={d.status} /></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
-      </div>
-      <SdkNote />
-    </div>
-  );
-}
-
 export function DWCEdit() {
   const { id } = useParams();
   const isNew = id === "new";
@@ -294,10 +232,10 @@ export function DWCEdit() {
       qc.invalidateQueries({ queryKey: ["dwc"] });
       toast({ text: s.status === "active" ? "Published" : "Saved as draft" });
       setD(s);
-      if (isNew) nav(`/web-content/${r.id}`, { replace: true });
+      if (isNew) nav(`/on-site/content/${r.id}`, { replace: true });
     },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/dwc/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["dwc"] }); nav("/web-content"); } });
+  const remove = useMutation({ mutationFn: () => api.del(`/v1/dwc/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["dwc"] }); nav("/on-site?channel=website"); } });
   if (!d) return <div className="page"><ErrorNote error={existing.error} /></div>;
   const setVar = (i: number, p: Partial<DWCSlot["variants"][number]>) => setD({ ...d, variants: d.variants.map((v, j) => (j === i ? { ...v, ...p } : v)) });
   const move = (i: number, dir: -1 | 1) => {
@@ -309,7 +247,7 @@ export function DWCEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/web-content">Web content</Link>}
+        back={<Link className="back" to="/on-site?channel=website">On-site &amp; in-app</Link>}
         title={isNew ? "New content slot" : d.name}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this slot? The placeholder on your pages will stay empty.") && remove.mutate()}>Delete</button>}

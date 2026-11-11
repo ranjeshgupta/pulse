@@ -21,11 +21,11 @@ and journeys within seconds, not on a 15-minute cron.
     test sends, and provider connection tests.
   - Scheduled journeys, broadcasts and on-site content: start required, end optional (empty means it never ends),
     broadcasts repeating daily, weekly or monthly.
-  - Focus items and Dynamic Web Content, through a public decision API.
+  - Focus items and Dynamic Web Content (On-site & in-app → Website), through a public decision API.
 - **P0 (done):** per-channel consent honored by every send; email open and click tracking; unsubscribe links and RFC 8058
   one-click; CSV import and export; the web SDK (`/sdk/pulse.js`: track, identify, page views, focus items, content slots,
-  push tokens). Install snippet: Sign-in & keys → Your website. Test page: `/sdk/demo.html?key=<site key>`.
-- **P1 batches 1-3 (done):** journey power steps, frequency caps and quiet hours; lists, tags, scoring, identity merge;
+  push tokens). Install snippet: Settings → Sign-in & keys → Your website. Test page: `/sdk/demo.html?key=<site key>`.
+- **P1 batches 1-3 (done):** journey power steps, frequency caps and quiet hours; static segments, tags, scoring, identity merge;
   forms (hosted `/f/{key}` and `data-pulse-form`), preference center, STOP/START replies, broadcast A/B tests,
   broadcast and journey reports, funnels.
 - **P1 batch 4 (done):** custom roles, audit log, outbound webhooks (`webhooks` role), background imports, bounce and
@@ -40,14 +40,14 @@ and journeys within seconds, not on a 15-minute cron.
   identity-verification setting instead.)
 - **Batch 5 (done):** GeoIP and the anonymous-tracking switch, retention cleanup (Settings → Data & privacy), journeys
   grouped into Actions/Conditions/Decisions/Waits with message-engagement decisions, and segment presets with date rules.
-- **Batch 6, contacts (done):** lifecycle stages (Workspace → Stages; by hand, API, the `change_stage` journey step, or
+- **Batch 6, contacts (done):** lifecycle stages (Settings → Stages; by hand, API, the `change_stage` journey step, or
   points thresholds that only move contacts forward), companies (Audience → Companies; attributes copied to contacts as
   `company_<key>`, linked by hand or by a server identify with `attrs.company`), and duplicate merge
   (`POST /v1/contacts/merge`, `GET /v1/contacts/duplicates`, Contacts → Duplicates and "Merge into…").
 - **Batch 6, content (done):** every email carries a plain-text part (written in the template's Plain text tab, or
-  generated from the HTML) and may attach up to 10 files (10 MB together); Engage → Assets holds uploaded files
+  generated from the HTML) and may attach up to 10 files (10 MB together); Content → Assets holds uploaded files
   (25 MB each, kept in Postgres) downloadable at `/a/{key}`, openly or behind a form (`asset_downloaded` for the
-  submitter); Engage → Landing pages publishes pages at `/p/{workspace}/{page}` with embedded forms, a schedule, a
+  submitter); Content → Landing pages publishes pages at `/p/{workspace}/{page}` with embedded forms, a schedule, a
   script-free preview and views/visitors/submissions from the web SDK's `landing_page_viewed`.
 - **Rich text editor (done):** a CKEditor-style editor (TipTap) on every HTML field: email templates and landing pages
   (a Rich text tab beside drag and drop and HTML), focus items and web content, with merge tags and a Source view.
@@ -85,7 +85,7 @@ and journeys within seconds, not on a 15-minute cron.
     **Push contact to integration** (`push_integration`; a failed push records `integration_push_failed` and the journey
     carries on).
   - **Shopify**: `POST /v1/webhooks/shopify/{id}` takes orders/create, customers/create and checkouts/create|update,
-    verified with Shopify's HMAC, as `order_completed` (amount, revenue, currency, items: set Analyze → Revenue to
+    verified with Shopify's HMAC, as `order_completed` (amount, revenue, currency, items: set Analytics → Revenue to
     `order_completed` / `amount`), `customer_created` and `cart_updated` (abandoned carts) on the contact with that email
     or phone.
   - **Zapier / Make** (REST hooks): the connector has its own API key (`pzk_…`); `/v1/hooks/subscriptions` subscribes a
@@ -108,7 +108,7 @@ and journeys within seconds, not on a 15-minute cron.
   - **RCS replies:** Google RBM webhooks (client token check, signed with HMAC-SHA512) bring typed replies and tapped
     suggestions as `rcs_received`, delivered / read receipts, STOP / START keywords, and `rcs_replied` on the latest
     RCS message the contact got in 7 days, so a journey's message decision can wait for "replied" on RCS.
-  - **Bounce mailbox:** Channels → Bounce mailbox (IMAP, TLS or STARTTLS, password sealed and shown masked) is read
+  - **Bounce mailbox:** Settings → Channels → Bounce mailbox (IMAP, TLS or STARTTLS, password sealed and shown masked) is read
     every 5 minutes for delivery status notifications (RFC 3464) and feedback-loop complaints (RFC 5965 / ARF), handled
     like bounce webhooks; read messages are flagged `\Seen`.
   - **Push click tracking:** every push carries `data.pulse_track`; the web SDK's service worker and the app SDKs
@@ -119,7 +119,22 @@ and journeys within seconds, not on a 15-minute cron.
     a progress bar) in the builder, the hosted page, the web SDK embed and the landing page preview.
   - **Audit log export:** CSV (formula-safe) or JSON, filtered by person, object type and dates, streamed
     (`GET /v1/audit/export`, same access as the log).
-- **Still to build:** batch 9 in the feature-parity doc.
+- **Batch 9, contact views and navigation (done):**
+  - **Contact views:** the Contacts search box takes filters as removable chips with suggestions as you type:
+    `is:anonymous`, `is:identified`, `is:unsubscribed`, `is:bounced`, `is:dnc`, `segment:<name or id>` (`list:` too),
+    `tag:`, `stage:`, `company:`, `owner:` (`me`, `none`, a teammate), `points:>N` / `<N` / `=N`, `email:`, `name:`,
+    and free text, ANDed. Filters compile to a segment rule (`internal/api/contactview.go`) and run in ClickHouse with
+    the segment compiler, keyset-paged, with a count that is exact up to 10,000 and approximate above. "Save as segment"
+    stores that rule as a dynamic segment; "View contacts" on every segment opens `segment:<id>`; a column chooser; and
+    "Export CSV" of the view with its columns (`GET /v1/contacts/export?q=&columns=`, contacts edit access).
+  - **One navigation:** Audience (Contacts, Companies, Segments), Campaigns (Journeys, Broadcasts, On-site & in-app),
+    Content (Message templates, Landing pages, Forms, Assets), Analytics (Reports, Funnels, Cohorts, Revenue), and one
+    Settings entry with its own menu (Workspace, Contact data, Delivery, Connections). Segments and lists are one
+    Segments page with Dynamic and Static segments; focus items, web content and in-app messages are one "On-site &
+    in-app" list (Website or Mobile app first); imports are one flow under Contacts (upload, map columns, static
+    segment, review, background run, one history). Old addresses redirect. Decisions:
+    [docs/05-feature-parity.md](docs/05-feature-parity.md#navigation-batch-9).
+- **Next:** step-by-step tutorials with the product owner.
 
 ## Run it
 

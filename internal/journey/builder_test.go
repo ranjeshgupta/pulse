@@ -153,7 +153,7 @@ func TestBuilderStepValidation(t *testing.T) {
 		`{"type":"change_journey","next":"x"}`:                                                                                "choose journeys",
 		`{"type":"change_journey","add_journeys":[2],"remove_journeys":[2],"next":"x"}`:                                       "both added to and removed",
 		`{"type":"update_list","add_lists":[3],"remove_lists":[3],"next":"x"}`:                                                "both added to and removed",
-		`{"type":"update_list","next":"x"}`:                                                                                   "choose a list",
+		`{"type":"update_list","next":"x"}`:                                                                                   "choose a static segment",
 		`{"type":"jump","target":"nowhere"}`:                                                                                  "choose the step",
 		`{"type":"jump","target":"s"}`:                                                                                        "itself",
 		`{"type":"dnc_add","channel":"fax","next":"x"}`:                                                                       "channel, or all",

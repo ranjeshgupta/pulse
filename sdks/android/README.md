@@ -64,7 +64,7 @@ class App : Application() {
         super.onCreate()
         Pulse.init(this, PulseConfig(
             host = "https://pulse.example.com",
-            siteKey = "sk_...",                 // Settings → Website in Pulse
+            siteKey = "sk_...",                 // Settings → Sign-in & keys → Your website in Pulse
             flushIntervalMillis = 10_000,
             maxBatch = 50,                      // events per request, 1-50
             debug = BuildConfig.DEBUG,          // logs every step to Logcat (tag "Pulse")

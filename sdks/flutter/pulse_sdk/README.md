@@ -32,7 +32,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Pulse.init(PulseConfig(
     host: 'https://pulse.example.com',
-    siteKey: 'sk_...',                       // Settings → Website in Pulse
+    siteKey: 'sk_...',                       // Settings → Sign-in & keys → Your website in Pulse
     flushInterval: const Duration(seconds: 10),
     maxBatch: 50,                            // events per request, 1-50
     debug: false,                            // true logs every step with debugPrint

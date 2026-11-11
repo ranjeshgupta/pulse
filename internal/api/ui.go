@@ -40,7 +40,7 @@ type UIStore interface {
 	GetJourney(ctx context.Context, tenant, id int64) (model.Journey, error)
 	UpdateJourney(ctx context.Context, tenant, id int64, name string, graph []byte, w schedule.Window) error
 	DeleteJourney(ctx context.Context, tenant, id int64) error
-	SearchContacts(ctx context.Context, tenant int64, q string, afterID uint32, limit int) ([]model.Contact, error)
+	ListContacts(ctx context.Context, tenant int64, afterID uint32, limit int) ([]model.Contact, error)
 	Counts(ctx context.Context, tenant int64) (pg.Counts, error)
 }
 
@@ -60,7 +60,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/journeys/{id}", s.authed(s.updateJourney))
 	mux.HandleFunc("DELETE /v1/journeys/{id}", s.tenant(s.deleteJourney))
 
-	mux.HandleFunc("GET /v1/contacts", s.tenant(s.searchContacts))
+	mux.HandleFunc("GET /v1/contacts", s.authed(s.searchContacts))
 	mux.HandleFunc("GET /v1/contacts/{external_id}/events", s.tenant(s.contactEvents))
 	mux.HandleFunc("GET /v1/stats/overview", s.tenant(s.overview))
 }
@@ -366,25 +366,6 @@ func (s *Server) deleteJourney(w http.ResponseWriter, r *http.Request, tenant in
 }
 
 // ---- contacts and dashboard ----
-
-func (s *Server) searchContacts(w http.ResponseWriter, r *http.Request, tenant int64) {
-	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	after, _ := strconv.ParseUint(q.Get("after"), 10, 32)
-	cs, err := s.uiStore().SearchContacts(r.Context(), tenant, q.Get("q"), uint32(after), limit)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	next := ""
-	if len(cs) == limit {
-		next = strconv.FormatUint(uint64(cs[len(cs)-1].ID), 10)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"contacts": cs, "next": next})
-}
 
 func (s *Server) contactEvents(w http.ResponseWriter, r *http.Request, tenant int64) {
 	if s.Analytics == nil {

@@ -43,7 +43,7 @@ export function RoleOptions({ roles }: { roles?: RolesResponse }) {
 const AREA_ORDER: Area[] = ["contacts", "segments", "journeys", "broadcasts", "content", "reports", "channels", "settings"];
 export const AREA_INFO: Record<Area, { name: string; about: string }> = {
   contacts: { name: "Contacts", about: "Profiles, events, tags, imports and exports." },
-  segments: { name: "Segments", about: "Segments, lists, attributes and scoring." },
+  segments: { name: "Segments", about: "Segments (dynamic and static), contact fields, scoring and stages." },
   journeys: { name: "Journeys", about: "Build journeys. Publish lets you activate and pause them." },
   broadcasts: { name: "Broadcasts", about: "Build broadcasts. Publish lets you schedule, cancel and pick A/B winners." },
   content: { name: "Content", about: "Templates, focus items, web content, forms and test sends." },

@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Segment } from "../api";
-import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
-import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { nowISO, ScheduleFields, scheduleProblem } from "../schedule";
+import { ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import "./inapp.css";
 
 // ---- API shapes (mirror model.InAppMessage) ----
@@ -23,7 +23,6 @@ export interface InAppMessage {
     trigger_event: string; screen?: string; delay_seconds?: number; frequency: "once" | "session" | "daily" | "always";
   };
 }
-type InAppStats = Record<string, { shown: number; clicked: number; dismissed: number }>;
 export interface InboxMessage { id: number; message_id: string; title: string; body: string; image_url?: string; url?: string; category?: string; created_at: string; read_at?: string; expires_at: string }
 
 const LAYOUT_LABEL: Record<Layout, string> = { modal: "Pop-up", banner: "Banner", fullscreen: "Full screen" };
@@ -35,9 +34,6 @@ const PLATFORM_LABEL: Record<Platform, string> = { android: "Android", ios: "iOS
 const COMMON_TRIGGERS = ["app_open", "screen_view", "add_to_cart"];
 
 const n = (v: number) => v.toLocaleString("en-IN");
-const platformsText = (p?: Platform[]) => (!p || p.length === 0 || p.length === 2 ? "Android and iOS" : PLATFORM_LABEL[p[0]]);
-const triggerText = (t: InAppMessage["targeting"]) =>
-  t.trigger_event === "screen_view" && t.screen ? `screen_view: ${t.screen}` : t.trigger_event;
 
 // A button link is a secure web address or an app deep link (myapp://offers). Plain http and
 // script-like schemes are refused, as the server does.
@@ -68,66 +64,13 @@ function useSegments() {
   return useQuery({ queryKey: ["segments"], queryFn: () => api.get<{ segments: Segment[] }>("/v1/segments") }).data?.segments ?? [];
 }
 
-function LiveBadge({ m }: { m: InAppMessage }) {
-  return m.status === "active" ? <span className="badge ok">Live</span> : <span className="badge">Draft</span>;
-}
-
 function SdkNote() {
   return (
     <p className="xs muted" style={{ marginTop: 10 }}>
       <strong>Show it in your app:</strong> with the Pulse Flutter SDK, give it your app's navigator key
       (<code>Pulse.instance.attachNavigator(navigatorKey)</code>) and handle links in <code>onInAppAction</code>. The SDK fetches live
-      campaigns and shows each one when its trigger happens; call <code>track("app_open")</code> after start-up for app_open campaigns. On websites, use <Link to="/focus-items">focus items</Link> instead.
+      campaigns and shows each one when its trigger happens; call <code>track("app_open")</code> after start-up for app_open campaigns. On websites, use a <Link to="/on-site?channel=website">pop-up, bar or slide-in</Link> instead.
     </p>
-  );
-}
-
-// ---------- list ----------
-
-export function InAppList() {
-  const q = useQuery({ queryKey: ["inapp"], queryFn: () => api.get<{ messages: InAppMessage[]; stats: InAppStats }>("/v1/inapp"), refetchInterval: 10_000 });
-  const items = q.data?.messages ?? [];
-  const stats = q.data?.stats ?? {};
-  return (
-    <div className="page">
-      <PageHead
-        title="In-app messages"
-        intro="Pop-ups, banners and full-screen messages inside your Android and iOS apps, shown when something happens in the app. For websites, use focus items."
-        actions={<Link className="btn primary" to="/in-app/new">New in-app message</Link>}
-      />
-      <ErrorNote error={q.error} />
-      <div className="panel">
-        {items.length === 0 && !q.isLoading ? (
-          <Empty title="No in-app messages yet" action={<Link className="btn primary" to="/in-app/new">Create one</Link>}>
-            A welcome pop-up on the first app open is a good start.
-          </Empty>
-        ) : (
-          <div className="table-scroll">
-            <table className="table">
-              <thead><tr><th>Name</th><th>Layout</th><th>Platforms</th><th>Shows on</th><th>Schedule</th><th>Status</th><th className="num">Shown</th><th className="num">Clicked</th><th className="num">CTR</th></tr></thead>
-              <tbody>{items.map((m) => {
-                const s = stats[String(m.id)] ?? { shown: 0, clicked: 0, dismissed: 0 };
-                return (
-                  <tr key={m.id}>
-                    <td><Link to={`/in-app/${m.id}`}>{m.name}</Link></td>
-                    <td>{LAYOUT_LABEL[m.layout] ?? m.layout}</td>
-                    <td className="muted">{platformsText(m.targeting.platforms)}</td>
-                    <td><code>{triggerText(m.targeting)}</code></td>
-                    <td className="muted small">{describeWindow(m.start_at, m.end_at)}</td>
-                    <td><LiveBadge m={m} /></td>
-                    <td className="num">{n(s.shown)}</td>
-                    <td className="num">{n(s.clicked)}</td>
-                    <td className="num">{s.shown ? `${((s.clicked / s.shown) * 100).toFixed(1)}%` : <span className="faint">–</span>}</td>
-                  </tr>
-                );
-              })}</tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      <p className="xs muted" style={{ marginTop: 10 }}>Shown and clicked count unique contacts.</p>
-      <SdkNote />
-    </div>
   );
 }
 
@@ -169,10 +112,10 @@ export function InAppEdit() {
       qc.invalidateQueries({ queryKey: ["inapp"] });
       toast({ text: msg.status === "active" ? "Live. Apps pick it up the next time they fetch campaigns." : "Saved as draft" });
       setM(msg);
-      if (isNew) nav(`/in-app/${r.id}`, { replace: true });
+      if (isNew) nav(`/on-site/in-app/${r.id}`, { replace: true });
     },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/inapp/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["inapp"] }); nav("/in-app"); } });
+  const remove = useMutation({ mutationFn: () => api.del(`/v1/inapp/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["inapp"] }); nav("/on-site?channel=app"); } });
   if (!m) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
   const c = m.content, t = m.targeting;
@@ -192,7 +135,7 @@ export function InAppEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/in-app">In-app messages</Link>}
+        back={<Link className="back" to="/on-site?channel=app">On-site &amp; in-app</Link>}
         title={isNew ? "New in-app message" : m.name || "In-app message"}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this in-app message?") && remove.mutate()}>Delete</button>}

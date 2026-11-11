@@ -489,8 +489,8 @@ describe("validation mirror", () => {
     expect(one({ type: "add_company" })).toEqual(["choose the company."]);
     expect(one({ type: "company_points", points: 0 })).toEqual(["enter a whole number of points other than 0 (up to 100,000 either way)."]);
     expect(one({ type: "company_points", points: -5 })).toEqual([]);
-    expect(one({ type: "update_list", add_lists: [1], remove_lists: [1] })).toEqual(["a list can't be both added to and removed from."]);
-    expect(one({ type: "update_list", add_lists: [] })).toEqual(["choose at least one list to add to or remove from."]);
+    expect(one({ type: "update_list", add_lists: [1], remove_lists: [1] })).toEqual(["a static segment can't be both added to and removed from."]);
+    expect(one({ type: "update_list", add_lists: [] })).toEqual(["choose at least one static segment to add to or remove from."]);
     expect(one({ type: "update_list", list_id: 3, list_action: "add" })).toEqual([]); // older steps
     expect(one({ type: "change_journey", add_journeys: [2], remove_journeys: [2] })).toEqual(["a journey can't be both added and removed."]);
     expect(one({ type: "change_journey", add_journeys: [7] }, { journeyId: 7 })).toEqual(["choose other journeys, not this one."]);

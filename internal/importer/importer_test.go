@@ -49,3 +49,21 @@ func TestRunImportsAndReportsBadRows(t *testing.T) {
 		t.Fatalf("res = %+v, err %v, published %d", res, err, pub.n)
 	}
 }
+
+// A column with an empty heading is skipped (the app's "Don't import" in column mapping).
+func TestRunSkipsUnnamedColumns(t *testing.T) {
+	var got []*kgo.Record
+	pub := publishFunc(func(recs ...*kgo.Record) { got = append(got, recs...) })
+	src := "external_id,,city\nu1,secret,Pune\n"
+	res, err := Run(context.Background(), pub, strings.NewReader(src), Options{Tenant: 1, ImportID: "t"})
+	if err != nil || res.Imported != 1 || len(got) != 1 {
+		t.Fatalf("res %+v err %v", res, err)
+	}
+	if v := string(got[0].Value); strings.Contains(v, "secret") || !strings.Contains(v, "Pune") {
+		t.Fatalf("event %s: want city and no skipped column", v)
+	}
+}
+
+type publishFunc func(recs ...*kgo.Record)
+
+func (f publishFunc) Publish(_ context.Context, recs ...*kgo.Record) error { f(recs...); return nil }

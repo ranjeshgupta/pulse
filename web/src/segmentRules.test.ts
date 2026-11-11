@@ -57,7 +57,7 @@ suite("segment rule editing model", () => {
     expect(toRule(fromRule(r))).toEqual(r);
     expect(segmentRefs({ all: [r, { segment: 40, op: "in" }] })).toEqual([4, 40]);
     expect(describe(r, { 4: "Churned" })).toBe("not in “Churned” or tagged vip or did purchase where amount is at least 100 and sku is one of A1, B2 at least 1× in 7 days");
-    expect(problems({ kind: "segment", segment: 0, op: "in" })).toEqual(["Choose a segment or list."]);
+    expect(problems({ kind: "segment", segment: 0, op: "in" })).toEqual(["Choose a segment."]);
     expect(problems({ kind: "tag", tag: "a b", op: "has" })).toHaveLength(1);
     expect(problems({ kind: "event", event: "buy", op: "gte", count: 1, days: 7, where: [{ prop: "amount", op: "gt", value: "lots" }] })).toEqual(['"amount" needs a number.']);
     // No filters: the rule has no "where" key, so older rules stay byte-identical.

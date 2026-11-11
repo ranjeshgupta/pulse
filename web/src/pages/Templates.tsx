@@ -24,8 +24,8 @@ export function TemplateList() {
   return (
     <div className="page">
       <PageHead
-        title="Templates"
-        intro="The messages journeys send. Each template belongs to one channel."
+        title="Message templates"
+        intro="The content of every email, SMS, WhatsApp, RCS, push and app inbox message that journeys and broadcasts send. Each template belongs to one channel. (Website and in-app messages are made under On-site & in-app; landing pages under Landing pages.)"
         actions={<Link className="btn primary" to={`/templates/new?channel=${channel || "email"}`}>New {channel ? CHANNEL_NAMES[channel] : "email"} template</Link>}
       />
       <div className="tabs" role="tablist">
@@ -147,7 +147,7 @@ export function TemplateEdit() {
   return (
     <div className="page" style={t.channel === "email" ? { maxWidth: "none" } : undefined}>
       <PageHead
-        back={<Link className="back" to={`/templates?channel=${t.channel}`}>Templates</Link>}
+        back={<Link className="back" to={`/templates?channel=${t.channel}`}>Message templates</Link>}
         title={isNew ? `New ${CHANNEL_NAMES[t.channel]} template` : t.name || "Template"}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this template? Journey steps that use it will fail to send.") && remove.mutate()}>Delete</button>}

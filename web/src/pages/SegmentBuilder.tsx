@@ -332,7 +332,7 @@ function PickFields({ node, set, pick }: { node: AttrCond; set: (n: Node) => voi
           {items.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
         </select>
       )}
-      {items.length === 0 && <span className="xs muted">{pick === "stage" ? "No stages yet: add them under Workspace → Stages." : pick === "company" ? "No companies yet." : "No teammates to list (or you can't view users)."}</span>}
+      {items.length === 0 && <span className="xs muted">{pick === "stage" ? "No stages yet: add them under Settings → Stages." : pick === "company" ? "No companies yet." : "No teammates to list (or you can't view users)."}</span>}
     </>
   );
 }
@@ -349,8 +349,8 @@ function SegmentFields({ node, set, field }: { node: Extract<Node, { kind: "segm
         <option value="in">is in</option>
         <option value="not_in">is not in</option>
       </select>
-      <select className="select" value={node.segment || ""} onChange={(e) => set({ ...node, segment: Number(e.target.value) })} aria-label="Segment or list">
-        <option value="" disabled>Choose a segment or list</option>
+      <select className="select" value={node.segment || ""} onChange={(e) => set({ ...node, segment: Number(e.target.value) })} aria-label="Segment">
+        <option value="" disabled>Choose a segment</option>
         {lists.length > 0 && <optgroup label="Static lists">{lists.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
         {rules.length > 0 && <optgroup label="Segments">{rules.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
       </select>

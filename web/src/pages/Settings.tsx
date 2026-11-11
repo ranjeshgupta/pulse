@@ -227,15 +227,15 @@ export function Attributes() {
   return (
     <div className="page">
       <PageHead
-        title="Attributes"
-        intro="Name and type the profile fields your team uses. Types decide which comparisons the segment builder offers, and imports check numbers and yes/no values."
-        actions={<button className="btn primary" onClick={() => setEditing(blank())}>Define attribute</button>}
+        title="Contact fields"
+        intro="Name and type the profile fields (attributes) your team uses. Types decide which comparisons the segment builder offers, and imports check numbers and yes/no values."
+        actions={<button className="btn primary" onClick={() => setEditing(blank())}>Define field</button>}
       />
       {editing && <AttributeModal def={editing} isNew={!defs.some((d) => d.key === editing.key)} onClose={() => setEditing(null)} />}
       <ErrorNote error={q.error ?? remove.error} />
       <div className="panel section">
         {defs.length === 0 && !q.isLoading ? (
-          <Empty title="No attributes defined">Define the fields you segment on most, such as plan, city or lifetime_value.</Empty>
+          <Empty title="No contact fields defined">Define the fields you segment on most, such as plan, city or lifetime_value.</Empty>
         ) : (
           <table className="table">
             <thead><tr><th>Attribute</th><th>Label</th><th>Type</th><th>Personal data</th><th /></tr></thead>

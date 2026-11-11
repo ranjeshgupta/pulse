@@ -361,7 +361,7 @@ function nodeProblems(n: Node): string[] {
     if (n.children.length === 0) return ["A group needs at least one filter."];
     return n.children.flatMap(nodeProblems);
   }
-  if (n.kind === "segment") return n.segment > 0 ? [] : ["Choose a segment or list."];
+  if (n.kind === "segment") return n.segment > 0 ? [] : ["Choose a segment."];
   if (n.kind === "tag") return TAG_RE.test(n.tag.trim()) ? [] : ["Enter a tag: letters, digits, - and _."];
   if (n.kind === "event") {
     const out: string[] = [];

@@ -19,7 +19,7 @@ describe("canvas summaries", () => {
   it("words actions", () => {
     expect(one({ type: "send_email", template_id: 1 }, { templates: { 1: "Welcome" } })).toBe("Send email ‘Welcome’");
     expect(one({ type: "send_sms", template_id: 1 }, { templates: { 1: "OTP" } })).toBe("Send SMS ‘OTP’");
-    expect(one({ type: "update_list", add_lists: [1], remove_lists: [2] }, { segments: { 1: "VIP", 2: "Trial" } })).toBe("Add to list ‘VIP’, remove from ‘Trial’");
+    expect(one({ type: "update_list", add_lists: [1], remove_lists: [2] }, { segments: { 1: "VIP", 2: "Trial" } })).toBe("Add to ‘VIP’, remove from ‘Trial’");
     expect(one({ type: "update_list", list_id: 1, list_action: "remove" }, { segments: { 1: "VIP" } })).toBe("Remove from ‘VIP’");
     expect(one({ type: "delete_contact", confirm: "DELETE" })).toBe("Delete contact (permanent)");
     expect(one({ type: "send_message", channels: [{ channel: "push" }, { channel: "email" }] })).toBe("Send by Push, then Email");

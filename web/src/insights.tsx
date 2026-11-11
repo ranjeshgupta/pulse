@@ -86,7 +86,7 @@ export function SegmentPicker({ value, onChange, label = "Only contacts in" }: {
     <Field label={label} hint={value ? "Counts contacts who are in it right now." : undefined}>
       <select className="select" value={value || ""} onChange={(e) => onChange(Number(e.target.value) || 0)}>
         <option value="">Everyone</option>
-        {lists.length > 0 && <optgroup label="Lists">{lists.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
+        {lists.length > 0 && <optgroup label="Static segments">{lists.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
         {rules.length > 0 && <optgroup label="Segments">{rules.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
       </select>
     </Field>

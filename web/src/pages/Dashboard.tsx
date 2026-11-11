@@ -78,7 +78,7 @@ export default function Dashboard() {
         </section>
 
         <section className="panel">
-          <div className="panel-head"><h3>Messages</h3><Link className="small" to="/test-inbox">Test inbox</Link></div>
+          <div className="panel-head"><h3>Messages</h3><Link className="small" to="/settings/test-inbox">Test inbox</Link></div>
           {Object.keys(byChannel).length === 0 ? (
             <div className="panel-body"><p className="muted small">Nothing sent yet. Messages go out from <Link to="/journeys">journeys</Link> or a test send on a template.</p></div>
           ) : (

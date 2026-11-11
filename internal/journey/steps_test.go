@@ -225,7 +225,7 @@ func TestAudienceSteps(t *testing.T) {
 		`{"type":"update_tags","next":"x"}`:                               "at least one tag",
 		`{"type":"update_tags","add_tags":["a b"],"next":"x"}`:            "valid tag",
 		`{"type":"adjust_points","next":"x"}`:                             "non-zero",
-		`{"type":"update_list","list_id":3,"list_action":"x","next":"x"}`: "choose a list",
+		`{"type":"update_list","list_id":3,"list_action":"x","next":"x"}`: "choose a static segment",
 	} {
 		_, err := ParseGraph([]byte(`{"trigger":{"type":"event","event":"signup"},"entry":"s","nodes":{"s":` + js + `,"x":{"type":"exit"}}}`))
 		if err == nil || !strings.Contains(err.Error(), want) {

@@ -28,7 +28,13 @@ func TestTokenRoundTripAndPrivacy(t *testing.T) {
 	if err != nil || got.ExternalID != "asha@example.com" || got.MessageID != "9:send" {
 		t.Fatalf("decode = %+v %v", got, err)
 	}
-	if _, err := c.Decode(tok[:len(tok)-2] + "xx"); err == nil {
+	// Change a character in the middle: the last ones can carry unused bits or already be the new value.
+	mid := len(tok) / 2
+	swap := byte('A')
+	if tok[mid] == 'A' {
+		swap = 'B'
+	}
+	if _, err := c.Decode(tok[:mid] + string(swap) + tok[mid+1:]); err == nil {
 		t.Error("tampered token accepted")
 	}
 }

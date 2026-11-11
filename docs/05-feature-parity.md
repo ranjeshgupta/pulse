@@ -14,17 +14,18 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Real-time event tracking API | 🟡 | ✅ | ✅ 20k events/s on one machine | |
 | Activity timeline | ✅ | ✅ | ✅ | |
 | Unsubscribe, do-not-contact, per-channel consent | ✅ | ✅ | ✅ per channel and "everything", honored by every send (`*_suppressed`), editable per contact | |
-| Preference center | ✅ | 🟡 | ✅ per-channel switches and public lists; `{{.PreferencesURL}}`, unsubscribe page link, API-minted links | |
+| Preference center | ✅ | 🟡 | ✅ per-channel switches and public static segments (shown to contacts as subscription lists); `{{.PreferencesURL}}`, unsubscribe page link, API-minted links | |
 | SMS / WhatsApp reply keywords (STOP, START) | ✅ | ✅ | ✅ Twilio and Meta inbound webhooks; editable keyword lists; replies recorded as `<channel>_received`; RCS replies and suggestion taps (Google RBM webhook) with STOP/START and `rcs_replied` for journeys | RCS: a reply is matched to the latest RCS message of the last 7 days (RBM doesn't link them) |
-| CSV import and export | ✅ | ✅ | ✅ import through the live pipeline; export with one column per attribute; background imports of any size (up to 10 GB) with progress and cancel | |
-| Attribute definitions (type, label, PII flag) | ✅ | ✅ | ✅ Settings, Attributes; typed inputs in the segment builder; imports convert numbers and yes/no | |
+| CSV import and export | ✅ | ✅ | ✅ one Import flow under Contacts (upload, map columns, choose or create a static segment, review, run) for files of any size up to 10 GB, in the background with progress, cancel and one history; export of the whole workspace or of a filtered view, with the columns shown | |
+| Attribute definitions (type, label, PII flag) | ✅ | ✅ | ✅ Settings → Contact fields; typed inputs in the segment builder; imports convert numbers and yes/no | |
+| Contact list views: search filters as chips, columns, save as segment | ✅ | ✅ | ✅ batch 9, see [Contact views](#contact-views-batch-9) | |
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
 | Points / lead scoring | ✅ | ⬜ | ✅ scoring rules per event, manual adjust, journey step; `points` attribute in rules | |
-| Stages (lifecycle) | ✅ | ⬜ | ✅ ordered stages (Workspace, Stages); `stage` attribute changed by hand, API, `stage_changed` events, the `change_stage` journey step, or a points threshold (forward only); "In stage" segment preset | P2 |
+| Stages (lifecycle) | ✅ | ⬜ | ✅ ordered stages (Settings → Stages); `stage` attribute changed by hand, API, `stage_changed` events, the `change_stage` journey step, or a points threshold (forward only); "In stage" segment preset | P2 |
 | Companies (B2B accounts) | ✅ | ⬜ | ✅ companies with attributes copied to contacts as `company_<key>`; link by hand or by a server identify with `attrs.company`; company changes fan out to contacts; "Works at company" and "Company attribute" presets | P2 |
 | Identity merge (anonymous → known) | ✅ | ✅ | ✅ identify with `anonymous_id`: profile, counters and event history move; later visitor events follow | |
 | Identity verification for browser SDKs (signed user ID) | ⬜ | ✅ | ✅ HMAC user hash; can be required per workspace; secret rotation | |
-| Duplicate merge | ✅ | ✅ | ✅ `POST /v1/contacts/merge` on the identity-merge path (attributes, tags, points, history, counters, lists move to the winner); Duplicates view by email or phone; "Merge into…" in the contact drawer | P2 |
+| Duplicate merge | ✅ | ✅ | ✅ `POST /v1/contacts/merge` on the identity-merge path (attributes, tags, points, history, counters, static segments move to the winner); Duplicates view by email or phone; "Merge into…" in the contact drawer | P2 |
 
 ## Segments
 
@@ -34,7 +35,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Real-time membership (no cron) | ⬜ (15-min cron) | ✅ | ✅ ~60 ms | |
 | Live size and preview | 🟡 | ✅ | ✅ | |
 | "In / not in another segment" rule | ✅ | ✅ | ✅ evaluated in dependency order in the same pass; cycles refused | |
-| Static lists (manual add/remove, import to list) | ✅ | ✅ | ✅ Lists page, API, CSV import into a list, journey step | |
+| Static segments (manual add/remove, import into one) | ✅ | ✅ | ✅ Segments page (type Static), the `/v1/lists` API, the Import flow, forms, journey step; offered on the preference center when public | |
 | Event property filters (purchase where amount > 1000) | 🟡 | ✅ | ✅ up to 5 filters per event rule; history seeded from ClickHouse | |
 | Date rules (before/after a date, within the last N days, more than N days ago) | ✅ | ✅ | ✅ on any date attribute and on first_seen / last_seen, which every profile keeps | |
 | Text and number operators (contains / doesn't contain, starts / ends with, is one of / not one of, is empty / not empty, is set / not set, between, on a date) | ✅ | ✅ | ✅ `not_contains`, `starts_with`, `ends_with`, `not_in`, `not_exists`, `between`, `on` in both compilers (checked by `make it`); empty = `eq ""` | |
@@ -59,7 +60,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | A/B split | ✅ | ✅ | ✅ 2-5 weighted paths, stable per enrollment | |
 | Journey A/B winner (automatic) | ⬜ | ✅ | ✅ split step `winner`: by open, click or goal conversion rate after a test window and a minimum of contacts per path; recorded on the journey, then every later contact takes the winning path; shown in the inspector and the report | P2 |
 | Send email, SMS, WhatsApp (SMS fallback), RCS (SMS fallback), push | 🟡 | ✅ | ✅ | |
-| Update attribute, add/remove tag, change points, change stage | ✅ | ✅ | ✅ update profile, tag contact, adjust points, add to / remove from list, change stage | |
+| Update attribute, add/remove tag, change points, change stage | ✅ | ✅ | ✅ update profile, tag contact, adjust points, add to / remove from a static segment, change stage | |
 | Webhook step | ✅ | ✅ | ✅ SSRF-guarded, idempotency key, failures recorded without stalling | |
 | Conversion goal and exit on goal | 🟡 | ✅ | ✅ goal event converts and ends the enrollment | |
 | Re-entry rules (once, every time, after N days) | 🟡 | ✅ | ✅ one live enrollment at a time | |
@@ -109,7 +110,7 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
 | Schedule on-site content (start, optional end) | 🟡 | ✅ | ✅ this change | |
 | "See what a contact would see" check | 🟡 | 🟡 | ✅ this change | |
 | Rendering on websites (JS SDK) | ✅ | ✅ | ✅ `/sdk/pulse.js` (3 KB gzipped): focus items with all triggers and frequency caps, content slots | |
-| Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; lists, tags, consent opt-in; honeypot, fill time, rate limit; submissions log; file uploads (types checked against content, size limits, private downloads) and multi-page forms (page breaks, per-page checks, progress bar) | Files uploaded on a page with errors must be chosen again; no-script browsers see all pages at once |
+| Forms (with field mapping, progressive profiling) | ✅ | 🟡 | ✅ hosted page (iframe-able) and web SDK embed; static segments, tags, consent opt-in; honeypot, fill time, rate limit; submissions log; file uploads (types checked against content, size limits, private downloads) and multi-page forms (page breaks, per-page checks, progress bar) | Files uploaded on a page with errors must be chosen again; no-script browsers see all pages at once |
 | Landing pages | ✅ | ⬜ | ✅ `/p/{workspace}/{page}`, drag-and-drop, rich text or HTML, title and meta description, embedded forms (`{form:KEY}`), draft/published with a schedule; nonce CSP (only the Pulse SDK runs, scripts and handlers stripped), frameable; `landing_page_viewed` via the web SDK; views, unique visitors, form submissions; script-free preview | P2 |
 | Assets (gated downloads) | ✅ | ⬜ | ✅ uploads up to 25 MB (type allowlist checked against file signatures) kept in Postgres; `/a/{key}` open or gated by a form (15-minute sealed link, `asset_downloaded` for the submitter); always `Content-Disposition: attachment`, nosniff, sandbox CSP; download counts; email attachments | P2 |
 
@@ -175,9 +176,9 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
      CKEditor 5's GPL/commercial licence. HTML the editor can't keep (inline-styled layout tables, `<style>`, comments)
      opens in Source with a note instead of being rewritten. Left as plain text, because they're rendered as text: form
      descriptions (hosted form and web SDK) and in-app / inbox message bodies (the Flutter SDK draws `Text`).
-   - **Batch 7, analytics (done):** cohorts and retention (Analyze → Cohorts), revenue attribution and UTM capture
-     (Analyze → Revenue; revenue in broadcast and journey reports), funnel breakdown by attribute, the custom report
-     builder (Analyze → Reports), and automatic A/B winners on journey split steps.
+   - **Batch 7, analytics (done):** cohorts and retention (Analytics → Cohorts), revenue attribution and UTM capture
+     (Analytics → Revenue; revenue in broadcast and journey reports), funnel breakdown by attribute, the custom report
+     builder (Analytics → Reports), and automatic A/B winners on journey split steps.
    - **Batch 7b, builders like Mautic and WebEngage (requested 2026-11-11, right after batch 7), done ✅:**
      - ✅ **Segment builder (done 2026-11-11)**, see [Segment builder](#segment-builder-batch-7b) for the Mautic filter mapping.
        Requested: one searchable filter picker grouped as Contact (every built-in and custom field, with icons), Primary
@@ -196,16 +197,70 @@ Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** 
        click tracking, form file uploads and multi-page forms, audit log export. See [Batch 8b](#batch-8b).
 
 9. **After batch 8 (requested 2026-11-11), in this order:**
-   - **Batch 9, contact views and one clear navigation:**
-     - Contacts: "View contacts" from any segment or list; Mautic-style search filters (`is:anonymous`, `is:identified`,
-       `is:unsubscribed`, `is:bounced`, `segment:`, `list:`, `tag:`, `stage:`, `company:`, `owner:`, `points:>N`) as chips;
-       save a filtered view as a segment.
-     - Review the whole app for duplicated or ambiguous concepts and fix them to industry standard. Decided so far:
-       Focus items + In-app messages become one "On-site & in-app" area (Website or App chosen first); Segments + Lists become
-       one Segments page with Dynamic and Static segments (Mautic / WebEngage style); the Imports page and "Import CSV" become
-       one Import flow under Contacts (upload, map columns, choose segment, review; large files run in the background; one
-       history).
+   - ✅ **Batch 9, contact views and one clear navigation (done 2026-11-12):** Contacts search filters as chips with
+     suggestions, compiled to segment rules ([Contact views](#contact-views-batch-9)); "View contacts" on every segment;
+     save a view as a segment; columns and CSV export of a view. One Segments page (Dynamic and Static), one "On-site &
+     in-app" area, one Import flow under Contacts, and a navigation review ([Navigation](#navigation-batch-9)).
    - **Then:** update every doc to match the final app, and write step-by-step tutorials with the product owner.
+
+## Contact views (batch 9)
+
+**What it is.** Contacts has one search box. Words of the form `key:value` become removable chips; the rest is free
+text. Suggestions appear as you type (`is:` lists its options, `segment:` the segments, `tag:` the tags in use, `stage:`,
+`company:` and `owner:` theirs); Enter or a space after a finished filter makes the chip, Backspace in an empty box
+removes the last one. The view lives in the address (`/contacts?q=…`), so it can be bookmarked; typing waits 300 ms
+before asking the server. Above the table: the count, **Save as segment**, **Columns** (built-in fields and every
+defined contact field, remembered per browser) and **Export CSV** (the view with the columns shown; contacts edit
+access, like every export). Every segment's row and page has **View contacts**, which opens `segment:<id>`.
+
+| Filter | Means | Rule it compiles to |
+|---|---|---|
+| `is:anonymous` / `is:identified` | no known ID or email yet / identified | `date_identified` not set and no email or phone / any of them (`date_identified` is stamped at the first event with a non-`anon-` ID or an email; profiles older than batch 7b lack it, so email or phone count too) |
+| `is:unsubscribed` | unsubscribed from any channel or everything | any `optout_*` = true |
+| `is:bounced` | email or SMS bounced | `email_bounced` or `sms_bounced` = true |
+| `is:dnc` | Do Not Contact: unsubscribed or bounced | either of the above |
+| `segment:<name or id>`, `list:` | in a dynamic or static segment (`list:` is the old name) | `{"segment": id, "op": "in"}` |
+| `tag:<tag>` | has the tag | `{"tag": …, "op": "has"}` |
+| `stage:<stage>`, `company:<name or id>` | in the stage, at the company | `stage` eq / `company_name` eq (an id: `company_id` eq) |
+| `owner:me`, `owner:none`, `owner:<name, email or id>` | owned by | `owner_id` eq / not set |
+| `points:>N`, `>=`, `<`, `<=`, `=N` | points compared | `points` gt … ; when 0 passes (`<10`), contacts without points are included |
+| `email:<text>`, `name:<text>` | contains (`name` checks name, first_name and last_name) | `contains`, tried as typed, in lower case and capitalised |
+| free text | quick find | not part of the rule: case-insensitive match on external ID, email, name, first/last name and phone |
+
+Filters are ANDed; values with spaces are quoted (`segment:"VIP buyers"`); unknown keys are free text (IDs may contain
+colons); at most 20 filters. "Save as segment" creates a dynamic segment with exactly the view's rule; it is disabled
+while the view has free text (use `email:` or `name:`).
+
+**Approximations.** A profile from before batch 7b with a known ID but no email or phone (and no event since) has no `date_identified` and shows under `is:anonymous`. Rule comparisons are case-sensitive, so `email:` and `name:` try three spellings rather than
+ignoring case ("aSHA" finds only "aSHA", "asha", "Asha"). Filtered views read ClickHouse's contacts mirror, which trails
+Postgres by the sink's flush (about a second). The count is exact up to 10,000; above that it is `uniq` over the rows
+without `FINAL` ("About 1,234,567"), so a contact whose older version matched can count.
+
+**How it stays fast at 10–100M contacts.** `GET /v1/contacts` without filters or text pages through Postgres by its
+primary key (`id < after ORDER BY id DESC`, no scan). With them, ClickHouse runs `segment.WhereSQL` (the same compiler
+segments use) plus the free text over `contacts FINAL`, keyset-paged by `id`; only the 50 ids of the page are then
+loaded from Postgres by primary key. The count stops at 10,001 rows before falling back to the approximate count, and
+runs only for the first page.
+
+## Navigation (batch 9)
+
+The sidebar follows the usual marketing-tool layout: who you reach, what you send and show, what it's built from, how it
+did, then one Settings entry with its own menu. At narrow widths the sidebar folds behind a Menu button. Old addresses
+redirect (`/lists`, `/lists/:id`, `/imports`, `/focus-items(/:id)`, `/web-content(/:id)`, `/in-app(/:id)`, `/channels`,
+`/test-inbox`); the APIs are unchanged (`/v1/lists` stays for static segments).
+
+| Old | New | Why |
+|---|---|---|
+| Audience → Segments and Audience → Lists | Audience → **Segments**, with a Dynamic / Static type filter and badge; "New segment" asks Dynamic or Static | One concept with two types, as in Mautic (filters vs manual) and WebEngage (live vs static); "list" also meant subscription lists |
+| "Lists" wording (journey "Modify contact's segments", forms, import, merge, audit log, reports) | "static segment" | One name everywhere |
+| Engage → Focus items, Web content, In-app messages | Campaigns → **On-site & in-app**: one list with a channel badge (Website / Mobile app) and type filter; "New" asks Website (pop-up, bar or slide-in; dynamic web content) or Mobile app (in-app message) | Same job (messages shown inside your site or app), chosen by where they show, like WebEngage's on-site / in-app |
+| Audience → Imports, and Contacts → Import CSV (quick import) | Contacts → **Import** (`/contacts/import`): upload, map columns, static segment, review, run in the background; one import history | Two entry points with different limits and histories |
+| Engage (campaigns and content mixed) | **Campaigns** (Journeys, Broadcasts, On-site & in-app) and **Content** (Message templates, Landing pages, Forms, Assets) | Separates what runs from what it's built from (HubSpot "Marketing" vs "Content") |
+| Templates | **Message templates** | They hold email / SMS / WhatsApp / RCS / push / app inbox content; on-site content and landing pages have their own editors |
+| Audience → Forms | Content → Forms | Forms are content you publish (as in Mautic's Components) |
+| Analyze → Funnels, Cohorts, Revenue, Reports | **Analytics** → Reports, Funnels, Cohorts, Revenue | Standard name; the custom report builder first |
+| Delivery → Channels, Test inbox; Workspace → ten items | **Settings** (one sidebar entry, `/settings`) with a menu: Workspace (Team, Roles, Sign-in & keys, Audit log), Contact data (Contact fields, Scoring, Stages, Data & privacy), Delivery (Channels, Test inbox), Connections (Integrations, Webhooks) | Setup pages out of the daily work menu; Test inbox belongs with the sandbox providers it shows |
+| Attributes | **Contact fields** (Settings) | Mautic "Custom fields", HubSpot "Properties": the word marketers use; the API keeps "attributes" |
 
 ## Campaign builder (batch 7b)
 
@@ -230,7 +285,7 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | **Decisions** | | | all take a time limit (1 minute to 365 days); Yes when it happens, No at the limit |
 | Opens email | Opens email | `message_decision` outcome `opened` | needs a Send email step above it (validated) |
 | Clicks email | Clicks email | `message_decision` outcome `clicked`, optional `url` (link contains) | any link or a specific URL |
-| Replies to email | Replies to email | `message_decision` outcome `replied` | needs reply tracking: Channels → Delivery "Reply tracking address" and the provider's inbound webhook (see architecture, "Inbound replies") |
+| Replies to email | Replies to email | `message_decision` outcome `replied` | needs reply tracking: Settings → Channels → Delivery "Reply tracking address" and the provider's inbound webhook (see architecture, "Inbound replies") |
 | Downloads asset | Downloads asset | `on_asset`, optional `asset_id` | gated downloads by known contacts (`asset_downloaded`) |
 | Submits form | Submits form | `on_form`, optional `form_id` | the submission is kept on the enrollment for "Form field value" |
 | Visits a page | Visits a page | `on_page`: `url` contains, or a landing page `page_id` | web SDK `page_view` / `landing_page_viewed` |
@@ -265,7 +320,7 @@ insert, tidy, validation), `web/src/pages/journey/*`. Server: `internal/journey/
 | Contact field value | Contact field value | `check` preset field | the segment builder's filters |
 | Contact owner | Contact owner | `check` preset owner | |
 | Contact points | Contact points | `check` preset points | |
-| Contact segments | Contact segments | `condition` | segments and lists |
+| Contact segments | Contact segments | `condition` | dynamic and static segments |
 | Contact stages | Contact stages | `check` preset stage | |
 | Contact tags | Contact tags | `check` preset tags | any / all of |
 | Form field value | Form field value | `if_form_field` | the submission that started or resumed the enrollment, else the latest (ClickHouse) |
