@@ -70,8 +70,12 @@ export default async function (browser) {
   await field(page, "Send to").selectOption({ label: GROUP });
   await field(page, "Channel").selectOption({ label: "Email" });
   await field(page, "Template").selectOption({ label: "Weekend sale" });
+  // Leave out members of: one segment for the picture, removed again before sending (× Remove).
+  const leaveOut = page.getByRole("combobox", { name: "Leave out members of (optional)" });
+  await leaveOut.selectOption({ label: "VIP customers" });
   await settle(page, { quiet: 800 });
-  await shot(page, AREA, "07-new-broadcast", { clip: page.locator(".page-head, .page > fieldset > .grid-2:first-child, .page > fieldset > .grid-2:first-child + .row, .page > fieldset > label.check"), pad: 12 });
+  await shot(page, AREA, "07-new-broadcast", { clip: page.locator(".page-head, .page > fieldset > .grid-2:first-child, .page > fieldset > .grid-2:first-child + .row, .page > fieldset > label.check:has-text('A/B test')"), pad: 12 });
+  await page.locator(".page > fieldset .badge", { hasText: "VIP customers" }).getByRole("button", { name: "Remove" }).click();
 
   // Preview and send a test.
   await page.getByRole("button", { name: "Preview", exact: true }).click();
@@ -108,7 +112,12 @@ export default async function (browser) {
   await shot(page, AREA, "07-ab-test", { clip: page.locator(".ab-box"), pad: 8 });
   await page.locator(".ab-box").getByLabel("Pick the winner by").selectOption({ label: "By hand" });
 
-  // 4. When, and a conversion goal.
+  // 4. When, and a conversion goal. First the local-time option, ticked for its picture only.
+  const localTime = page.getByLabel("Send at this time in each contact's own time zone");
+  await localTime.check();
+  await settle(page);
+  await shot(page, AREA, "07-local-time", { clip: page.locator(".page > fieldset > label.check:has-text('own time zone'), .page > fieldset > label.check:has-text('own time zone') + p"), pad: 8 });
+  await localTime.uncheck();
   await field(page, "Event (optional)").fill("purchase");
   await settle(page);
   await shot(page, AREA, "07-when", {

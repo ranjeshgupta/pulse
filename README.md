@@ -6,10 +6,11 @@ and journeys within seconds, not on a 15-minute cron.
 
 ## Documentation
 
-- **[Tutorials](docs/tutorials/README.md)**: step-by-step guides for using Pulse, with screenshots
+- **[Tutorials](docs/tutorials/README.md)**: eleven step-by-step guides for using Pulse, with screenshots
   (start with [Getting started](docs/tutorials/01-getting-started.md)).
-- **[Developer docs](docs/developer/README.md)**: [installation](docs/developer/01-installation.md) (local
-  and production), configuration, API, SDKs, integrations, architecture.
+- **[Developer docs](docs/developer/README.md)**: eight guides: [installation](docs/developer/01-installation.md)
+  (local and production), [configuration](docs/developer/02-configuration.md), [API](docs/developer/03-api.md),
+  web and mobile SDKs, webhooks and integrations, architecture, contributing and testing.
 - Screenshots in the docs are taken from the running app by scripts: `make docs-shots`
   ([how](docs/screenshots/README.md)).
 

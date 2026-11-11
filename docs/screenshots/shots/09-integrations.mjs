@@ -3,8 +3,7 @@
 // Pulse, so forms are filled with obviously fake values and only saved where saving never calls the
 // vendor: HubSpot with "Never (push only)", Shopify (its webhooks come *to* Pulse; one signed test
 // delivery is posted to the local Pulse, for a fixed test buyer shopify.buyer@example.com), Zapier /
-// Make (its subscription targets a fake hooks.example.com address; while its page crashes the script
-// only checks the API workaround the tutorial gives) and Facebook (no segment linked, so nothing is
+// Make (its subscription targets a fake hooks.example.com address) and Facebook (no segment linked, so nothing is
 // uploaded). Nothing here clicks Test connection, Pull now or Push. Everything this script saves
 // (integrations, the webhook, the draft journey) is deleted at the end.
 import { createHmac } from "node:crypto";
@@ -36,19 +35,13 @@ async function connectForm(page, kind) {
   await panel(page, "Settings").waitFor();
 }
 
-async function saveNew(page, made, reload = true) {
+async function saveNew(page, made) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.waitForURL((u) => /\/settings\/integrations\/\d+$/.test(u.pathname));
   const id = Number(new URL(page.url()).pathname.split("/").pop());
   made.integrations.push(id);
   await settle(page, { quiet: 800 });
-  // Right after Connect the form shows the type's defaults again (see the report: reload to see
-  // what was saved), so reload before any picture.
-  console.log(`  after Connect, the Name field shows: ${await field(page, "Name").inputValue()}`);
-  if (reload) {
-    await page.reload();
-    await settle(page, { quiet: 800 });
-  }
+  // No reload: the form keeps the saved values after Connect.
   return id;
 }
 
@@ -154,40 +147,26 @@ async function run(context, page, made) {
   await shot(page, AREA, "09-sync-log", { clip: section(page, "Sync log"), pad: 8 });
 
   // ---- Zapier / Make: saved; the key is shown once (masked here) ----
-  // In this version the Zapier / Make page fails to render (the catalog sends "config": null for
-  // this type and the page calls .filter on it), so the pictures are taken only once that's fixed.
   await go(page, "/settings/integrations/new?kind=rest_hooks");
-  if (await page.getByText("Unexpected Application Error").count()) {
-    console.log("  Zapier / Make: the page crashes (config is null), pictures skipped");
-    // The workaround the tutorial gives: create the connector through the API, then use its key.
-    const r = await api(context, "POST", "/v1/integrations", { kind: "rest_hooks", name: "Zapier (docs example)", active: true, config: {}, secrets: {}, mapping: [], sync_minutes: 0 });
-    made.integrations.push(r.id);
-    const auth = { Authorization: `Bearer ${r.api_key}`, "Content-Type": "application/json" };
-    const me = await context.request.get(`${BASE}/v1/hooks/me`, { headers: auth });
-    const vip = (await api(context, "GET", "/v1/segments")).segments.find((s) => s.name === "VIP tag");
-    const sub = await context.request.post(`${BASE}/v1/hooks/subscriptions`, {
-      data: { target_url: "https://hooks.example.com/zapier/catch/1234567/abcdef/", event: "segment_entered", segment_id: vip.id }, headers: auth,
-    });
-    console.log(`  API workaround: key ${String(r.api_key).slice(0, 4)}…, GET /v1/hooks/me ${me.status()} ${(await me.text()).slice(0, 160)}, subscribe ${sub.status()}`);
-  } else {
-    await field(page, "Name").fill("Zapier (docs example)");
-    const zapId = await saveNew(page, made, false);
-    const keyBox = page.locator(".int-key");
-    await keyBox.waitFor();
-    const key = (await keyBox.locator("code").textContent()).trim();
-    await maskSecrets(page);
-    await shot(page, AREA, "09-zapier-key", { clip: page.locator(".page-head, .int-key, section.panel:has(h3:text-is('API key and endpoints'))"), pad: 8 });
-    // A trigger subscription, as Zapier makes when a Zap is turned on (the target is a fake address).
-    const vip = (await api(context, "GET", "/v1/segments")).segments.find((s) => s.name === "VIP tag");
-    const sub = await context.request.post(`${BASE}/v1/hooks/subscriptions`, {
-      data: { target_url: "https://hooks.example.com/zapier/catch/1234567/abcdef/", event: "segment_entered", segment_id: vip.id },
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    });
-    if (!sub.ok()) throw new Error(`subscribe: ${sub.status()} ${await sub.text()}`);
-    await go(page, `/settings/integrations/${zapId}`);
-    await section(page, "Subscriptions").locator("tbody tr").first().waitFor();
-    await shot(page, AREA, "09-zapier-subscriptions", { clip: section(page, "Subscriptions"), pad: 8 });
-  }
+  await panel(page, "Settings").waitFor();
+  await field(page, "Name").fill("Zapier (docs example)");
+  const zapId = await saveNew(page, made);
+  const keyBox = page.locator(".int-key");
+  await keyBox.waitFor();
+  const key = (await keyBox.locator("code").textContent()).trim();
+  await maskSecrets(page);
+  await shot(page, AREA, "09-zapier-key", { clip: page.locator(".page-head, .int-key, section.panel:has(h3:text-is('API key and endpoints'))"), pad: 8 });
+  // A trigger subscription, as Zapier makes when a Zap is turned on (the target is a fake address).
+  const vip = (await api(context, "GET", "/v1/segments")).segments.find((s) => s.name === "VIP tag");
+  const sub = await context.request.post(`${BASE}/v1/hooks/subscriptions`, {
+    data: { target_url: "https://hooks.example.com/zapier/catch/1234567/abcdef/", event: "segment_entered", segment_id: vip.id },
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+  });
+  if (!sub.ok()) throw new Error(`subscribe: ${sub.status()} ${await sub.text()}`);
+  await go(page, `/settings/integrations/${zapId}`);
+  await section(page, "Subscriptions").locator("tbody tr").first().waitFor();
+  await maskSecrets(page);
+  await shot(page, AREA, "09-zapier-subscriptions", { clip: section(page, "Subscriptions"), pad: 8 });
 
   // ---- Facebook Custom Audiences: saved, no segment linked (nothing is uploaded) ----
   await connectForm(page, "facebook_audiences");
@@ -246,15 +225,11 @@ async function run(context, page, made) {
   await field(page, "URL").fill("https://hooks.example.com/pulse");
   const add = page.getByLabel("Add an event");
   const every = page.getByLabel("Send every event");
-  // Check (for the report): does clicking a "+ event" suggestion tick "Send every event"?
+  // One event from the "+ event" suggestions, one typed.
   await page.getByRole("button", { name: "+ purchase" }).click();
-  console.log(`  after clicking "+ purchase", Send every event is ${await every.isChecked() ? "ticked" : "not ticked"}`);
-  if (await every.isChecked()) await every.uncheck();
-  for (const e of ["purchase", "segment_entered"]) {
-    await add.fill(e);
-    await add.press("Enter");
-  }
-  console.log(`  after typing two events, Send every event is ${await every.isChecked() ? "ticked" : "not ticked"}`);
+  await add.fill("segment_entered");
+  await add.press("Enter");
+  if (await every.isChecked()) throw new Error("a + event suggestion ticked Send every event");
   await settle(page);
   const addHook = page.getByRole("button", { name: "Add webhook" });
   await highlight(addHook);
@@ -269,6 +244,12 @@ async function run(context, page, made) {
   await test.locator(".alert").waitFor({ timeout: 30_000 });
   await settle(page, { quiet: 1500 });
   await shot(page, AREA, "09-webhook-test", { clip: page.locator("section.panel:has(h3:text-is('Signing secret')), section.panel:has(h3:text-is('Send a test'))"), pad: 8 });
+  // The test is listed under Deliveries, marked "test".
+  await page.reload();
+  const deliveries = section(page, "Deliveries");
+  await deliveries.getByText("test", { exact: true }).first().waitFor({ timeout: 30_000 });
+  await settle(page, { quiet: 500 });
+  await shot(page, AREA, "09-webhook-deliveries", { clip: deliveries, pad: 8 });
   await go(page, "/settings/webhooks");
   await page.getByRole("link", { name: "Purchases to CRM" }).waitFor();
   await settle(page, { quiet: 800 });

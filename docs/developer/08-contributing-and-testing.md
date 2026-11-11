@@ -62,6 +62,7 @@ The Docker image build does this itself, so `make up` always serves the app.
 | `make seed ARGS="-contacts 1000"` | A "Demo Retail" workspace with data. Flags: `-workspace`, `-email`, `-password`, `-contacts`, `-days`, `-if-exists` | `make up` |
 | `make docs-seed` | The "Acme Retail" workspace (`acme-retail`) the screenshots use, once | `make up` |
 | `make docs-shots [SHOT=dev-03,04]` | Retake documentation screenshots, see [below](#screenshots) | `make up` |
+| `make docs-check` | Check every link, image and heading anchor in the tutorials and developer docs, and list unreferenced screenshots | Node on the host |
 
 Test accounts for the local stack (demo and docs workspaces, Keycloak, the admin token
 `dev-admin-token`) are in [deploy/dev-seed.md](../../deploy/dev-seed.md). They are test values:
@@ -224,6 +225,7 @@ in `docs/screenshots/shots/`, so it can be retaken after a UI change instead of 
 make up
 make docs-shots                     # every script (creates the docs workspace first if needed)
 make docs-shots SHOT=dev-06         # one guide's script (prefix match)
+make docs-check                     # links, images and anchors all resolve
 make docs-shots SHOT=03,dev-04      # several
 git diff --stat docs/*/img          # then look at what changed before committing
 ```

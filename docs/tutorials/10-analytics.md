@@ -66,7 +66,7 @@ Everything under **Analytics** updates as you change it: there is no "Run" butto
 A report shows at most 100 groups (the largest first). Grouping by a property such as `category`
 gives bars like the seeded report:
 
-![Revenue by category: the sum of amount of purchase events per category, as bars](img/10-report-bars.png)
+![Revenue by category: the sum of amount of purchase events per category, as bars, with Export CSV above them](img/10-report-bars.png)
 
 ### Filter a report
 
@@ -92,6 +92,8 @@ row per group with the raw numbers (sums and averages to 2 decimals, dates as `Y
 in Excel, Google Sheets or Numbers; cells that could be read as formulas are quoted so they stay text.
 Anyone who can see the report can export it. Developers can get the same numbers as JSON from
 `POST /v1/reports/run`.
+
+![The top of the Revenue by category results: the report's description and the Export CSV button, highlighted](img/10-report-export.png)
 
 ## 3. Funnels
 

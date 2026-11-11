@@ -210,7 +210,8 @@ The build order as it happened; every step below is done.
      save a view as a segment; columns and CSV export of a view. One Segments page (Dynamic and Static), one "On-site &
      in-app" area, one Import flow under Contacts, and a navigation review ([Navigation](#navigation-batch-9)).
    - ✅ **Docs checked against the code** after batch 9.
-   - **In progress:** step-by-step tutorials with the product owner ([docs/tutorials](tutorials/README.md); 1 of 11 written).
+   - ✅ **Step-by-step tutorials** ([docs/tutorials](tutorials/README.md); all 11 written, with screenshots retaken by
+     `make docs-shots`) and the eight [developer guides](developer/README.md).
 
 ## Contact views (batch 9)
 

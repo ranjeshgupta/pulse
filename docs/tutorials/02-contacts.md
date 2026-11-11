@@ -31,7 +31,7 @@ Click any row to open that contact's profile.
 
 The profile opens as a panel on the right. From top to bottom:
 
-<img src="img/02-profile-top.png" alt="The profile of store-1001: Merge into…, its segments, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
+<img src="img/02-profile-top.png" alt="The profile of store-1001: Merge into…, Download data and Delete contact, its segments, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
 
 - **Merge into…**: fold this contact into another one (step 10).
 - **Download data** and **Delete contact** (with **Contacts: Edit**): a JSON file of everything Pulse

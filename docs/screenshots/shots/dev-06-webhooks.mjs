@@ -45,7 +45,7 @@ export default async function (browser) {
     await go(page, "/settings/channels");
     const sms = page.locator("section.panel").nth(1);
     await sms.getByRole("button", { name: "Add provider" }).click();
-    const dialog = page.getByRole("dialog", { name: "Add a SMS provider" });
+    const dialog = page.getByRole("dialog", { name: "Add SMS provider" });
     await dialog.waitFor();
     await dialog.getByRole("combobox").first().selectOption("http_sms");
     await dialog.getByLabel("Name in Pulse").fill("Our SMS gateway");

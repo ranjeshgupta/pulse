@@ -12,11 +12,11 @@ export default async function (browser) {
   await page.getByLabel("Workspace ID").fill(DOCS.workspace);
   await page.getByLabel("Email").fill(DOCS.email);
   await page.getByLabel("Password").fill("not-the-real-password"); // shows as dots only
-  await shot(page, AREA, "01-login", { clip: page.locator(".auth-form > *"), pad: 24 });
+  await shot(page, AREA, "dev-01-login", { clip: page.locator(".auth-form > *"), pad: 24 });
 
   // Mailpit's own UI, filtered to the seeded workspace's broadcast.
   await page.goto(`${MAILPIT}/search?q=${encodeURIComponent('subject:"weekend sale"')}`);
   await settle(page, { quiet: 1500 });
-  await shot(page, AREA, "01-mailpit", { clip: { x: 0, y: 0, width: 1440, height: 560 } });
+  await shot(page, AREA, "dev-01-mailpit", { clip: { x: 0, y: 0, width: 1440, height: 560 } });
   await context.close();
 }

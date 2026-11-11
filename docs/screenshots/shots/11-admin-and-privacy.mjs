@@ -1,6 +1,8 @@
 // Screenshots for docs/tutorials/11-admin-and-privacy.md: a contact's consent, the unsubscribe page
-// and preference center (opened, not submitted), Data & privacy, the audit log, single sign-on with
-// the local Keycloak (turned on for the pictures, then off again), identity verification and keys
+// and preference center (opened, not submitted), Download data / Delete contact on the profile (the
+// delete window is filled in, then cancelled), Data & privacy, the audit log, single sign-on with
+// the local Keycloak (turned on for the pictures, then back to how it was: removed again if it wasn't
+// set up before), identity verification and keys
 // (nothing replaced), and the "Delete contact" journey step (in a draft journey, deleted again).
 import { api, clearHighlights, go, highlight, runId, session, settle, shot } from "../lib.mjs";
 
@@ -28,9 +30,11 @@ export default async function (browser) {
     await deleteStep(context, page, journeys);
   } finally {
     for (const id of journeys) await api(context, "DELETE", `/v1/journeys/${id}`).catch(() => {});
-    // Single sign-on back off. (Pulse keeps an issuer and client once saved; it can't be emptied.)
+    // Single sign-on back to how it was: removed if it wasn't set up, else off again.
     const now = await api(context, "GET", "/v1/settings/sso").catch(() => null);
-    if (now?.has_client_secret) {
+    if (!sso.issuer) {
+      if (now?.issuer) await api(context, "DELETE", "/v1/settings/sso").catch((e) => console.log(`  SSO remove: ${e}`));
+    } else if (now?.has_client_secret) {
       await api(context, "PUT", "/v1/settings/sso", { ...now, enabled: sso.enabled, default_role: sso.default_role, auto_create_users: sso.auto_create_users, client_secret: "" }).catch((e) => console.log(`  SSO restore: ${e}`));
     }
     await context.close();
@@ -49,6 +53,26 @@ async function consent(context, page) {
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "11-consent", { clip: agreed, pad: 12 });
   await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Download data and Delete contact at the top of the profile; the delete window filled in, then
+  // cancelled (nothing is downloaded or deleted).
+  await go(page, `/contacts?open=${encodeURIComponent(c.external_id)}`);
+  const drawer = page.locator("aside.drawer");
+  const download = drawer.getByRole("link", { name: "Download data" });
+  const del = drawer.getByRole("button", { name: "Delete contact" });
+  await del.waitFor();
+  await settle(page, { quiet: 600 });
+  await highlight(download);
+  await highlight(del);
+  await shot(page, AREA, "11-contact-data", { clip: drawer.locator(".drawer-head, .drawer-body > div.row:has(a:text-is('Download data'))"), pad: 8 });
+  await clearHighlights(page);
+  await del.click();
+  const confirmBox = page.getByRole("dialog", { name: /^Delete .*\?$/ });
+  await confirmBox.getByLabel("Type DELETE to confirm").fill("DELETE");
+  await settle(page);
+  await shot(page, AREA, "11-delete-contact", { clip: confirmBox, pad: 0 });
+  await confirmBox.getByRole("button", { name: "Cancel" }).click();
+  await confirmBox.waitFor({ state: "detached" });
 
   // The contact's own pages (opened only; nothing is clicked on them).
   const { url } = await api(context, "GET", `/v1/contacts/${encodeURIComponent(c.external_id)}/preferences-link`);
@@ -94,12 +118,14 @@ async function signIn(browser, context, page, sso) {
   await field(page, "Their role").selectOption("viewer");
   await ssoPanel.getByLabel("Allow signing in with SSO").check();
   const save = ssoPanel.getByRole("button", { name: "Save sign-on settings" });
-  await highlight(save);
-  await shot(page, AREA, "11-sso", { clip: ssoPanel, pad: 8 });
-  await clearHighlights(page);
   await save.click();
   await ssoPanel.locator(".badge.ok", { hasText: "On" }).waitFor();
   await settle(page, { quiet: 1500 });
+  // Saved: the badge says On, and Remove single sign-on appears next to Save.
+  await highlight(save);
+  await highlight(ssoPanel.getByRole("button", { name: "Remove single sign-on" }));
+  await shot(page, AREA, "11-sso", { clip: ssoPanel, pad: 8 });
+  await clearHighlights(page);
 
   // The sign-in page, signed out: "Sign in with SSO" sends you to Keycloak.
   const { context: out, page: login } = await session(browser, { signIn: null });

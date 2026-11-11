@@ -116,6 +116,8 @@ When someone asks what you hold about them, or asks to be forgotten:
 **See it.** Open the contact: the profile shows their attributes, segments, consent, tags and points,
 and the **Activity** list of their events.
 
+<img src="img/11-contact-data.png" alt="The top of a contact's profile with the Download data and Delete contact buttons highlighted" width="420">
+
 **Export it.** Open the contact and click **Download data** at the top of the profile. Pulse
 downloads `contact-<external ID>.json` with everything it keeps about them: the profile (every
 attribute), consent per channel, the segments they are in, and their event history (newest first,
@@ -129,6 +131,8 @@ messages, journey progress and files they uploaded through forms; it can't be un
 data first if you need a copy. It needs **Contacts: Edit** and is in the audit log as *Deleted a
 contact*. From your server: `DELETE /v1/contacts/{external_id}`. If your site or app sends new events
 for that ID later, a new contact is created, so stop tracking them too.
+
+<img src="img/11-delete-contact.png" alt="Delete the contact? The warning about what is deleted, DELETE typed in Type DELETE to confirm, and the Delete contact button" width="420">
 
 To make erasure an automatic process instead, use a journey step:
 
@@ -199,7 +203,7 @@ Then:
   you added on **Settings → Team** can sign in.
 - **Allow signing in with SSO** turns it on. Click **Save sign-on settings**; the badge says **On**.
 
-![Single sign-on (OIDC) filled in with the local Keycloak values, Allow signing in with SSO ticked, Save highlighted](img/11-sso.png)
+![Single sign-on (OIDC) saved with the local Keycloak values: the On badge, Allow signing in with SSO ticked, and Save sign-on settings and Remove single sign-on highlighted](img/11-sso.png)
 
 **Signing in.** On the sign-in page teammates type the **Workspace ID** and click **Sign in with
 SSO**; Pulse sends them to your provider and back.

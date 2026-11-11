@@ -168,15 +168,15 @@ export default async function (browser) {
   await field(page, "On this screen (optional)").fill("cart");
   await field(page, "Wait before showing").fill("3");
   await field(page, "How often").selectOption({ label: "At most once a day" });
-  // The editor with the banner layout (the pop-up preview is drawn outside the phone in this version).
-  await field(page, "Layout").selectOption({ label: "Banner" });
+  // The editor with the pop-up layout, then each layout's phone preview.
+  await field(page, "Layout").selectOption({ label: "Pop-up" });
   await page.getByRole("heading", { name: "Schedule" }).click();
   await settle(page, { quiet: 800 });
   await page.setViewportSize({ width: 1440, height: 1900 });
   await settle(page, { quiet: 500 });
   await shot(page, AREA, "08-inapp", { clip: page.locator(".page-head, .editor-split"), pad: 8 });
   await page.setViewportSize({ width: 1440, height: 900 });
-  for (const [layout, name] of [["Banner", "banner"], ["Full screen", "fullscreen"]]) {
+  for (const [layout, name] of [["Pop-up", "popup"], ["Banner", "banner"], ["Full screen", "fullscreen"]]) {
     await field(page, "Layout").selectOption({ label: layout });
     await settle(page, { quiet: 400 });
     await shot(page, AREA, `08-inapp-${name}`, { clip: page.locator(".ia-phone"), pad: 4 });

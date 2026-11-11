@@ -6,16 +6,16 @@ Step-by-step guides for using Pulse, written against the app as it is. Each one 
 | # | Tutorial | You will |
 |---|---|---|
 | 1 | [Getting started](01-getting-started.md) | Create a workspace, add teammates and roles, connect your website, see your first contacts |
-| 2 | Contacts *(coming next)* | Import a CSV, contact fields, filters like `is:anonymous`, save a view as a segment |
-| 3 | Segments | Dynamic and static segments, the rule builder, View contacts |
-| 4 | Channels | Connect email, SMS, WhatsApp, RCS and push; preview, send test, the test inbox |
-| 5 | Templates and content | The editor, landing pages, forms (multi-page, uploads), assets |
-| 6 | Your first journey | A welcome series with a decision, a wait and a condition |
-| 7 | Broadcasts | Schedule a one-off campaign, with A/B testing |
-| 8 | On-site & in-app | A website pop-up, dynamic web content, a mobile in-app message |
-| 9 | Integrations | HubSpot or Salesforce, Shopify, Zapier, ad audiences |
-| 10 | Analytics | Reports, funnels, cohorts, revenue |
-| 11 | Admin and privacy | Consent, retention and cleanup, audit log export, single sign-on |
+| 2 | [Contacts](02-contacts.md) | Import a CSV, contact fields, filters like `is:anonymous`, save a view as a segment |
+| 3 | [Segments](03-segments.md) | Dynamic and static segments, the rule builder, View contacts |
+| 4 | [Channels](04-channels.md) | Connect email, SMS, WhatsApp, RCS and push; preview, send test, the test inbox |
+| 5 | [Templates and content](05-templates-and-content.md) | The editor, landing pages, forms (multi-page, uploads), assets |
+| 6 | [Your first journey](06-journeys.md) | A welcome series with a decision, a wait and a condition; delete or archive journeys |
+| 7 | [Broadcasts](07-broadcasts.md) | Schedule a one-off or repeating campaign, with A/B testing, left-out segments and local-time sending |
+| 8 | [On-site & in-app](08-on-site-and-in-app.md) | A website pop-up, dynamic web content, a mobile in-app message |
+| 9 | [Integrations](09-integrations.md) | HubSpot or Salesforce, Shopify, Zapier, ad audiences |
+| 10 | [Analytics](10-analytics.md) | Reports (with CSV export), funnels, cohorts, revenue |
+| 11 | [Admin and privacy](11-admin-and-privacy.md) | Consent, retention, a person's data (download, delete), audit log export, single sign-on |
 
 The examples use a local Pulse at `http://localhost:7080`. On your own server, use its address instead.
 

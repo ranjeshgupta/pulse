@@ -212,6 +212,8 @@ hand them the workspace's server key.
 3. The **API key and endpoints** panel lists the base URL (`…/v1/hooks`) and what you can call with
    `Authorization: Bearer pzk_…`:
 
+   ![The saved Zapier / Make integration: the one-time API key (hidden here), Rotate key, and the API key and endpoints panel with the base URL](img/09-zapier-key.png)
+
 | Call | Does |
 |---|---|
 | `GET /me` | Connection test: the workspace and integration |
@@ -228,6 +230,8 @@ segment), `form_submitted` (optionally for one form), or any event name. When a 
 using a Pulse trigger is turned on, it subscribes and appears under **Subscriptions**; **Remove**
 stops it. Deliveries are signed and retried like webhooks (step 9) and listed under **Recent
 deliveries**.
+
+![Subscriptions: one segment_entered trigger for the VIP tag segment, sending to a hooks.example.com address, with Remove](img/09-zapier-subscriptions.png)
 
 There is no published Pulse app in Zapier or Make yet: use their *Webhooks* / *HTTP* modules with
 the calls above. To check the key, `GET /v1/hooks/me` with `Authorization: Bearer pzk_…` answers with
@@ -345,9 +349,11 @@ as delivered. A failed attempt is retried after 30 seconds, 2 minutes, 10 minute
 hours; then Pulse gives up (**Gave up**). **Send test** results are listed too, marked **test**
 (**Test delivered** or **Test failed**); a test is never retried.
 
+![Deliveries: the webhook_test event marked test, attempt 1, no answer, the connection error and Test failed](img/09-webhook-deliveries.png)
+
 The webhook list shows each webhook's events, **Active** / **Paused**, and its last delivery:
 
-![Settings → Webhooks with Purchases to CRM: URL, events, Active and Nothing sent yet](img/09-webhooks-list.png)
+![Settings → Webhooks with Purchases to CRM: URL, events, Active, and the last delivery: the test, Test failed just now](img/09-webhooks-list.png)
 
 To pause sending, untick **Active** and **Save**. **Delete** stops it at once.
 

@@ -150,7 +150,7 @@ SDK (see the developer docs).
 
 **New → Mobile app** opens the editor.
 
-![The in-app message editor with the Banner layout and its phone preview](img/08-inapp.png)
+![The in-app message editor with the Pop-up layout and its phone preview](img/08-inapp.png)
 
 ### The message
 
@@ -173,7 +173,7 @@ SDK (see the developer docs).
 
 The phone on the right previews it:
 
-<img src="img/08-inapp-banner.png" alt="Phone preview: the banner at the top of the screen" width="200"> <img src="img/08-inapp-fullscreen.png" alt="Phone preview: the full-screen layout" width="200">
+<img src="img/08-inapp-popup.png" alt="Phone preview: the pop-up card in the middle of the screen" width="200"> <img src="img/08-inapp-banner.png" alt="Phone preview: the banner at the top of the screen" width="200"> <img src="img/08-inapp-fullscreen.png" alt="Phone preview: the full-screen layout" width="200">
 
 ### Who sees it, and when
 

@@ -3,7 +3,9 @@
 // → Wait → Contact segments → Send email, with Exit and tag steps on the other paths), saves it,
 // takes it live, sends one test contact through it from the SDK test page, shows the welcome
 // email in Mailpit and the per-step stats and report, then pauses it. The journey is left paused.
-// A rerun first deletes the "Welcome series" journeys earlier runs made (never the seeded ones).
+// Then it shows the list's Delete / Archive buttons and Show archived (section 15).
+// A rerun first deletes the "Welcome series" journeys earlier runs made, or archives the ones that
+// ran (never the seeded ones), so only this run's journey is in the list.
 import { api, clearHighlights, go, highlight, runId, session, settle, shot, until } from "../lib.mjs";
 
 const AREA = "tutorials";
@@ -15,26 +17,21 @@ export default async function (browser) {
   const { context, page } = await session(browser);
   page.on("dialog", (d) => d.accept());
 
-  // Earlier runs of this script: Pulse only deletes journeys that never ran, so the ones that did
-  // are paused and renamed, and only this run's journey is called "Welcome series".
+  // Earlier runs of this script (including ones older versions renamed "(earlier docs run)"):
+  // Pulse deletes only journeys that never ran, so the ones that did are archived (hidden from the
+  // list, history kept).
   for (const j of (await api(context, "GET", "/v1/journeys")).journeys) {
-    if (j.name !== NAME) continue;
+    if (j.archived_at || (j.name !== NAME && j.name !== `${NAME} (earlier docs run)`)) continue;
     if (j.status === "active") await api(context, "POST", `/v1/journeys/${j.id}/pause`);
-    const full = await api(context, "GET", `/v1/journeys/${j.id}`);
     try {
       await api(context, "DELETE", `/v1/journeys/${j.id}`);
     } catch {
-      await api(context, "PUT", `/v1/journeys/${j.id}`, { name: `${NAME} (earlier docs run)`, graph: full.graph, start_at: full.start_at, end_at: full.end_at ?? null });
+      await api(context, "POST", `/v1/journeys/${j.id}/archive`);
     }
   }
 
   // 1. Campaigns → Journeys.
   await go(page, "/journeys");
-  // Journeys renamed by earlier runs of this script aren't part of the story: leave them out.
-  await page.evaluate(() => {
-    for (const tr of document.querySelectorAll("tbody tr")) if (tr.textContent.includes("(earlier docs run)")) tr.remove();
-    document.querySelector("tfoot")?.remove();
-  });
   const newBtn = page.getByRole("link", { name: "New journey" });
   await highlight(newBtn);
   await shot(page, AREA, "06-journeys-list", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
@@ -51,6 +48,14 @@ export default async function (browser) {
   await insp.getByLabel("Event name").fill(EVENT);
   await settle(page);
   await shot(page, AREA, "06-trigger", { clip: insp.locator(".insp > .insp-head, .insp > label.field, .insp > h4"), pad: 4 });
+  // The third kind of trigger, for the table under it; then back to the event.
+  const kind = insp.getByLabel("Start this journey when a contact");
+  await kind.selectOption("form_submitted");
+  await insp.getByLabel(/^Form/).selectOption({ label: "Newsletter sign-up" });
+  await settle(page);
+  await shot(page, AREA, "06-trigger-form", { clip: insp.locator(".insp > .insp-head, .insp > label.field"), pad: 4 });
+  await kind.selectOption("event");
+  await insp.getByLabel("Event name").fill(EVENT);
 
   // 3. "+" → Action → Send email.
   const plus = (name) => page.getByRole("button", { name, exact: true });
@@ -219,6 +224,16 @@ export default async function (browser) {
   await clearHighlights(page);
   await pause.click();
   await until(async () => (await api(context, "GET", `/v1/journeys/${id}`)).status === "paused", { what: "the journey to pause" });
+
+  // 16. Delete or archive: the list's row buttons and Show archived (nothing is clicked).
+  await go(page, "/journeys");
+  const row = page.locator("tbody tr", { hasText: NAME }).first();
+  await highlight(row.getByRole("button", { name: "Archive" }));
+  const draftDelete = page.locator("tbody tr").getByRole("button", { name: "Delete" }).first();
+  if (await draftDelete.count()) await highlight(draftDelete);
+  await highlight(page.getByLabel(/Show archived/));
+  await shot(page, AREA, "06-archive", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
+  await clearHighlights(page);
   await context.close();
 }
 

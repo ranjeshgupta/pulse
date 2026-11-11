@@ -73,6 +73,8 @@ The three kinds of trigger:
 | **does an event** | A sign-up, a purchase, any event your site or app sends | Type the event name exactly |
 | **submits a form** | A webinar sign-up, a "contact us" form (tutorial 5) | Choose the **Form**, or leave **Any form**. Each submission starts the journey for the person who sent it, so **Form field value** conditions can check their answers. Inside a journey, the **Submits form** decision waits for a form instead |
 
+<img src="img/06-trigger-form.png" alt="The Start settings with submits a form and the form Newsletter sign-up chosen" width="300">
+
 **Entering again** decides what happens when someone who has already been through the journey
 triggers it again: **never enters again**, **can enter again after finishing**, or **can enter again
 after some days** (1 to 3650). A contact is never in the same journey twice at once.
@@ -321,6 +323,8 @@ The **Journeys** list has a button at the end of each row that isn't live:
   history and reports are kept. An archived journey disappears from the list and can't go live.
   Tick **Show archived** above the list to see archived journeys, and click **Restore** (in the list
   or on the journey's page) to bring one back as a paused journey.
+
+![The Journeys list: Show archived above it, Archive on the paused Welcome series and Delete on the seeded draft Win back (draft) highlighted; live journeys have no button](img/06-archive.png)
 
 Pause a live journey before archiving it. Deleting needs **Journeys: Edit**; archiving and restoring
 need **Journeys: Publish**, like going live. Through the API: `DELETE /v1/journeys/{id}`,

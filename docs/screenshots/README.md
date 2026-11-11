@@ -40,7 +40,7 @@ DOCS_WORKSPACE=… DOCS_EMAIL=… DOCS_PASSWORD=…`. To upgrade Playwright, cha
 | `run.mjs` | Runs `shots/*.mjs` (filtered by `$SHOT`), one browser per script |
 | `lib.mjs` | Shared helpers (below) |
 | `shots/NN-<guide>.mjs` | One script per tutorial, e.g. `01-getting-started.mjs` → `docs/tutorials/img/01-*.png` |
-| `shots/dev-NN-<guide>.mjs` | One script per developer guide, e.g. `dev-01-installation.mjs` → `docs/developer/img/01-*.png` |
+| `shots/dev-NN-<guide>.mjs` | One script per developer guide, e.g. `dev-01-installation.mjs` → `docs/developer/img/dev-01-*.png` |
 
 ## Writing a script
 
@@ -65,8 +65,10 @@ export default async function (browser) {
 }
 ```
 
-Name pictures `<guide number>-<what it shows>.png` so they sort with their guide, and embed them with a
-relative path: `![What the reader sees](img/03-segments-list.png)`.
+Name pictures after the script that takes them, so they sort with their guide: `NN-<what it shows>.png`
+for a tutorial (`03-segments-list.png` from `03-segments.mjs`) and `dev-NN-<what it shows>.png` for a
+developer guide (`dev-04-snippet.png` from `dev-04-web-sdk.mjs`). Embed them with a relative path:
+`![What the reader sees](img/03-segments-list.png)`.
 
 ### Helpers in `lib.mjs`
 
@@ -101,3 +103,6 @@ relative path: `![What the reader sees](img/03-segments-list.png)`.
   **Cancel**; if a guide needs to save something, give it a `runId()` name. Never touch `demo-retail`.
 - Scripts that sign up create a new workspace on every run (as tutorial 1 does); that's expected in
   a local database.
+
+After retaking screenshots or editing the guides, run `make docs-check`: it checks every link,
+image and heading anchor in `docs/tutorials` and `docs/developer` and lists screenshots nothing uses.

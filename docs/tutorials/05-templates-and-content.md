@@ -150,7 +150,7 @@ Non-email templates show a phone preview beside the form, filled with sample val
    days), so "Clicked a link in an SMS" works in segments and reports.
 
    ![A new SMS template: the message with a first-name tag and a link, sender ID ACMEIN, Track link clicks ticked, and the SMS preview with Hi Asha](img/05-sms.png)
-5. **Save template**, reload, and **Send a test** to `cust-0287`. Through the sandbox, it appears in
+5. **Save template** and **Send a test** to `cust-0287`. Through the sandbox, it appears in
    **Settings → Test inbox** with the link shortened:
 
    ![The test inbox SMS tab: Hi Meera, Diwali sale… with a short /t/s/ tracking link](img/05-sms-test-inbox.png)

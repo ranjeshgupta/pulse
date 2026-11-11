@@ -81,7 +81,7 @@ You have two choices:
   prints the new ID (`demo-retail-xxxxxx`). All local test accounts are listed in
   [deploy/dev-seed.md](../../deploy/dev-seed.md).
 
-![The Pulse sign-in page: Workspace ID, Email, Password, Sign in, and Sign in with SSO](img/01-login.png)
+![The Pulse sign-in page: Workspace ID, Email, Password, Sign in, and Sign in with SSO](img/dev-01-login.png)
 
 ### Mail: Mailpit
 
@@ -89,7 +89,7 @@ Locally, every email goes to **Mailpit** instead of real inboxes: open **http://
 Pulse's default SMTP relay (`PULSE_SMTP_ADDR`) points there, so journeys, broadcasts and test sends
 arrive within seconds. Here, the seeded workspace's "Weekend sale" broadcast:
 
-![Mailpit listing the Weekend sale emails sent by the seeded workspace](img/01-mailpit.png)
+![Mailpit listing the Weekend sale emails sent by the seeded workspace](img/dev-01-mailpit.png)
 
 ### Single sign-on: Keycloak
 

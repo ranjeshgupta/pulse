@@ -347,7 +347,7 @@ When Pulse has no adapter for your provider (a regional SMS aggregator, an in-ho
 service), add a **Custom HTTP gateway** provider to any channel (email, SMS, WhatsApp, RCS, push):
 Pulse POSTs each rendered message to your endpoint, signed, and your service delivers it.
 
-![Settings, Channels, Add a SMS provider: Custom HTTP gateway selected, Name in Pulse, Endpoint URL https://sms-gateway.example.com/pulse, a masked signing secret, and Use for all SMS messages](img/dev-06-gateway.png)
+![Settings, Channels, Add SMS provider: Custom HTTP gateway selected, Name in Pulse, Endpoint URL https://sms-gateway.example.com/pulse, a masked signing secret, and Use for all SMS messages](img/dev-06-gateway.png)
 
 ```bash
 curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{

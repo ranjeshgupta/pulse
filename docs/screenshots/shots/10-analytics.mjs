@@ -55,6 +55,13 @@ async function run(context, page) {
   await page.locator(".rb-bars").waitFor();
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "10-report-bars", { clip: page.locator(".rb-results"), pad: 8 });
+  // Export CSV at the top of the results (not clicked: it only downloads a file).
+  const exp = page.getByRole("button", { name: "Export CSV" });
+  await highlight(exp);
+  // Room above and beside for the highlight, little below (the chart starts right under it).
+  const hb = await page.locator(".rb-out-head").boundingBox();
+  await shot(page, AREA, "10-report-export", { clip: { x: hb.x - 12, y: hb.y - 14, width: hb.width + 24, height: hb.height + 18 } });
+  await clearHighlights(page);
 
   // ---- Funnels ----
   await page.setViewportSize({ width: 1440, height: 1400 });

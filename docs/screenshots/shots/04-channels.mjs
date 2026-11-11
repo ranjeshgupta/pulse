@@ -30,7 +30,7 @@ export default async function (browser) {
 
   // 2. Email: the SMTP provider form, filled with placeholders (not saved).
   await emailPanel.getByRole("button", { name: "Add provider" }).click();
-  let dialog = page.getByRole("dialog", { name: "Add a Email provider" });
+  let dialog = page.getByRole("dialog", { name: "Add Email provider" });
   await dialog.waitFor();
   await dialog.getByRole("combobox").first().selectOption("smtp");
   await dialog.getByLabel("Name in Pulse").fill("Amazon SES (Mumbai)");
@@ -44,7 +44,7 @@ export default async function (browser) {
   // 3. SMS: MSG91, and WhatsApp: Meta Cloud API (placeholders, not saved).
   const smsPanel = page.locator("section.panel").nth(1);
   await smsPanel.getByRole("button", { name: "Add provider" }).click();
-  dialog = page.getByRole("dialog", { name: "Add a SMS provider" });
+  dialog = page.getByRole("dialog", { name: "Add SMS provider" });
   await dialog.getByRole("combobox").first().selectOption("msg91");
   await dialog.getByLabel("Name in Pulse").fill("MSG91 (India)");
   await dialog.getByLabel(/^Flow template ID/).fill("64f1c2e5d6a7b8c9d0e1f2a3");
@@ -56,7 +56,7 @@ export default async function (browser) {
 
   const waPanel = page.locator("section.panel").nth(2);
   await waPanel.getByRole("button", { name: "Add provider" }).click();
-  dialog = page.getByRole("dialog", { name: "Add a WhatsApp provider" });
+  dialog = page.getByRole("dialog", { name: "Add WhatsApp provider" });
   await dialog.getByRole("combobox").first().selectOption("meta_whatsapp");
   await dialog.getByLabel("Name in Pulse").fill("WhatsApp (Acme Retail)");
   await dialog.getByLabel(/^Phone number ID/).fill("106540352242922");
@@ -70,7 +70,7 @@ export default async function (browser) {
   // 4. Push: Firebase Cloud Messaging; and the custom HTTP gateway (placeholders, not saved).
   const pushPanel = page.locator("section.panel").nth(4);
   await pushPanel.getByRole("button", { name: "Add provider" }).click();
-  dialog = page.getByRole("dialog", { name: "Add a Push provider" });
+  dialog = page.getByRole("dialog", { name: "Add Push provider" });
   await dialog.getByRole("combobox").first().selectOption("fcm");
   await dialog.getByLabel("Name in Pulse").fill("Firebase (Acme app)");
   await dialog.getByLabel(/^Firebase project ID/).fill("acme-retail-app");
@@ -80,7 +80,7 @@ export default async function (browser) {
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
   await smsPanel.getByRole("button", { name: "Add provider" }).click();
-  dialog = page.getByRole("dialog", { name: "Add a SMS provider" });
+  dialog = page.getByRole("dialog", { name: "Add SMS provider" });
   await dialog.getByRole("combobox").first().selectOption("http_sms");
   await dialog.getByLabel("Name in Pulse").fill("Our SMS gateway");
   await dialog.getByLabel(/^Endpoint URL/).fill("https://gateway.example.com/pulse");

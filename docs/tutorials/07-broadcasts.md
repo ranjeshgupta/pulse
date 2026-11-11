@@ -40,7 +40,10 @@ schedule or cancel you need **Broadcasts: Publish** (Admins and Editors have it)
    - **Channel**: **Email**, SMS, WhatsApp, RCS, Push or App inbox.
    - **Template**: lists only the chosen channel's templates. Pick **Weekend sale**.
 
-   ![The New broadcast form: Name, Send to Sale preview testers (about 6 contacts), Channel Email, Template Weekend sale, Preview and Send a test](img/07-new-broadcast.png)
+   ![The New broadcast form: Name, Send to Sale preview testers (about 6 contacts), Leave out members of VIP customers, Channel Email, Template Weekend sale, Preview and Send a test](img/07-new-broadcast.png)
+
+   (The picture leaves out *VIP customers* to show the field; this tutorial removes it again with ×
+   and sends to all six testers.)
 
 A broadcast goes to one segment, minus everyone in the segments you leave out. Both are taken at
 send time.
@@ -100,7 +103,7 @@ the percentage you set (here 2 or 4 of the 6).
 
 ## 5. When to send
 
-![When: Repeat Once, Send at (required) now, Ends (optional) empty, "The time has passed, so scheduling sends it right away", and the Conversion goal fields](img/07-when.png)
+![When: Repeat Once, Send at (required) now, Ends (optional) empty, "The time has passed, so scheduling sends it right away", the box Send at this time in each contact's own time zone, and the Conversion goal fields](img/07-when.png)
 
 | Field | |
 |---|---|
@@ -121,6 +124,10 @@ time zone, which the line under the box names. Sending starts when the time come
 zone (UTC+14), up to a day before, and each message waits until it is due; the contact's activity
 shows a *deferred* entry meanwhile. Anyone whose time has already passed when you schedule gets it
 right away.
+
+![The box Send at this time in each contact's own time zone ticked, and the line under it naming the clock time and the browser's time zone for contacts without one](img/07-local-time.png)
+
+This tutorial leaves the box unticked.
 
 **Conversion goal** (optional): type an event, e.g. `purchase`, and **Within** `3` days (1 to 30). The
 results then count recipients who did it within that many days of their send, and show the revenue

@@ -151,9 +151,8 @@ async function templates(page, context, contact) {
   await shot(page, AREA, "05-sms", { clip: { x: 0, y: 0, width: 1440, height: 760 } });
   await page.getByRole("button", { name: "Save template" }).click();
   await page.waitForURL(/\/templates\/\d+$/);
-  // Reload after the first save: until then "Send a test" still uses the unsaved template (id 0)
-  // and answers "not found" (app bug, see the tutorial's note).
-  await go(page, page.url());
+  await settle(page);
+  // No reload: right after the first save, Send a test uses the saved template.
   await page.getByRole("button", { name: "Send a test" }).click();
   dialog = page.getByRole("dialog", { name: /^Send a test:/ });
   await dialog.getByLabel("Contact's external ID").fill(contact.external_id);
