@@ -112,6 +112,7 @@ const (
 	AttrDateIdentified = "date_identified" // RFC 3339 time the contact first had a known id or an email
 	AttrDateModified   = "date_modified"   // UTC date (YYYY-MM-DD) of the latest attribute change
 	AttrEmailDomain    = "email_domain"    // the part of email after @, lower case
+	AttrPhoneCountry   = "phone_country"   // ISO country code of phone (e.g. IN), when it has a country code
 	AttrOwnerID        = "owner_id"        // the user who owns the contact
 	AttrOwnerName      = "owner_name"
 	AttrLocale         = "locale" // preferred locale, e.g. en-IN (SDKs send it; servers may set it)
@@ -153,7 +154,7 @@ func CarriesDevice(name string) bool {
 func EventOnlyAttr(k string) bool {
 	switch k {
 	case AttrMergedInto, AttrStage, AttrStageChangedAt, AttrDateAdded, AttrDateIdentified, AttrDateModified,
-		AttrEmailDomain, AttrOwnerID, AttrOwnerName:
+		AttrEmailDomain, AttrPhoneCountry, AttrOwnerID, AttrOwnerName:
 		return true
 	}
 	return strings.HasPrefix(k, CompanyAttrPrefix) || DeviceAttr(k)

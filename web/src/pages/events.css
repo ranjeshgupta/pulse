@@ -1,0 +1,92 @@
+/* Events: the catalog, the volume chart, the schema editor and its problems. Uses the tokens from styles.css. */
+.ev-section { margin-bottom: 18px; }
+.ev-section h3 { margin: 0; }
+.ev-name code { font-weight: 600; }
+.ev-title { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ev-title .badge { font-size: var(--fs-sm); }
+
+/* Mode badges: distinct per mode. */
+.ev-mode-none { background: transparent; color: var(--faint); border: 1px dashed var(--rule-strong); }
+.ev-mode-off { background: #eef1f5; color: var(--ink-3); }
+.ev-mode-warn { background: var(--signal-wash); color: #8a5c00; }
+.ev-mode-enforce { background: var(--ink); color: #fff; }
+
+.ev-warn { color: #8a5c00; font-weight: 560; }
+.ev-bad { color: var(--danger); font-weight: 560; }
+.ev-ok { color: var(--muted); }
+
+.tabs .ev-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--signal); vertical-align: middle; }
+.tabs .ev-tab-count { margin-left: 6px; }
+
+/* Suggested events modal */
+.ev-suggested { list-style: none; margin: 0; padding: 0; }
+.ev-suggested li { border-bottom: 1px solid var(--rule); }
+.ev-suggested li:last-child { border-bottom: 0; }
+.ev-suggested label { display: flex; gap: 10px; align-items: flex-start; padding: 10px 2px; cursor: pointer; }
+.ev-suggested label.disabled { cursor: default; opacity: 0.75; }
+.ev-suggested input { margin-top: 3px; }
+.ev-suggested .badge { margin-left: 6px; }
+.ev-suggested-desc { display: block; margin-top: 2px; }
+
+/* Volume chart */
+.ev-total { color: var(--text); font-size: var(--fs-md); }
+.ev-chart { width: 100%; height: 150px; display: block; }
+.ev-bar { fill: var(--cobalt); }
+.ev-bar:hover { fill: var(--cobalt-dark); }
+.ev-axis { stroke: var(--rule-strong); stroke-width: 1; }
+.ev-tick { fill: var(--faint); font-size: 11px; }
+
+.ev-examples code { display: inline-block; margin: 0 4px 2px 0; padding: 0 5px; border-radius: 4px; background: var(--porcelain); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
+/* Schema editor */
+.ev-props { list-style: none; margin: 0; padding: 0; }
+.ev-prop { padding: 14px 20px 6px; border-bottom: 1px solid var(--rule); }
+.ev-prop:last-child { border-bottom: 0; }
+.ev-prop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ev-prop-num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--cobalt-wash); color: var(--cobalt-dark); font-size: var(--fs-xs); font-weight: 650;
+}
+.ev-prop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
+.ev-prop-checks { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: -4px 0 14px; font-size: var(--fs-sm); }
+.ev-prop-checks label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.ev-enum { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 12px 12px; margin: 0 0 14px; }
+.ev-enum legend { padding: 0 4px; font-weight: 560; }
+.ev-enum-row { margin-bottom: 6px; flex-wrap: nowrap; }
+.ev-enum-row .input { flex: 1; min-width: 0; }
+.ev-depends { display: flex; flex-direction: column; gap: 6px; }
+.ev-depends .row { gap: 8px; }
+.ev-depends-prop { width: auto; max-width: 220px; }
+.ev-depends-values { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-sm); }
+.ev-depends-values label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.ev-depends-sentence { margin: 0; }
+.ev-problems-list { margin: 6px 0 0; padding-left: 18px; }
+.ev-save-bar { margin-bottom: 24px; }
+
+/* Problems */
+.ev-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.ev-stat { padding: 14px 18px; display: flex; flex-direction: column; gap: 2px; }
+.ev-stat strong { font-size: var(--fs-2xl); font-weight: 650; font-variant-numeric: tabular-nums; }
+.ev-stat.warn strong { color: #8a5c00; }
+.ev-stat.bad strong { color: var(--danger); }
+.ev-days .ev-day-bar { width: 30%; min-width: 120px; white-space: nowrap; font-size: 0; }
+.ev-day-bar span { display: inline-block; height: 8px; }
+.ev-day-ok { background: var(--cobalt-wash); border-radius: 4px 0 0 4px; }
+.ev-day-bad { background: var(--signal); border-radius: 0 4px 4px 0; }
+.ev-samples { list-style: none; margin: 0; padding: 0; }
+.ev-samples > li { padding: 12px 20px; border-bottom: 1px solid var(--rule); }
+.ev-samples > li:last-child { border-bottom: 0; }
+.ev-violations { margin: 6px 0; padding-left: 18px; }
+.ev-samples summary { cursor: pointer; color: var(--muted); }
+
+/* Code examples and JSON */
+.ev-pre {
+  margin: 6px 0 14px; padding: 12px 14px; border-radius: var(--r-sm); background: var(--ink); color: #e8ecf3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.5; overflow-x: auto; white-space: pre;
+}
+.ev-code-title { margin: 10px 0 0; font-size: var(--fs-sm); font-weight: 600; }
+
+@media (max-width: 720px) {
+  .ev-stats { grid-template-columns: 1fr; }
+  .ev-enum-row { flex-wrap: wrap; }
+}

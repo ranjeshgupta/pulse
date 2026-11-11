@@ -246,8 +246,26 @@ func NormalizePhone(p string) string {
 	return strings.NewReplacer(" ", "", "-", "", "(", "", ")", "", ".", "").Replace(p)
 }
 
-// CoerceAttrs converts imported text to the defined types, so "42" becomes a number and "yes" a
-// boolean. A value that doesn't fit its type is an error for the row.
+// SplitList reads a list field's cell: values separated by | (or by commas when there is no |),
+// trimmed, blanks and repeats dropped.
+func SplitList(s string) []any {
+	sep := ","
+	if strings.Contains(s, "|") {
+		sep = "|"
+	}
+	out := []any{}
+	seen := map[string]bool{}
+	for _, v := range strings.Split(s, sep) {
+		if v = strings.TrimSpace(v); v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// CoerceAttrs converts imported text to the defined types, so "42" becomes a number, "yes" a
+// boolean and "A1|B2" a list. A value that doesn't fit its type is an error for the row.
 func CoerceAttrs(attrs map[string]any, types map[string]string) error {
 	for k, v := range attrs {
 		s, ok := v.(string)
@@ -261,6 +279,8 @@ func CoerceAttrs(attrs map[string]any, types map[string]string) error {
 				return fmt.Errorf("%s: %q is not a number", k, s)
 			}
 			attrs[k] = f
+		case "list":
+			attrs[k] = SplitList(s)
 		case "boolean":
 			switch strings.ToLower(s) {
 			case "true", "yes", "1", "y":

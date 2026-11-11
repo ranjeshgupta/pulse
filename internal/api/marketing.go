@@ -77,6 +77,10 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
 			delete(e.Props, "rename")
 		}
 	}
+	if msg := s.enforceSchemas(r.Context(), tenant, evs); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	// An identify naming a company links the contact to it (created if new).
 	all, err := s.linkCompanies(r.Context(), tenant, evs)
 	if err != nil {
@@ -102,10 +106,28 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": len(evs), "ids": ids})
 }
 
+// SegmentRefreshStore keeps how a segment is refreshed (live or daily).
+type SegmentRefreshStore interface {
+	SetSegmentRefresh(ctx context.Context, tenant, id int64, rf *segment.Refresh) error
+}
+
+// setRefresh saves a segment's refresh setting when the request has one.
+func (s *Server) setRefresh(ctx context.Context, tenant, id int64, rf *segment.Refresh) error {
+	if rf == nil {
+		return nil
+	}
+	st, ok := s.Store.(SegmentRefreshStore)
+	if !ok {
+		return nil
+	}
+	return st.SetSegmentRefresh(ctx, tenant, id, rf)
+}
+
 func (s *Server) createSegment(w http.ResponseWriter, r *http.Request, tenant int64) {
 	var req struct {
-		Name string          `json:"name"`
-		Rule json.RawMessage `json:"rule"`
+		Name    string           `json:"name"`
+		Rule    json.RawMessage  `json:"rule"`
+		Refresh *segment.Refresh `json:"refresh"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -115,12 +137,22 @@ func (s *Server) createSegment(w http.ResponseWriter, r *http.Request, tenant in
 		writeErr(w, http.StatusBadRequest, errors.Join(errIf(req.Name == "", "name is required"), err).Error())
 		return
 	}
+	if req.Refresh != nil {
+		if err := req.Refresh.Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if err := s.checkSegmentRefs(r.Context(), tenant, 0, rule); err != nil {
 		s.failRefs(w, err)
 		return
 	}
 	id, err := s.Store.CreateSegment(r.Context(), tenant, req.Name, req.Rule, rule.HasWindow())
 	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.setRefresh(r.Context(), tenant, id, req.Refresh); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -295,6 +327,53 @@ func (s *Server) getContact(w http.ResponseWriter, r *http.Request, tenant int64
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"contact": c, "segments": in})
+}
+
+// explainSegment: GET /v1/contacts/{external_id}/segments/{id}/explain, the segment's rule
+// evaluated for this contact now, node by node, with the contact's values and event counts, and
+// whether the contact is a member. A daily segment's membership is from its last refresh, so
+// the two can differ until the next one; rules older than the counters are left to the sweep.
+func (s *Server) explainSegment(w http.ResponseWriter, r *http.Request, tenant int64) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	c, err := s.Store.ContactByExternalID(ctx, tenant, r.PathValue("external_id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	seg, err := s.Store.GetSegment(ctx, tenant, id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	in, err := s.Members.IsMember(ctx, tenant, id, c.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	out := map[string]any{"segment": seg.ID, "name": seg.Name, "kind": seg.Kind, "member": in, "refresh": seg.Refresh}
+	if seg.Kind == "static" || s.RDB == nil {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	rule, err := segment.Parse(seg.Rule)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if _, merged := c.Attrs[event.AttrMergedInto]; merged {
+		out["merged"] = true
+	}
+	ex, err := segment.Explain(ctx, rule, c.Attrs, segment.NewRedisCounter(s.RDB, tenant, c.ID, s.now()))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	out["explanation"] = ex
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) fail(w http.ResponseWriter, err error) {

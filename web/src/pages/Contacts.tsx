@@ -10,6 +10,7 @@ import { useCompanyOptions } from "./Companies";
 import { ContactInbox } from "./InApp";
 import { useStages } from "./Stages";
 import { useAttributes, useSegments } from "./segmentData";
+import { CustomFields, SegmentWhy } from "./ContactFields";
 import "./contacts.css";
 
 type ViewPage = { contacts: Contact[]; next: string; filters?: { token: string; label: string }[]; rule?: Rule; text?: string; count?: number; approximate?: boolean };
@@ -292,6 +293,8 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
   const merged = contact?.attrs.merged_into != null;
   const [merging, setMerging] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [why, setWhy] = useState<number | null>(null);
+  const [askWhy, setAskWhy] = useState("");
   const canEdit = useCan("contacts", "edit");
 
   return (
@@ -312,12 +315,27 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
       {deleting && contact && <DeleteContactModal contact={contact} onClose={() => setDeleting(false)} onDeleted={onClose} />}
       <h3 style={{ marginBottom: 10 }}>Segments</h3>
       {c.data && c.data.segments.length === 0 && <p className="muted small">Not in any segment right now.</p>}
-      <div className="row" style={{ marginBottom: 22 }}>
-        {c.data?.segments.map((s) => <span className="badge info" key={s}>{names.get(s) ?? `Segment ${s}`}</span>)}
+      <div className="row" style={{ marginBottom: 10 }}>
+        {c.data?.segments.map((s) => (
+          <button type="button" className={`badge info seg-badge${why === s ? " on" : ""}`} key={s} onClick={() => setWhy(why === s ? null : s)} title="Why is this contact in this segment?">
+            {names.get(s) ?? `Segment ${s}`} <span className="xs">· why?</span>
+          </button>
+        ))}
       </div>
+      {segs.data && (
+        <div className="row" style={{ marginBottom: 12 }}>
+          <select className="select sm" value={askWhy} onChange={(e) => { setAskWhy(e.target.value); if (e.target.value) setWhy(Number(e.target.value)); }} aria-label="Check another segment">
+            <option value="">Why not in another segment?</option>
+            {segs.data.segments.filter((s) => s.kind === "rule" && !c.data?.segments.includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
+      {why !== null && <SegmentWhy externalId={externalId} segment={why} onClose={() => { setWhy(null); setAskWhy(""); }} />}
+      <div style={{ marginBottom: 22 }} />
 
       {contact && !merged && <StageAndCompany contact={contact} />}
       {contact && <TagsAndPoints contact={contact} />}
+      {contact && <CustomFields contact={contact} />}
       {contact && <ConsentPanel contact={contact} />}
       {contact && <ContactInbox externalId={contact.external_id} />}
 

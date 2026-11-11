@@ -342,7 +342,9 @@ func (s *Server) bumpScoring(ctx context.Context) {
 
 // ---- attribute definitions ----
 
-var attrTypes = map[string]bool{"string": true, "number": true, "boolean": true, "date": true}
+var attrTypes = map[string]bool{"string": true, "number": true, "boolean": true, "date": true, "list": true, "enum": true}
+
+const maxAttrOptions = 200
 
 // listAttributes returns the defined attributes and every other key seen on contacts.
 func (s *Server) listAttributes(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -390,10 +392,14 @@ func (s *Server) putAttribute(w http.ResponseWriter, r *http.Request, tenant int
 		writeErr(w, http.StatusBadRequest, "key: letters, digits and _, starting with a letter")
 		return
 	case !attrTypes[d.Type]:
-		writeErr(w, http.StatusBadRequest, "type must be string, number, boolean or date")
+		writeErr(w, http.StatusBadRequest, "type must be string, number, boolean, date, list or enum")
 		return
 	case len(d.Label) > 120 || len(d.Description) > 500:
 		writeErr(w, http.StatusBadRequest, "label or description too long")
+		return
+	}
+	if msg := checkOptions(&d); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
 	if err := s.audience().PutAttributeDef(r.Context(), tenant, d); err != nil {
@@ -401,6 +407,31 @@ func (s *Server) putAttribute(w http.ResponseWriter, r *http.Request, tenant int
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// checkOptions validates an enum field's options (trimmed, distinct, labelled) and clears them
+// for other types. It returns what's wrong, or "".
+func checkOptions(d *pg.AttributeDef) string {
+	if d.Type != "enum" {
+		if len(d.Options) > 0 {
+			return "only enum fields have options"
+		}
+		d.Options = nil
+		return ""
+	}
+	if len(d.Options) == 0 || len(d.Options) > maxAttrOptions {
+		return fmt.Sprintf("an enum field needs 1-%d options", maxAttrOptions)
+	}
+	seen := map[string]bool{}
+	for i := range d.Options {
+		o := &d.Options[i]
+		o.Value, o.Label = strings.TrimSpace(o.Value), strings.TrimSpace(o.Label)
+		if o.Value == "" || len(o.Value) > 200 || len(o.Label) > 120 || seen[o.Value] {
+			return "enum options must be distinct, non-empty and at most 200 characters"
+		}
+		seen[o.Value] = true
+	}
+	return ""
 }
 
 func (s *Server) deleteAttribute(w http.ResponseWriter, r *http.Request, tenant int64) {

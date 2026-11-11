@@ -1,5 +1,5 @@
 /* Segment builder: nested match boxes, filter rows and the filter picker. Uses the tokens from styles.css. */
-.fb { --fb-all: var(--ink-3); --fb-any: var(--ch-rcs); }
+.fb { --fb-all: var(--ink-3); --fb-any: var(--ch-rcs); --fb-none: var(--danger); }
 .fb-group {
   border: 1px solid var(--rule); border-left: 4px solid var(--fb-all); border-radius: var(--r-md);
   background: var(--surface); padding: 10px 12px 12px; margin: 0;
@@ -107,3 +107,9 @@
   .fp-rail button { white-space: nowrap; }
   .fp-rail button span { flex: none; }
 }
+
+/* "NONE of the following": an exclusion group. */
+.fb-group.none { border-left-color: var(--fb-none); }
+.fb-join.none { background: var(--fb-none); }
+.fb-none-hint { font-weight: 400; }
+.fb-sweep-note { margin: 4px 0 0; }

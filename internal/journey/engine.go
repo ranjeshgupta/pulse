@@ -371,7 +371,8 @@ func (s KafkaSender) Send(ctx context.Context, m model.Message) error {
 }
 
 // liveSource reports whether a membership change happened because of something the contact or a
-// user just did (an event, a list edit, a segment it depends on), rather than a backfill or sweep.
+// user just did (an event, a list edit, a segment it depends on), or a daily segment's rebuild
+// (its only way to change), rather than a backfill or sweep.
 func liveSource(src string) bool {
-	return src == "stream" || src == "dependent" || src == "manual"
+	return src == "stream" || src == "dependent" || src == "manual" || src == "daily"
 }

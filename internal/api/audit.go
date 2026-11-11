@@ -68,7 +68,7 @@ func (s *Server) audited(w http.ResponseWriter, r *http.Request, p model.Princip
 	path := r.Pattern[strings.IndexByte(r.Pattern, ' ')+1:]
 	objType, _, _ := strings.Cut(strings.TrimPrefix(path, "/v1/"), "/")
 	objID := r.PathValue("id")
-	for _, k := range []string{"external_id", "key"} {
+	for _, k := range []string{"external_id", "key", "name"} {
 		if objID == "" {
 			objID = r.PathValue(k)
 		}

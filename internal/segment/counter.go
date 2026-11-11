@@ -102,6 +102,27 @@ func SumWindow(buckets map[string]string, asOf time.Time, days int) int {
 	return total
 }
 
+// SumBetween adds the buckets from start to end, both UTC days included.
+func SumBetween(buckets map[string]string, start, end time.Time) int {
+	total := 0
+	for day := end.UTC(); !day.Before(start); day = day.AddDate(0, 0, -1) {
+		if n, err := strconv.Atoi(buckets[day.Format(dayLayout)]); err == nil {
+			total += n
+		}
+	}
+	return total
+}
+
+// Sum counts a window over buckets on asOf's day. It returns ErrNeedsSweep when the window
+// starts before the counters' history does.
+func (w Window) Sum(buckets map[string]string, asOf time.Time) (int, error) {
+	if !w.InCounters(asOf) {
+		return 0, ErrNeedsSweep
+	}
+	start, end := w.Bounds(asOf)
+	return SumBetween(buckets, start, end), nil
+}
+
 // BucketCounter is a Counter over buckets that were already fetched (event name -> day -> count),
 // so a batch can read every counter it needs in one pipeline.
 type BucketCounter struct {
@@ -109,8 +130,8 @@ type BucketCounter struct {
 	AsOf    time.Time
 }
 
-func (b BucketCounter) Count(_ context.Context, ev string, days int) (int, error) {
-	return SumWindow(b.Buckets[ev], b.AsOf, days), nil
+func (b BucketCounter) Count(_ context.Context, ev string, w Window) (int, error) {
+	return w.Sum(b.Buckets[ev], b.AsOf)
 }
 
 // RedisCounter is the Counter for one contact. It reads each event's hash at most once per
@@ -149,7 +170,10 @@ func (c *RedisCounter) Set(seg int64, in bool) {
 	c.known[seg] = in
 }
 
-func (c *RedisCounter) Count(ctx context.Context, ev string, days int) (int, error) {
+func (c *RedisCounter) Count(ctx context.Context, ev string, w Window) (int, error) {
+	if !w.InCounters(c.asOf) {
+		return 0, ErrNeedsSweep
+	}
 	buckets, ok := c.cache[ev]
 	if !ok {
 		var err error
@@ -159,5 +183,5 @@ func (c *RedisCounter) Count(ctx context.Context, ev string, days int) (int, err
 		}
 		c.cache[ev] = buckets
 	}
-	return SumWindow(buckets, c.asOf, days), nil
+	return w.Sum(buckets, c.asOf)
 }

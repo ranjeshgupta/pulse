@@ -94,6 +94,33 @@ SDK doesn't validate names itself).
 `anon-` visitor, never another known contact. Change those things from your server
 ([API guide](03-api.md)).
 
+### Sending event properties
+
+`props` can be any JSON object, nested objects and lists included. Name properties the way the
+workspace's event schemas describe them (Audience → Events; the suggested schemas use
+`product_code`, `product_name`, `product_category`, `value`, `currency`, `items`, `method`,
+`social_provider`, `payment_method`…), so segments and journeys get typed filters and the schema
+checks find nothing wrong:
+
+```js
+Pulse.track("add_to_cart", {
+  product_code: "KIT-101", product_name: "Cast iron skillet", product_category: "Kitchen",
+  price: 1899, quantity: 1, source: "web", landing_page: "/sale",
+});
+Pulse.track("purchase", {
+  order_id: "A-1001", value: 3798, currency: "INR", source: "web",
+  items: [{ product_code: "KIT-101", quantity: 2, price: 1899 }],
+});
+Pulse.track("signup", { method: "social", social_provider: "google" });
+Pulse.track("cart_abandoned", { product_code: "KIT-101", price: 1899, cart_value: 1899 });
+```
+
+Segments read nested properties by path: `items[].product_code` matches when any item has that code,
+`product.code` reads `{"product": {"code": …}}`. Browser events are never refused, even when the
+event's schema is in enforce mode: problems are counted and shown on the event's page instead. Keep
+personal data out of event properties where you can; a schema can mark a property personal so
+Pulse hides it in samples and value suggestions. Walk-through: [tutorial 12](../tutorials/12-events-and-properties.md).
+
 **Single-page apps.** `init` records one page view. On each client-side route change call
 `Pulse.page()`, then `Pulse.refresh()` so focus items and content slots match the new URL.
 

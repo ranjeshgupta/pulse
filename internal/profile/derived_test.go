@@ -110,7 +110,7 @@ func TestStampDates(t *testing.T) {
 }
 
 func TestDerivedAttributesAreReserved(t *testing.T) {
-	for _, k := range []string{"date_added", "date_identified", "date_modified", "email_domain", "owner_id", "owner_name", "sms_bounced",
+	for _, k := range []string{"date_added", "date_identified", "date_modified", "email_domain", "phone_country", "owner_id", "owner_name", "sms_bounced",
 		"device_type", "device_os", "device_os_version", "device_brand", "device_model", "browser", "app_version"} {
 		if !consent.IsReserved(k) {
 			t.Errorf("%s should be reserved", k)

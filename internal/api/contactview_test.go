@@ -128,7 +128,7 @@ func TestContactViewRuleCompiles(t *testing.T) {
 
 type inSegments map[int64]bool
 
-func (inSegments) Count(context.Context, string, int) (int, error) { return 0, nil }
+func (inSegments) Count(context.Context, string, segment.Window) (int, error) { return 0, nil }
 func (m inSegments) InSegment(_ context.Context, id int64) (bool, error) {
 	return m[id], nil
 }

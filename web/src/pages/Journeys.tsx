@@ -484,8 +484,8 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
       {m?.revenue && (
         <div className="figures" style={{ margin: "-8px 2px 22px" }}>
           <div><strong>{money(m.revenue.revenue, m.revenue.currency)}</strong><span>revenue from contacts in it <small>({m.revenue.event} within {m.revenue.days} days of a message)</small></span></div>
-          <div><strong><LiveNumber value={m.revenue.orders} /></strong><span>orders</span></div>
-          <div><strong><LiveNumber value={m.revenue.buyers} /></strong><span>buyers</span></div>
+          <div><strong><LiveNumber value={m.revenue.orders} /></strong><span>{m.revenue.orders === 1 ? "order" : "orders"}</span></div>
+          <div><strong><LiveNumber value={m.revenue.buyers} /></strong><span>{m.revenue.buyers === 1 ? "buyer" : "buyers"}</span></div>
         </div>
       )}
       {Object.entries(r?.splits ?? {}).map(([sid, sp]) => (

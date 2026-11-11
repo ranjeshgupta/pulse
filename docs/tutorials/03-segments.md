@@ -1,7 +1,9 @@
 # Tutorial 3: Segments
 
-In about 20 minutes you will build a dynamic segment with the rule builder, work with a static
-segment, see membership change in real time, and set up scoring and stages.
+In about 30 minutes you will build a dynamic segment with the rule builder, work with a static
+segment, see membership change in real time, and set up scoring and stages. Then you will use list
+and choice fields, phone country, date ranges and an Exclude group, and make a segment that changes
+only once a day.
 
 **You need:** tutorial 2 done (it imported the static segment **Pune store opening guests**), and
 access to edit segments (the **Admin** or **Editor** role).
@@ -15,7 +17,7 @@ A segment is a group of contacts you send to, start journeys from, or look at. T
 | | Dynamic | Static |
 |---|---|---|
 | Who is in it | Contacts who match its rules: attributes, events, tags, consent, other segments | Exactly the contacts you put in it |
-| How it changes | On its own, the moment an event or a profile change makes a contact match or stop matching | When you add or remove contacts: by hand, by importing a CSV, with a journey step, a form or the API |
+| How it changes | On its own, the moment an event or a profile change makes a contact match or stop matching (or once a day at a set time, section 9) | When you add or remove contacts: by hand, by importing a CSV, with a journey step, a form or the API |
 | Good for | "Bought twice this month in Pune", "VIPs who haven't opened in 90 days" | Event guests, a sales hand-off, a seed list |
 
 Go to **Segments** (under *Audience*). Every segment is listed with its **Type**, **Who's in it**
@@ -44,7 +46,7 @@ for ALL, **OR** for ANY.
 3. Click **+ Add filter**. The filter picker opens: a search box, the groups on the left (Contact,
    Company, Location, Device, Consent & deliverability, Behaviour: messages / web / forms & assets
    / journeys / any event, Points & stage, Segments & tags), and your six most recently used filters
-   first. Type `city`.
+   first. Fields you defined show their type after the name (*list*, *choice*, …). Type `city`.
 
    ![The filter picker searched for city: City (from your data) and City (from IP) under Location](img/03-picker.png)
 4. Click **City** (or press **Enter**). A row appears: **City** · **is** · a value box.
@@ -57,7 +59,9 @@ The comparisons follow the field's type, so define your fields first (tutorial 2
 | Text | is, is not, contains, doesn't contain, starts with, ends with, is one of, is not one of, is empty, is not empty. The value box suggests values your contacts have |
 | Number | is, is not, is greater than, is at least, is less than, is at most, is between, is empty, is not empty |
 | Yes / no | is or is not, then **yes** or **no**; also is set, is not set |
-| Date | is in the last … days, is more than … days ago, is on, is before, is after, is set, is not set |
+| Date | is in the last … days, is more than … days ago, is on, is before, is after, is between (two dates), is set, is not set |
+| List (e.g. Products) | has, doesn't have, is empty, is not empty |
+| Choice (e.g. Loyalty tier) | is, is not, is one of, is not one of, is empty, is not empty, with a drop-down of the field's options |
 | Stage, company, owner | is, is not, is set, is not set, with a list of your own stages, companies or teammates |
 
 To change a filter, click its field button (here **City**) and pick another one; **×** at the end of
@@ -75,10 +79,14 @@ Behaviour filters count events: "did *this* at least *N* times in the last *N* d
    |---|---|
    | Event | Ready-made events grouped as Email; SMS, WhatsApp, RCS; Push, inbox and in-app; Web; Forms, assets, journeys, consent. **Another event…** for your own events such as `purchase` |
    | How often | **at least**, **more than**, **exactly**, **fewer than**, **at most**, **never** |
-   | Window | 1 to 365 days |
+   | When | **in the last** 1 to 365 **days**, **between** two days, or **since** a day (section 8) |
 
    **+ Only count events where…** narrows the count by an event property, e.g. `amount` **is
-   greater than** `1000` (up to 5 per filter).
+   greater than** `1000` (up to 5 per filter). Nested values take a dotted path (`product.code`), and
+   `items[].product_code` matches when **any** item of the `items` list has the value. When the event
+   is described by a schema ([tutorial 12](12-events-and-properties.md)), the property box suggests
+   its properties and the comparison follows their type: a drop-down of allowed values, numbers,
+   dates.
 
 ### Add a nested group
 
@@ -94,6 +102,8 @@ Behaviour filters count events: "did *this* at least *N* times in the last *N* d
    resend), **Received an SMS**, **Read a WhatsApp message**, and more. In a message filter, the
    first drop-down chooses **the email** (a template), **from campaign**, **not from campaign**,
    **from journey** or **not from journey**.
+
+Next to **+ Add group** is **+ Exclude (none of)**, for contacts to leave out (section 8).
 
 Groups can be nested inside groups, up to 7 levels. **Remove group** deletes a group with its
 filters; removing the last filter of a nested group removes the group too.
@@ -114,6 +124,9 @@ segment now** shows how many contacts are in it. **Last rebuilt** says when it w
 from scratch.
 
 ![The saved segment Pune shoppers to thank: Live, 7 contacts in it, and View contacts highlighted](img/03-segment-saved.png)
+
+Under the rule, **Refresh** is **Live: contacts join and leave as events arrive (default)**; section
+9 shows the other choice, **Daily at a set time**.
 
 To change a dynamic segment later, open it, edit the rule and click **Save segment**: Pulse
 rebuilds it. **Delete** asks you to confirm; journeys that start from it stop enrolling.
@@ -142,6 +155,13 @@ The same happens with events: a Pune VIP's second `purchase` in 30 days puts the
 shoppers to thank** at once. Leaving because time passes ("in the last 30 days" no longer holds) is
 checked on a schedule instead, every 5 minutes by default (`PULSE_SWEEP_INTERVAL`). Journeys that
 start when a contact enters a segment react at the moment the contact joins.
+
+Two exceptions: an event filter whose period starts more than a year ago is checked by that sweep,
+not at once (section 8), and a segment set to refresh **daily** changes only at its set time
+(section 9).
+
+To see why a contact is in a segment, or why not, open the contact and click the segment's
+**· why?** ([tutorial 2](02-contacts.md#why-is-this-contact-in-a-segment)).
 
 ## 5. Static segments
 
@@ -220,10 +240,89 @@ contact's stage** step, through the API, or automatically when their points reac
 threshold only moves contacts forward, to the furthest stage they reach, never back. Segments use
 the **Stage** filter (group **Points & stage**); the contact list uses `stage:Lead`.
 
+## 8. More filters: lists, choices, phone country, dates, Exclude
+
+We'll build **Gold skillet buyers, morning send**: Gold members who bought the skillet `KIT-101`,
+with an Indian mobile number, leaving out anyone who bought in the last 7 days.
+
+1. **New segment** → **Dynamic** → **Continue**, and type the name.
+2. **+ Add filter** → search `loyalty` → **Loyalty tier** (a choice field). Keep **is** and pick
+   **Gold (gold)** in the drop-down: the options' labels, with the value in brackets.
+3. **+ Add filter** → **Products** (a list field). Keep **has** and type `KIT-101`. **doesn't
+   have** is the opposite; **is empty** means no values at all.
+4. **+ Add filter** → **Phone country** (group *Location*). Keep **is** and type `IN`.
+5. Click **+ Exclude (none of)** under the main box. A box with a red edge appears: **Leave out
+   contacts who match NONE of the following**, *a contact matching any of these is excluded*. Its
+   picker opens: pick **Did an event**, type `purchase` and set **in the last** `7` days.
+
+![The rule: Loyalty tier is Gold, Products has KIT-101, Phone country is IN, and a NONE group leaving out contacts who did purchase in the last 7 days; Refresh Daily at 06:00 Asia/Kolkata; 6 contacts would match](img/03-lists-exclude.png)
+
+The **In words** box reads *… and none of (did purchase at least 1× in 7 days)*. Any group can be
+set to **NONE** with its drop-down (next to **ALL** and **ANY**); **+ Exclude (none of)** is the
+quick way. A NONE group can hold several filters and groups: a contact matching **any** of them is
+left out.
+
+### Lists, choices and phone country
+
+- **List** fields, such as **Products** (filled from purchases, see
+  [tutorial 12](12-events-and-properties.md#11-fill-a-contacts-list-from-events)), work like tags:
+  **has** / **doesn't have** one value.
+- **Choice** fields, such as **Loyalty tier**, offer their options in a drop-down; **is one of**
+  takes several.
+- **Phone country** is the two-letter country code of the contact's mobile number (`IN`, `GB`,
+  `US`, `AE`, …). Pulse sets it from the number's country code, only for numbers written with `+` or
+  `00`.
+
+Define list and choice fields in **Settings → Contact fields** ([tutorial 2](02-contacts.md#list-and-choice-fields)).
+
+### Dates and periods
+
+Date fields such as **Date added** have **is between**, two dates, both included. Event filters have
+three periods in the **When** drop-down:
+
+| When | Counts events |
+|---|---|
+| **in the last** N **days** | in a rolling window, 1 to 365 days |
+| **between** a first and a last day | on those days, both included (days in UTC) |
+| **since** a day | from that day until now |
+
+![Date added is between 1 Sept and 30 Nov 2026, and did purchase at least 1 time since 1 Jan 2025, with the note that the range is checked by the periodic sweep](img/03-dates.png)
+
+A period that starts more than a year ago shows a note: *This range starts more than a year ago, so
+it is checked by the periodic sweep (every few minutes) rather than the moment an event arrives.*
+The segment is still right; contacts just join or leave a few minutes later.
+
+## 9. Refresh: live or daily
+
+By default a dynamic segment is **Live**: contacts join and leave as events arrive. For a daily
+send that must not change during the day (a morning SMS list, a report), choose a daily refresh:
+
+1. Under the rule, in **Refresh**, choose **Daily at a set time**.
+2. Set the time, e.g. `06:00`, and the time zone, e.g. **Asia/Kolkata**.
+
+   ![Refresh: Daily at a set time, 06:00, Asia/Kolkata; members change only at this time each day](img/03-refresh.png)
+3. Click **Create segment** (or **Save segment**).
+
+Pulse fills the segment once now. After that, its members change only at that time each day,
+whatever happens in between. The segment's page shows **Next refresh**, and the list says
+**Refreshed daily at 06:00 (Asia/Kolkata)** under the rule:
+
+<img src="img/03-daily-saved.png" alt="The saved daily segment: 6 contacts, Live, last rebuilt just now, next refresh 06:00 tomorrow" width="380">
+
+![The segment in the list: Refreshed daily at 06:00 (Asia/Kolkata)](img/03-daily-list.png)
+
+A contact who starts matching during the day joins at the next refresh; the contact's **· why?**
+says so. Switch back to **Live** and save to follow every event again.
+
 ## What you have now
 
 - A dynamic segment, **Pune shoppers to thank**, built with a nested group and a behaviour filter
 - A static segment you can add to by ID or by import
 - A scoring rule, and an idea of how points move contacts through stages
+- A daily segment, **Gold skillet buyers, morning send**, with list and choice fields, phone country
+  and an Exclude group
+
+**More:** [tutorial 12](12-events-and-properties.md) describes events and their properties, for
+typed property filters.
 
 **Next:** Tutorial 4, Channels: connect email, SMS, WhatsApp, RCS and push, and send a test.

@@ -7,6 +7,9 @@
 //	go run ./cmd/seed -api http://localhost:7080                     # make seed: "Demo Retail"
 //	go run ./cmd/seed -workspace "Acme Retail" -email docs.admin@pulse.test \
 //	    -password pulse-docs-pass-1 -if-exists acme-retail             # make docs-seed
+//
+// With -if-exists, an existing workspace only gets what later versions of the seed add (event
+// schemas and property-rich events, once), so the docs workspace keeps up without being rebuilt.
 package main
 
 import (
@@ -80,7 +83,11 @@ func main() {
 
 	if *ifExists != "" {
 		if _, code, _ := try("POST", "/v1/auth/login", map[string]any{"workspace": *ifExists, "email": *email, "password": *password}); code == http.StatusOK {
-			fmt.Printf("workspace %s already exists and %s can sign in: nothing to do\n", *ifExists, *email)
+			if eventData() {
+				fmt.Printf("workspace %s already exists: added event schemas and property-rich events\n", *ifExists)
+			} else {
+				fmt.Printf("workspace %s already exists and %s can sign in: nothing to do\n", *ifExists, *email)
+			}
 			return
 		}
 	}
@@ -93,6 +100,7 @@ func main() {
 	c := content()
 	time.Sleep(3 * time.Second) // let workers pick up the new segments and journeys
 	activity(c)
+	eventData()
 	time.Sleep(8 * time.Second) // let segments fill before broadcasts pick their audiences
 	broadcasts(c)
 	fmt.Printf("seeded %d contacts. Sign in at %s/login with workspace %v (credentials in deploy/dev-seed.md)\n", *contacts, *apiURL, slug)
@@ -355,4 +363,99 @@ func broadcasts(s seeded) {
 	call("POST", fmt.Sprintf("/v1/broadcasts/%v/schedule", id(later)), nil)
 	call("POST", "/v1/broadcasts", map[string]any{"name": "Order updates in the app inbox", "channel": "inbox", "template_id": s.inbox,
 		"segment_id": s.webinar, "start_at": rfc(time.Now().Add(24 * time.Hour).Truncate(time.Hour)), "repeat": "weekly"})
+}
+
+// eventData adds the suggested event schemas, a "Loyalty tier" choice field, and a history of
+// e-commerce events with properties (products, payment methods, sign-up methods) for the seeded
+// contacts, including a few that don't fit their schema so the Events page shows problems. It
+// does nothing when the workspace already has a purchase schema, and reports whether it ran.
+func eventData() bool {
+	list := call("GET", "/v1/events/schemas", nil)
+	for _, sc := range list["schemas"].([]any) {
+		if sc.(map[string]any)["name"] == "purchase" {
+			return false
+		}
+	}
+	call("POST", "/v1/events/schemas/suggested", map[string]any{})
+	call("PUT", "/v1/attributes/loyalty_tier", map[string]any{"label": "Loyalty tier", "type": "enum",
+		"options": []any{map[string]any{"value": "bronze", "label": "Bronze"}, map[string]any{"value": "silver", "label": "Silver"}, map[string]any{"value": "gold", "label": "Gold"}}})
+	time.Sleep(2 * time.Second) // the profile role reloads schemas (list fields fill from purchases)
+
+	rng := rand.New(rand.NewSource(12))
+	products := []struct {
+		code, name, category string
+		price                int
+	}{
+		{"KIT-101", "Cast iron skillet", "Kitchen", 1899}, {"KIT-204", "Chef's knife", "Kitchen", 2499},
+		{"DEC-310", "Brass table lamp", "Lighting", 3299}, {"DEC-115", "Jute rug", "Home decor", 4599},
+		{"BED-220", "Cotton bedsheet set", "Bedding", 1599}, {"BED-404", "Memory foam pillow", "Bedding", 1299},
+	}
+	methods := []string{"upi", "card", "netbanking", "wallet", "cod"}
+	gateways := []string{"razorpay", "payu", "cashfree"}
+	now := time.Now()
+	var evs []map[string]any
+	flush := func() {
+		if len(evs) > 0 {
+			call("POST", "/v1/events", map[string]any{"events": evs})
+			evs = nil
+		}
+	}
+	for i := 1; i <= *contacts; i++ {
+		ext := fmt.Sprintf("cust-%04d", i)
+		ts := now.Add(-time.Duration(rng.Int63n(int64(60*24*time.Hour))) - 3*time.Hour)
+		add := func(name string, props map[string]any) {
+			ts = ts.Add(time.Duration(5+rng.Intn(600)) * time.Minute)
+			if ts.After(now) {
+				ts = now
+			}
+			evs = append(evs, map[string]any{"external_id": ext, "name": name, "ts": rfc(ts), "props": props})
+		}
+		attrs := map[string]any{"loyalty_tier": []string{"bronze", "silver", "gold"}[rng.Intn(3)]}
+		if i%9 == 0 { // a few customers abroad, for phone_country
+			attrs["phone"] = []string{"+447700900123", "+14155550142", "+971501234567"}[rng.Intn(3)]
+		}
+		evs = append(evs, map[string]any{"external_id": ext, "name": "identify", "ts": rfc(ts), "attrs": attrs})
+		switch rng.Intn(4) {
+		case 0:
+			p := map[string]any{"method": "social", "social_provider": []string{"google", "facebook", "apple", "linkedin"}[rng.Intn(4)]}
+			if i%37 == 0 {
+				delete(p, "social_provider") // a sign-up that doesn't fit its schema
+			}
+			add("signup", p)
+		case 1:
+			add("signup", map[string]any{"method": []string{"otp", "password"}[rng.Intn(2)]})
+		}
+		if rng.Intn(2) == 0 {
+			add("login", map[string]any{"method": []string{"otp", "password", "social"}[rng.Intn(3)], "social_provider": "google"})
+		}
+		for k := rng.Intn(4); k > 0; k-- {
+			p := products[rng.Intn(len(products))]
+			src := []string{"web", "app"}[rng.Intn(2)]
+			add("add_to_cart", map[string]any{"product_code": p.code, "product_name": p.name, "product_category": p.category,
+				"price": p.price, "quantity": 1 + rng.Intn(2), "source": src, "landing_page": []string{"/", "/sale", "/kitchen"}[rng.Intn(3)]})
+			switch rng.Intn(3) {
+			case 0:
+				add("cart_abandoned", map[string]any{"product_code": p.code, "product_name": p.name, "product_category": p.category,
+					"price": p.price, "cart_value": p.price * (1 + rng.Intn(2))})
+			case 1:
+				add("checkout_abandoned", map[string]any{"product_code": p.code, "product_name": p.name, "product_category": p.category,
+					"price": p.price, "cart_value": p.price, "payment_method": methods[rng.Intn(len(methods))],
+					"payment_gateway": gateways[rng.Intn(len(gateways))], "failure_reason": []string{"payment declined", "OTP timeout", "user cancelled"}[rng.Intn(3)]})
+			default:
+				qty := 1 + rng.Intn(2)
+				value := any(p.price * qty)
+				if i%41 == 0 {
+					value = fmt.Sprint(value) // a purchase whose value is text: a schema problem
+				}
+				add("purchase", map[string]any{"order_id": fmt.Sprintf("ORD-%d-%d", i, k), "product_code": p.code, "product_name": p.name,
+					"product_category": p.category, "value": value, "amount": p.price * qty, "currency": "INR", "quantity": qty, "source": src,
+					"affiliation": "Acme Online", "items": []any{map[string]any{"product_code": p.code, "quantity": qty, "price": p.price}}})
+			}
+		}
+		if len(evs) > 400 {
+			flush()
+		}
+	}
+	flush()
+	return true
 }

@@ -38,7 +38,7 @@ func ValidateFunnel(steps []FunnelStep, windowDays int) error {
 			return fmt.Errorf("step %d: at most %d property filters", i+1, maxWhere)
 		}
 		for _, f := range st.Where {
-			if !attr.ValidKey(f.Prop) {
+			if !ValidPath(f.Prop) {
 				return fmt.Errorf("step %d: invalid property name %q", i+1, f.Prop)
 			}
 			if err := validCompare(fmt.Sprintf("step %d property %q", i+1, f.Prop), f.Op, f.Value); err != nil {

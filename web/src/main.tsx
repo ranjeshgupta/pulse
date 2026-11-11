@@ -22,6 +22,7 @@ import { DWCEdit, FocusEdit } from "./pages/OnSite";
 import { InAppEdit } from "./pages/InApp";
 import { OnSiteList } from "./pages/OnSiteHub";
 import { SegmentEdit, SegmentList } from "./pages/Segments";
+import { EventDetail, EventList } from "./pages/Events";
 import { Access, Attributes, Scoring, Team } from "./pages/Settings";
 import { Roles } from "./pages/Roles";
 import { AuditLog } from "./pages/Audit";
@@ -68,6 +69,8 @@ const router = createBrowserRouter([
       { path: "companies/:id", element: <CompanyDetail /> },
       { path: "segments", element: <SegmentList /> },
       { path: "segments/:id", element: <SegmentEdit /> },
+      { path: "events", element: <EventList /> },
+      { path: "events/:name", element: <EventDetail /> },
       { path: "journeys", element: <JourneyList /> },
       { path: "journeys/:id", element: <JourneyEdit /> },
       { path: "broadcasts", element: <BroadcastList /> },

@@ -6,8 +6,8 @@ Step-by-step guides for using Pulse, written against the app as it is. Each one 
 | # | Tutorial | You will |
 |---|---|---|
 | 1 | [Getting started](01-getting-started.md) | Create a workspace, add teammates and roles, connect your website, see your first contacts |
-| 2 | [Contacts](02-contacts.md) | Import a CSV, contact fields, filters like `is:anonymous`, save a view as a segment |
-| 3 | [Segments](03-segments.md) | Dynamic and static segments, the rule builder, View contacts |
+| 2 | [Contacts](02-contacts.md) | Import a CSV, contact fields (including lists and choices), filters like `is:anonymous`, save a view as a segment, why a contact is in a segment |
+| 3 | [Segments](03-segments.md) | Dynamic and static segments, the rule builder, Exclude groups, date ranges, daily refresh, View contacts |
 | 4 | [Channels](04-channels.md) | Connect email, SMS, WhatsApp, RCS and push; preview, send test, the test inbox |
 | 5 | [Templates and content](05-templates-and-content.md) | The editor, landing pages, forms (multi-page, uploads), assets |
 | 6 | [Your first journey](06-journeys.md) | A welcome series with a decision, a wait and a condition; delete or archive journeys |
@@ -16,6 +16,7 @@ Step-by-step guides for using Pulse, written against the app as it is. Each one 
 | 9 | [Integrations](09-integrations.md) | HubSpot or Salesforce, Shopify, Zapier, ad audiences |
 | 10 | [Analytics](10-analytics.md) | Reports (with CSV export), funnels, cohorts, revenue |
 | 11 | [Admin and privacy](11-admin-and-privacy.md) | Consent, retention, a person's data (download, delete), audit log export, single sign-on |
+| 12 | [Events and their properties](12-events-and-properties.md) | The Events page, event schemas (types, allowed values, dependent properties), sending properties from a website or server, problems and Enforce, property filters in segments and journeys |
 
 The examples use a local Pulse at `http://localhost:7080`. On your own server, use its address instead.
 

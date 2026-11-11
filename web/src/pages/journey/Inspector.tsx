@@ -2,7 +2,7 @@
 // Start (trigger, re-entry, goal, schedule).
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { CHANNEL_NAMES, CHANNELS, type Channel, type JourneyGraph, type JourneyNode, type Rule, type Segment, type SplitDecision, type SplitWinner, type Template } from "../../api";
+import { CHANNEL_NAMES, CHANNELS, type Channel, type JourneyGraph, type JourneyNode, type PropFilter, type Rule, type Segment, type SplitDecision, type SplitWinner, type Template } from "../../api";
 import {
   DEVICE_TYPES, DNC_CHANNELS, FORM_FIELD_OPS, groupOf, MAX_JUMPS, nodeChannel, OUTCOME_WORDS, OUTCOMES, outputs, sendSteps, share,
   SLOT_RE, STEP_GROUPS, stepLabel, TRIGGER_ID, upstream, winnerProblem, type Outcome,
@@ -10,9 +10,9 @@ import {
 import { itemForNode } from "../../journeyCatalog";
 import { TemplateActions } from "../../messagePreview";
 import { describeWindow, fromLocalInput, ScheduleFields, toLocalInput } from "../../schedule";
-import { OP_LABELS, problems as ruleProblems, rootFromRule, toRule, type AttrOp } from "../../segmentRules";
+import { filtersFromWhere, OP_LABELS, problems as ruleProblems, rootFromRule, toRule, whereFromFilters, type AttrOp, type Where } from "../../segmentRules";
 import { Field } from "../../ui";
-import { GroupEditor } from "../SegmentBuilder";
+import { GroupEditor, PropertyFilters } from "../SegmentBuilder";
 import type { Pickers } from "./data";
 import { JIcon } from "./icons";
 import {
@@ -504,9 +504,12 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
           {forms.length === 0 && <Note>No forms yet. <Link to="/forms/new">Create one</Link></Note>}
         </>
       ) : (
-        <Field label="Event name" hint="Exactly as your app sends it, e.g. signup or cart_abandoned.">
-          <input className="input" value={t.event ?? ""} onChange={(e) => setT({ event: e.target.value.trim() })} />
-        </Field>
+        <>
+          <Field label="Event name" hint="Exactly as your app sends it, e.g. signup or cart_abandoned.">
+            <input className="input" value={t.event ?? ""} onChange={(e) => setT({ event: e.target.value.trim() })} />
+          </Field>
+          <TriggerFilters event={t.event ?? ""} filters={t.where} onChange={(where) => setT({ where: where.length ? where : undefined })} />
+        </>
       )}
       <h4 className="small" style={{ margin: "18px 0 8px" }}>Entering again</h4>
       <Field label="A contact who has been through this journey">
@@ -530,6 +533,21 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
       <ScheduleFields stacked start={win.start_at} end={win.end_at} onChange={setWin} startLabel="Contacts can enter from" />
       <p className="xs muted">Contacts already inside keep going after the end.</p>
     </fieldset>
+  );
+}
+
+// TriggerFilters: property conditions an event must meet to start the journey ("only when
+// payment_method is upi"). The edited rows stay local so half-typed values aren't lost.
+function TriggerFilters({ event, filters, onChange }: { event: string; filters?: PropFilter[]; onChange: (f: PropFilter[]) => void }) {
+  const [where, setWhere] = useState<Where[]>(() => whereFromFilters(filters));
+  const issues = where.length && event ? ruleProblems({ kind: "event", event, op: "gte", count: 1, days: 1, where }).filter((p) => !p.startsWith("Enter an event")) : [];
+  const set = (w: Where[]) => { setWhere(w); onChange(filtersFromWhere(w)); };
+  return (
+    <div className="insp-where">
+      <PropertyFilters event={event} where={where} onChange={set} />
+      {issues.length > 0 && <ul className="xs" style={{ color: "var(--danger)", margin: "6px 0 0" }}>{[...new Set(issues)].map((p) => <li key={p}>{p}</li>)}</ul>}
+      <p className="xs muted">Leave empty to start on every {event || "event"}. Paths reach nested properties: product.code, or items[].code for any item.</p>
+    </div>
   );
 }
 

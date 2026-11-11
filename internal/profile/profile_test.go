@@ -171,7 +171,7 @@ func TestHandleEnrichesAndCountsOnce(t *testing.T) {
 	if string(pub.recs[0].Key) != "1:1" || pub.recs[0].Topic != event.TopicEnriched {
 		t.Errorf("record key/topic = %s/%s", pub.recs[0].Key, pub.recs[0].Topic)
 	}
-	n, err := segment.NewRedisCounter(rdb, 1, 1, ts).Count(ctx, "purchase", 1)
+	n, err := segment.NewRedisCounter(rdb, 1, 1, ts).Count(ctx, "purchase", segment.Window{Days: 1})
 	if err != nil || n != 1 {
 		t.Errorf("purchase count = %d (err %v), want 1", n, err)
 	}
@@ -254,7 +254,7 @@ func TestIdentityMerge(t *testing.T) {
 	if anon.Attrs["merged_into"] != "u1" || !out[1].NewContact {
 		t.Errorf("visitor = %v; merged event should re-evaluate every segment", anon.Attrs)
 	}
-	if n, _ := segment.NewRedisCounter(rdb, 1, known.ID, ts).Count(ctx, "view", 1); n != 2 {
+	if n, _ := segment.NewRedisCounter(rdb, 1, known.ID, ts).Count(ctx, "view", segment.Window{Days: 1}); n != 2 {
 		t.Errorf("known contact's view count = %d, want the visitor's 2", n)
 	}
 	if mr.Exists(segment.CounterKey(1, anon.ID, "view")) {

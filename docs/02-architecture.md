@@ -2,7 +2,8 @@
 
 Pulse is a multi-tenant, real-time marketing automation platform written in Go on Kafka, ClickHouse, Postgres and Redis.
 The design targets 10–100M contacts and 10k–100k events/sec. This document covers the overall design and the
-contracts the code in this repository implements, from Phase 1 through batch 9.
+contracts the code in this repository implements, from Phase 1 through batch 9 and the marketing
+team's milestone M1 (events and segments).
 
 ## Pipeline
 
@@ -74,6 +75,7 @@ consent, tags and points directly (imports).
 | `device_type`, `device_os`, `device_os_version`, `device_brand`, `device_model`, `browser`, `app_version` | `identify`, `page_view`, `screen_view`, `session_start` | last-seen device from the event's flat props (`device_type`, `os`, `os_version`, `device_brand`, `device_model`, `browser`, `app_version`, each at most 100 characters). An event naming a device (`device_type` or `os`) replaces the whole device, so a phone's model never sticks to a desktop visit |
 | `locale` | the same events (`props.locale`) | not reserved: a server or import may set it, and an event's own `attrs.locale` wins over its props |
 | `owner_id`, `owner_name` | `owner_changed {owner_id, owner_name}` | only from `PUT /v1/contacts/{external_id}/owner {"user_id": N}` (0 unassigns); the user must belong to the workspace |
+| `phone_country` | any event that sets `phone` (or the next event of a contact whose phone predates it) | ISO 3166 code of the number's country code (`+91…` → IN, `0044…` → GB), from `github.com/nyaruka/phonenumbers`; only numbers written with `+` or `00` are placed, a national number removes it |
 | `sms_bounced` | `sms_failed` with `props.bounce` (attrs from the dispatcher) | like `email_bounced`: SMS to the contact is suppressed; sticky on merge; a server may clear it, and a new `phone` clears it |
 
 - **Unsubscribe method.** The profile role adds `props.method` to every `unsubscribed` event that lacks a valid one:
@@ -127,12 +129,34 @@ Segments are a JSON AST:
 ] }
 ```
 
-- Groups: `all` and `any`, nestable (8 levels, 200 nodes). Attribute ops: see the second "Segment rules" section below. Event ops: `eq ne gt gte lt lte` on `count`.
-- **Window semantics:** `days: N` means *today plus the previous N−1 calendar days, in UTC*. Both compilers use this definition.
+- Groups: `all`, `any` and `none` (matches when no child does; SQL `NOT (a OR b)`, exact because
+  every leaf compiles to a non-NULL condition), nestable (8 levels, 200 nodes). Attribute ops: see the second "Segment rules" section below. Event ops: `eq ne gt gte lt lte` on `count`.
+- **Window semantics:** `days: N` means *today plus the previous N−1 calendar days, in UTC*; `from`/`to`
+  (instead of `days`) is an absolute range of UTC days, both included, cut at today (`segment.Window.Bounds`).
+  Both compilers use these definitions. Counters keep 365 days (`segment.CounterDays`); a range starting
+  earlier makes `Counter.Count` return `segment.ErrNeedsSweep`, and `Rule.SweepOnly(now)` keeps such a
+  segment out of the streaming index (checked at every 2 s index refresh), so the sweep alone
+  evaluates it. Journey `check` conditions refuse such ranges when saved.
 - Compiler 1, **`segment.Eval`**: a Go predicate over (attrs, counter reader). It's used per event by the streaming path.
 - Compiler 2, **`segment.ToSQL`**: ClickHouse SQL with bound parameters, which returns matching contact ids. It's used by backfill and sweeps.
 - `segment.Refs` lists the event names and attribute keys a rule reads. The segment engine keeps an inverted index from refs to segments, so an
   event only triggers evaluation of the segments that could change.
+
+- **Property paths.** A property filter's `prop` is a name, a dotted path into nested objects
+  (`product.code`, up to 4 parts) or a path through one list (`items[].code`): true when any item
+  passes; a missing, empty or non-list value is one missing value (`segment.ParsePath`, `MatchProps`).
+  In SQL each path becomes variadic `JSONType`/`JSONExtract*(props, k1, k2…)` lookups; a list path is
+  `if(empty(JSONExtractArrayRaw(props, …)), <Go's result for a missing value>, arrayExists(x -> …))`.
+- **List fields** (`has` / `not_has`) read a JSON array (or a string holding one) like ClickHouse's
+  `JSONExtract(x, 'Array(String)')`, scalars as their canonical strings (`segment.ListValues`).
+  Date `between` takes two dates.
+- **Daily refresh.** `segments.refresh` `{"mode":"daily","at":"HH:MM","tz":…}` (NULL = live). Daily
+  segments stay out of the streaming index; `ClaimSegmentWork` claims one whose `next_refresh_at` has
+  come (leasing it 10 minutes) after backfills and before sweeps, the engine rebuilds it with source
+  `daily` (treated as live by journeys) and stores the next time (`Refresh.Next`); sweeps and the
+  post-backfill catch-up skip daily segments.
+- **Explain.** `segment.Explain` evaluates every node (no short cuts) for one contact with the live
+  counters, for `GET /v1/contacts/{id}/segments/{id}/explain`.
 
 ### Streaming path (per event)
 1. Load the candidate segments from the index for (tenant, event name) and for (tenant, the attribute keys this event changed).
@@ -163,7 +187,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
     "x":  { "type": "exit" } } }
 ```
 
-- Triggers: `segment_entered` (optionally ignoring backfill), `event` (by name) and `form_submitted` (any form, or
+- Triggers: `segment_entered` (optionally ignoring backfill), `event` (by name, with optional `where` property
+  filters checked by `Trigger.MatchesEvent` with `segment.MatchProps`) and `form_submitted` (any form, or
   `form_id`; indexed under the `form_submitted` event and filtered on `props.form_id`; the submission is recorded on
   the enrollment for `if_form_field`).
 - **Loading journeys.** Each journey worker keeps an index of active journeys (by trigger segment and event), rebuilt
@@ -381,7 +406,10 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv2`)
   from `events`, for reports.
 
-Migrations: `migrations/postgres/001`–`018` and `migrations/clickhouse/001`–`004`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
+- `events.product_code` and `events.product_category`: MATERIALIZED columns from the props (migration
+  005), for product reports.
+
+Migrations: `migrations/postgres/001`–`020` and `migrations/clickhouse/001`–`005`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
 migrate one at a time.
 
 ## Public pages and origins
@@ -543,3 +571,38 @@ These run on raw events today and are fine into the hundreds of millions of rows
 - Breakdowns and attribute groups join the contacts snapshot; a narrow `(tenant, id, key, value)` table for frequently used
   attributes (or a dictionary) would avoid reading the attrs map.
 - Report builder sums use events as stored, so a redelivered event can count twice until ClickHouse merges its copies.
+
+## Event schemas (M1)
+
+`internal/eventschema` describes the properties each event carries and checks events against them;
+`internal/api/events.go` serves Audience → Events.
+
+- **Storage.** `event_schemas(tenant_id, name, label, description, mode, props jsonb, updated_at)`
+  (migration 020). A property: `key`, `path` (a property path, see segment rules), `type` (string,
+  number, bool, date, enum, list, object), `required`, enum `values` with labels, `depends_on {prop,
+  values}` (applies, and is required, only when another property has one of those values; one level,
+  no list paths), `personal`, `add_to_list` (a list contact field; created by the API when missing).
+  `Schema.Normalize` validates and is run again by every cache load.
+- **Cache.** `eventschema.Cache` holds every workspace's schemas in the roles that check events
+  (profile, api). Like `scoring:v`, it reloads when the Redis key `eventschemas:v` changes (read at
+  most once a second) or every 5 minutes; the API bumps it on every change and invalidates its own
+  copy. An event without a schema costs one map lookup (the tenant's map is fetched once per batch).
+- **Checks.** Modes `off` (documentation), `warn` (default) and `enforce`. The profile role checks
+  every event that has a schema in warn or enforce mode (`Schema.Check`: missing, type, enum,
+  not_applicable) and counts, per batch and pipeline, into `evv:{tenant}:{event}:{day}` (fields
+  `checked`, `bad`, `refused`, `<code>:<prop>`; 35 days; days are when the check happened) and the
+  latest 20 bad events into `evvs:{tenant}:{event}` (14 days; props without personal properties,
+  cut at 2 KB). Counting is best effort (a retried batch can count twice) and never fails a batch.
+  `POST /v1/events` refuses the whole request with 400 when an event doesn't fit a schema in enforce
+  mode, counting it as `refused`; browser and SDK routes never refuse. Switching to enforce needs
+  `confirm: "ENFORCE"` and settings edit.
+- **List adds.** The profile role adds `add_to_list` values (canonical strings, deduplicated, the
+  newest 200 kept) to the event's `attrs` before merging, so the change is ordered with the contact's
+  other events like any attribute.
+- **Catalog.** `GET /v1/events/catalog` (ClickHouse: count, `uniq(contact_id)`, `max(ts)` per name for
+  30 days, cached 2 minutes in Redis, merged with schemas and 7-day problem totals) and
+  `GET /v1/events/{name}/summary` (daily volume, properties discovered from the first 500 rows of 30
+  days by `eventschema.Discover`, with example values hidden for personal properties, and 14 days of checks).
+- **Starter schemas** (`eventschema.Suggested`): purchase (adds `product_code` and
+  `items[].product_code` to `products`), signup and login (`method` → `social_provider`), add_to_cart,
+  cart_abandoned, checkout_abandoned.

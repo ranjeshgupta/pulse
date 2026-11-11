@@ -33,16 +33,16 @@ Gupshup gets SMS, WhatsApp and RCS.
 | 3 | Dashboard by campaign / communication | Partial: per-campaign reports only | M4 |
 | 4 | Reporting of everything | Partial: no failure reasons, deliverability, segment growth | M4 |
 | 5 | Publish / unpublish times | Already (broadcasts, journeys, on-site, landing pages) | M3 adds a send deadline |
-| 6 | Wrong users get emails | Already (real-time membership, two compilers checked against each other) | M1 adds "why is this contact in this segment" |
+| 6 | Wrong users get emails | Already (real-time membership, two compilers checked against each other) | M1 ✅ adds "why is this contact in this segment" |
 | 7 | Audience vs sent vs bounced | Partial: bounces aren't linked to campaigns; no breakdown | M4 |
 | 8 | Delivered / read / click / download / spam | Partial: no email delivered, complaints not in reports | M4 |
-| 9 | Segment date from–to | Partial: behaviour only "last N days" | M1 |
+| 9 | Segment date from–to | ✅ M1: between / since dates on behaviour, "is between" on date fields | M1 ✅ |
 | 10 | Reachable channels | Partial: no per-contact matrix or per-campaign counts | M3, M4 |
 | 11 | Standard variable names | Partial: raw `{{.Attrs.x}}`, picker only in rich text | M2 |
 | 12 | Web push / personalisation activation | Already | M6 adds a no-code opt-in prompt and install check |
 | 13 | Deliverability per campaign | Partial (as row 7) | M4 |
 | 14 | Live segment | Already | |
-| 15 | Exclude in segmentation | Already | M1 adds a "none of" group |
+| 15 | Exclude in segmentation | Already | M1 ✅ adds a "none of" group |
 | 16 | Audience count after every filter | Partial: segment size only | M3 |
 | 17 | Test WhatsApp / push | Already | M3 adds saved test contacts |
 | 18 | Timely delivery, daily quota | Partial: no per-provider quotas or deadline | M3 |
@@ -52,7 +52,7 @@ Gupshup gets SMS, WhatsApp and RCS.
 | 22 | WhatsApp / push delivered, read, blocked | Partial: no blocked class or reasons | M4 |
 | 23 | Complete user profile | Partial | M4 |
 | 24 | Tags in segmentation | Already | |
-| 25 | Daily refresh time for segments | Partial: one server-wide sweep | M1 |
+| 25 | Daily refresh time for segments | ✅ M1: Refresh daily at HH:MM in a time zone | M1 ✅ |
 | 27 | Copy blocks | Missing | M3 |
 | 28 | Web content by audience without overlap | Partial: first match wins, no ordering or overlap view | M6 |
 | 29 | AMP mailers | Missing | M6 |
@@ -65,7 +65,7 @@ Gupshup gets SMS, WhatsApp and RCS.
 Each milestone is built, tested (unit, `make it` when segment rules change, end-to-end twice), documented
 with screenshots, and committed on its own.
 
-1. **M1 Events and segments.** Event schemas (typed properties, enums, dependent enums such as
+1. **M1 Events and segments (done).** Event schemas (typed properties, enums, dependent enums such as
    signup method Social → provider), Data → Events page with volumes and violations, starter schemas
    (purchase, signup, login, add_to_cart, cart_abandoned, checkout_abandoned), nested property paths
    in segment rules, absolute date ranges, a "none of" group, list and enum contact fields (products),
@@ -91,6 +91,28 @@ with screenshots, and committed on its own.
 6. **M6 AMP and on-site.** AMP email part with validation, preview and a visual block builder
    (carousel, accordion, forms and polls that post back to Pulse), web content variants with rules,
    ordering and an overlap view, a no-code push opt-in prompt and install check.
+
+## M1 as built
+
+Built as designed, with these choices:
+
+- **Event schemas** live in `event_schemas` and `internal/eventschema` (cache reloaded on `eventschemas:v`, like
+  `scoring:v`). The profile role checks and counts (it sees every event, from every source); the API role only
+  refuses, in enforce mode, on `POST /v1/events`. Checks are counted on the day they happen, not the event's time, so
+  history sent late shows with today's problems. Turning on enforce needs `"confirm": "ENFORCE"` in the API too (not
+  only the UI's typed confirmation) and settings edit access, because it changes what the API accepts. An enforced
+  event that doesn't fit refuses its whole request, so a batch is all or nothing.
+- **Events page** is Audience → Events (next to Segments) rather than a new Data group: one more group for one page
+  read worse. Pulse's own events (message outcomes, stage changes…) are listed too.
+- **Ranges older than a year:** rather than a flag on the segment, the streaming index leaves out any rule whose range
+  starts before what the counters hold (checked at every index refresh), and the Redis counter answers
+  `ErrNeedsSweep`; the sweep evaluates those segments, `explain` marks such filters, journey `check` steps refuse them.
+- **Daily segments** are built once when saved, then only at their time (the post-backfill catch-up is skipped for
+  them); their membership changes are published with source `daily`, which journeys treat as live.
+- **phone_country** uses `github.com/nyaruka/phonenumbers`; only numbers with + or 00 are placed (no default country).
+- **List fields** are edited from the contact page with an `identify` event, so edits stay ordered with other events.
+- **Event trigger filters** use the segment property filters (`where`) and their paths.
+- Docs: [tutorial 12](tutorials/12-events-and-properties.md), tutorials 2 and 3, the API guide and the web SDK guide.
 
 ## Risks
 

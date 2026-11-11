@@ -24,3 +24,8 @@
 .seg-kind button span { font-size: var(--fs-xs); color: var(--muted); line-height: 1.4; }
 .seg-kind button:hover { border-color: var(--ink-3); }
 .seg-kind button.on { border-color: var(--cobalt); box-shadow: var(--focus); }
+
+/* Segment refresh: live or daily. */
+.seg-refresh { margin-top: 14px; padding: 10px 14px; border: 1px solid var(--rule); }
+.seg-refresh legend { padding: 0 4px; font-weight: 600; }
+.seg-refresh .row { gap: 16px; flex-wrap: wrap; align-items: center; }

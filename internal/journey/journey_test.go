@@ -212,3 +212,26 @@ func TestAllLoaded(t *testing.T) {
 		t.Error("a stopped engine or a bad entry must not hold up the API")
 	}
 }
+
+func TestEventTriggerPropertyFilters(t *testing.T) {
+	g, err := ParseGraph([]byte(`{"trigger":{"type":"event","event":"checkout_abandoned","where":[{"prop":"payment_method","op":"eq","value":"upi"},{"prop":"items[].code","op":"exists"}]},
+		"entry":"x","nodes":{"x":{"type":"exit"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !g.Trigger.MatchesEvent(map[string]any{"payment_method": "upi", "items": []any{map[string]any{"code": "A"}}}) {
+		t.Error("upi with an item should enroll")
+	}
+	if g.Trigger.MatchesEvent(map[string]any{"payment_method": "card", "items": []any{map[string]any{"code": "A"}}}) || g.Trigger.MatchesEvent(map[string]any{"payment_method": "upi"}) {
+		t.Error("filters ignored")
+	}
+	for _, bad := range []string{
+		`{"trigger":{"type":"event","event":"x","where":[{"prop":"a..b","op":"exists"}]},"entry":"x","nodes":{"x":{"type":"exit"}}}`,
+		`{"trigger":{"type":"segment_entered","segment_id":1,"where":[{"prop":"a","op":"exists"}]},"entry":"x","nodes":{"x":{"type":"exit"}}}`,
+		`{"trigger":{"type":"form_submitted","where":[{"prop":"a","op":"exists"}]},"entry":"x","nodes":{"x":{"type":"exit"}}}`,
+	} {
+		if _, err := ParseGraph([]byte(bad)); err == nil {
+			t.Errorf("accepted %s", bad)
+		}
+	}
+}

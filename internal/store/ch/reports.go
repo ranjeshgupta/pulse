@@ -425,6 +425,12 @@ func (s *Store) AttrValues(ctx context.Context, tenant int64, key string, limit 
 // PropValues returns the most common non-empty values of an event property over the last 30 days
 // (a sample of the event rows).
 func (s *Store) PropValues(ctx context.Context, tenant int64, name, prop string, limit int) ([]ValueCount, error) {
+	if join, jargs, expr, eargs, ok := segment.ItemValueSQL(prop); ok {
+		all := append(append(eargs, jargs...), uint64(tenant), name, time.Now().AddDate(0, 0, -30), valueSample, limit)
+		return s.topValues(ctx, `SELECT v, count() AS c FROM (SELECT `+expr+` AS v FROM events ARRAY JOIN `+join+` AS x
+			WHERE tenant_id = ? AND name = ? AND ts >= ? LIMIT ?)
+			WHERE v != '' GROUP BY v ORDER BY c DESC, v LIMIT ?`, all...)
+	}
 	expr, args := segment.PropValueSQL(prop)
 	all := append(args, uint64(tenant), name, time.Now().AddDate(0, 0, -30), valueSample, limit)
 	return s.topValues(ctx, `SELECT v, count() AS c FROM (SELECT `+expr+` AS v FROM events WHERE tenant_id = ? AND name = ? AND ts >= ? LIMIT ?)

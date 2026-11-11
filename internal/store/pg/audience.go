@@ -4,6 +4,7 @@ package pg
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,31 +38,46 @@ func (s *Store) UpdateList(ctx context.Context, tenant, id int64, name string, p
 type AttributeDef struct {
 	Key         string    `json:"key"`
 	Label       string    `json:"label"`
-	Type        string    `json:"type"` // string | number | boolean | date
+	Type        string    `json:"type"` // string | number | boolean | date | list (a set of values, like tags) | enum (one of Options)
 	PII         bool      `json:"pii"`
 	Description string    `json:"description"`
+	Options     []Option  `json:"options,omitempty"` // enum: the allowed values
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Option is one value of an enum field and its label.
+type Option struct {
+	Value string `json:"value"`
+	Label string `json:"label,omitempty"`
 }
 
 func (s *Store) AttributeDefs(ctx context.Context, tenant int64) ([]AttributeDef, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT key, label, type, pii, description, created_at FROM attribute_defs WHERE tenant_id = $1 ORDER BY key`, tenant)
+		SELECT key, label, type, pii, description, options, created_at FROM attribute_defs WHERE tenant_id = $1 ORDER BY key`, tenant)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (AttributeDef, error) {
 		var d AttributeDef
-		err := r.Scan(&d.Key, &d.Label, &d.Type, &d.PII, &d.Description, &d.CreatedAt)
+		var opts []byte
+		err := r.Scan(&d.Key, &d.Label, &d.Type, &d.PII, &d.Description, &opts, &d.CreatedAt)
+		if err == nil && len(opts) > 0 {
+			_ = json.Unmarshal(opts, &d.Options)
+		}
 		return d, err
 	})
 }
 
 func (s *Store) PutAttributeDef(ctx context.Context, tenant int64, d AttributeDef) error {
+	opts, _ := json.Marshal(d.Options)
+	if d.Options == nil {
+		opts = []byte("[]")
+	}
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO attribute_defs (tenant_id, key, label, type, pii, description) VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO attribute_defs (tenant_id, key, label, type, pii, description, options) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (tenant_id, key) DO UPDATE SET label = EXCLUDED.label, type = EXCLUDED.type,
-			pii = EXCLUDED.pii, description = EXCLUDED.description`,
-		tenant, d.Key, d.Label, d.Type, d.PII, d.Description)
+			pii = EXCLUDED.pii, description = EXCLUDED.description, options = EXCLUDED.options`,
+		tenant, d.Key, d.Label, d.Type, d.PII, d.Description, opts)
 	return err
 }
 

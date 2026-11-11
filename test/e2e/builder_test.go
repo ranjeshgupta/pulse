@@ -208,9 +208,8 @@ func TestReplyTracking(t *testing.T) {
 	}
 	resp.Body.Close()
 	waitFor(t, 15*time.Second, func() bool { return len(smsTo(t, c, phone)) == 1 })
-	if !slices.Contains(contactEvents(t, c, ext), "email_replied") {
-		t.Error("email_replied not recorded")
-	}
+	// The timeline is read from ClickHouse, which the sink fills a moment after the journey acts.
+	waitFor(t, 10*time.Second, func() bool { return slices.Contains(contactEvents(t, c, ext), "email_replied") })
 	if resp, _ := http.PostForm(apiURL+"/v1/replies/wrong-token", form); resp.StatusCode != 404 {
 		t.Errorf("unknown token: %d", resp.StatusCode)
 	}

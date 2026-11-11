@@ -23,6 +23,7 @@ import (
 
 	"pulse/internal/auth"
 	"pulse/internal/bounces"
+	"pulse/internal/eventschema"
 	"pulse/internal/geoip"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
@@ -109,6 +110,9 @@ type Deps struct {
 	MailboxOpener bounces.Opener
 	// Deleter permanently deletes contacts (DELETE /v1/contacts/{id}); nil turns that off.
 	Deleter ContactDeleter
+	// Schemas holds event schemas, so POST /v1/events can refuse events whose schema is in
+	// enforce mode (nil: nothing is refused).
+	Schemas *eventschema.Cache
 }
 
 type Server struct {
@@ -176,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/journeys/{id}/{action}", s.authed(s.journeyAction))
 	mux.HandleFunc("GET /v1/journeys/{id}/stats", s.tenant(s.journeyStats))
 	mux.HandleFunc("GET /v1/contacts/{external_id}", s.tenant(s.getContact))
+	mux.HandleFunc("GET /v1/contacts/{external_id}/segments/{id}/explain", s.tenant(s.explainSegment))
 	s.uiRoutes(mux)
 	s.channelRoutes(mux)
 	s.onsiteRoutes(mux)
@@ -203,6 +208,7 @@ func (s *Server) Handler() http.Handler {
 	s.insightRoutes(mux)
 	s.integrationRoutes(mux)
 	s.contactDataRoutes(mux)
+	s.eventRoutes(mux)
 
 	if s.ui != nil {
 		mux.Handle("/", s.ui)

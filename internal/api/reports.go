@@ -308,13 +308,33 @@ func (s *Server) attrValues(w http.ResponseWriter, r *http.Request, tenant int64
 // in the last 30 days.
 func (s *Server) propValues(w http.ResponseWriter, r *http.Request, tenant int64) {
 	name, prop := r.PathValue("name"), r.URL.Query().Get("prop")
-	if !event.ValidName(name) || !attr.ValidKey(prop) {
+	if !event.ValidName(name) || !segment.ValidPath(prop) {
 		writeErr(w, http.StatusBadRequest, "invalid event or property name")
+		return
+	}
+	if s.personalProp(r.Context(), tenant, name, prop) {
+		writeJSON(w, http.StatusOK, map[string]any{"values": []ch.ValueCount{}}) // never suggest personal data
 		return
 	}
 	s.suggest(w, r, fmt.Sprintf("vals:%d:e:%s:%s", tenant, name, prop), func(vs ValueSuggester) ([]ch.ValueCount, error) {
 		return vs.PropValues(r.Context(), tenant, name, prop, suggestLimit)
 	})
+}
+
+// personalProp reports whether an event property holds personal data: marked so in the event's
+// schema, or named like an identifier.
+func (s *Server) personalProp(ctx context.Context, tenant int64, name, prop string) bool {
+	if personalKey(prop[strings.LastIndexAny(prop, ".]")+1:]) {
+		return true
+	}
+	if sc := s.Schemas.Lookup(ctx, tenant, name); sc != nil {
+		for _, p := range sc.PersonalPaths() {
+			if p == prop {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // personalData reports whether an attribute holds personal data: identifiers built in (email, phone,

@@ -23,3 +23,14 @@
 
 /* Event properties are long JSON without spaces: wrap them inside the drawer. */
 .event-props { overflow-wrap: anywhere; word-break: break-word; }
+
+/* "Why is this contact in this segment?" */
+.seg-badge { cursor: pointer; border: 0; font: inherit; }
+.seg-badge.on { outline: 2px solid var(--ink-3); }
+.seg-why { padding: 10px 12px; margin-bottom: 14px; }
+.seg-why-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: var(--fs-sm); }
+.seg-why-rows li.no { color: var(--ink-3); }
+.seg-why-mark { display: inline-block; width: 18px; font-weight: 700; }
+.seg-why-rows li.yes .seg-why-mark { color: var(--ok, #1f7a4d); }
+.seg-why-rows li.no .seg-why-mark { color: var(--danger); }
+.seg-why-group { font-weight: 600; }

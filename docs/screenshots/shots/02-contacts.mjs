@@ -45,6 +45,17 @@ async function contactFields(context, page) {
   await shot(page, AREA, "02-define-field", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Save attribute" }).click();
   await dialog.waitFor({ state: "detached" });
+  // A choice field (seeded: loyalty_tier, Bronze / Silver / Gold): its options, then Cancel.
+  const tier = page.locator("tr", { has: page.locator("code", { hasText: /^loyalty_tier$/ }) });
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await tier.getByRole("button", { name: "Edit" }).click();
+  const edit = page.getByRole("dialog", { name: "Edit loyalty_tier" });
+  await edit.getByText("Options").waitFor();
+  await settle(page);
+  await shot(page, AREA, "02-define-choice", { clip: edit, pad: 0 });
+  await edit.getByRole("button", { name: "Cancel" }).click();
+  await edit.waitFor({ state: "detached" });
+  await page.setViewportSize({ width: 1440, height: 900 });
   // The second field the sample file needs, saved the same way (PUT is idempotent).
   await api(context, "PUT", "/v1/attributes/loyalty_member", { key: "loyalty_member", label: "Loyalty member", type: "boolean", pii: false, description: "Joined the in-store loyalty programme" });
 }
@@ -144,14 +155,47 @@ async function profile(context, page) {
   await go(page, "/contacts?open=store-1001");
   await drawer.getByText("Owner, stage and company").waitFor();
   await settle(page, { quiet: 1500 });
+  const section = (name) => drawer.locator("section", { has: page.getByRole("heading", { name, exact: true }) });
   // Top: header, merge, segments, owner/stage/company, tags and points.
-  await shot(page, AREA, "02-profile-top", { clip: drawer.locator(".drawer-head, .drawer-body > :nth-child(-n+5)"), pad: 0 });
-  const consent = drawer.locator("section", { has: page.getByRole("heading", { name: "Messages they agreed to" }) });
-  await shot(page, AREA, "02-profile-consent", { clip: consent, pad: 12 });
-  // Attributes and Activity: the last four children of the drawer body.
-  const n = await drawer.locator(".drawer-body > *").count();
-  await shot(page, AREA, "02-profile-attributes", { clip: drawer.locator(`.drawer-body > :nth-child(n+${n - 3})`), pad: 8 });
+  await shot(page, AREA, "02-profile-top", { clip: drawer.locator(".drawer-head").or(section("Tags and points")), pad: 0 });
+  await shot(page, AREA, "02-profile-consent", { clip: section("Messages they agreed to"), pad: 12 });
+  // Attributes and Activity: from the Attributes heading to the sixth activity row.
+  await shot(page, AREA, "02-profile-attributes", { clip: drawer.getByRole("heading", { name: "Attributes", exact: true }).or(drawer.locator(".drawer-body > table").last().locator("tr:nth-child(-n+6)")), pad: 8 });
+  await listsAndWhy(context, page);
   await page.setViewportSize({ width: 1440, height: 900 });
+}
+
+/** A seeded customer with a loyalty tier, products bought and some segments: the "Lists and choices"
+ * section, then "· why?" on one of its segments and "Why not in another segment?". */
+async function listsAndWhy(context, page) {
+  let ext = null;
+  for (let i = 1; i <= 120 && !ext; i++) {
+    const id = `cust-${String(i).padStart(4, "0")}`;
+    const r = await api(context, "GET", `/v1/contacts/${id}`).catch(() => null);
+    const a = r?.contact?.attrs ?? {};
+    if (a.loyalty_tier && Array.isArray(a.products) && a.products.length > 1 && r.segments.length > 0) ext = id;
+  }
+  if (!ext) throw new Error("no seeded customer with a loyalty tier, products and segments (run make docs-seed)");
+  await go(page, `/contacts?open=${ext}`);
+  const drawer = page.locator("aside.drawer");
+  const lists = drawer.locator("section.contact-fields");
+  await lists.getByText("Loyalty tier").waitFor();
+  await settle(page, { quiet: 1000 });
+  await shot(page, AREA, "02-profile-lists", { clip: lists, pad: 8 });
+
+  const segs = drawer.getByRole("heading", { name: "Segments", exact: true });
+  await drawer.locator("button.seg-badge").first().click();
+  await drawer.locator(".seg-why-rows li").first().waitFor();
+  await settle(page);
+  await shot(page, AREA, "02-segment-why", { clip: segs.or(drawer.locator(".seg-why")), pad: 8 });
+
+  const other = drawer.getByLabel("Check another segment");
+  const names = await other.locator("option").allTextContents();
+  const pick = ["Repeat buyers in Pune", "Pro plan"].find((n) => names.includes(n)) ?? names[1];
+  await other.selectOption({ label: pick });
+  await drawer.locator(".seg-why", { hasText: pick }).locator(".seg-why-rows li").first().waitFor();
+  await settle(page);
+  await shot(page, AREA, "02-why-not", { clip: drawer.getByLabel("Check another segment").or(drawer.locator(".seg-why")), pad: 8 });
 }
 
 async function filters(page) {

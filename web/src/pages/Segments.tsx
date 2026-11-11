@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type Segment } from "../api";
+import { api, type Segment, type SegmentRefresh } from "../api";
 import { useCan } from "../auth";
 import { describe, newGroup, problems, rootFromRule, toRule, type Group } from "../segmentRules";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, timeAgo, useToast } from "../ui";
@@ -71,7 +71,10 @@ export function SegmentList() {
                   <tr key={s.id}>
                     <td><Link to={`/segments/${s.id}`}>{s.name}</Link></td>
                     <td><SegmentType kind={s.kind} /></td>
-                    <td className="muted" style={{ maxWidth: 480 }}>{s.kind === "static" ? "Added by hand, import, a journey step or the API" : describe(s.rule, names, refs)}</td>
+                    <td className="muted" style={{ maxWidth: 480 }}>
+                      {s.kind === "static" ? "Added by hand, import, a journey step or the API" : describe(s.rule, names, refs)}
+                      {s.refresh?.mode === "daily" && <div className="xs">Refreshed daily at {s.refresh.at} ({s.refresh.tz})</div>}
+                    </td>
                     <td className="num"><LiveNumber value={s.size} /></td>
                     <td>{s.kind === "static" ? <Status value="ready" /> : <Status value={s.status} />}</td>
                     <td className="num"><Link className="btn sm" to={viewContactsHref(s.id)}>View contacts</Link></td>
@@ -134,12 +137,14 @@ function DynamicSegmentEdit() {
   const existing = useQuery({ queryKey: ["segment", id], queryFn: () => api.get<Segment>(`/v1/segments/${id}`), enabled: !isNew, refetchInterval: 3000 });
   const [name, setName] = useState("");
   const [root, setRoot] = useState<Group>(newGroup());
+  const [refresh, setRefresh] = useState<SegmentRefresh>({ mode: "live" });
   const [loaded, setLoaded] = useState(isNew);
 
   useEffect(() => {
     if (existing.data && !loaded) {
       setName(existing.data.name);
       setRoot(rootFromRule(existing.data.rule ?? undefined));
+      setRefresh(existing.data.refresh ?? { mode: "live" });
       setLoaded(true);
     }
   }, [existing.data, loaded]);
@@ -161,7 +166,7 @@ function DynamicSegmentEdit() {
   });
 
   const save = useMutation({
-    mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/segments", { name, rule }) : api.put<{ id: number }>(`/v1/segments/${id}`, { name, rule })),
+    mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/segments", { name, rule, refresh }) : api.put<{ id: number }>(`/v1/segments/${id}`, { name, rule, refresh })),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["segments"] });
       toast({ text: isNew ? "Segment created. Pulse is filling it now." : "Segment saved. Pulse is rebuilding it now." });
@@ -189,6 +194,7 @@ function DynamicSegmentEdit() {
         <div>
           <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Repeat buyers in Pune" /></Field>
           <GroupEditor group={root} onChange={setRoot} self={isNew ? undefined : Number(id)} />
+          <RefreshField value={refresh} onChange={setRefresh} />
           {issues.length > 0 && <ul className="small muted" style={{ marginTop: 10 }}>{[...new Set(issues)].map((p) => <li key={p}>{p}</li>)}</ul>}
         </div>
         <aside className="panel" style={{ position: "sticky", top: 20 }}>
@@ -205,6 +211,9 @@ function DynamicSegmentEdit() {
                 <dt>In segment now</dt><dd><LiveNumber value={existing.data.size} /></dd>
                 <dt>State</dt><dd><Status value={existing.data.status} /></dd>
                 <dt>Last rebuilt</dt><dd>{timeAgo(existing.data.built_at)}</dd>
+                {existing.data.refresh?.mode === "daily" && existing.data.next_refresh_at && (
+                  <><dt>Next refresh</dt><dd>{new Date(existing.data.next_refresh_at).toLocaleString()}</dd></>
+                )}
               </dl>
             )}
             {rule && (
@@ -221,3 +230,29 @@ function DynamicSegmentEdit() {
   );
 }
 
+
+const ZONES = ["UTC", "Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "Australia/Sydney"];
+
+/** RefreshField: Live (members follow every event) or Daily at a time (rebuilt once a day). */
+function RefreshField({ value, onChange }: { value: SegmentRefresh; onChange: (r: SegmentRefresh) => void }) {
+  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = [...new Set([value.tz || browserZone, browserZone, ...ZONES].filter(Boolean))];
+  return (
+    <fieldset className="seg-refresh panel">
+      <legend className="small">Refresh</legend>
+      <div className="row" role="radiogroup" aria-label="Refresh">
+        <label className="small"><input type="radio" checked={value.mode !== "daily"} onChange={() => onChange({ mode: "live" })} /> Live: contacts join and leave as events arrive (default)</label>
+        <label className="small"><input type="radio" checked={value.mode === "daily"} onChange={() => onChange({ mode: "daily", at: value.at || "06:00", tz: value.tz || browserZone })} /> Daily at a set time</label>
+      </div>
+      {value.mode === "daily" && (
+        <div className="row" style={{ marginTop: 8 }}>
+          <input className="input" type="time" value={value.at ?? "06:00"} onChange={(e) => onChange({ ...value, at: e.target.value })} aria-label="Refresh time" style={{ width: 120 }} />
+          <select className="select" value={value.tz ?? browserZone} onChange={(e) => onChange({ ...value, tz: e.target.value })} aria-label="Time zone">
+            {zones.map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+          <span className="xs muted">Members change only at this time each day: good for daily sends that must not shift during the day.</span>
+        </div>
+      )}
+    </fieldset>
+  );
+}

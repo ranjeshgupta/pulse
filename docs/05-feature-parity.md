@@ -21,6 +21,9 @@ approximate is listed once under [Known gaps](#known-gaps).
 | SMS / WhatsApp reply keywords (STOP, START) | ✅ | ✅ | ✅ Twilio and Meta inbound webhooks; editable keyword lists; replies recorded as `<channel>_received`; RCS replies and suggestion taps (Google RBM webhook) with STOP/START and `rcs_replied` for journeys | RCS: a reply is matched to the latest RCS message of the last 7 days (RBM doesn't link them) |
 | CSV import and export | ✅ | ✅ | ✅ one Import flow under Contacts (upload, map columns, choose or create a static segment, review, run) for files of any size up to 10 GB, in the background with progress, cancel and one history; export of the whole workspace or of a filtered view, with the columns shown | |
 | Attribute definitions (type, label, PII flag) | ✅ | ✅ | ✅ Settings → Contact fields; typed inputs in the segment builder; imports convert numbers and yes/no | |
+| List and choice (enum) contact fields | 🟡 | ✅ | ✅ M1: `list` fields (e.g. `products`, has / doesn't have, imports split on \| or commas, filled by event schemas) and `enum` fields with options (a dropdown in segments and on the profile); shown and edited on the contact page | |
+| Phone country | ⬜ | ✅ | ✅ M1: `phone_country` (ISO code) kept by Pulse from numbers written with + or 00; "Phone country" segment filter | National numbers without a country code get none |
+| Event schemas (typed properties, enums, dependent enums, checks) | ⬜ | ✅ | ✅ M1: Audience → Events (volume, discovered properties, schema editor, problems with samples), warn (default) or enforce per event, six suggested e-commerce schemas, personal-data flag, "add to list field"; see [architecture](02-architecture.md#event-schemas-m1) | Browser events are never refused |
 | Contact list views: search filters as chips, columns, save as segment | ✅ | ✅ | ✅ batch 9, see [Contact views](#contact-views-batch-9) | |
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
 | Points / lead scoring | ✅ | ⬜ | ✅ scoring rules per event, manual adjust, journey step; `points` attribute in rules | |
@@ -39,7 +42,11 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Live size and preview | 🟡 | ✅ | ✅ | |
 | "In / not in another segment" rule | ✅ | ✅ | ✅ evaluated in dependency order in the same pass; cycles refused | |
 | Static segments (manual add/remove, import into one) | ✅ | ✅ | ✅ Segments page (type Static), the `/v1/lists` API, the Import flow, forms, journey step; offered on the preference center when public | |
-| Event property filters (purchase where amount > 1000) | 🟡 | ✅ | ✅ up to 5 filters per event rule; history seeded from ClickHouse | |
+| Event property filters (purchase where amount > 1000) | 🟡 | ✅ | ✅ up to 5 filters per event rule; history seeded from ClickHouse; M1: nested paths (`product.code`) and any list item (`items[].code`), inputs typed by the event's schema | |
+| Absolute date ranges for behaviour (between / since dates) | 🟡 | ✅ | ✅ M1: `from` / `to` on event rules; ranges starting more than 365 days back are evaluated by the sweep (the builder says so); "is between" two dates on date fields | |
+| Exclusion group ("none of") | 🟡 | ✅ | ✅ M1: `none` groups (Match NONE / "+ Exclude (none of)") | |
+| Daily-refresh segments | ⬜ | ✅ | ✅ M1: Refresh Live (default) or Daily at HH:MM in a time zone; daily segments leave the streaming index and are rebuilt by the batch path at that time | |
+| Why is this contact in this segment | ⬜ | 🟡 | ✅ M1: per segment on the contact page, rule by rule with the contact's values and event counts (`GET /v1/contacts/{id}/segments/{id}/explain`) | |
 | Date rules (before/after a date, within the last N days, more than N days ago) | ✅ | ✅ | ✅ on any date attribute and on first_seen / last_seen, which every profile keeps | |
 | Text and number operators (contains / doesn't contain, starts / ends with, is one of / not one of, is empty / not empty, is set / not set, between, on a date) | ✅ | ✅ | ✅ `not_contains`, `starts_with`, `ends_with`, `not_in`, `not_exists`, `between`, `on` in both compilers (checked by `make it`); empty = `eq ""` | |
 | Searchable, grouped filter picker; typed rows; explicit nested ALL/ANY groups | ✅ | ✅ | ✅ batch 7b, see "Segment builder" below | |
@@ -487,9 +494,14 @@ Everything above is built. What is still missing or only approximate, in one pla
   report push taps. iOS push goes through FCM tokens (no direct APNs).
 - **Journeys:** contacts don't leave a journey when they leave its trigger segment (use a condition, a goal or "Change
   campaigns"); a message decision can't watch a "Send marketing message" step; per-step counts are best effort.
-- **Segments:** behaviour windows are the last 1-365 days (no absolute date range, no "ever"); no "currently in a
-  journey" rule, point groups or regexp operator; a backfill racing live events for the same segment can be overwritten
-  until the next sweep.
+- **Segments:** no "ever" window (an absolute range from 2000-01-01 comes close); ranges starting more than 365 days back
+  are evaluated by the sweep only (every `PULSE_SWEEP_INTERVAL`), not in real time, and journey `check` conditions refuse
+  them; property paths go through one list at most (`items[].code`, not `items[].tags[]`); no "currently in a journey"
+  rule, point groups or regexp operator; a backfill racing live events for the same segment can be overwritten until
+  the next sweep.
+- **Event schemas:** counts are best effort (a retried batch can count twice); enforce refuses the whole
+  `POST /v1/events` request when one event doesn't fit; Zapier / Make hook events and integration events are never
+  refused; the property list comes from the first 500 events ClickHouse reads, not a random sample.
 - **Tracking:** WhatsApp button links aren't click-tracked; RCS replies are matched to the latest RCS message of the last
   7 days.
 - **Integrations:** no published Zapier / Make app; no OAuth app installs (HubSpot private app tokens, Salesforce client

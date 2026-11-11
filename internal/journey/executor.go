@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -143,6 +144,11 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 				return err
 			}
 			ok, err := segment.Eval(ctx, rule, c.Attrs, x.Counters(en.TenantID, en.ContactID, x.Now()))
+			if errors.Is(err, segment.ErrNeedsSweep) {
+				// A range that has aged past the counters since the journey was saved (saving
+				// refuses such ranges): the condition can't hold, rather than retrying forever.
+				ok, err = false, nil
+			}
 			if err != nil {
 				return err
 			}

@@ -7,12 +7,12 @@ import { createContext, useCallback, useContext, useId, useMemo, useRef, useStat
 import { api, CHANNEL_NAMES, CHANNELS } from "../api";
 import { buildCatalog, loadRecent, pushRecent, saveRecent, typeWord, type CatalogItem } from "../segmentCatalog";
 import {
-  canNest, EVENT_OPS, eventProps, fieldInfo, fieldType, KNOWN_EVENTS, MAX_GROUP_LEVELS, newGroup, newWhere, OP_LABELS, opsFor, PICK_PROPS,
-  pickNoun, treeReducer, valueShape, type AttrCond, type AttrOp, type EventCond, type EventOp, type FieldType, type Group, type Node,
+  canNest, EVENT_OPS, eventProps, fieldInfo, fieldType, guessPropType, KNOWN_EVENTS, MAX_GROUP_LEVELS, newGroup, newWhere, oldRange, OP_LABELS, opsFor, PICK_PROPS,
+  pickNoun, propFieldType, schemaProp, treeReducer, valueShape, type AttrCond, type AttrOp, type EventCond, type EventOp, type FieldType, type Group, type Match, type Node,
   type Path, type TreeAction, type Where,
 } from "../segmentRules";
 import { FilterPicker, Icon } from "./FilterPicker";
-import { useAttributes, useEventNames, useKnownValues, useRefObjects, useSegments, type RefItem } from "./segmentData";
+import { useAttributes, useEventNames, useEventSchemas, useKnownValues, useRefObjects, useSegments, type RefItem } from "./segmentData";
 import { useStages } from "./Stages";
 import "./segment-builder.css";
 
@@ -51,11 +51,12 @@ export function GroupEditor({ group, onChange, self }: { group: Group; onChange:
   );
 }
 
-function MatchSelect({ value, onChange, label }: { value: "all" | "any"; onChange: (m: "all" | "any") => void; label: string }) {
+function MatchSelect({ value, onChange, label, root }: { value: Match; onChange: (m: Match) => void; label: string; root?: boolean }) {
   return (
-    <select className="select inline fb-match" value={value} onChange={(e) => onChange(e.target.value as "all" | "any")} aria-label={label}>
+    <select className="select inline fb-match" value={value} onChange={(e) => onChange(e.target.value as Match)} aria-label={label}>
       <option value="all">ALL</option>
       <option value="any">ANY</option>
+      {(!root || value === "none") && <option value="none">NONE</option>}
     </select>
   );
 }
@@ -68,9 +69,10 @@ function GroupBox({ group, path }: { group: Group; path: Path }) {
   return (
     <section className={`fb-group ${group.match}${root ? " root" : ""}`} role="group" aria-labelledby={headId} style={{ ["--level" as string]: path.length }}>
       <header className="fb-group-head" id={headId}>
-        <span>{root ? "Contacts who match" : "Match"}</span>
-        <MatchSelect value={group.match} onChange={(m) => dispatch({ type: "match", group: path, match: m })} label={root ? "Contacts must match all or any of the filters" : "This group matches all or any of its filters"} />
+        <span>{root ? "Contacts who match" : group.match === "none" ? "Leave out contacts who match" : "Match"}</span>
+        <MatchSelect root={root} value={group.match} onChange={(m) => dispatch({ type: "match", group: path, match: m })} label={root ? "Contacts must match all or any of the filters" : "This group matches all, any or none of its filters"} />
         <span>of the following{root ? ":" : ""}</span>
+        {group.match === "none" && <span className="xs muted fb-none-hint">a contact matching any of these is excluded</span>}
         {!root && (
           <button type="button" className="btn ghost sm fb-remove-group" onClick={() => dispatch({ type: "remove", path })} aria-label="Remove this group and its filters">
             Remove group
@@ -111,12 +113,22 @@ function AddControls({ group, path }: { group: Group; path: Path }) {
           + Add filter
         </button>
         {nest ? (
-          <button type="button" className="btn ghost sm" onClick={() => {
-            dispatch({ type: "add", group: path, node: newGroup(group.match === "all" ? "any" : "all") });
-            setOpen(`add:${pk([...path, group.children.length])}`);
-          }}>
-            + Add group
-          </button>
+          <>
+            <button type="button" className="btn ghost sm" onClick={() => {
+              dispatch({ type: "add", group: path, node: newGroup(group.match === "all" ? "any" : "all") });
+              setOpen(`add:${pk([...path, group.children.length])}`);
+            }}>
+              + Add group
+            </button>
+            {group.match !== "none" && (
+              <button type="button" className="btn ghost sm" onClick={() => {
+                dispatch({ type: "add", group: path, node: newGroup("none") });
+                setOpen(`add:${pk([...path, group.children.length])}`);
+              }}>
+                + Exclude (none of)
+              </button>
+            )}
+          </>
         ) : (
           <span className="xs muted">Groups can be nested {MAX_GROUP_LEVELS} levels deep, the most a segment can hold; this group is the deepest.</span>
         )}
@@ -188,7 +200,9 @@ function AttrFields({ node, set, field, items }: { node: AttrCond; set: (n: Node
           onChange={(e) => set({ ...node, attr: e.target.value })} aria-label="Attribute name"
         />
       )}
-      {info?.pick ? <PickFields node={node} set={set} pick={info.pick} /> : <CompareFields cmp={node} type={type} onChange={(c) => set({ ...node, ...c })} attrKey={key} />}
+      {info?.pick ? <PickFields node={node} set={set} pick={info.pick} /> : (
+        <CompareFields cmp={node} type={type} onChange={(c) => set({ ...node, ...c })} attrKey={key} options={defs.find((d) => d.key === key)?.options} />
+      )}
     </>
   );
 }
@@ -204,7 +218,9 @@ function opText(op: AttrOp, type: FieldType): string {
 }
 
 /** CompareFields: the operator (suited to the field's type) and the value input it needs. */
-function CompareFields({ cmp, type, onChange, attrKey, event, prop }: { cmp: Cmp; type: FieldType; onChange: (c: Cmp) => void; attrKey: string; event?: string; prop?: boolean }) {
+type Option = { value: string; label?: string };
+
+function CompareFields({ cmp, type, onChange, attrKey, event, prop, options }: { cmp: Cmp; type: FieldType; onChange: (c: Cmp) => void; attrKey: string; event?: string; prop?: boolean; options?: Option[] }) {
   const ops = opsFor(type, cmp.op, prop);
   const setOp = (op: AttrOp) => {
     const before = valueShape(cmp.op), after = valueShape(op);
@@ -217,16 +233,18 @@ function CompareFields({ cmp, type, onChange, attrKey, event, prop }: { cmp: Cmp
       <select className="select fb-op" value={cmp.op} onChange={(e) => setOp(e.target.value as AttrOp)} aria-label="Comparison">
         {ops.map((o) => <option key={o} value={o}>{opText(o, type)}</option>)}
       </select>
-      <ValueInput cmp={cmp} type={type} onChange={onChange} attrKey={attrKey} event={event} />
+      <ValueInput cmp={cmp} type={type} onChange={onChange} attrKey={attrKey} event={event} options={options} />
     </>
   );
 }
 
-function ValueInput({ cmp, type, onChange, attrKey, event }: { cmp: Cmp; type: FieldType; onChange: (c: Cmp) => void; attrKey: string; event?: string }) {
+function ValueInput({ cmp, type, onChange, attrKey, event, options }: { cmp: Cmp; type: FieldType; onChange: (c: Cmp) => void; attrKey: string; event?: string; options?: Option[] }) {
   const shape = valueShape(cmp.op);
   const [asked, setAsked] = useState(false);
   const listId = useId();
-  const known = useKnownValues(attrKey, asked && type === "text" && (shape === "one" || shape === "list"), event).data?.values ?? [];
+  const suggest = (type === "text" || type === "list" || (type === "enum" && !options?.length)) && (shape === "one" || shape === "list");
+  const fetched = useKnownValues(attrKey, asked && suggest, event).data?.values ?? [];
+  const known = options?.length ? options.map((o) => ({ value: o.value, count: -1, label: o.label })) : fetched.map((v) => ({ ...v, label: undefined as string | undefined }));
   if (shape === "none") return null;
   if (shape === "date") return <input className="input fb-date" type="date" value={cmp.value} onChange={(e) => onChange({ ...cmp, value: e.target.value })} aria-label="Date" />;
   if (shape === "days") {
@@ -234,6 +252,15 @@ function ValueInput({ cmp, type, onChange, attrKey, event }: { cmp: Cmp; type: F
       <span className="fb-inline">
         <input className="input fb-num" type="number" min={1} max={3650} step={1} value={cmp.value} onChange={(e) => onChange({ ...cmp, value: e.target.value })} aria-label="Number of days" />
         <span className="small">{cmp.op === "within_days" ? "days" : "days ago"}</span>
+      </span>
+    );
+  }
+  if (shape === "range" && type === "date") {
+    return (
+      <span className="fb-inline">
+        <input className="input fb-date" type="date" value={cmp.value} onChange={(e) => onChange({ ...cmp, value: e.target.value })} aria-label="From" />
+        <span className="small">and</span>
+        <input className="input fb-date" type="date" value={cmp.value2 ?? ""} onChange={(e) => onChange({ ...cmp, value2: e.target.value })} aria-label="To" />
       </span>
     );
   }
@@ -254,7 +281,16 @@ function ValueInput({ cmp, type, onChange, attrKey, event }: { cmp: Cmp; type: F
       </select>
     );
   }
-  const suggestions = <datalist id={listId}>{known.map((v) => <option key={v.value} value={v.value}>{`${v.count} contacts`}</option>)}</datalist>;
+  if (type === "enum" && options?.length && shape === "one") {
+    return (
+      <select className="select" value={cmp.value} onChange={(e) => onChange({ ...cmp, value: e.target.value })} aria-label="Value">
+        <option value="" disabled>choose</option>
+        {!options.some((o) => o.value === cmp.value) && cmp.value && <option value={cmp.value}>{cmp.value}</option>}
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label ? `${o.label} (${o.value})` : o.value}</option>)}
+      </select>
+    );
+  }
+  const suggestions = <datalist id={listId}>{known.map((v) => <option key={v.value} value={v.value}>{v.label ?? (v.count >= 0 ? `${v.count} contacts` : "")}</option>)}</datalist>;
   if (shape === "list") {
     return <>{suggestions}<ChipsInput values={cmp.values ?? (cmp.value ? cmp.value.split(",").map((s) => s.trim()).filter(Boolean) : [])} list={listId} onFocus={() => setAsked(true)} onChange={(values) => onChange({ ...cmp, values, value: values.join(", ") })} /></>;
   }
@@ -392,6 +428,7 @@ function EventFields({ node, set, field }: { node: EventCond; set: (n: Node) => 
   const inline = node.where.map((w, i) => ({ w, i })).filter(({ w }) => PICK_PROPS[w.prop.trim()] && (w.op === "eq" || w.op === "ne"));
   const below = node.where.map((w, i) => ({ w, i })).filter(({ w }) => !(PICK_PROPS[w.prop.trim()] && (w.op === "eq" || w.op === "ne")));
   const propList = useId();
+  const schemaProps = useEventSchemas().data?.schemas.find((x) => x.name === ev)?.props ?? [];
   return (
     <div className="fb-sentence">
       <div className="fb-sentence-line">
@@ -423,17 +460,19 @@ function EventFields({ node, set, field }: { node: EventCond; set: (n: Node) => 
             <span className="small">{node.count === 1 ? "time" : "times"}</span>
           </span>
         )}
-        <span className="fb-inline">
-          <span className="small">in the last</span>
-          <input className="input fb-num" type="number" min={1} max={365} value={node.days} onChange={(e) => set({ ...node, days: Number(e.target.value) })} aria-label="Days" />
-          <span className="small">days</span>
-        </span>
+        <WindowFields node={node} set={set} />
       </div>
-      <datalist id={propList}>{eventProps(ev).map((p) => <option key={p} value={p} />)}</datalist>
+      {oldRange(node.from) && (
+        <p className="xs muted fb-sweep-note">This range starts more than a year ago, so it is checked by the periodic sweep (every few minutes) rather than the moment an event arrives.</p>
+      )}
+      <datalist id={propList}>
+        {schemaProps.map((p) => <option key={p.path || p.key} value={p.path || p.key}>{p.label || p.key}</option>)}
+        {eventProps(ev).filter((p) => !schemaProps.some((x) => (x.path || x.key) === p)).map((p) => <option key={p} value={p} />)}
+      </datalist>
       {below.map(({ w, i }, n) => (
         <div className="fb-where" key={i}>
           <span className="small fb-where-word">{n === 0 ? "where" : "and"}</span>
-          <WhereFields event={ev} w={w} list={propList} onChange={(x) => setWhere(i, x)} />
+          <WhereFields event={ev} w={w} list={propList} onChange={(x) => setWhere(i, x)} schema={schemaProps} />
           <button type="button" className="fb-x" onClick={() => removeWhere(i)} aria-label={`Remove property filter ${w.prop || ""}`}>×</button>
         </div>
       ))}
@@ -487,10 +526,71 @@ function SourcePick({ event, w, onChange, onRemove }: { event: string; w: Where;
   );
 }
 
-/** WhereFields edits one property filter: the property and a comparison suited to it. */
-function WhereFields({ event, w, list, onChange }: { event: string; w: Where; list: string; onChange: (w: Where) => void }) {
+/** PropertyFilters edits a list of property filters on one event outside a segment (a journey's
+ * event trigger), typed by the event's schema like the builder's own. */
+export function PropertyFilters({ event, where, onChange }: { event: string; where: Where[]; onChange: (w: Where[]) => void }) {
+  const list = useId();
+  const schemaProps = useEventSchemas().data?.schemas.find((x) => x.name === event.trim())?.props ?? [];
+  return (
+    <div className="fb">
+      <datalist id={list}>
+        {schemaProps.map((p) => <option key={p.path || p.key} value={p.path || p.key}>{p.label || p.key}</option>)}
+        {eventProps(event).filter((p) => !schemaProps.some((x) => (x.path || x.key) === p)).map((p) => <option key={p} value={p} />)}
+      </datalist>
+      {where.map((w, i) => (
+        <div className="fb-where" key={i}>
+          <span className="small fb-where-word">{i === 0 ? "where" : "and"}</span>
+          <WhereFields event={event.trim()} w={w} list={list} schema={schemaProps} onChange={(x) => onChange(where.map((y, j) => (j === i ? x : y)))} />
+          <button type="button" className="fb-x" onClick={() => onChange(where.filter((_, j) => j !== i))} aria-label={`Remove property filter ${w.prop || ""}`}>×</button>
+        </div>
+      ))}
+      {where.length < 5 && <button type="button" className="btn ghost sm" onClick={() => onChange([...where, newWhere()])}>+ Only when the event's properties match…</button>}
+    </div>
+  );
+}
+
+/** WindowFields: "in the last N days", "between" two dates, or "since" a date. */
+function WindowFields({ node, set }: { node: EventCond; set: (n: Node) => void }) {
+  const mode = node.from === undefined ? "days" : node.to ? "between" : "since";
+  const today = new Date().toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const setMode = (m: string) => {
+    if (m === "days") set({ ...node, from: undefined, to: undefined });
+    else if (m === "since") set({ ...node, from: node.from || monthAgo, to: "" });
+    else set({ ...node, from: node.from || monthAgo, to: node.to || today });
+  };
+  return (
+    <span className="fb-inline">
+      <select className="select fb-op" value={mode} onChange={(e) => setMode(e.target.value)} aria-label="When">
+        <option value="days">in the last</option>
+        <option value="between">between</option>
+        <option value="since">since</option>
+      </select>
+      {mode === "days" ? (
+        <>
+          <input className="input fb-num" type="number" min={1} max={365} value={node.days} onChange={(e) => set({ ...node, days: Number(e.target.value) })} aria-label="Days" />
+          <span className="small">days</span>
+        </>
+      ) : (
+        <>
+          <input className="input fb-date" type="date" min="2000-01-01" value={node.from ?? ""} onChange={(e) => set({ ...node, from: e.target.value })} aria-label="First day" />
+          {mode === "between" && (
+            <>
+              <span className="small">and</span>
+              <input className="input fb-date" type="date" min={node.from} value={node.to ?? ""} onChange={(e) => set({ ...node, to: e.target.value })} aria-label="Last day" />
+            </>
+          )}
+        </>
+      )}
+    </span>
+  );
+}
+
+/** WhereFields edits one property filter: the property (a name, product.code, or items[].code for
+ * any item) and a comparison typed by the event's schema when it has one. */
+function WhereFields({ event, w, list, onChange, schema }: { event: string; w: Where; list: string; onChange: (w: Where) => void; schema?: { key: string; path?: string; label?: string; type: string; values?: Option[] }[] }) {
   const prop = w.prop.trim();
-  const propInput = <input className="input fb-key" list={list} placeholder="property, e.g. amount" value={w.prop} onChange={(e) => onChange({ ...w, prop: e.target.value })} aria-label="Event property" />;
+  const propInput = <input className="input fb-key" list={list} placeholder="property, e.g. amount or items[].code" value={w.prop} onChange={(e) => onChange({ ...w, prop: e.target.value })} aria-label="Event property" />;
   if (event === "unsubscribed" && (prop === "channel" || prop === "method") && w.op === "eq") {
     return (
       <>
@@ -505,11 +605,12 @@ function WhereFields({ event, w, list, onChange }: { event: string; w: Where; li
       </>
     );
   }
-  const type: FieldType = /amount|price|count|total|value|qty|quantity/.test(prop) ? "number" : "text";
+  const sp = schemaProp(schema, prop);
+  const type: FieldType = sp ? propFieldType(sp.type) : guessPropType(prop);
   return (
     <>
       {propInput}
-      <CompareFields cmp={w} type={type} prop onChange={(c) => onChange({ ...w, ...c })} attrKey={prop} event={event || undefined} />
+      <CompareFields cmp={w} type={type} prop onChange={(c) => onChange({ ...w, ...c })} attrKey={prop} event={event || undefined} options={sp?.values} />
     </>
   );
 }

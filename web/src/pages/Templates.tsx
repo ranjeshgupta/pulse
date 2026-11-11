@@ -388,7 +388,7 @@ function SmsCount({ text }: { text: string }) {
   const gsm = /^[\n\r @£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà^{}\\[~\]|€]*$/.test(text);
   const single = gsm ? 160 : 70, part = gsm ? 153 : 67;
   const parts = text.length <= single ? 1 : Math.ceil(text.length / part);
-  return <>{text.length} characters, {parts} SMS {gsm ? "" : "(Unicode)"}. Personalized values change the length.</>;
+  return <>{text.length} characters, {parts} SMS{gsm ? "" : " (Unicode)"}. Personalized values change the length.</>;
 }
 
 function fillPreview(s = "") {

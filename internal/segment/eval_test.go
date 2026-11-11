@@ -8,7 +8,7 @@ import (
 // mapCounter is an in-memory Counter: event -> count (window is ignored; tests set counts per case).
 type mapCounter map[string]int
 
-func (m mapCounter) Count(_ context.Context, ev string, _ int) (int, error) { return m[ev], nil }
+func (m mapCounter) Count(_ context.Context, ev string, _ Window) (int, error) { return m[ev], nil }
 
 func mustParse(t *testing.T, s string) Rule {
 	t.Helper()

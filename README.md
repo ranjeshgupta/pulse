@@ -6,7 +6,7 @@ and journeys within seconds, not on a 15-minute cron.
 
 ## Documentation
 
-- **[Tutorials](docs/tutorials/README.md)**: eleven step-by-step guides for using Pulse, with screenshots
+- **[Tutorials](docs/tutorials/README.md)**: twelve step-by-step guides for using Pulse, with screenshots
   (start with [Getting started](docs/tutorials/01-getting-started.md)).
 - **[Developer docs](docs/developer/README.md)**: eight guides: [installation](docs/developer/01-installation.md)
   (local and production), [configuration](docs/developer/02-configuration.md), [API](docs/developer/03-api.md),
@@ -159,7 +159,21 @@ Design notes:
     with the reason; `pulse replay-dlq` replays dead-letter topics.
   - **Robustness:** settings that don't parse stop start-up; forms without the time they were shown count as bots;
     a fresh clone builds and tests without building the web app first.
-- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 11 written. Remaining gaps:
+- **M1, events and segments (done):** the first milestone of the [marketing team plan](docs/06-marketing-team-plan.md):
+  - **Event schemas** (Audience → Events): every event's volume, its properties as seen and as described, a schema
+    editor (types, required, enums with labels, dependent enums such as sign-up method social → provider, personal
+    data, "add to list field"), six suggested e-commerce schemas, and problems counted with samples. Warn by
+    default; enforce (typed confirmation) makes `POST /v1/events` refuse events that don't fit; browser and SDK
+    events are never refused.
+  - **Segments:** property paths (`product.code`, `items[].code` for any item) typed by the schema, absolute date
+    ranges for behaviour (ranges over a year back are left to the sweep), "is between" two dates, NONE groups
+    (exclusions), list fields (has / doesn't have) and choice fields, `phone_country`, daily-refresh segments
+    (Live or Daily at HH:MM in a time zone), and "why is this contact in this segment" on the contact page
+    (`GET /v1/contacts/{id}/segments/{id}/explain`). Both compilers agree on all of it (`make it`).
+  - **Journeys:** event triggers with property conditions ("only when payment_method is upi").
+  - **Data:** `events.product_code` / `product_category` columns in ClickHouse; tutorial
+    [12, events and properties](docs/tutorials/12-events-and-properties.md).
+- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 12 written. Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it

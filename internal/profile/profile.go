@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
+	"pulse/internal/eventschema"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/segment"
@@ -38,6 +40,7 @@ const (
 	// they apply to the next events instead of after a cache expiry.
 	ScoringVersionKey = "scoring:v"
 	maxTags           = 100
+	maxListValues     = 200 // values an event schema keeps in a contact list field
 )
 
 type Store interface {
@@ -54,6 +57,11 @@ type Service struct {
 	rdb   redis.Cmdable
 	pub   kafka.Publisher
 	now   func() time.Time
+
+	// Schemas, when set, checks events against their event schemas (counting problems) and
+	// applies their "add to list field" properties.
+	Schemas *eventschema.Cache
+	Log     *slog.Logger
 
 	mu        sync.Mutex
 	points    map[int64]map[string]int // tenant -> event -> points
@@ -141,6 +149,20 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 			updates[event.AttrEmailDomain] = d
 		} else {
 			removes = append(removes, event.AttrEmailDomain)
+		}
+	}
+	// The phone's country, when the number is written with its country code. A contact whose
+	// phone predates this attribute gets it at its next event (only international numbers are
+	// tried, so a national number costs nothing on later events).
+	if v, ok := updates["phone"]; ok {
+		if cc := PhoneCountry(attr.String(v)); cc != "" {
+			updates[event.AttrPhoneCountry] = cc
+		} else {
+			removes = append(removes, event.AttrPhoneCountry)
+		}
+	} else if _, has := cur[event.AttrPhoneCountry]; !has && internationalPhone(attr.String(cur["phone"])) {
+		if cc := PhoneCountry(attr.String(cur["phone"])); cc != "" {
+			updates[event.AttrPhoneCountry] = cc
 		}
 	}
 	// A new phone number hasn't bounced (unless this event says so itself).
@@ -581,6 +603,46 @@ func StampDates(p map[string]any, changed []string, ts, created time.Time, exter
 	return out, changed
 }
 
+// internationalPhone reports whether a number is written with a country code.
+func internationalPhone(p string) bool {
+	p = strings.TrimSpace(p)
+	return strings.HasPrefix(p, "+") || strings.HasPrefix(p, "00")
+}
+
+// applyListAdds adds an event schema's values to the contact's list fields (deduplicated, the
+// newest kept when a list passes maxListValues), through the event's attributes, so the change is
+// ordered with the contact's other events like any attribute.
+func applyListAdds(cur map[string]any, e *event.Event, adds map[string][]string) {
+	for field, vals := range adds {
+		base, ok := e.Attrs[field]
+		if !ok {
+			base = cur[field]
+		}
+		list := segment.ListValues(base)
+		changed := false
+		for _, v := range vals {
+			if !slices.Contains(list, v) {
+				list = append(list, v)
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		if len(list) > maxListValues {
+			list = list[len(list)-maxListValues:]
+		}
+		out := make([]any, len(list))
+		for i, v := range list {
+			out[i] = v
+		}
+		if e.Attrs == nil {
+			e.Attrs = map[string]any{}
+		}
+		e.Attrs[field] = out
+	}
+}
+
 func (s *Service) Handle(ctx context.Context, r *kgo.Record) error {
 	return s.HandleBatch(ctx, []*kgo.Record{r})
 }
@@ -663,6 +725,8 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	}
 	dirty := map[string]bool{}
 	firstSeen := map[string]bool{}
+	checks := eventschema.Batch{Now: now}
+	schemas := map[int64]map[string]*eventschema.Schema{}
 	var merges []merge
 	after := map[int][]event.Event{} // events the profile role adds after evs[i] (stage moves)
 	for i := range evs {
@@ -689,6 +753,21 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 			}
 		}
 		NormalizeConsent(e)
+		if s.Schemas != nil {
+			ts, ok := schemas[e.TenantID]
+			if !ok {
+				ts = s.Schemas.Tenant(ctx, e.TenantID)
+				schemas[e.TenantID] = ts
+			}
+			if sch := ts[e.Name]; sch != nil {
+				if sch.Mode != eventschema.ModeOff {
+					checks.Add(sch, e, sch.Check(e.Props))
+				}
+				if adds := sch.ListAdds(e.Props); adds != nil {
+					applyListAdds(cur, e, adds)
+				}
+			}
+		}
 		merged, changed := MergeScored(cur, e, scoring[e.TenantID][e.Name])
 		merged, changed = StampSeen(merged, changed, e.Ts)
 		merged, changed = StampDates(merged, changed, e.Ts, c.CreatedAt, e.ExternalID)
@@ -796,8 +875,15 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	for _, e := range evs {
 		pipe.Set(ctx, seenKey(e), 1, dedupeTTL)
 	}
-	_, err := pipe.Exec(ctx)
-	return err
+	if _, err := pipe.Exec(ctx); err != nil {
+		return err
+	}
+
+	// 8. Event schema checks are counted best effort: losing them never holds up events.
+	if err := checks.Flush(ctx, s.rdb); err != nil && s.Log != nil {
+		s.Log.Warn("count event schema checks", "err", err)
+	}
+	return nil
 }
 
 // maxMergeHops bounds how far redirectMerged follows merged_into (a contact merged into one that

@@ -49,6 +49,14 @@ func TestRoutePermissions(t *testing.T) {
 		{"PUT /v1/revenue/settings", editor, false},
 		{"GET /v1/audit/export", editor, false},
 		{"GET /v1/audit/export", auth.Perms{auth.AreaSettings: auth.Edit}, true},
+		{"GET /v1/events/catalog", viewer, true},
+		{"GET /v1/events/{name}/summary", viewer, true},
+		{"PUT /v1/events/{name}/schema", viewer, false},
+		{"PUT /v1/events/{name}/schema", editor, true}, // enforce also needs settings edit (handler)
+		{"POST /v1/events/schemas/suggested", viewer, false},
+		{"DELETE /v1/events/{name}/schema", editor, true},
+		{"GET /v1/contacts/{external_id}/segments/{id}/explain", viewer, true},
+		{"GET /v1/contacts/{external_id}/segments/{id}/explain", auth.Perms{auth.AreaSegments: auth.Edit}, false},
 	} {
 		method, path, _ := strings.Cut(tc.pattern, " ")
 		r, _ := http.NewRequest(method, path, nil)

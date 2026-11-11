@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"pulse/internal/auth"
+	"pulse/internal/segment"
 )
 
 type Tenant struct {
@@ -86,6 +87,9 @@ type Segment struct {
 	// Lists only: offered on the preference center, where contacts join or leave them themselves.
 	Public      bool   `json:"public"`
 	Description string `json:"description"`
+	// Refresh: live (nil or mode live) follows every event; daily is rebuilt once a day.
+	Refresh       *segment.Refresh `json:"refresh,omitempty"`
+	NextRefreshAt *time.Time       `json:"next_refresh_at,omitempty"`
 }
 
 type Template struct {

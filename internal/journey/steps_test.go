@@ -30,7 +30,9 @@ func (f *fakeEvents) PublishEvent(_ context.Context, e event.Event) error {
 
 type countMap map[string]int
 
-func (c countMap) Count(_ context.Context, ev string, _ int) (int, error) { return c[ev], nil }
+func (c countMap) Count(_ context.Context, ev string, _ segment.Window) (int, error) {
+	return c[ev], nil
+}
 
 func executor(t *testing.T, counts countMap) (*Executor, *fakeStore, *fakeSender, *fakeEvents) {
 	t.Helper()

@@ -37,13 +37,13 @@ export type CatalogItem = {
   make: () => Node;
 };
 
-const TYPE_ICON: Record<FieldType, IconName> = { text: "text", number: "hash", boolean: "toggle", date: "calendar" };
-const TYPE_WORD: Record<FieldType, string> = { text: "text", number: "number", boolean: "yes/no", date: "date" };
+const TYPE_ICON: Record<FieldType, IconName> = { text: "text", number: "hash", boolean: "toggle", date: "calendar", list: "tag", enum: "layers" };
+const TYPE_WORD: Record<FieldType, string> = { text: "text", number: "number", boolean: "yes/no", date: "date", list: "list", enum: "choice" };
 export const typeWord = (t: FieldType) => TYPE_WORD[t];
 
 /** The operator a field filter starts with. */
 export function defaultOp(type: FieldType): AttrOp {
-  return type === "date" ? "within_days" : type === "number" ? "gte" : "eq";
+  return type === "date" ? "within_days" : type === "number" ? "gte" : type === "list" ? "has" : "eq";
 }
 const defaultValue = (type: FieldType) => (type === "date" ? "30" : type === "boolean" ? "true" : "");
 

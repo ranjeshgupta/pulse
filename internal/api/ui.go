@@ -75,8 +75,9 @@ func (s *Server) updateSegment(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	var req struct {
-		Name string          `json:"name"`
-		Rule json.RawMessage `json:"rule"`
+		Name    string           `json:"name"`
+		Rule    json.RawMessage  `json:"rule"`
+		Refresh *segment.Refresh `json:"refresh"` // omitted: unchanged
 	}
 	if !decode(w, r, &req) {
 		return
@@ -86,11 +87,21 @@ func (s *Server) updateSegment(w http.ResponseWriter, r *http.Request, tenant in
 		writeErr(w, http.StatusBadRequest, errors.Join(errIf(req.Name == "", "name is required"), err).Error())
 		return
 	}
+	if req.Refresh != nil {
+		if err := req.Refresh.Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if err := s.checkSegmentRefs(r.Context(), tenant, id, rule); err != nil {
 		s.failRefs(w, err)
 		return
 	}
 	if err := s.uiStore().UpdateSegment(r.Context(), tenant, id, req.Name, req.Rule, rule.HasWindow()); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := s.setRefresh(r.Context(), tenant, id, req.Refresh); err != nil {
 		s.fail(w, err)
 		return
 	}

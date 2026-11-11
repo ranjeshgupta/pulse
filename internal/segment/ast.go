@@ -28,23 +28,29 @@ const (
 	maxIn    = 1000
 )
 
-// Rule is one node of the segment AST. Exactly one of All, Any, Attr, Event, Segment or Tag is set.
+// Rule is one node of the segment AST. Exactly one of All, Any, None, Attr, Event, Segment or Tag
+// is set. None matches when none of its rules do (an exclusion group).
 type Rule struct {
-	All     []Rule       `json:"all,omitempty"`
-	Any     []Rule       `json:"any,omitempty"`
-	Attr    string       `json:"attr,omitempty"`
-	Event   string       `json:"event,omitempty"`
-	Segment int64        `json:"segment,omitempty"` // op in | not_in: membership of another segment or list
-	Tag     string       `json:"tag,omitempty"`     // op has | not_has
-	Op      string       `json:"op,omitempty"`
-	Value   any          `json:"value,omitempty"`
-	Count   *int         `json:"count,omitempty"` // event rules: compared with the number of events
-	Days    int          `json:"days,omitempty"`  // event rules: today plus the previous Days-1 UTC days
-	Where   []PropFilter `json:"where,omitempty"` // event rules: only count events whose properties match all of these
+	All     []Rule `json:"all,omitempty"`
+	Any     []Rule `json:"any,omitempty"`
+	None    []Rule `json:"none,omitempty"`
+	Attr    string `json:"attr,omitempty"`
+	Event   string `json:"event,omitempty"`
+	Segment int64  `json:"segment,omitempty"` // op in | not_in: membership of another segment or list
+	Tag     string `json:"tag,omitempty"`     // op has | not_has
+	Op      string `json:"op,omitempty"`
+	Value   any    `json:"value,omitempty"`
+	Count   *int   `json:"count,omitempty"` // event rules: compared with the number of events
+	Days    int    `json:"days,omitempty"`  // event rules: today plus the previous Days-1 UTC days
+	// From and To (event rules, instead of Days): an absolute range of UTC days, both included;
+	// an empty To means up to today. Days after today never count.
+	From  string       `json:"from,omitempty"`
+	To    string       `json:"to,omitempty"`
+	Where []PropFilter `json:"where,omitempty"` // event rules: only count events whose properties match all of these
 }
 
-// PropFilter compares one top-level event property, with the same operators and semantics as
-// attribute rules.
+// PropFilter compares one event property, named by a path (see ParsePath), with the same
+// operators and semantics as attribute rules.
 type PropFilter struct {
 	Prop  string `json:"prop"`
 	Op    string `json:"op"`
@@ -82,29 +88,29 @@ func (r Rule) validate(depth int, n *int) error {
 		return fmt.Errorf("rule has more than %d nodes", maxNodes)
 	}
 	kinds := 0
-	for _, set := range []bool{r.All != nil, r.Any != nil, r.Attr != "", r.Event != "", r.Segment != 0, r.Tag != ""} {
+	for _, set := range []bool{r.All != nil, r.Any != nil, r.None != nil, r.Attr != "", r.Event != "", r.Segment != 0, r.Tag != ""} {
 		if set {
 			kinds++
 		}
 	}
 	if kinds != 1 {
-		return errors.New("each rule needs exactly one of all, any, attr, event, segment or tag")
+		return errors.New("each rule needs exactly one of all, any, none, attr, event, segment or tag")
 	}
 	if r.Where != nil && r.Event == "" {
 		return errors.New("where applies to event rules only")
 	}
+	if (r.From != "" || r.To != "") && r.Event == "" {
+		return errors.New("from and to apply to event rules only")
+	}
 
 	switch {
-	case r.All != nil || r.Any != nil:
-		children := r.All
-		if r.Any != nil {
-			children = r.Any
-		}
+	case r.All != nil || r.Any != nil || r.None != nil:
+		children := r.group()
 		if len(children) == 0 {
-			return errors.New("all/any needs at least one rule")
+			return errors.New("all/any/none needs at least one rule")
 		}
 		if r.Op != "" || r.Value != nil || r.Count != nil || r.Days != 0 {
-			return errors.New("all/any cannot have op, value, count or days")
+			return errors.New("all/any/none cannot have op, value, count or days")
 		}
 		for _, c := range children {
 			if err := c.validate(depth+1, n); err != nil {
@@ -153,8 +159,8 @@ func (r Rule) validateEvent() error {
 	if r.Count == nil || *r.Count < 0 {
 		return fmt.Errorf("event %q: count must be 0 or more", r.Event)
 	}
-	if r.Days < 1 || r.Days > maxDays {
-		return fmt.Errorf("event %q: days must be between 1 and %d", r.Event, maxDays)
+	if err := r.validateWindow(); err != nil {
+		return fmt.Errorf("event %q: %w", r.Event, err)
 	}
 	if r.Value != nil {
 		return fmt.Errorf("event %q: use count, not value", r.Event)
@@ -163,8 +169,8 @@ func (r Rule) validateEvent() error {
 		return fmt.Errorf("event %q: at most %d property filters", r.Event, maxWhere)
 	}
 	for _, f := range r.Where {
-		if !attr.ValidKey(f.Prop) {
-			return fmt.Errorf("event %q: invalid property name %q", r.Event, f.Prop)
+		if !ValidPath(f.Prop) {
+			return fmt.Errorf("event %q: invalid property %q (a name, a dotted path like product.code, or items[].code for any item)", r.Event, f.Prop)
 		}
 		if err := validCompare(fmt.Sprintf("event %q property %q", r.Event, f.Prop), f.Op, f.Value); err != nil {
 			return err
@@ -174,6 +180,79 @@ func (r Rule) validateEvent() error {
 		}
 	}
 	return nil
+}
+
+// minDate is the earliest day a range may start: older history isn't kept anywhere.
+const minDate = "2000-01-01"
+
+// validateWindow checks an event rule's window: Days, or an absolute From (and optional To).
+func (r Rule) validateWindow() error {
+	if r.From == "" {
+		if r.To != "" {
+			return errors.New("to needs from")
+		}
+		if r.Days < 1 || r.Days > maxDays {
+			return fmt.Errorf("days must be between 1 and %d", maxDays)
+		}
+		return nil
+	}
+	if r.Days != 0 {
+		return errors.New("use days or a from-to range, not both")
+	}
+	if _, err := time.Parse(time.DateOnly, r.From); err != nil || r.From < minDate {
+		return fmt.Errorf("from needs a date like 2026-01-31, from %s on", minDate)
+	}
+	if r.To != "" {
+		if _, err := time.Parse(time.DateOnly, r.To); err != nil {
+			return errors.New("to needs a date like 2026-03-31")
+		}
+		if r.To < r.From {
+			return errors.New("the range ends before it starts")
+		}
+	}
+	return nil
+}
+
+// Window is the span of days an event rule counts.
+type Window struct {
+	Days     int
+	From, To string
+}
+
+// Window returns the rule's window.
+func (r Rule) Window() Window { return Window{Days: r.Days, From: r.From, To: r.To} }
+
+// Bounds returns the first and last UTC day the window counts on asOf's day. A range that ends
+// after asOf stops at asOf; one that starts after it is empty (start after end).
+func (w Window) Bounds(asOf time.Time) (start, end time.Time) {
+	end = asOf.UTC().Truncate(24 * time.Hour)
+	if w.From == "" {
+		return end.AddDate(0, 0, -(w.Days - 1)), end
+	}
+	start, _ = time.Parse(time.DateOnly, w.From)
+	if w.To != "" {
+		if to, err := time.Parse(time.DateOnly, w.To); err == nil && to.Before(end) {
+			end = to
+		}
+	}
+	return start, end
+}
+
+// CounterDays is how many days of history the per-contact counters keep (today included).
+const CounterDays = maxDays
+
+// InCounters reports whether the counters still hold every day of the window on asOf's day.
+func (w Window) InCounters(asOf time.Time) bool {
+	start, _ := w.Bounds(asOf)
+	return !start.Before(asOf.UTC().Truncate(24*time.Hour).AddDate(0, 0, -(CounterDays - 1)))
+}
+
+// SweepOnly reports whether the rule reads more history than the counters keep (a range starting
+// more than 365 days before asOf), so only the batch path can evaluate it.
+func (r Rule) SweepOnly(asOf time.Time) bool {
+	found := false
+	r.walk(func(n Rule) { found = found || n.Event != "" && !n.Window().InCounters(asOf) })
+	return found
 }
 
 var tagRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
@@ -198,6 +277,10 @@ func validCompare(what, op string, value any) error {
 		if _, ok := value.(float64); !ok {
 			return fmt.Errorf("%s: %s needs a number value", what, op)
 		}
+	case "has", "not_has":
+		if s, ok := value.(string); !ok || s == "" {
+			return fmt.Errorf("%s: %s needs a value to look for in the list", what, op)
+		}
 	case "in", "not_in":
 		list, ok := value.([]any)
 		if !ok || len(list) == 0 || len(list) > maxIn {
@@ -215,7 +298,16 @@ func validCompare(what, op string, value any) error {
 	case "between":
 		list, ok := value.([]any)
 		if !ok || len(list) != 2 {
-			return fmt.Errorf("%s: between needs two numbers [low, high]", what)
+			return fmt.Errorf("%s: between needs two numbers or two dates [low, high]", what)
+		}
+		if from, ok := list[0].(string); ok {
+			to, _ := list[1].(string)
+			_, err1 := time.Parse(time.DateOnly, from)
+			_, err2 := time.Parse(time.DateOnly, to)
+			if err1 != nil || err2 != nil || from > to {
+				return fmt.Errorf("%s: between needs two dates like 2026-01-01, the earlier first", what)
+			}
+			return nil
 		}
 		lo, ok1 := list[0].(float64)
 		hi, ok2 := list[1].(float64)
@@ -333,12 +425,20 @@ func RelativeDateOp(op string) bool { return op == "within_days" || op == "older
 
 func (r Rule) walk(fn func(Rule)) {
 	fn(r)
-	for _, c := range r.All {
+	for _, c := range r.group() {
 		c.walk(fn)
 	}
-	for _, c := range r.Any {
-		c.walk(fn)
+}
+
+// group returns a group's rules (nil for a leaf).
+func (r Rule) group() []Rule {
+	switch {
+	case r.All != nil:
+		return r.All
+	case r.Any != nil:
+		return r.Any
 	}
+	return r.None
 }
 
 func isScalar(v any) bool {

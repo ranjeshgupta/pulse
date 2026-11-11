@@ -8,20 +8,24 @@ import type { PropFilter, Rule } from "./api";
 export type Where = { prop: string; op: AttrOp; value: string; value2?: string; values?: string[] };
 
 export type AttrCond = { kind: "attr"; attr: string; op: AttrOp; value: string; value2?: string; values?: string[] };
-export type EventCond = { kind: "event"; event: string; op: EventOp; count: number; days: number; where: Where[] };
+/** An event condition counts over the last `days`, or (with from) an absolute range of UTC days,
+ * from–to both included; an empty to means up to today. */
+export type EventCond = { kind: "event"; event: string; op: EventOp; count: number; days: number; from?: string; to?: string; where: Where[] };
 export type Cond =
   | AttrCond
   | EventCond
   | { kind: "segment"; segment: number; op: "in" | "not_in" }
   | { kind: "tag"; tag: string; op: "has" | "not_has" };
-export type Group = { kind: "group"; match: "all" | "any"; children: Node[] };
+/** A group matches when all, any, or none of its filters do ("none" excludes). */
+export type Match = "all" | "any" | "none";
+export type Group = { kind: "group"; match: Match; children: Node[] };
 export type Node = Cond | Group;
 
 /** Comparison ops. "empty" / "not_empty" are the builder's words for eq "" / ne "" (a missing
  * attribute reads as empty). */
 export type AttrOp =
   | "eq" | "ne" | "contains" | "not_contains" | "starts_with" | "ends_with" | "in" | "not_in"
-  | "gt" | "gte" | "lt" | "lte" | "between" | "exists" | "not_exists" | "empty" | "not_empty" | DateOp;
+  | "gt" | "gte" | "lt" | "lte" | "between" | "exists" | "not_exists" | "empty" | "not_empty" | "has" | "not_has" | DateOp;
 /** Date comparisons: on/before/after a calendar date, or relative to today in whole days. */
 export type DateOp = "on" | "before" | "after" | "within_days" | "older_than_days";
 export type EventOp = "gte" | "gt" | "eq" | "lt" | "lte" | "none";
@@ -45,23 +49,29 @@ export const OP_LABELS: Record<AttrOp, string> = {
   in: "is one of", not_in: "is not one of", gt: "is greater than", gte: "is at least", lt: "is less than", lte: "is at most",
   between: "is between", exists: "is set", not_exists: "is not set", empty: "is empty", not_empty: "is not empty",
   on: "is on", before: "is before", after: "is after", within_days: "is in the last", older_than_days: "is more than",
+  has: "has", not_has: "doesn't have",
 };
 
-/** The kind of value a field holds; it decides the operators and the value input. */
-export type FieldType = "text" | "number" | "boolean" | "date";
+/** The kind of value a field holds; it decides the operators and the value input. list: a set of
+ * values (has / doesn't have, like tags); enum: one of a field's options (a dropdown). */
+export type FieldType = "text" | "number" | "boolean" | "date" | "list" | "enum";
 
 /** Operators the segment builder offers for each field type, in menu order. */
 export const OPS_BY_TYPE: Record<FieldType, AttrOp[]> = {
   text: ["eq", "ne", "contains", "not_contains", "starts_with", "ends_with", "in", "not_in", "empty", "not_empty"],
   number: ["eq", "ne", "gt", "gte", "lt", "lte", "between", "empty", "not_empty"],
   boolean: ["eq", "ne", "exists", "not_exists"],
-  date: ["within_days", "older_than_days", "on", "before", "after", "empty", "not_empty"],
+  date: ["within_days", "older_than_days", "on", "before", "after", "between", "empty", "not_empty"],
+  list: ["has", "not_has", "empty", "not_empty"],
+  enum: ["eq", "ne", "in", "not_in", "empty", "not_empty"],
 };
 /** Event properties can't compare with today: their event's own window covers recency. */
 export const PROP_OPS_BY_TYPE: Record<FieldType, AttrOp[]> = {
   ...OPS_BY_TYPE,
   text: [...OPS_BY_TYPE.text, "exists", "not_exists"],
-  date: ["on", "before", "after", "exists", "not_exists"],
+  date: ["on", "before", "after", "between", "exists", "not_exists"],
+  list: ["has", "not_has", "exists", "not_exists"],
+  enum: [...OPS_BY_TYPE.enum, "exists", "not_exists"],
 };
 
 /** opsFor lists the operators for a field type, keeping a saved rule's op visible if it isn't offered. */
@@ -73,6 +83,7 @@ export function opsFor(type: FieldType, current?: AttrOp, prop = false): AttrOp[
 /** valueShape says which value input an op needs. */
 export function valueShape(op: AttrOp): "none" | "one" | "list" | "range" | "date" | "days" {
   switch (op) {
+    case "has": case "not_has": return "one";
     case "exists": case "not_exists": case "empty": case "not_empty": return "none";
     case "in": case "not_in": return "list";
     case "between": return "range";
@@ -119,6 +130,7 @@ export const FIELDS: FieldInfo[] = [
   { key: "first_name", label: "First name", type: "text", group: "contact", hint: "Standard field" },
   { key: "last_name", label: "Last name", type: "text", group: "contact", hint: "Standard field" },
   { key: "phone", label: "Mobile", type: "text", group: "contact", hint: "Phone number in E.164, e.g. +919812345678" },
+  { key: "phone_country", label: "Phone country", type: "text", group: "location", hint: "From the mobile number's country code, e.g. IN (kept by Pulse)" },
   { key: "address1", label: "Address line 1", type: "text", group: "contact", hint: "Standard field" },
   { key: "locale", label: "Preferred locale", type: "text", group: "contact", hint: "e.g. en-IN, from the SDKs or your data" },
   { key: "owner_id", label: "Owner", type: "text", group: "contact", hint: "The teammate who owns the contact", pick: "owner" },
@@ -196,7 +208,7 @@ export function fieldType(key: string, defs: AttrDefLike[] = []): FieldType {
   const f = FIELD_BY_KEY[k];
   if (f) return f.type;
   const d = defs.find((x) => x.key === k)?.type;
-  if (d === "number" || d === "boolean" || d === "date") return d;
+  if (d === "number" || d === "boolean" || d === "date" || d === "list" || d === "enum") return d;
   if (k.startsWith("optout_")) return "boolean";
   return "text";
 }
@@ -212,10 +224,25 @@ export const newSegmentRef = (): Cond => ({ kind: "segment", segment: 0, op: "in
 export const newTag = (): Cond => ({ kind: "tag", tag: "", op: "has" });
 export const newWhere = (): Where => ({ prop: "", op: "eq", value: "" });
 /** A new group starts empty: the builder opens its filter picker right away. */
-export const newGroup = (match: "all" | "any" = "all", children: Node[] = []): Group => ({ kind: "group", match, children });
+export const newGroup = (match: Match = "all", children: Node[] = []): Group => ({ kind: "group", match, children });
 
 const TAG_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
+
+/** validPath reports whether p names an event property: a name, a dotted path (product.code, up
+ * to 4 parts), or a path through one list with [] (items[].code: any item). */
+export function validPath(p: string): boolean {
+  if (!p || p.length > 128) return false;
+  const parts = p.split(".");
+  if (parts.length > 4) return false;
+  let lists = 0;
+  for (const part of parts) {
+    const key = part.endsWith("[]") ? part.slice(0, -2) : part;
+    if (part.endsWith("[]")) lists++;
+    if (!KEY_RE.test(key)) return false;
+  }
+  return lists <= 1;
+}
 
 const splitList = (value: string) => value.split(",").map((s) => s.trim()).filter(Boolean);
 const listOf = (c: { value: string; values?: string[] }) => (c.values ? c.values.map((s) => s.trim()).filter(Boolean) : splitList(c.value));
@@ -228,7 +255,9 @@ function compare(c: { op: AttrOp; value: string; value2?: string; values?: strin
     case "empty": return { op: "eq", value: "" };
     case "not_empty": return { op: "ne", value: "" };
     case "in": case "not_in": return { op, value: listOf(c) };
-    case "between": return { op, value: [Number(value), Number(c.value2 ?? "")] };
+    case "between": return isDay(value) && isDay(c.value2 ?? "")
+      ? { op, value: [value.trim(), (c.value2 ?? "").trim()] }
+      : { op, value: [Number(value), Number(c.value2 ?? "")] };
     case "gt": case "gte": case "lt": case "lte": return { op, value: Number(value) };
     case "within_days": case "older_than_days": return { op, value: Number(value) };
     case "on": case "before": case "after": return { op, value: value.trim() };
@@ -248,15 +277,22 @@ function fromCompare(op: string, value: unknown): { op: AttrOp; value: string; v
   return { op: op as AttrOp, value: compareText(value) };
 }
 
+/** isDay reports whether v is a YYYY-MM-DD date. */
+const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v.trim());
+
 export function toRule(n: Node): Rule {
-  if (n.kind === "group") return n.match === "all" ? { all: n.children.map(toRule) } : { any: n.children.map(toRule) };
+  if (n.kind === "group") {
+    const kids = n.children.map(toRule);
+    return n.match === "all" ? { all: kids } : n.match === "any" ? { any: kids } : { none: kids };
+  }
   if (n.kind === "segment") return { segment: n.segment, op: n.op };
   if (n.kind === "tag") return { tag: n.tag.trim(), op: n.op };
   if (n.kind === "event") {
     const where: PropFilter[] = n.where.map((w) => ({ prop: w.prop.trim(), ...compare(w) }));
+    const window = n.from !== undefined ? { from: n.from.trim(), ...(n.to?.trim() ? { to: n.to.trim() } : {}) } : { days: n.days };
     const base = n.op === "none"
-      ? { event: n.event.trim(), op: "eq", count: 0, days: n.days }
-      : { event: n.event.trim(), op: n.op, count: n.count, days: n.days };
+      ? { event: n.event.trim(), op: "eq", count: 0, ...window }
+      : { event: n.event.trim(), op: n.op, count: n.count, ...window };
     return where.length ? { ...base, where } : base;
   }
   return { attr: n.attr.trim(), ...compare(n) };
@@ -265,12 +301,14 @@ export function toRule(n: Node): Rule {
 export function fromRule(r: Rule): Node {
   if ("all" in r) return { kind: "group", match: "all", children: r.all.map(fromRule) };
   if ("any" in r) return { kind: "group", match: "any", children: r.any.map(fromRule) };
+  if ("none" in r) return { kind: "group", match: "none", children: r.none.map(fromRule) };
   if ("segment" in r) return { kind: "segment", segment: r.segment, op: r.op };
   if ("tag" in r) return { kind: "tag", tag: r.tag, op: r.op };
   if ("event" in r) {
     const none = r.op === "eq" && r.count === 0;
     const where = (r.where ?? []).map((f) => ({ prop: f.prop, ...fromCompare(f.op, f.value) }));
-    return { kind: "event", event: r.event, op: none ? "none" : (r.op as EventOp), count: r.count, days: r.days, where };
+    const window = r.from ? { days: 30, from: r.from, to: r.to ?? "" } : { days: r.days ?? 30 };
+    return { kind: "event", event: r.event, op: none ? "none" : (r.op as EventOp), count: r.count, ...window, where };
   }
   return { kind: "attr", attr: r.attr, ...fromCompare(r.op, r.value) };
 }
@@ -290,7 +328,7 @@ export type TreeAction =
   | { type: "add"; group: Path; node: Node }
   | { type: "replace"; path: Path; node: Node }
   | { type: "remove"; path: Path }
-  | { type: "match"; group: Path; match: "all" | "any" };
+  | { type: "match"; group: Path; match: Match };
 
 function updateGroup(g: Group, path: Path, fn: (g: Group) => Group): Group {
   if (path.length === 0) return fn(g);
@@ -366,11 +404,15 @@ function nodeProblems(n: Node): string[] {
   if (n.kind === "event") {
     const out: string[] = [];
     if (!/^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$/.test(n.event.trim())) out.push("Enter an event name, e.g. purchase.");
-    if (!(n.days >= 1 && n.days <= 365)) out.push("Event windows are 1 to 365 days.");
+    if (n.from !== undefined) {
+      if (!validDate(n.from) || n.from < "2000-01-01") out.push("Choose the first day of the date range.");
+      else if (n.to && !validDate(n.to)) out.push("The range's last day isn't a date.");
+      else if (n.to && n.to < n.from) out.push("The date range ends before it starts.");
+    } else if (!(n.days >= 1 && n.days <= 365)) out.push("Event windows are 1 to 365 days.");
     if (n.op !== "none" && !(n.count >= 0)) out.push("Event counts can't be negative.");
     if (n.where.length > 5) out.push("Use at most 5 property filters per event.");
     for (const w of n.where) {
-      if (!KEY_RE.test(w.prop.trim())) out.push("Enter a property name, e.g. amount.");
+      if (!validPath(w.prop.trim())) out.push("Enter a property: a name like amount, a path like product.code, or items[].code for any item.");
       const pick = PICK_PROPS[w.prop.trim()] || (n.event.trim() === "unsubscribed" && (w.prop.trim() === "channel" || w.prop.trim() === "method"));
       if (RELATIVE_DATE_OPS.includes(w.op)) out.push(`Use "is before" or "is after" on "${w.prop || "property"}"; the event's own days window covers recency.`);
       else out.push(...compareProblems(w.prop || "property", w, !!pick));
@@ -403,10 +445,14 @@ function compareProblems(name: string, c: { op: AttrOp; value: string; value2?: 
   }
   const num = (v?: string) => v !== undefined && v.trim() !== "" && !isNaN(Number(v));
   if (NUMERIC_OPS.includes(op) && !num(value)) return [`"${name}" needs a number.`];
-  if (op === "between") {
+  if (op === "between" && (isDay(value) || isDay(c.value2 ?? ""))) {
+    if (!validDate(value) || !validDate(c.value2 ?? "")) return [`"${name}" needs two dates.`];
+    if (value > (c.value2 ?? "")) return [`"${name}": put the earlier date first.`];
+  } else if (op === "between") {
     if (!num(value) || !num(c.value2)) return [`"${name}" needs two numbers.`];
     if (Number(value) > Number(c.value2)) return [`"${name}": put the smaller number first.`];
   }
+  if ((op === "has" || op === "not_has") && !value.trim()) return [`"${name}" needs a value to look for.`];
   if ((op === "in" || op === "not_in") && listOf(c).length === 0) return [`"${name}": list at least one value.`];
   if ((op === "contains" || op === "not_contains" || op === "starts_with" || op === "ends_with") && !value.trim()) return [`"${name}" needs some text to look for.`];
   return [];
@@ -521,14 +567,15 @@ export function describe(r: Rule | null, names: Record<number, string> = {}, ref
   if (!r) return "added by hand or import";
   if ("all" in r) return r.all.map((c) => describeNested(c, names, refs)).join(" and ");
   if ("any" in r) return r.any.map((c) => describeNested(c, names, refs)).join(" or ");
+  if ("none" in r) return `none of (${r.none.map((c) => describeNested(c, names, refs)).join("; ")})`;
   if ("segment" in r) return `${r.op === "in" ? "in" : "not in"} ${names[r.segment] ? `“${names[r.segment]}”` : `segment ${r.segment}`}`;
   if ("tag" in r) return `${r.op === "has" ? "tagged" : "not tagged"} ${r.tag}`;
   if ("event" in r) {
     if (KNOWN_EVENTS[r.event]) return describeKnownEvent(r, refs);
     const ev = r.where?.length ? `${r.event} where ${r.where.map((f) => describeCompare(f.prop, f.op, f.value)).join(" and ")}` : r.event;
-    if (r.op === "eq" && r.count === 0) return `never did ${ev} in ${r.days} days`;
+    if (r.op === "eq" && r.count === 0) return `never did ${ev} ${describeWindow(r, "in")}`;
     const op = EVENT_OPS.find((o) => o.op === r.op)?.label ?? r.op;
-    return `did ${ev} ${op} ${r.count}× in ${r.days} days`;
+    return `did ${ev} ${op} ${r.count}× ${describeWindow(r, "in")}`;
   }
   return describeAttr(r, refs);
 }
@@ -595,7 +642,23 @@ function describeKnownEvent(r: Extract<Rule, { event: string }>, refs: RefNames)
     const op = EVENT_OPS.find((o) => o.op === r.op)?.label ?? r.op;
     s += ` ${op} ${r.count} time${r.count === 1 ? "" : "s"}`;
   }
-  return `${s} in the last ${r.days === 1 ? "day" : days(r.days)}`;
+  return `${s} ${describeWindow(r, "in the last")}`;
+}
+
+/** describeWindow words an event rule's window: "in the last 7 days", "between 1 Jan 2026 and 31 Mar 2026", "since 1 Jan 2026". */
+export function describeWindow(r: { days?: number; from?: string; to?: string }, lead: "in" | "in the last"): string {
+  if (r.from) return r.to ? `between ${formatDay(r.from)} and ${formatDay(r.to)}` : `since ${formatDay(r.from)}`;
+  const n = r.days ?? 0;
+  return lead === "in" ? `in ${days(n)}` : `in the last ${n === 1 ? "day" : days(n)}`;
+}
+
+/** oldRange reports whether an event window starts more than 365 days before today: such rules are
+ * evaluated by the periodic sweep (every few minutes), not as each event arrives. */
+export function oldRange(from: string | undefined, today = new Date()): boolean {
+  if (!from || !validDate(from)) return false;
+  const start = Date.UTC(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10)));
+  const t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  return (t - start) / 86_400_000 > 364;
 }
 
 function describeCompare(name: string, op: string, value: unknown) {
@@ -606,7 +669,8 @@ function describeCompare(name: string, op: string, value: unknown) {
   if (op === "on" || op === "before" || op === "after") return `${name} is ${op} ${formatDay(compareText(value))}`;
   if (op === "within_days") return `${name} is in the last ${Number(value) === 1 ? "day" : days(Number(value))}`;
   if (op === "older_than_days") return `${name} is more than ${days(Number(value))} ago`;
-  if (op === "between" && Array.isArray(value)) return `${name} is between ${value[0]} and ${value[1]}`;
+  if (op === "between" && Array.isArray(value)) return `${name} is between ${formatDay(String(value[0]))} and ${formatDay(String(value[1]))}`;
+  if (op === "has" || op === "not_has") return `${name} ${op === "has" ? "has" : "doesn't have"} ${compareText(value)}`;
   const label = OP_LABELS[op as AttrOp] ?? op;
   return `${name} ${label} ${compareText(value)}`;
 }
@@ -620,5 +684,37 @@ export function segmentRefs(r: Rule | null): number[] {
   if (!r) return [];
   if ("all" in r) return r.all.flatMap(segmentRefs);
   if ("any" in r) return r.any.flatMap(segmentRefs);
+  if ("none" in r) return r.none.flatMap(segmentRefs);
   return "segment" in r ? [r.segment] : [];
 }
+
+/** SchemaPropLike is the part of an event schema's property the builder reads. */
+export type SchemaPropLike = { key: string; path?: string; label?: string; type: string; values?: { value: string; label?: string }[] };
+
+/** schemaProp finds the schema property a filter names, by its path (or its key when the path is the key). */
+export function schemaProp(props: SchemaPropLike[] | undefined, prop: string): SchemaPropLike | undefined {
+  const p = prop.trim();
+  return props?.find((x) => (x.path || x.key) === p);
+}
+
+/** propFieldType maps a schema property's type to the builder's field type. */
+export function propFieldType(t: string): FieldType {
+  switch (t) {
+    case "number": return "number";
+    case "bool": return "boolean";
+    case "date": return "date";
+    case "enum": return "enum";
+    case "list": return "list";
+  }
+  return "text";
+}
+
+/** guessPropType types a property without a schema from its name. */
+export const guessPropType = (prop: string): FieldType => (/amount|price|count|total|value|qty|quantity/.test(prop) ? "number" : "text");
+
+/** filtersFromWhere converts edited property filters to the API's (event triggers use them too). */
+export const filtersFromWhere = (where: Where[]): PropFilter[] => where.map((w) => ({ prop: w.prop.trim(), ...compare(w) }));
+/** whereFromFilters is filtersFromWhere's inverse. */
+export const whereFromFilters = (f: PropFilter[] = []): Where[] => f.map((x) => ({ prop: x.prop, ...fromCompare(x.op, x.value) }));
+/** describeWhere words property filters: "payment_method is upi and value is at least 500". */
+export const describeWhere = (f: PropFilter[] = []): string => f.map((x) => describeCompare(x.prop, x.op, x.value)).join(" and ");

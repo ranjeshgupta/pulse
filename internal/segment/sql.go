@@ -53,6 +53,10 @@ func (b *sqlBuilder) rule(r Rule) string {
 		return b.group(r.All, " AND ")
 	case r.Any != nil:
 		return b.group(r.Any, " OR ")
+	case r.None != nil:
+		// Every leaf compiles to a non-NULL condition (ifNull, IN, Map and JSON lookups), so NOT
+		// is exact.
+		return "NOT " + b.group(r.None, " OR ")
 	case r.Attr != "":
 		b.args = append(b.args, r.Attr)
 		return b.compare("attrs[?]", r.Op, r.Value, "mapContains(attrs, ?)")
@@ -119,8 +123,19 @@ func (b *sqlBuilder) compare(expr string, op string, value any, existsExpr strin
 			in = " NOT IN ("
 		}
 		return expr + in + strings.Join(marks, ", ") + ")"
+	case "has", "not_has":
+		b.args = append(b.args, attr.String(value))
+		not := ""
+		if op == "not_has" {
+			not = "NOT "
+		}
+		return not + "has(JSONExtract(" + expr + ", 'Array(String)'), ?)"
 	case "between":
 		list := value.([]any)
+		if from, ok := list[0].(string); ok {
+			b.args = append(b.args, from, list[1].(string))
+			return "ifNull(toDateOrNull(substring(" + expr + ", 1, 10)) BETWEEN toDate(?) AND toDate(?), 0)"
+		}
 		b.args = append(b.args, list[0].(float64), list[1].(float64))
 		return "ifNull(toFloat64OrNull(" + expr + ") BETWEEN ? AND ?, 0)"
 	case "on", "before", "after":
@@ -139,27 +154,82 @@ func (b *sqlBuilder) compare(expr string, op string, value any, existsExpr strin
 	}
 }
 
-// propExpr reads one event property as the canonical string attr.String gives the decoded JSON
-// value: strings as-is, numbers in shortest form, booleans as true/false, missing or null as "".
-const propExpr = "multiIf(JSONType(props, ?) = 'String', JSONExtractString(props, ?)," +
-	" JSONType(props, ?) IN ('Int64', 'UInt64', 'Double'), toString(JSONExtractFloat(props, ?))," +
-	" JSONType(props, ?) = 'Null', '', JSONExtractRaw(props, ?))"
+// valueExpr reads the value at keys inside the JSON text doc as the canonical string attr.String
+// gives the decoded JSON value: strings as-is, numbers in shortest form, booleans as true/false,
+// missing or null as "". It appends its arguments (the keys, six times) to args.
+func valueExpr(doc string, keys []string, args *[]any) string {
+	ks := ""
+	for range keys {
+		ks += ", ?"
+	}
+	for i := 0; i < 6; i++ {
+		for _, k := range keys {
+			*args = append(*args, k)
+		}
+	}
+	return "multiIf(JSONType(" + doc + ks + ") = 'String', JSONExtractString(" + doc + ks + ")," +
+		" JSONType(" + doc + ks + ") IN ('Int64', 'UInt64', 'Double'), toString(JSONExtractFloat(" + doc + ks + "))," +
+		" JSONType(" + doc + ks + ") = 'Null', '', JSONExtractRaw(" + doc + ks + "))"
+}
+
+// hasExpr is true when keys exist in doc (null values count as there).
+func hasExpr(doc string, keys []string, args *[]any) string {
+	if len(keys) == 0 {
+		return "1" // a list item is always there
+	}
+	ks := ""
+	for _, k := range keys {
+		ks += ", ?"
+		*args = append(*args, k)
+	}
+	return "JSONHas(" + doc + ks + ")"
+}
+
+// propFilter compiles one property filter over an events row's props. A path through a list is
+// true when any item passes; an empty or missing list is one missing value, whose result is known
+// in Go (compare with present=false), so it is spliced in as a constant.
+func (b *sqlBuilder) propFilter(f PropFilter) string {
+	p, _ := ParsePath(f.Prop)
+	doc, keys := "props", p.Keys
+	if p.List {
+		doc, keys = "x", p.InItems
+	}
+	mark := len(b.args)
+	var cond string
+	if f.Op == "exists" || f.Op == "not_exists" {
+		cond = hasExpr(doc, keys, &b.args)
+		if f.Op == "not_exists" {
+			cond = "NOT " + cond
+		}
+	} else {
+		cond = b.compare(valueExpr(doc, keys, &b.args), f.Op, f.Value, "")
+	}
+	if !p.List {
+		return cond
+	}
+	// The list's keys are bound twice, before and after the item condition's own arguments.
+	var listArgs []any
+	listKeys := ""
+	for _, k := range p.Keys {
+		listKeys += ", ?"
+		listArgs = append(listArgs, k)
+	}
+	condArgs := append([]any(nil), b.args[mark:]...)
+	b.args = append(b.args[:mark], listArgs...)
+	b.args = append(b.args, condArgs...)
+	b.args = append(b.args, listArgs...)
+	missing := "0"
+	if compare(f.Op, nil, false, f.Value) {
+		missing = "1"
+	}
+	arr := "JSONExtractArrayRaw(props" + listKeys + ")"
+	return "if(empty(" + arr + "), " + missing + ", arrayExists(x -> " + cond + ", " + arr + "))"
+}
 
 func (b *sqlBuilder) props(where []PropFilter) string {
 	var sb strings.Builder
 	for _, f := range where {
-		k := f.Prop
-		if f.Op == "exists" || f.Op == "not_exists" {
-			b.args = append(b.args, k)
-			not := ""
-			if f.Op == "not_exists" {
-				not = "NOT "
-			}
-			sb.WriteString(" AND " + not + "JSONHas(props, ?)")
-			continue
-		}
-		b.args = append(b.args, k, k, k, k, k, k)
-		sb.WriteString(" AND " + b.compare(propExpr, f.Op, f.Value, ""))
+		sb.WriteString(" AND " + b.propFilter(f))
 	}
 	return sb.String()
 }
@@ -168,8 +238,8 @@ func (b *sqlBuilder) props(where []PropFilter) string {
 // so if a contact with zero events satisfies the rule ("login = 0", "purchase < 2"), the query is
 // flipped: NOT IN the contacts whose count fails it.
 func (b *sqlBuilder) event(r Rule) string {
-	start := b.asOf.AddDate(0, 0, -(r.Days - 1)).Format(time.DateOnly)
-	end := b.asOf.Format(time.DateOnly)
+	from, to := r.Window().Bounds(b.asOf)
+	start, end := from.Format(time.DateOnly), to.Format(time.DateOnly)
 	matchesZero := cmpInt(r.Op, 0, *r.Count)
 
 	having := "uniqExact(id) " + cmpOps[r.Op] + " ?"
@@ -208,8 +278,8 @@ func ValidatePropFilters(what string, where []PropFilter) error {
 		return fmt.Errorf("%s: at most %d property filters", what, maxWhere)
 	}
 	for _, f := range where {
-		if !attr.ValidKey(f.Prop) {
-			return fmt.Errorf("%s: invalid property name %q", what, f.Prop)
+		if !ValidPath(f.Prop) {
+			return fmt.Errorf("%s: invalid property %q", what, f.Prop)
 		}
 		if err := validCompare(fmt.Sprintf("%s property %q", what, f.Prop), f.Op, f.Value); err != nil {
 			return err
@@ -256,8 +326,32 @@ func AttrFilterSQL(where []PropFilter, asOf time.Time) (string, []any) {
 	return sb.String(), b.args
 }
 
-// PropValueSQL is the canonical string value of one event property (see propExpr), with its
-// arguments: strings as-is, numbers in shortest form, missing as "".
+// PropValueSQL is the canonical string value of one event property (see valueExpr), with its
+// arguments: strings as-is, numbers in shortest form, missing as "". prop is a top-level name or
+// a dotted path without [].
 func PropValueSQL(prop string) (string, []any) {
-	return propExpr, []any{prop, prop, prop, prop, prop, prop}
+	p, ok := ParsePath(prop)
+	keys := p.Keys
+	if !ok || p.List {
+		keys = []string{prop}
+	}
+	var args []any
+	return valueExpr("props", keys, &args), args
+}
+
+// ItemValueSQL is PropValueSQL for a path through a list (items[].code): an ARRAY JOIN source
+// naming each item x, and the value of x to select, each with its arguments. ok is false for
+// paths without [].
+func ItemValueSQL(prop string) (join string, joinArgs []any, value string, valueArgs []any, ok bool) {
+	p, valid := ParsePath(prop)
+	if !valid || !p.List {
+		return "", nil, "", nil, false
+	}
+	keys := ""
+	for _, k := range p.Keys {
+		keys += ", ?"
+		joinArgs = append(joinArgs, k)
+	}
+	value = valueExpr("x", p.InItems, &valueArgs)
+	return "JSONExtractArrayRaw(props" + keys + ")", joinArgs, value, valueArgs, true
 }

@@ -31,15 +31,17 @@ Click any row to open that contact's profile.
 
 The profile opens as a panel on the right. From top to bottom:
 
-<img src="img/02-profile-top.png" alt="The profile of store-1001: Merge into…, Download data and Delete contact, its segments, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
+<img src="img/02-profile-top.png" alt="The profile of store-1001: Merge into…, Download data and Delete contact, its segments with why?, Why not in another segment?, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
 
 - **Merge into…**: fold this contact into another one (step 10).
 - **Download data** and **Delete contact** (with **Contacts: Edit**): a JSON file of everything Pulse
   keeps about the person, and permanent deletion after you type `DELETE`. Both are for privacy
   requests ([tutorial 11](11-admin-and-privacy.md#5-a-persons-data-see-it-export-it-erase-it)).
-- **Segments**: every segment the contact is in right now, dynamic and static.
+- **Segments**: every segment the contact is in right now, dynamic and static. Click one (**· why?**)
+  to see why; **Why not in another segment?** checks any other dynamic segment (below).
 - **Owner, stage and company**: three drop-downs (step 3).
 - **Tags and points**: the contact's tags and score (step 4).
+- **Lists and choices**: the contact's list and choice fields (below), when you have defined some.
 - **Messages they agreed to**: consent per channel (step 4).
 - **Attributes**: every profile field, such as `city`, `plan` or `first_seen`.
 - **Activity**: the contact's events, newest first. Every change you make in the profile is
@@ -51,6 +53,44 @@ The panel refreshes every few seconds, so a new event or segment shows up while 
 **Close** (or outside the panel) to go back to the list.
 
 ![The Attributes and Activity sections of the profile](img/02-profile-attributes.png)
+
+Pulse keeps a few attributes itself, such as `email_domain` and `phone_country`: the country of the
+mobile number (`IN`, `GB`, `US`, `AE`, …), worked out from its country code. It is set only for
+numbers written in international form, with `+` or `00` (`+91 98200 11001`, `0044 7700 900123`); a
+national number such as `98200 11001` has no country.
+
+### Lists and choices
+
+List and choice fields (step 5) have their own section. A **list** shows its values as chips, e.g.
+the products a customer bought; a **choice** shows its option's label, e.g. **Silver**.
+
+<img src="img/02-profile-lists.png" alt="Lists and choices: Loyalty tier Silver and Products BED-404 and BED-220, each with Edit" width="420">
+
+With **Contacts: Edit**, click **Edit** next to a field: for a list, type a value and press
+**Enter** to add it (**×** removes one); for a choice, pick an option or **Not set**. Click
+**Save**; the profile shows the change within a second or two.
+
+### Why is this contact in a segment?
+
+Click a segment under **Segments** (each says **· why?**). A box opens below with the segment's
+rule, filter by filter:
+
+<img src="img/02-segment-why.png" alt="Why for Pro plan: In this segment: they match its rule now; a tick on plan is one of pro, team, their value: team" width="420">
+
+- A first line with the verdict, e.g. **In this segment: they match its rule now.**
+- One line per filter and group, with **✓** (matches) or **✗** (doesn't), the contact's own value
+  (*their value: team*) or, for event filters, how many matching events they have.
+- **?** marks an event filter whose period starts more than a year ago: the periodic sweep checks
+  it, not this box.
+
+To find out why someone is **not** in a segment, choose it in **Why not in another segment?** (it
+lists the dynamic segments the contact isn't in):
+
+<img src="img/02-why-not.png" alt="Why not in Repeat buyers in Pune: Not in this segment; All of these 1 of 2 match; city is Pune ✗ their value Delhi; did purchase at least 2× in 30 days ✓ 4 matching events" width="420">
+
+Here the customer bought often enough but lives in Delhi. For a static segment the box says whether
+the contact was added to it; for a segment refreshed daily (tutorial 3) it can say the contact
+matches now but joins at the next refresh. **×** closes the box.
 
 ## 3. Owner, stage and company
 
@@ -102,7 +142,7 @@ dates get *in the last … days*), and imports check and convert the values.
    - **Attribute key**: as it appears in events and files, e.g. `lifetime_value` (letters, digits
      and `_`, starting with a letter or `_`). It can't be changed later.
    - **Label**: e.g. `Lifetime value`
-   - **Type**: **Text**, **Number**, **Yes / no** or **Date**
+   - **Type**: **Text**, **Number**, **Yes / no**, **Date**, **List** or **Choice (enum)** (below)
    - **Description** (optional), and **Holds personal data** for phone numbers, addresses, birthdays
 3. Click **Save attribute**.
 
@@ -116,6 +156,23 @@ For the sample file, define two fields:
 | `loyalty_member` | Loyalty member | Yes / no |
 
 **Remove** deletes only the definition; the values on contacts stay.
+
+### List and choice fields
+
+- A **List** field holds several values, like tags: the products a customer bought, the stores they
+  visited. In segments it is **has** / **doesn't have** a value. Send it as a JSON array
+  (`"products": ["KIT-101", "BED-404"]`); in an import, separate the values in the cell with `|` or
+  commas (`KIT-101|BED-404`). An event can also add to it on every event, e.g. each purchase adds its
+  product codes ([tutorial 12](12-events-and-properties.md#11-fill-a-contacts-list-from-events)).
+- A **Choice (enum)** field holds one of a set of **Options**. Each option has a value (what your
+  data sends, e.g. `gold`) and a label people see (`Gold`); **+ Add option** adds one. In segments
+  the value is a drop-down of the options.
+
+<img src="img/02-define-choice.png" alt="Edit loyalty_tier: Type Choice (enum) with the options bronze Bronze, silver Silver and gold Gold" width="420">
+
+In the list, a choice field shows its options under its type, e.g. **Choice (enum)** · *Bronze,
+Silver, Gold*. Acme Retail has two of these: **Products** (a list filled from purchases) and
+**Loyalty tier** (a choice).
 
 ## 6. Import a CSV
 
@@ -143,10 +200,13 @@ already guessed:
 |---|---|---|
 | `customer_id` | **External ID** | `id`, `user_id`, `customer_id` and `contact_id` are recognised |
 | `email` | **Email** | also `e_mail`, `email_address`, `mail` |
-| `mobile` | **Phone (international format)** | also `phone_number`, `mobile_number`, … Spaces, dashes and brackets are removed, so `+91 98200 11001` becomes `+919820011001` |
+| `mobile` | **Phone (international format)** | also `phone_number`, `mobile_number`, … Spaces, dashes and brackets are removed, so `+91 98200 11001` becomes `+919820011001`, and Pulse sets `phone_country` (`IN`) from the `+91` |
 | `lifetime_value`, `loyalty_member` | **Lifetime value**, **Loyalty member** | the fields you defined in step 5 |
 | `first_name`, `last_name`, `city`, `plan` | **New field: …** | fields without a definition; created as text, marked *new field* |
 | `tags` | **Tags to add (separated by ;)** | `store-pune;diwali-2026` adds two tags |
+
+A column mapped to a **List** field may hold several values separated by `|` (or by commas when the
+cell has no `|`): `KIT-101|BED-404`. Blanks and repeats are dropped.
 
 3. Set **notes** to **Don't import**: those are the store's own remarks.
 4. Click **Next**. If something is wrong, Pulse lists it in red under the table and **Next** stays
@@ -325,10 +385,12 @@ field, such as industry).
 
 ## What you have now
 
-- Two typed contact fields, `lifetime_value` and `loyalty_member`
+- Two typed contact fields, `lifetime_value` and `loyalty_member`, and an idea of list and choice
+  fields
 - Six customers from the store opening, imported into the static segment **Pune store opening
   guests**, and one of them (`store-1001`) with an owner, a stage, tags and points
-- A feel for filters, saved views, exports, duplicates and companies
+- A feel for filters, saved views, exports, duplicates and companies, and for **· why?** on a
+  contact's segments
 
 **Next:** Tutorial 3, Segments: build dynamic segments with the rule builder, manage static ones, and
 set up scoring and stages.

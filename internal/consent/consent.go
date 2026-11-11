@@ -49,7 +49,7 @@ func Key(ch string) string { return "optout_" + ch }
 func IsReserved(attrName string) bool {
 	switch attrName {
 	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, AttrSMSBounced, "first_seen", "last_seen", "stage", "stage_changed_at",
-		"date_added", "date_identified", "date_modified", "email_domain", "owner_id", "owner_name",
+		"date_added", "date_identified", "date_modified", "email_domain", "phone_country", "owner_id", "owner_name",
 		"device_type", "device_os", "device_os_version", "device_brand", "device_model", "browser", "app_version":
 		return true
 	}

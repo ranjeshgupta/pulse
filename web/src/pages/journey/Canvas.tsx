@@ -1,6 +1,7 @@
 // Canvas pieces for the journey builder: the step card (number badge, icon, category colour, label,
 // summary, stats, and a "+" under every free output), the edge with its Yes / No / path label and a
 // "+" at its midpoint, and the dashed edge from a Jump to step to its target.
+import { describeWhere } from "../../segmentRules";
 import {
   BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, Handle, Position, type EdgeProps, type NodeProps,
 } from "@xyflow/react";
@@ -195,6 +196,6 @@ export function triggerText(g: JourneyGraph, segments: Record<number, string>, f
   if (t.type === "form_submitted") return `Contact submits ${t.form_id ? `‘${forms[t.form_id] ?? `form ${t.form_id}`}’` : "any form"}`;
   return t.type === "segment_entered"
     ? `Contact enters ${t.segment_id ? `‘${segments[t.segment_id] ?? `segment ${t.segment_id}`}’` : "a segment"}`
-    : `Contact does ${t.event ? `‘${t.event}’` : "an event"}`;
+    : `Contact does ${t.event ? `‘${t.event}’` : "an event"}${t.where?.length ? ` where ${describeWhere(t.where)}` : ""}`;
 }
 

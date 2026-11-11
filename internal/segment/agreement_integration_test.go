@@ -148,8 +148,9 @@ type bucketCounter struct {
 	inSeg   map[int64]map[uint32]bool
 }
 
-func (b bucketCounter) Count(_ context.Context, ev string, days int) (int, error) {
-	return segment.SumWindow(b.byEvent[ev], b.asOf, days), nil
+func (b bucketCounter) Count(_ context.Context, ev string, w segment.Window) (int, error) {
+	start, end := w.Bounds(b.asOf)
+	return segment.SumBetween(b.byEvent[ev], start, end), nil
 }
 
 func (b bucketCounter) InSegment(_ context.Context, seg int64) (bool, error) {
@@ -163,6 +164,7 @@ var (
 	names  = []string{"purchase", "login", "view"}
 	tagSet = []string{"vip", "beta", "churn"}
 	skus   = []any{"A1", "B2", 7.0, ""}
+	prods  = []any{"A1", "B2", "C3", 7.0}
 	amts   = []any{0.0, 99.5, 250.0, "300", "n/a", true}
 )
 
@@ -180,6 +182,18 @@ func fixtures(rng *rand.Rand, tenant int64, asOf time.Time, n int) ([]ch.Contact
 			d := asOf.AddDate(0, 0, -rng.Intn(60)).Add(time.Duration(rng.Intn(48)-24) * time.Hour)
 			attrs["seen"] = []any{d.Format(time.DateOnly), d.Format(time.RFC3339), "soon", ""}[rng.Intn(4)]
 		}
+		switch rng.Intn(5) { // a list field: a JSON array, a plain string, or missing
+		case 0, 1, 2:
+			list := []any{}
+			for _, p := range prods {
+				if rng.Intn(2) == 0 {
+					list = append(list, p)
+				}
+			}
+			attrs["products"] = list
+		case 3:
+			attrs["products"] = "A1"
+		}
 		if rng.Intn(3) > 0 {
 			tags := []any{}
 			for _, tg := range tagSet {
@@ -191,8 +205,12 @@ func fixtures(rng *rand.Rand, tenant int64, asOf time.Time, n int) ([]ch.Contact
 		}
 		cs = append(cs, ch.ContactSnapshot{TenantID: tenant, ID: id, ExternalID: fmt.Sprint("u", id), Attrs: attrs, Version: 1})
 		for k := rng.Intn(6); k > 0; k-- {
-			// From 12 days ago to 1 day in the future, so windows and their edges are exercised.
+			// From 12 days ago to 1 day in the future, so windows and their edges are exercised, and
+			// some from 360-420 days ago for absolute ranges older than the counters.
 			ts := asOf.Add(-time.Duration(rng.Int63n(int64(13 * 24 * time.Hour)))).Add(24 * time.Hour)
+			if rng.Intn(6) == 0 {
+				ts = asOf.AddDate(0, 0, -360-rng.Intn(60)).Add(time.Duration(rng.Intn(24)) * time.Hour)
+			}
 			props := map[string]any{}
 			if rng.Intn(4) > 0 {
 				props["sku"] = skus[rng.Intn(len(skus))]
@@ -202,6 +220,36 @@ func fixtures(rng *rand.Rand, tenant int64, asOf time.Time, n int) ([]ch.Contact
 			}
 			if rng.Intn(5) == 0 {
 				props["coupon"] = nil
+			}
+			if rng.Intn(3) == 0 { // a nested object
+				product := map[string]any{}
+				if rng.Intn(4) > 0 {
+					product["code"] = skus[rng.Intn(len(skus))]
+				}
+				if rng.Intn(2) == 0 {
+					product["price"] = amts[rng.Intn(len(amts))]
+				}
+				props["product"] = product
+			}
+			switch rng.Intn(4) { // a list of objects, an empty list, or not a list
+			case 0, 1:
+				items := []any{}
+				for n := rng.Intn(4); n > 0; n-- {
+					it := map[string]any{}
+					if rng.Intn(4) > 0 {
+						it["code"] = skus[rng.Intn(len(skus))]
+					}
+					if rng.Intn(2) == 0 {
+						it["qty"] = float64(rng.Intn(4))
+					}
+					items = append(items, it)
+				}
+				props["items"] = items
+			case 2:
+				props["items"] = "A1"
+			}
+			if rng.Intn(3) == 0 {
+				props["tags"] = []any{prods[rng.Intn(len(prods))], prods[rng.Intn(len(prods))]}
 			}
 			evs = append(evs, event.Event{
 				ID: event.NewID(), TenantID: tenant, ContactID: id, Name: names[rng.Intn(len(names))], Ts: ts.UTC(), Props: props,
@@ -250,6 +298,28 @@ func fixedRules(t *testing.T) []segment.Rule {
 		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"coupon","op":"not_exists"}]}`,
 		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"sku","op":"starts_with","value":"A"},{"prop":"amount","op":"between","value":[0,260]}]}`,
 		`{"event":"purchase","op":"eq","count":0,"days":14,"where":[{"prop":"sku","op":"not_in","value":["A1",7]}]}`,
+		`{"none":[{"attr":"city","op":"eq","value":"Delhi"},{"tag":"vip","op":"has"}]}`,
+		`{"all":[{"attr":"plan","op":"exists"},{"none":[{"event":"purchase","op":"gte","count":1,"days":14}]}]}`,
+		`{"attr":"products","op":"has","value":"A1"}`,
+		`{"attr":"products","op":"not_has","value":"7"}`,
+		`{"attr":"products","op":"has","value":"C3"}`,
+		`{"attr":"seen","op":"between","value":["2026-10-01","2026-10-31"]}`,
+		`{"event":"purchase","op":"gte","count":1,"from":"2026-11-01","to":"2026-11-05"}`,
+		`{"event":"view","op":"eq","count":0,"from":"2026-11-08"}`,
+		`{"event":"login","op":"gte","count":1,"from":"2025-09-01","to":"2025-11-30"}`,
+		`{"event":"purchase","op":"lt","count":2,"from":"2025-10-15"}`,
+		`{"event":"purchase","op":"gte","count":1,"from":"2026-12-01"}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"product.code","op":"eq","value":"A1"}]}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"product.price","op":"gt","value":100}]}`,
+		`{"event":"login","op":"gte","count":1,"days":14,"where":[{"prop":"product.code","op":"not_exists"}]}`,
+		`{"event":"purchase","op":"gte","count":1,"days":14,"where":[{"prop":"items[].code","op":"eq","value":"B2"}]}`,
+		`{"event":"purchase","op":"eq","count":0,"days":14,"where":[{"prop":"items[].code","op":"ne","value":"A1"}]}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"items[].qty","op":"gte","value":2}]}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"items[].code","op":"not_exists"}]}`,
+		`{"event":"login","op":"gte","count":1,"days":14,"where":[{"prop":"items[].code","op":"exists"}]}`,
+		`{"event":"login","op":"gte","count":1,"days":14,"where":[{"prop":"tags","op":"has","value":"B2"}]}`,
+		`{"event":"view","op":"gte","count":1,"days":14,"where":[{"prop":"tags[]","op":"in","value":["C3",7]}]}`,
+		`{"event":"purchase","op":"gte","count":1,"from":"2025-10-01","to":"2025-12-31","where":[{"prop":"items[].code","op":"in","value":["A1","B2"]}]}`,
 	} {
 		r, err := segment.Parse([]byte(js))
 		if err != nil {
@@ -268,7 +338,44 @@ func randomRules(rng *rand.Rand, asOf time.Time, n int) []segment.Rule {
 			c := rng.Intn(4)
 			return segment.Rule{Event: names[rng.Intn(len(names))], Op: ops[rng.Intn(len(ops))], Count: &c, Days: 1 + rng.Intn(14)}
 		}
-		switch k := rng.Intn(14); k {
+		switch k := rng.Intn(17); k {
+		case 14:
+			return segment.Rule{Attr: "products", Op: []string{"has", "not_has"}[rng.Intn(2)], Value: []string{"A1", "B2", "C3", "7", "Z"}[rng.Intn(5)]}
+		case 15:
+			from := asOf.AddDate(0, 0, -rng.Intn(60))
+			return segment.Rule{Attr: "seen", Op: "between", Value: []any{from.Format(time.DateOnly), from.AddDate(0, 0, rng.Intn(20)).Format(time.DateOnly)}}
+		case 16:
+			c := rng.Intn(3)
+			// Absolute ranges: recent, or starting 330-430 days back (older than the counters).
+			from := asOf.AddDate(0, 0, -rng.Intn(14))
+			if rng.Intn(2) == 0 {
+				from = asOf.AddDate(0, 0, -330-rng.Intn(100))
+			}
+			r := segment.Rule{Event: names[rng.Intn(len(names))], Op: ops[rng.Intn(len(ops))], Count: &c, From: from.Format(time.DateOnly)}
+			if rng.Intn(2) == 0 {
+				r.To = from.AddDate(0, 0, rng.Intn(60)).Format(time.DateOnly)
+			}
+			if rng.Intn(2) == 0 {
+				r.Where = []segment.PropFilter{[]segment.PropFilter{
+					{Prop: "items[].code", Op: []string{"eq", "ne", "in"}[rng.Intn(3)], Value: skus[rng.Intn(len(skus))]},
+					{Prop: "product.code", Op: []string{"eq", "ne", "exists", "not_exists"}[rng.Intn(4)]},
+					{Prop: "items[].qty", Op: ops[2+rng.Intn(4)], Value: float64(rng.Intn(4))},
+					{Prop: "product.price", Op: "between", Value: []any{0.0, []float64{99.5, 250, 300}[rng.Intn(3)]}},
+					{Prop: "tags", Op: []string{"has", "not_has"}[rng.Intn(2)], Value: []string{"A1", "B2", "7"}[rng.Intn(3)]},
+				}[rng.Intn(5)]}
+				f := &r.Where[0]
+				switch f.Op {
+				case "exists", "not_exists":
+					f.Value = nil
+				case "eq", "ne":
+					if f.Value == nil {
+						f.Value = skus[rng.Intn(len(skus))]
+					}
+				case "in":
+					f.Value = []any{skus[rng.Intn(len(skus))], skus[rng.Intn(len(skus))]}
+				}
+			}
+			return r
 		case 11:
 			return segment.Rule{Attr: []string{"city", "plan"}[rng.Intn(2)], Op: []string{"not_contains", "starts_with", "ends_with"}[rng.Intn(3)], Value: []string{"D", "un", "", "pro", "i"}[rng.Intn(5)]}
 		case 12:
@@ -329,10 +436,13 @@ func randomRules(rng *rand.Rand, asOf time.Time, n int) []segment.Rule {
 		for i := range kids {
 			kids[i] = gen(depth + 1)
 		}
-		if rng.Intn(2) == 0 {
+		switch rng.Intn(5) {
+		case 0, 1:
 			return segment.Rule{All: kids}
+		case 2, 3:
+			return segment.Rule{Any: kids}
 		}
-		return segment.Rule{Any: kids}
+		return segment.Rule{None: kids}
 	}
 	out := make([]segment.Rule, n)
 	for i := range out {

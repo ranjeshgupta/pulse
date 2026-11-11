@@ -34,6 +34,7 @@ const I = {
   coin: <><circle cx="8.5" cy="8.5" r="6.5" /><path d="M10.6 6.2c-.4-.8-1.2-1.2-2.1-1.2-1.2 0-2.1.7-2.1 1.7 0 2.4 4.4 1.2 4.4 3.6 0 1-1 1.8-2.3 1.8-1 0-1.9-.5-2.3-1.3M8.5 3.8V5M8.5 12.1v1.2" /></>,
   plug: <><path d="M6 1.5v4M11 1.5v4" /><path d="M3.5 5.5h10v3a5 5 0 0 1-10 0z" /><path d="M8.5 13.5v2" /></>,
   gear: <><circle cx="8.5" cy="8.5" r="2.4" /><path d="M8.5 1.5v2M8.5 13.5v2M1.5 8.5h2M13.5 8.5h2M3.5 3.5l1.4 1.4M12.1 12.1l1.4 1.4M3.5 13.5l1.4-1.4M12.1 4.9l1.4-1.4" /></>,
+  bolt: <path d="M9.5 1.5 3 9.5h5l-1 6 6.5-8h-5z" />,
   chart: <><path d="M2 15h13" /><rect x="3" y="8" width="2.6" height="5" rx=".5" /><rect x="7.2" y="4" width="2.6" height="9" rx=".5" /><rect x="11.4" y="6.5" width="2.6" height="6.5" rx=".5" /></>,
 };
 
@@ -58,6 +59,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/contacts", label: "Contacts", icon: I.people, need: ["contacts", "view"] },
       { to: "/companies", label: "Companies", icon: I.building, need: ["contacts", "view"] },
       { to: "/segments", label: "Segments", icon: I.funnel, need: ["segments", "view"] },
+      { to: "/events", label: "Events", icon: I.bolt, need: ["contacts", "view"] },
     ],
   },
   {

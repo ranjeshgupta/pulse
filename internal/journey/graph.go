@@ -74,6 +74,9 @@ type Trigger struct {
 	SegmentID int64  `json:"segment_id,omitempty"`
 	Event     string `json:"event,omitempty"`
 	FormID    int64  `json:"form_id,omitempty"` // form_submitted: this form only (0 = any form)
+	// Where (event triggers): only events whose properties pass every filter enroll, e.g.
+	// payment_method = upi. Same operators and paths as segment property filters.
+	Where []segment.PropFilter `json:"where,omitempty"`
 	// IncludeBackfill also enrolls contacts that entered the segment through a backfill or sweep,
 	// not just live changes. Off by default so creating a segment never mass-enrolls by surprise.
 	IncludeBackfill bool `json:"include_backfill,omitempty"`
@@ -214,8 +217,11 @@ func (t Trigger) TriggerEventName() string {
 }
 
 // MatchesEvent reports whether an event of the trigger's name enrolls: a form trigger with a
-// form_id takes that form's submissions only.
+// form_id takes that form's submissions only, and an event trigger's property filters must pass.
 func (t Trigger) MatchesEvent(props map[string]any) bool {
+	if len(t.Where) > 0 && !segment.MatchProps(t.Where, props) {
+		return false
+	}
 	if t.Type != TriggerFormSubmitted || t.FormID == 0 {
 		return true
 	}
@@ -231,13 +237,22 @@ func (g Graph) Validate() error {
 		if g.Trigger.SegmentID <= 0 {
 			return errors.New("segment_entered trigger needs segment_id")
 		}
+		if len(g.Trigger.Where) > 0 {
+			return errors.New("segment trigger: property filters apply to event triggers only")
+		}
 	case TriggerEvent:
 		if !event.ValidName(g.Trigger.Event) {
 			return fmt.Errorf("event trigger: invalid event name %q", g.Trigger.Event)
 		}
+		if err := segment.ValidatePropFilters("event trigger", g.Trigger.Where); err != nil {
+			return err
+		}
 	case TriggerFormSubmitted:
 		if g.Trigger.FormID < 0 {
 			return errors.New("form trigger: invalid form_id")
+		}
+		if len(g.Trigger.Where) > 0 {
+			return errors.New("form trigger: property filters apply to event triggers only (use a form field condition)")
 		}
 	default:
 		return fmt.Errorf("unknown trigger type %q", g.Trigger.Type)
@@ -304,8 +319,12 @@ func (g Graph) Validate() error {
 			if len(bytes.TrimSpace(n.Rule)) == 0 || string(bytes.TrimSpace(n.Rule)) == "null" {
 				return fmt.Errorf("check %q: describe who takes the Yes path", id)
 			}
-			if _, err := segment.Parse(n.Rule); err != nil {
+			rule, err := segment.Parse(n.Rule)
+			if err != nil {
 				return fmt.Errorf("check %q: %w", id, err)
+			}
+			if rule.SweepOnly(time.Now()) {
+				return fmt.Errorf("check %q: a condition can count events of the last 365 days at most; for older ranges, build a segment and use an in-segment condition", id)
 			}
 			if !slices.Contains(checkPresets, n.Preset) {
 				return fmt.Errorf("check %q: unknown preset %q", id, n.Preset)

@@ -438,10 +438,10 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
           {r.revenue && (
             <div className="figures" style={{ marginTop: 0, marginBottom: 18 }}>
               <div><strong>{money(r.revenue.revenue, r.revenue.currency)}</strong><span>revenue from recipients <small>({r.revenue.event} within {r.revenue.days} days of their send)</small></span></div>
-              <div><strong>{r.revenue.orders.toLocaleString("en-IN")}</strong><span>orders</span></div>
-              <div><strong>{r.revenue.buyers.toLocaleString("en-IN")}</strong><span>buyers</span></div>
+              <div><strong>{r.revenue.orders.toLocaleString("en-IN")}</strong><span>{r.revenue.orders === 1 ? "order" : "orders"}</span></div>
+              <div><strong>{r.revenue.buyers.toLocaleString("en-IN")}</strong><span>{r.revenue.buyers === 1 ? "buyer" : "buyers"}</span></div>
               {Object.entries(r.revenue.by_variant ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([v, rv]) => (
-                <div key={v}><strong>{money(rv.revenue, r.revenue!.currency)}</strong><span>{v === "winner" ? "winner send" : `variant ${v}`} · {rv.orders} orders</span></div>
+                <div key={v}><strong>{money(rv.revenue, r.revenue!.currency)}</strong><span>{v === "winner" ? "winner send" : `variant ${v}`} · {rv.orders} {rv.orders === 1 ? "order" : "orders"}</span></div>
               ))}
             </div>
           )}

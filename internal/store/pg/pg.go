@@ -4,6 +4,7 @@ package pg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 
 	"pulse/internal/model"
 	"pulse/internal/schedule"
+	"pulse/internal/segment"
 )
 
 // ErrNotFound is returned when a row does not exist (or belongs to another tenant).
@@ -281,14 +283,42 @@ func (s *Store) ContactByID(ctx context.Context, tenant int64, id uint32) (model
 
 // ---- segments ----
 
-const segmentCols = `id, tenant_id, name, kind, rule, has_window, status, built_at, public, description`
+const segmentCols = `id, tenant_id, name, kind, rule, has_window, status, built_at, public, description, refresh, next_refresh_at`
 
 func scanSegments(rows pgx.Rows) ([]model.Segment, error) {
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.Segment, error) {
 		var s model.Segment
-		err := r.Scan(&s.ID, &s.TenantID, &s.Name, &s.Kind, &s.Rule, &s.HasWindow, &s.Status, &s.BuiltAt, &s.Public, &s.Description)
+		var refresh []byte
+		err := r.Scan(&s.ID, &s.TenantID, &s.Name, &s.Kind, &s.Rule, &s.HasWindow, &s.Status, &s.BuiltAt, &s.Public, &s.Description, &refresh, &s.NextRefreshAt)
+		if err == nil && len(refresh) > 0 {
+			var rf segment.Refresh
+			if json.Unmarshal(refresh, &rf) == nil && rf.Daily() {
+				s.Refresh = &rf
+			}
+		}
 		return s, err
 	})
+}
+
+// SetSegmentRefresh stores how a segment is refreshed (nil or live: with every event). Saving a
+// segment rebuilds it, after which the engine schedules a daily segment's next refresh.
+func (s *Store) SetSegmentRefresh(ctx context.Context, tenant, id int64, rf *segment.Refresh) error {
+	var raw any
+	if rf.Daily() {
+		b, _ := json.Marshal(rf)
+		raw = b
+	}
+	tag, err := s.db.Exec(ctx, `UPDATE segments SET refresh = $3, next_refresh_at = NULL WHERE tenant_id = $1 AND id = $2 AND kind = 'rule'`, tenant, id, raw)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
+}
+
+// SetNextRefresh records when a daily segment is rebuilt next.
+func (s *Store) SetNextRefresh(ctx context.Context, id int64, at time.Time) error {
+	_, err := s.db.Exec(ctx, `UPDATE segments SET next_refresh_at = $2 WHERE id = $1`, id, at)
+	return err
 }
 
 func (s *Store) CreateSegment(ctx context.Context, tenant int64, name string, rule []byte, hasWindow bool) (int64, error) {
@@ -328,9 +358,10 @@ func (s *Store) AllSegments(ctx context.Context) ([]model.Segment, error) {
 	return scanSegments(rows)
 }
 
-// ClaimSegmentWork claims one segment that needs a backfill (status 'new') or, failing that,
-// a sweep (event windows, not swept within sweepEvery). Returns ok=false when there is nothing to do.
-// A crashed worker's 'building' claim expires after 10 minutes.
+// ClaimSegmentWork claims one segment that needs a backfill (status 'new'), else a daily segment
+// whose refresh time has come, else a sweep (event windows, not swept within sweepEvery; daily
+// segments are never swept). Returns ok=false when there is nothing to do. A crashed worker's
+// 'building' claim expires after 10 minutes, and a daily claim is retried after 10 minutes.
 func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) (seg model.Segment, source string, ok bool, err error) {
 	rows, err := s.db.Query(ctx, `
 		UPDATE segments SET status = 'building', swept_at = now()
@@ -351,10 +382,27 @@ func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) 
 	}
 
 	rows, err = s.db.Query(ctx, `
+		UPDATE segments SET swept_at = now(), next_refresh_at = now() + interval '10 minutes'
+		WHERE id = (
+			SELECT id FROM segments
+			WHERE status = 'ready' AND refresh->>'mode' = 'daily' AND coalesce(next_refresh_at, '-infinity') <= now()
+			ORDER BY next_refresh_at NULLS FIRST LIMIT 1 FOR UPDATE SKIP LOCKED)
+		RETURNING `+segmentCols)
+	if err != nil {
+		return seg, "", false, err
+	}
+	if segs, err := scanSegments(rows); err != nil || len(segs) == 1 {
+		if err != nil {
+			return seg, "", false, err
+		}
+		return segs[0], "daily", true, nil
+	}
+
+	rows, err = s.db.Query(ctx, `
 		UPDATE segments SET swept_at = now()
 		WHERE id = (
 			SELECT id FROM segments
-			WHERE status = 'ready' AND has_window AND (swept_at IS NULL OR swept_at < now() - $1::interval)
+			WHERE status = 'ready' AND has_window AND refresh IS NULL AND (swept_at IS NULL OR swept_at < now() - $1::interval)
 			ORDER BY swept_at NULLS FIRST LIMIT 1 FOR UPDATE SKIP LOCKED)
 		RETURNING `+segmentCols, sweepEvery)
 	if err != nil {

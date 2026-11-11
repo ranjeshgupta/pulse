@@ -43,6 +43,7 @@ import (
 	"pulse/internal/config"
 	"pulse/internal/dispatch"
 	"pulse/internal/event"
+	"pulse/internal/eventschema"
 	"pulse/internal/geoip"
 	"pulse/internal/importer"
 	"pulse/internal/integrations"
@@ -286,6 +287,7 @@ func runAPI(ctx context.Context, d *deps) error {
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
+		Schemas: eventschema.NewCache(pgs, d.redis(), d.log),
 	})
 	srv := &http.Server{
 		Addr:              d.cfg.HTTPAddr,
@@ -319,7 +321,9 @@ func runProfile(ctx context.Context, d *deps) error {
 		return err
 	}
 	defer c.Close()
-	return c.RunPartitionBatches(ctx, profile.New(pgs, d.redis(), prod).HandleBatch)
+	svc := profile.New(pgs, d.redis(), prod)
+	svc.Schemas, svc.Log = eventschema.NewCache(pgs, d.redis(), d.log), d.log
+	return c.RunPartitionBatches(ctx, svc.HandleBatch)
 }
 
 func runCHSink(ctx context.Context, d *deps) error {

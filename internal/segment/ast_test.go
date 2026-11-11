@@ -54,7 +54,7 @@ func TestParseInvalid(t *testing.T) {
 		"tag bad name":      {`{"tag":"a b","op":"has"}`, "tag rules"},
 		"tag bad op":        {`{"tag":"vip","op":"eq"}`, "tag rules"},
 		"where on attr":     {`{"attr":"a","op":"exists","where":[{"prop":"x","op":"exists"}]}`, "event rules only"},
-		"where bad prop":    {`{"event":"buy","op":"gte","count":1,"days":1,"where":[{"prop":"a.b","op":"exists"}]}`, "invalid property"},
+		"where bad prop":    {`{"event":"buy","op":"gte","count":1,"days":1,"where":[{"prop":"a..b","op":"exists"}]}`, "invalid property"},
 		"where bad op":      {`{"event":"buy","op":"gte","count":1,"days":1,"where":[{"prop":"a","op":"gt","value":"x"}]}`, "number value"},
 	}
 	for name, tc := range cases {

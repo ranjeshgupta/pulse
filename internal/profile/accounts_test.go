@@ -166,7 +166,7 @@ func TestPointsMoveStage(t *testing.T) {
 	if store.contacts["u1"].Attrs["stage"] != "MQL" {
 		t.Errorf("stored stage = %v", store.contacts["u1"].Attrs["stage"])
 	}
-	n, _ := segment.NewRedisCounter(rdb, 1, out[0].ContactID, ts).Count(context.Background(), event.StageChanged, 1)
+	n, _ := segment.NewRedisCounter(rdb, 1, out[0].ContactID, ts).Count(context.Background(), event.StageChanged, segment.Window{Days: 1})
 	if n != 2 {
 		t.Errorf("stage_changed counted %d times, want 2", n)
 	}
@@ -206,7 +206,7 @@ func TestDuplicateMerge(t *testing.T) {
 	if main.Attrs["city"] != "Pune" || main.Attrs["phone"] != "+91" || dup.Attrs["merged_into"] != "main" {
 		t.Errorf("winner %v, loser %v", main.Attrs, dup.Attrs)
 	}
-	if n, _ := segment.NewRedisCounter(rdb, 1, main.ID, ts).Count(ctx, "purchase", 1); n != 1 {
+	if n, _ := segment.NewRedisCounter(rdb, 1, main.ID, ts).Count(ctx, "purchase", segment.Window{Days: 1}); n != 1 {
 		t.Errorf("winner's purchase count = %d, want the loser's 1", n)
 	}
 	// Later events of the loser, and of the visitor merged into the loser before, go to the winner.

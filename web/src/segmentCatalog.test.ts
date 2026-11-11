@@ -99,7 +99,7 @@ suite("operators per type", () => {
     expect(opsFor("number")).toContain("between");
     expect(opsFor("number")).not.toContain("contains");
     expect(opsFor("boolean")).toEqual(["eq", "ne", "exists", "not_exists"]);
-    expect(opsFor("date")).toEqual(["within_days", "older_than_days", "on", "before", "after", "empty", "not_empty"]);
+    expect(opsFor("date")).toEqual(["within_days", "older_than_days", "on", "before", "after", "between", "empty", "not_empty"]);
     // Event properties can't compare with today.
     expect(opsFor("date", undefined, true)).not.toContain("within_days");
     // A saved op the type doesn't offer stays visible.

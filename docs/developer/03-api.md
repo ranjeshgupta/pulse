@@ -226,6 +226,45 @@ curl -s -X POST $PULSE/v1/contacts/merge -H "Authorization: Bearer $KEY" -H "Con
 A loser that was already merged answers 409, as does a second merge of the same contacts started
 before the first one finished.
 
+**Event schemas** describe the properties an event carries (Audience → Events in the app;
+[tutorial 12](../tutorials/12-events-and-properties.md)). Properties may be nested: segment and
+trigger filters reach them with dotted paths (`product.code`) and `items[].code` (any item of a
+list). A schema in **warn** mode (the default) only counts and samples events that don't fit; in
+**enforce** mode this route refuses the whole request with 400 when any event doesn't fit its schema:
+
+```bash
+curl -s -X POST $PULSE/v1/events -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"external_id":"cust-1001","name":"signup","props":{"method":"social"}}'
+# 400 {"error":"event 0: signup doesn't fit its schema: social_provider is required"}
+```
+
+Events from browsers and apps (`/v1/web/*`, the SDKs) are never refused. A schema can also add a
+property's value to a contact list field: with the suggested purchase schema, every purchase adds
+`product_code` (and each `items[].product_code`) to the contact's `products`.
+
+```bash
+# The suggested schemas (purchase, signup, login, add_to_cart, cart_abandoned, checkout_abandoned)
+curl -s -X POST $PULSE/v1/events/schemas/suggested -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{}'
+# {"added":["purchase","signup","login","add_to_cart","cart_abandoned","checkout_abandoned"]}
+
+# One schema of your own: method social / otp / password; social_provider only (and then always) for social
+curl -s -X PUT $PULSE/v1/events/signup/schema -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "label": "Sign-up", "mode": "warn", "props": [
+    {"key": "method", "type": "enum", "required": true,
+     "values": [{"value": "social", "label": "Social"}, {"value": "otp", "label": "OTP"}, {"value": "password", "label": "Password"}]},
+    {"key": "social_provider", "type": "enum", "required": true,
+     "values": [{"value": "google"}, {"value": "facebook"}, {"value": "apple"}, {"value": "linkedin"}],
+     "depends_on": {"prop": "method", "values": ["social"]}},
+    {"key": "referrer_email", "type": "string", "personal": true}
+  ]}'
+```
+
+A property has `key`, optional `path` (where it is when not at the top level: `product.code`,
+`items[].code`), `type` (`string`, `number`, `bool`, `date`, `enum`, `list`, `object`), `required`,
+`values` (enums), `depends_on`, `personal` (hidden in samples and value suggestions) and
+`add_to_list` (a list contact field, created when missing). Switching a schema to `enforce` needs
+`"confirm": "ENFORCE"` in the body and settings edit access.
+
 **Events Pulse records itself** can't be sent: `contact_merged`, `merge_requested`,
 `company_linked`, `stage_changed`… are refused with 400 (`… is recorded by Pulse itself`); use the
 routes below instead. Pulse also records message events (`email_sent`, `email_opened`,
@@ -453,11 +492,42 @@ Each rule node has exactly one of:
 
 | Node | Fields | Operators |
 |---|---|---|
-| Group | `all: [...]` or `any: [...]` | (nested up to 8 levels, 200 nodes in all) |
-| Attribute | `attr`, `op`, `value` | `eq`, `ne` (string, number or boolean); `contains`, `not_contains`, `starts_with`, `ends_with` (string); `gt`, `gte`, `lt`, `lte` (number); `in`, `not_in` (list of 1-1,000); `exists`, `not_exists` (no value); `between` (`[low, high]`); `on`, `before`, `after` (date `2026-11-30`); `within_days`, `older_than_days` (whole days) |
-| Event count | `event`, `op`, `count`, `days`, optional `where` | `eq`, `ne`, `gt`, `gte`, `lt`, `lte` on the number of events in the last `days` (1-365: today plus the previous days, UTC). `where`: up to 5 property filters (`prop`, `op`, `value`, attribute operators except relative dates) |
+| Group | `all: [...]`, `any: [...]` or `none: [...]` (matches when none of its rules do) | (nested up to 8 levels, 200 nodes in all) |
+| Attribute | `attr`, `op`, `value` | `eq`, `ne` (string, number or boolean); `contains`, `not_contains`, `starts_with`, `ends_with` (string); `gt`, `gte`, `lt`, `lte` (number); `in`, `not_in` (list of 1-1,000); `exists`, `not_exists` (no value); `between` (`[low, high]`, two numbers or two dates); `on`, `before`, `after` (date `2026-11-30`); `within_days`, `older_than_days` (whole days); `has`, `not_has` (a value of a list field, e.g. `products`) |
+| Event count | `event`, `op`, `count`, `days` or `from` / `to`, optional `where` | `eq`, `ne`, `gt`, `gte`, `lt`, `lte` on the number of events in the last `days` (1-365: today plus the previous days, UTC), or in an absolute range of UTC days `from` (from 2000-01-01) to `to` (both included; no `to`: up to today). Ranges starting more than 365 days back are evaluated by the periodic sweep, not as events arrive. `where`: up to 5 property filters (`prop`: a name, `product.code`, or `items[].code` for any item; `op`, `value`: attribute operators except relative dates) |
 | Tag | `tag`, `op` | `has`, `not_has` |
 | Other segment | `segment` (ID), `op` | `in`, `not_in` (cycles are refused) |
+
+```bash
+# Bought SKU A1 (in any order item) between January and March, and not tagged churn
+curl -s -X POST $PULSE/v1/segments -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "name": "Q1 A1 buyers", "refresh": {"mode": "daily", "at": "06:30", "tz": "Asia/Kolkata"},
+  "rule": {"all": [
+    {"event": "purchase", "op": "gte", "count": 1, "from": "2026-01-01", "to": "2026-03-31",
+     "where": [{"prop": "items[].product_code", "op": "eq", "value": "A1"}]},
+    {"none": [{"tag": "churn", "op": "has"}]}
+  ]}}'
+```
+
+`refresh` is `{"mode": "live"}` (the default: members follow every event) or
+`{"mode": "daily", "at": "HH:MM", "tz": "<IANA zone>"}`: the segment is built when saved and then
+rebuilt once a day at that time, so its members don't change during the day; the segment returns
+`next_refresh_at`. Leaving `refresh` out of a `PUT` keeps the current setting.
+
+**Why is a contact in a segment?** `GET /v1/contacts/{external_id}/segments/{id}/explain` evaluates
+the rule for that contact now, node by node:
+
+```bash
+curl -s $PULSE/v1/contacts/cust-1001/segments/14/explain -H "Authorization: Bearer $KEY"
+# {"segment":14,"name":"Q1 A1 buyers","member":true,"refresh":{…},
+#  "explanation":{"kind":"all","match":true,"children":[
+#    {"kind":"event","rule":{…},"match":true,"count":2},
+#    {"kind":"none","match":true,"children":[{"kind":"tag","rule":{…},"match":false}]}]}}
+```
+
+`value` is the contact's value of an attribute, `count` the events counted, and `sweep: true` marks
+a range older than 365 days that only the sweep decides. A daily segment's `member` is from its last
+refresh, so it can differ from `match` until the next one.
 
 `status` is `new` until the backfill finishes, then `ready`. `POST /v1/segments/preview` with
 `{"rule": …}` counts matches without saving. `PUT /v1/segments/{id}` changes name and rule (and
@@ -568,7 +638,9 @@ curl -s $PULSE/v1/journeys/8/stats -H "Authorization: Bearer $KEY"
 
 How it fits together:
 
-- **`trigger`**: `{"type":"event","event":"signup"}` enrolls on each matching event;
+- **`trigger`**: `{"type":"event","event":"signup"}` enrolls on each matching event (with
+  `"where": [{"prop":"payment_method","op":"eq","value":"upi"}]` only events whose properties pass
+  every filter; same paths and operators as segment property filters);
   `{"type":"segment_entered","segment_id":14}` enrolls contacts entering a segment (live changes
   only, unless `"include_backfill": true`); `{"type":"form_submitted","form_id":4}` enrolls whoever
   submits that form (leave out `form_id` for any form; the submission is kept for `if_form_field`).
@@ -805,7 +877,16 @@ the path, a signature, or nothing).
 | `POST` | `/v1/imports/{id}/cancel` | Cancel an import | contacts edit |
 | `GET` | `/v1/contacts/{external_id}/inbox` | The contact's app inbox messages | contacts view |
 | `GET` | `/v1/contacts/{external_id}/preferences-link` | A preference-center URL for the contact (needs `PULSE_SECRET_KEY`) | contacts edit |
-| `POST` | `/v1/events` | Ingest 1-1,000 events (`identify`, custom events, consent, tags, points, lists); 202 | contacts edit |
+| `POST` | `/v1/events` | Ingest 1-1,000 events (`identify`, custom events, consent, tags, points, lists); 202 (400 when a schema in enforce mode refuses one) | contacts edit |
+| `GET` | `/v1/events/catalog` | Events sent in the last 30 days and events with a schema: volume, contacts, last seen, schema mode, problems in 7 days | contacts view |
+| `GET` | `/v1/events/{name}/summary` | One event: daily volume, properties seen in a sample, schema, checks (14 days) with samples | contacts view |
+| `GET` | `/v1/events/schemas` | Every event schema | contacts view |
+| `GET` | `/v1/events/schemas/suggested` | The starter schemas, and which exist | contacts view |
+| `POST` | `/v1/events/schemas/suggested` | Add starter schemas (`names`, all when empty); never replaces | contacts edit |
+| `GET` | `/v1/events/{name}/schema` | An event's schema | contacts view |
+| `PUT` | `/v1/events/{name}/schema` | Create or replace it; enforce needs `"confirm":"ENFORCE"` | contacts edit (+ settings edit for enforce) |
+| `DELETE` | `/v1/events/{name}/schema` | Delete it | contacts edit |
+| `GET` | `/v1/contacts/{external_id}/segments/{id}/explain` | Why the contact is (or isn't) in a segment, filter by filter | contacts view |
 | `GET` | `/v1/contacts/{external_id}` | Profile and the IDs of the segments the contact is in | contacts view |
 | `GET` | `/v1/contacts` | List or search contacts: `?q=` filters, `limit`, `after` cursor | contacts view |
 | `GET` | `/v1/contacts/{external_id}/events` | The contact's latest 100 events | contacts view |
@@ -829,12 +910,12 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/scoring/rules` | Set the points for an event (`event`, `points`) | segments edit |
 | `DELETE` | `/v1/scoring/rules/{id}` | Delete a scoring rule | segments edit |
 | `GET` | `/v1/attributes` | Defined contact fields, and keys seen on contacts but not defined | segments view |
-| `PUT` | `/v1/attributes/{key}` | Define a field: `label`, `type` (string, number, boolean, date), `pii`, `description` | segments edit |
+| `PUT` | `/v1/attributes/{key}` | Define a field: `label`, `type` (string, number, boolean, date, list, enum), `options` (enum: `[{value, label}]`), `pii`, `description` | segments edit |
 | `DELETE` | `/v1/attributes/{key}` | Remove a definition (values stay on contacts) | segments edit |
-| `POST` | `/v1/segments` | Create a dynamic segment (`name`, `rule`); 201, built in the background | segments edit |
+| `POST` | `/v1/segments` | Create a dynamic segment (`name`, `rule`, optional `refresh`); 201, built in the background | segments edit |
 | `GET` | `/v1/segments` | List segments (dynamic and static) with sizes | segments view |
 | `GET` | `/v1/segments/{id}` | A segment with `status` and `size` | segments view |
-| `PUT` | `/v1/segments/{id}` | Change name and rule (rebuilt) | segments edit |
+| `PUT` | `/v1/segments/{id}` | Change name, rule and `refresh` (rebuilt) | segments edit |
 | `DELETE` | `/v1/segments/{id}` | Delete (409 while other segments use it) | segments edit |
 | `POST` | `/v1/segments/preview` | Count who a rule matches now, without saving | segments view |
 
@@ -957,7 +1038,7 @@ the path, a signature, or nothing).
 | `GET` | `/v1/journeys/{id}/report` | Message outcomes per step and channel, goal and enrollment counts | reports view |
 | `GET` | `/v1/events/names` | Event names seen in the workspace | reports view |
 | `GET` | `/v1/attributes/{key}/values` | Most common values of an attribute | contacts view |
-| `GET` | `/v1/events/{name}/values` | Most common values of an event property (`?prop=`) | contacts view |
+| `GET` | `/v1/events/{name}/values` | Most common values of an event property (`?prop=`: a name, `product.code` or `items[].code`; none for personal data) | contacts view |
 | `GET` | `/v1/funnels` | Saved funnels | reports view |
 | `POST` | `/v1/funnels` | Save a funnel | reports edit |
 | `GET` | `/v1/funnels/{id}` | A saved funnel | reports view |

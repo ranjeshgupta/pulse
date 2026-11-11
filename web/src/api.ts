@@ -105,22 +105,87 @@ export interface Import {
   created_at: string; started_at?: string; finished_at?: string;
 }
 
+/** prop is a property name, a dotted path (product.code) or a path through a list (items[].code: any item). */
 export interface PropFilter { prop: string; op: string; value?: unknown }
 
+/** Event rules count over `days` (today and the days before), or an absolute range from–to
+ * (UTC days, both included; no `to` = up to today). */
+export type EventRule = { event: string; op: string; count: number; days?: number; from?: string; to?: string; where?: PropFilter[] };
 export type Rule =
   | { all: Rule[] }
   | { any: Rule[] }
+  | { none: Rule[] }
   | { attr: string; op: string; value?: unknown }
-  | { event: string; op: string; count: number; days: number; where?: PropFilter[] }
+  | EventRule
   | { segment: number; op: "in" | "not_in" }
   | { tag: string; op: "has" | "not_has" };
 
+/** live: membership follows every event; daily: rebuilt once a day at `at` (HH:MM) in time zone `tz`. */
+export interface SegmentRefresh { mode: "live" | "daily"; at?: string; tz?: string }
+
 /** A rule segment, or a static list (kind "static", no rule) whose members are added by hand or import.
  * Public lists are offered on the preference center, with their description. */
-export interface Segment { id: number; name: string; kind: "rule" | "static"; rule: Rule | null; has_window: boolean; status: string; built_at?: string; size: number; public: boolean; description: string }
+export interface Segment {
+  id: number; name: string; kind: "rule" | "static"; rule: Rule | null; has_window: boolean; status: string; built_at?: string; size: number; public: boolean; description: string;
+  refresh?: SegmentRefresh | null; next_refresh_at?: string | null;
+}
 
-export type AttrType = "string" | "number" | "boolean" | "date";
-export interface AttributeDef { key: string; label: string; type: AttrType; pii: boolean; description: string; created_at?: string }
+/** "Why is this contact in this segment": the rule evaluated for one contact, node by node. */
+export interface Explanation {
+  kind: "all" | "any" | "none" | "attr" | "event" | "segment" | "tag";
+  rule?: Rule; match: boolean;
+  /** attr: the contact's value ("" when missing). */
+  value?: string;
+  /** event: events counted in the window. */
+  count?: number;
+  /** event: older than 365 days; the periodic sweep decides. */
+  sweep?: boolean;
+  children?: Explanation[];
+}
+export interface SegmentExplain { segment: number; name: string; kind: "rule" | "static"; member: boolean; refresh?: SegmentRefresh | null; merged?: boolean; explanation?: Explanation }
+
+/** list: a set of values (has / doesn't have, like tags); enum: one of options. */
+export type AttrType = "string" | "number" | "boolean" | "date" | "list" | "enum";
+export interface AttrOption { value: string; label?: string }
+export interface AttributeDef { key: string; label: string; type: AttrType; pii: boolean; description: string; options?: AttrOption[]; created_at?: string }
+
+// ---- event schemas (Audience → Events) ----
+
+export type SchemaMode = "off" | "warn" | "enforce";
+export type PropType = "string" | "number" | "bool" | "date" | "enum" | "list" | "object";
+export interface SchemaProp {
+  key: string;
+  /** Where it is in the event's props when not at the top level: product.code, items[].code. */
+  path?: string;
+  label?: string; description?: string; type: PropType; required?: boolean;
+  /** enum: the allowed values. */
+  values?: { value: string; label?: string }[];
+  /** Applies only when another property (a key of this schema) has one of these values. */
+  depends_on?: { prop: string; values: string[] } | null;
+  /** Personal data: hidden in samples and examples, never copied into messages. */
+  personal?: boolean;
+  /** A contact list field the value is added to (e.g. products). */
+  add_to_list?: string;
+}
+export interface EventSchema { name: string; label: string; description: string; mode: SchemaMode; props: SchemaProp[]; updated_at?: string }
+export interface CatalogEntry {
+  name: string; label: string; count: number; contacts: number; last_seen?: string;
+  schema: boolean; mode?: SchemaMode; props: number;
+  /** Events with problems in the last 7 days (kept or refused), and events checked. */
+  problems: number; checked: number;
+}
+export interface Violation { prop: string; code: "missing" | "type" | "enum" | "not_applicable"; message: string }
+export interface SchemaChecks {
+  days: { day: string; checked: number; bad: number; refused: number }[];
+  checked: number; bad: number; refused: number;
+  problems: { prop: string; code: string; count: number }[];
+  samples: { at: string; event_id: string; external_id: string; violations: Violation[]; props: string }[];
+}
+export interface DiscoveredProp { path: string; type: string; share: number; examples: string[] }
+export interface EventSummary {
+  name: string; days: number; volume: { day: string; count: number }[]; properties: DiscoveredProp[]; sampled?: number;
+  schema?: EventSchema; checks?: SchemaChecks;
+}
 export interface PointRule { id: number; event: string; points: number; created_at: string }
 export interface IdentitySettings { secret: string; required: boolean }
 
@@ -224,7 +289,11 @@ export interface PathStat { path: number; entrants: number; hits: number; rate: 
 /** A split's recorded winner: every contact after decided_at takes path. */
 export interface SplitDecision { path: number; next: string; label?: string; metric: string; decided_at: string; stats: PathStat[] }
 export interface JourneyGraph {
-  trigger: { type: "segment_entered" | "event" | "form_submitted"; segment_id?: number; event?: string; form_id?: number; include_backfill?: boolean; reentry?: "once" | "always" | "after_days"; days?: number };
+  trigger: {
+    type: "segment_entered" | "event" | "form_submitted"; segment_id?: number; event?: string; form_id?: number; include_backfill?: boolean; reentry?: "once" | "always" | "after_days"; days?: number;
+    /** event triggers: only events whose properties pass every filter enroll. */
+    where?: PropFilter[];
+  };
   goal?: { event: string } | null;
   entry: string;
   nodes: Record<string, JourneyNode>;

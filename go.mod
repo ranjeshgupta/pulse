@@ -9,6 +9,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/emersion/go-imap v1.2.1
 	github.com/jackc/pgx/v5 v5.12.0
+	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/oschwald/geoip2-golang v1.11.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/twmb/franz-go v1.22.3
@@ -47,4 +48,5 @@ require (
 	go.uber.org/atomic v1.12.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )

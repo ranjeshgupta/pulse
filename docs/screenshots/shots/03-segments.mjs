@@ -1,6 +1,8 @@
 // Screenshots for docs/tutorials/03-segments.md, in the seeded docs workspace (acme-retail).
 // It builds the dynamic segment "Pune shoppers to thank" in the rule builder (deleting the one an
-// earlier run made first), shows the static segment "Pune store opening guests" that tutorial 2's
+// earlier run made first), then "Gold skillet buyers, morning send" (choice and list fields, phone
+// country, an Exclude group, refreshed daily; also replaced on each run) and an unsaved rule with
+// date ranges, shows the static segment "Pune store opening guests" that tutorial 2's
 // import created (run 02 first), checks that membership follows a tag change in real time, and
 // shows Settings → Scoring (adding one rule, wishlist_added +5, kept on later runs) and Stages.
 import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
@@ -8,11 +10,14 @@ import { api, clearHighlights, go, highlight, session, settle, shot, until } fro
 const AREA = "tutorials";
 const DYNAMIC = "Pune shoppers to thank";
 const GUESTS = "Pune store opening guests";
+const DAILY = "Gold skillet buyers, morning send";
 
 export default async function (browser) {
   const { context, page } = await session(browser);
   await list(page);
   await builder(context, page);
+  await listsExcludeDaily(context, page);
+  await dates(page);
   await staticSegment(context, page);
   await realTime(context);
   await scoringAndStages(page);
@@ -37,11 +42,12 @@ async function list(page) {
   await page.waitForURL("**/segments/new");
 }
 
-/** Picks a filter in the open "Add a filter" picker by its label (exact). */
+/** Picks a filter in the open "Add a filter" picker by its label (your own fields show their type
+ * after it, e.g. "Productslist"). */
 async function pickFilter(page, search, label) {
   const picker = page.getByRole("dialog", { name: /Add a filter/ }).last();
   await picker.getByRole("combobox", { name: "Search filters" }).fill(search);
-  await picker.locator(".fp-item", { has: page.locator(".fp-item-label", { hasText: new RegExp(`^${label}$`) }) }).first().click();
+  await picker.locator(".fp-item", { has: page.locator(".fp-item-label", { hasText: new RegExp(`^${label}([a-z /]+)?$`) }) }).first().click();
 }
 
 async function builder(context, page) {
@@ -104,6 +110,87 @@ async function builder(context, page) {
   await shot(page, AREA, "03-view-contacts", { clip: top(420) });
 }
 
+/** Loyalty tier (a choice field), Products (a list field), Phone country, an Exclude (NONE) group,
+ * and a daily refresh; saved, so the list and the segment page show the refresh time. */
+async function listsExcludeDaily(context, page) {
+  for (const s of (await api(context, "GET", "/v1/segments")).segments) {
+    if (s.name === DAILY && s.kind === "rule") await api(context, "DELETE", `/v1/segments/${s.id}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await go(page, "/segments/new");
+  await page.getByLabel("Name").fill(DAILY);
+  const root = page.locator("section.fb-group.root");
+  const addFilter = () => root.locator(":scope > .fb-add").getByRole("button", { name: "+ Add filter" }).click();
+  const row = () => root.locator(":scope > .fb-list > li > .fb-row").last();
+
+  await addFilter();
+  await pickFilter(page, "loyalty", "Loyalty tier");
+  await row().getByLabel("Value", { exact: true }).selectOption("gold");
+  await addFilter();
+  await pickFilter(page, "products", "Products");
+  await row().getByLabel("Value", { exact: true }).fill("KIT-101");
+  await addFilter();
+  await pickFilter(page, "phone country", "Phone country");
+  await row().getByLabel("Value", { exact: true }).fill("IN");
+
+  // Exclude (none of): people who bought in the last 7 days are left out.
+  await root.locator(":scope > .fb-add").getByRole("button", { name: "+ Exclude (none of)" }).click();
+  await pickFilter(page, "did an event", "Did an event");
+  const none = root.locator("section.fb-group.none");
+  await none.getByLabel("Event name").fill("purchase");
+  await none.getByLabel("Days").fill("7");
+
+  const refresh = page.locator("fieldset.seg-refresh");
+  await refresh.getByLabel("Daily at a set time").check();
+  await refresh.getByLabel("Refresh time").fill("06:00");
+  await refresh.getByLabel("Time zone").selectOption("Asia/Kolkata");
+  await page.locator(".preview-count[aria-busy=false]").waitFor();
+  await blur(page);
+  await settle(page, { quiet: 1200 });
+  await shot(page, AREA, "03-lists-exclude", { clip: page.locator(".editor-split"), pad: 8 });
+  await shot(page, AREA, "03-refresh", { clip: refresh, pad: 8 });
+
+  await page.getByRole("button", { name: "Create segment" }).click();
+  await page.waitForURL(/\/segments\/\d+$/);
+  const id = page.url().split("/").pop();
+  await until(async () => (await api(context, "GET", `/v1/segments/${id}`)).status === "ready", { timeout: 60_000, what: "the daily segment to be filled" });
+  await page.getByText("Next refresh").waitFor();
+  await settle(page, { quiet: 1000 });
+  await shot(page, AREA, "03-daily-saved", { clip: page.locator(".editor-split > aside"), pad: 8 });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await go(page, "/segments");
+  const tr = page.locator("tr", { hasText: DAILY });
+  await tr.getByText(/Refreshed daily at/).waitFor();
+  await shot(page, AREA, "03-daily-list", { clip: tr, pad: 4 });
+}
+
+/** Unsaved: Date added is between two dates, and an event "since" a date more than a year ago (the
+ * sweep note). */
+async function dates(page) {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await go(page, "/segments/new");
+  await page.getByLabel("Name").fill("Autumn sign-ups who bought before");
+  const root = page.locator("section.fb-group.root");
+  await root.locator(":scope > .fb-add").getByRole("button", { name: "+ Add filter" }).click();
+  await pickFilter(page, "date added", "Date added");
+  const row = root.locator(".fb-row").last();
+  await row.getByLabel("Comparison").selectOption({ label: "is between" });
+  await row.getByLabel("From", { exact: true }).fill("2026-09-01");
+  await row.getByLabel("To", { exact: true }).fill("2026-11-30");
+  await root.locator(":scope > .fb-add").getByRole("button", { name: "+ Add filter" }).click();
+  await pickFilter(page, "did an event", "Did an event");
+  const ev = root.locator(".fb-sentence").last();
+  await ev.getByLabel("Event name").fill("purchase");
+  await ev.getByLabel("When").selectOption("since");
+  await ev.getByLabel("First day").fill("2025-01-01");
+  await page.locator(".fb-sweep-note").waitFor();
+  await blur(page);
+  await settle(page, { quiet: 800 });
+  await shot(page, AREA, "03-dates", { clip: root, pad: 8 });
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
 async function staticSegment(context, page) {
   const seg = (await api(context, "GET", "/v1/segments")).segments.find((s) => s.kind === "static" && s.name === GUESTS);
   if (!seg) throw new Error(`no static segment "${GUESTS}": run SHOT=02 first`);
@@ -142,4 +229,9 @@ async function scoringAndStages(page) {
 
   await go(page, "/settings/stages");
   await shot(page, AREA, "03-stages", { clip: page.locator("main .page > *"), pad: 8 });
+}
+
+/** Takes the focus off the field typed in last, so no caret or selection shows in the picture. */
+async function blur(page) {
+  await page.evaluate(() => document.activeElement?.blur());
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type AttributeDef, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type User } from "../api";
+import { api, type AttributeDef, type AttrOption, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type User } from "../api";
 import { useIsAdmin, useMe } from "../auth";
 import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { RoleOptions, roleName, useRoles } from "./Roles";
@@ -220,7 +220,7 @@ function IdentityPanel() {
   );
 }
 
-const TYPE_LABEL: Record<AttrType, string> = { string: "Text", number: "Number", boolean: "Yes / no", date: "Date" };
+const TYPE_LABEL: Record<AttrType, string> = { string: "Text", number: "Number", boolean: "Yes / no", date: "Date", list: "List", enum: "Choice (enum)" };
 
 // Attributes describes profile fields: a label and type make the segment builder offer the right
 // comparisons, and imports check and convert values of numbers and yes/no fields.
@@ -240,7 +240,7 @@ export function Attributes() {
     <div className="page">
       <PageHead
         title="Contact fields"
-        intro="Name and type the profile fields (attributes) your team uses. Types decide which comparisons the segment builder offers, and imports check numbers and yes/no values."
+        intro="Name and type the profile fields (attributes) your team uses. Types decide which comparisons the segment builder offers, and imports check numbers and yes/no values. A list field holds several values, like tags (products a contact bought: segments ask “has” or “doesn't have”); a choice field holds one of the options you set."
         actions={<button className="btn primary" onClick={() => setEditing(blank())}>Define field</button>}
       />
       {editing && <AttributeModal def={editing} isNew={!defs.some((d) => d.key === editing.key)} onClose={() => setEditing(null)} />}
@@ -256,7 +256,10 @@ export function Attributes() {
                 <tr key={d.key}>
                   <td><code>{d.key}</code></td>
                   <td>{d.label}{d.description && <div className="xs muted">{d.description}</div>}</td>
-                  <td>{TYPE_LABEL[d.type]}</td>
+                  <td>
+                    {TYPE_LABEL[d.type]}
+                    {d.type === "enum" && d.options?.length ? <div className="xs muted">{d.options.map((o) => o.label || o.value).join(", ")}</div> : null}
+                  </td>
                   <td>{d.pii ? <span className="badge warn">Personal</span> : <span className="faint">No</span>}</td>
                   <td className="num">
                     <button className="btn ghost sm" onClick={() => setEditing(d)}>Edit</button>
@@ -288,20 +291,41 @@ function AttributeModal({ def, isNew, onClose }: { def: AttributeDef; isNew: boo
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["attributes"] }); onClose(); },
   });
   const validKey = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(d.key);
+  const opts = d.options ?? [];
+  const optsOK = d.type !== "enum" || (opts.length > 0 && opts.every((o) => o.value.trim()) && new Set(opts.map((o) => o.value.trim())).size === opts.length);
+  const setOpt = (i: number, o: AttrOption) => setD({ ...d, options: opts.map((x, j) => (j === i ? o : x)) });
   return (
     <Modal title={isNew ? "Define attribute" : `Edit ${d.key}`} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!validKey || save.isPending} onClick={() => save.mutate()}>Save attribute</button>
+      <button className="btn primary" disabled={!validKey || !optsOK || save.isPending} onClick={() => save.mutate()}>Save attribute</button>
     </>}>
       <Field label="Attribute key" hint="As it appears in events and imports: letters, digits and _.">
         <input className="input" value={d.key} disabled={!isNew && !!def.key} onChange={(e) => setD({ ...d, key: e.target.value })} placeholder="lifetime_value" />
       </Field>
       <Field label="Label"><input className="input" value={d.label} onChange={(e) => setD({ ...d, label: e.target.value })} placeholder="Lifetime value" /></Field>
       <Field label="Type">
-        <select className="select" value={d.type} onChange={(e) => setD({ ...d, type: e.target.value as AttrType })}>
+        <select className="select" value={d.type} onChange={(e) => {
+          const type = e.target.value as AttrType;
+          setD({ ...d, type, options: type === "enum" ? (opts.length ? opts : [{ value: "", label: "" }]) : undefined });
+        }}>
           {(Object.keys(TYPE_LABEL) as AttrType[]).map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
         </select>
       </Field>
+      {d.type === "list" && <p className="xs muted">Send a list as a JSON array (<code>["SKU-1", "SKU-2"]</code>); in imports, separate values with | or commas. An event schema can add a property's value to it on every event.</p>}
+      {d.type === "enum" && (
+        <fieldset className="attr-options" style={{ border: "1px solid var(--rule)", borderRadius: 8, padding: "8px 12px", display: "grid", gap: 8, marginBottom: 12 }}>
+          <legend className="small">Options</legend>
+          {opts.map((o, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "center" }}>
+              <input className="input" value={o.value} onChange={(e) => setOpt(i, { ...o, value: e.target.value })} placeholder="value, e.g. gold" aria-label={`Option ${i + 1} value`} />
+              <input className="input" value={o.label ?? ""} onChange={(e) => setOpt(i, { ...o, label: e.target.value })} placeholder="label, e.g. Gold" aria-label={`Option ${i + 1} label`} />
+              <button type="button" className="btn ghost sm danger" disabled={opts.length === 1} onClick={() => setD({ ...d, options: opts.filter((_, j) => j !== i) })} aria-label={`Remove option ${i + 1}`}>Remove</button>
+            </div>
+          ))}
+          <button type="button" className="btn ghost sm" onClick={() => setD({ ...d, options: [...opts, { value: "", label: "" }] })}>+ Add option</button>
+          {!optsOK && <p className="xs" style={{ color: "var(--danger)" }}>Each option needs a value, and values must be different.</p>}
+        </fieldset>
+      )}
       <Field label="Description"><input className="input" value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} placeholder="Total paid, in rupees" /></Field>
       <label className="check"><input type="checkbox" checked={d.pii} onChange={(e) => setD({ ...d, pii: e.target.checked })} />Holds personal data (phone, address, date of birth)</label>
       <ErrorNote error={save.error} />

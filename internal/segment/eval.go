@@ -10,10 +10,15 @@ import (
 	"pulse/internal/attr"
 )
 
-// Counter returns how many times the contact did an event in the last `days` UTC calendar days.
+// Counter returns how many times the contact did an event in a window of UTC days. A counter
+// that can't see that far back (see Window.InCounters) returns ErrNeedsSweep.
 type Counter interface {
-	Count(ctx context.Context, event string, days int) (int, error)
+	Count(ctx context.Context, event string, w Window) (int, error)
 }
+
+// ErrNeedsSweep is returned for rules that read more history than the per-contact counters keep;
+// the batch path (backfill and sweep) evaluates them instead.
+var ErrNeedsSweep = errors.New("this rule counts events from more than 365 days ago, which only the periodic sweep can check")
 
 // MembershipLookup answers "is this contact in segment id?". Counters that also implement it
 // let rules reference other segments and lists.
@@ -42,6 +47,14 @@ func Eval(ctx context.Context, r Rule, attrs map[string]any, c Counter) (bool, e
 			}
 		}
 		return false, nil
+	case r.None != nil:
+		for _, child := range r.None {
+			ok, err := Eval(ctx, child, attrs, c)
+			if err != nil || ok {
+				return false, err
+			}
+		}
+		return true, nil
 	case r.Attr != "":
 		raw, present := attrs[r.Attr]
 		return compare(r.Op, raw, present, r.Value), nil
@@ -58,7 +71,7 @@ func Eval(ctx context.Context, r Rule, attrs map[string]any, c Counter) (bool, e
 		}
 		return in == (r.Op == "in"), nil
 	default:
-		n, err := c.Count(ctx, CounterName(r.Event, r.Where), r.Days)
+		n, err := c.Count(ctx, CounterName(r.Event, r.Where), r.Window())
 		if err != nil {
 			return false, err
 		}
@@ -70,12 +83,25 @@ func Eval(ctx context.Context, r Rule, attrs map[string]any, c Counter) (bool, e
 // to decide which filtered counters an event increments.
 func MatchProps(where []PropFilter, props map[string]any) bool {
 	for _, f := range where {
-		raw, present := props[f.Prop]
-		if !compare(f.Op, raw, present, f.Value) {
+		if !matchProp(f, props) {
 			return false
 		}
 	}
 	return true
+}
+
+// matchProp reports whether one filter passes: for a path through a list, whether any item does.
+func matchProp(f PropFilter, props map[string]any) bool {
+	p, ok := ParsePath(f.Prop)
+	if !ok {
+		return false
+	}
+	for _, c := range p.values(props) {
+		if compare(f.Op, c.v, c.present, f.Value) {
+			return true
+		}
+	}
+	return false
 }
 
 // Tags returns the contact's tags. They are stored as a JSON array under the "tags" attribute;
@@ -94,6 +120,31 @@ func Tags(attrs map[string]any) []string {
 	for _, t := range list {
 		if s, ok := t.(string); ok {
 			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ListValues reads a list value (a contact's list field, or a list property) the way ClickHouse's
+// JSONExtract(x, 'Array(String)') does: a JSON array, or a string holding one; scalar items
+// become their canonical strings. Anything else is an empty list.
+func ListValues(v any) []string {
+	var list []any
+	switch x := v.(type) {
+	case []any:
+		list = x
+	case []string:
+		return x
+	case string:
+		if json.Unmarshal([]byte(x), &list) != nil {
+			return nil
+		}
+	}
+	out := make([]string, 0, len(list))
+	for _, it := range list {
+		switch it.(type) {
+		case string, float64, bool:
+			out = append(out, attr.String(it))
 		}
 	}
 	return out
@@ -139,9 +190,22 @@ func compare(op string, raw any, present bool, value any) bool {
 			}
 		}
 		return found == (op == "in")
+	case "has", "not_has":
+		found := false
+		for _, x := range ListValues(raw) {
+			if x == value.(string) {
+				found = true
+				break
+			}
+		}
+		return found == (op == "has")
 	case "between":
-		f, ok := attr.Number(s)
 		list := value.([]any)
+		if from, ok := list[0].(string); ok {
+			d, ok := DatePart(s)
+			return ok && d >= from && d <= list[1].(string)
+		}
+		f, ok := attr.Number(s)
 		return ok && f >= list[0].(float64) && f <= list[1].(float64)
 	case "on", "before", "after", "within_days", "older_than_days":
 		d, ok := DatePart(s)

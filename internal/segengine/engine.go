@@ -15,6 +15,10 @@
 //
 // Event rules with property filters read their own counters, which this engine increments (the
 // filters live here, in the index) and seeds from ClickHouse when it backfills or sweeps.
+//
+// Two kinds of rule segments stay out of the streaming index: daily segments (rebuilt once a day
+// at their time, source "daily") and rules counting events further back than the counters keep
+// (an absolute range starting more than 365 days ago), which the sweep evaluates.
 package segengine
 
 import (
@@ -55,6 +59,7 @@ type Store interface {
 	AllSegments(ctx context.Context) ([]model.Segment, error)
 	ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) (model.Segment, string, bool, error)
 	MarkSegmentReady(ctx context.Context, id int64) error
+	SetNextRefresh(ctx context.Context, id int64, at time.Time) error
 	ContactsByIDs(ctx context.Context, tenant int64, ids []uint32) ([]model.Contact, error)
 }
 
@@ -117,6 +122,7 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	}
 	byTenant := map[int64]map[int64]*compiled{}
 	idx := map[int64]*tenantIndex{}
+	now := e.now()
 	for _, s := range segs {
 		ti := idx[s.TenantID]
 		if ti == nil {
@@ -132,6 +138,9 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		if err != nil {
 			e.log.Error("skipping invalid segment", "segment", s.ID, "err", err)
 			continue
+		}
+		if s.Refresh.Daily() || rule.SweepOnly(now) {
+			continue // batch only; segments that read it see its bit like a static list's
 		}
 		byTenant[s.TenantID][s.ID] = &compiled{Segment: s, rule: rule, counters: rule.Counters(), refs: rule.SegmentRefs()}
 	}
@@ -752,7 +761,12 @@ func (e *Engine) RunMaintenance(ctx context.Context) error {
 			if err := e.store.MarkSegmentReady(ctx, s.ID); err != nil {
 				e.log.Error("mark segment ready", "segment", s.ID, "err", err)
 			}
-			if source == "backfill" {
+			if s.Refresh.Daily() {
+				if err := e.store.SetNextRefresh(ctx, s.ID, s.Refresh.Next(e.now())); err != nil {
+					e.log.Error("schedule daily refresh", "segment", s.ID, "err", err)
+				}
+			}
+			if source == "backfill" && !s.Refresh.Daily() { // a daily segment changes only at its time
 				e.catchUps[s.ID] = catchUp{s, e.now().Add(catchUpAfter)}
 			}
 		}

@@ -106,7 +106,7 @@ function Report({ report: r, ready, stale }: { report?: RevenueReport; ready: bo
     <div className={`revenue-body${stale ? " stale" : ""}`} aria-busy={stale}>
       <div className="figures revenue-figures">
         <div><strong>{money(total, cur)}</strong><span>revenue</span></div>
-        <div><strong>{count(r.totals.orders)}</strong><span>orders</span></div>
+        <div><strong>{count(r.totals.orders)}</strong><span>{r.totals.orders === 1 ? "order" : "orders"}</span></div>
         <div><strong>{count(r.totals.buyers)}</strong><span>buyers</span></div>
         <div><strong>{money(averageOrder(total, r.totals.orders), cur)}</strong><span>average order</span></div>
         <div>

@@ -2,8 +2,8 @@
 // at by id (forms, campaigns, journeys, companies, templates, assets, landing pages, users).
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { api, type AssetList, type AttributeDef, type Broadcast, type Form, type Journey, type LandingPageList, type Segment, type Template, type User } from "../api";
-import type { RefNames } from "../segmentRules";
+import { api, type AssetList, type AttributeDef, type Broadcast, type EventSchema, type Form, type Journey, type LandingPageList, type Segment, type Template, type User } from "../api";
+import { validPath, type RefNames } from "../segmentRules";
 import { useCompanyOptions } from "./Companies";
 
 /** Every segment and list of the workspace, polled so sizes stay live. */
@@ -53,7 +53,7 @@ export function useAttributes() {
 /** Common values of an attribute (or of an event's property, with event), fetched only once asked for. */
 export function useKnownValues(key: string, enabled: boolean, event?: string) {
   const k = key.trim();
-  const valid = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(k) && (!event || /^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$/.test(event));
+  const valid = (event ? validPath(k) : /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(k)) && (!event || /^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$/.test(event));
   return useQuery({
     queryKey: ["known-values", event ?? "", k],
     queryFn: () => api.get<{ values: { value: string; count: number }[] }>(
@@ -67,4 +67,9 @@ export function useKnownValues(key: string, enabled: boolean, event?: string) {
 /** Event names recorded in the workspace (last 90 days), for the "Did an event" filter. */
 export function useEventNames() {
   return useQuery({ queryKey: ["event-names"], queryFn: () => api.get<{ names: string[] }>("/v1/events/names"), staleTime: 60_000, retry: false });
+}
+
+/** The workspace's event schemas (Audience → Events), for typed property filters. */
+export function useEventSchemas() {
+  return useQuery({ queryKey: ["event-schemas"], queryFn: () => api.get<{ schemas: EventSchema[] }>("/v1/events/schemas"), staleTime: 60_000, retry: false });
 }

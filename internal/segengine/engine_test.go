@@ -40,7 +40,8 @@ func (m *memStore) AllSegments(context.Context) ([]model.Segment, error) { retur
 func (m *memStore) ClaimSegmentWork(context.Context, time.Duration) (model.Segment, string, bool, error) {
 	return model.Segment{}, "", false, nil
 }
-func (m *memStore) MarkSegmentReady(context.Context, int64) error { return nil }
+func (m *memStore) MarkSegmentReady(context.Context, int64) error          { return nil }
+func (m *memStore) SetNextRefresh(context.Context, int64, time.Time) error { return nil }
 
 type fixedIDs []uint32
 
@@ -275,7 +276,7 @@ func TestFilteredCounters(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := segment.CounterName("purchase", []segment.PropFilter{{Prop: "amount", Op: "gte", Value: 100.0}})
-	if n, _ := segment.NewRedisCounter(rdb, 1, 5, now).Count(ctx, key, 1); n != 3 {
+	if n, _ := segment.NewRedisCounter(rdb, 1, 5, now).Count(ctx, key, segment.Window{Days: 1}); n != 3 {
 		t.Errorf("seeded count for contact 5 = %d, want 3 from ClickHouse", n)
 	}
 }
@@ -338,5 +339,21 @@ func TestListJoinRefreshesTheIndex(t *testing.T) {
 	}
 	if c := pub.changes(t); len(c) != 1 || c[0].SegmentID != 50 || !c[0].Entered {
 		t.Fatalf("changes = %+v, want the contact to join list 50", c)
+	}
+}
+
+func TestDailyAndLongRangeSegmentsStayOutOfTheStream(t *testing.T) {
+	daily := model.Segment{ID: 4, TenantID: 1, Rule: delhi.Rule, Refresh: &segment.Refresh{Mode: "daily", At: "06:00", TZ: "UTC"}}
+	old := model.Segment{ID: 5, TenantID: 1, Rule: json.RawMessage(`{"event":"login","op":"gte","count":1,"from":"2020-01-01","to":"2020-12-31"}`)}
+	recent := model.Segment{ID: 6, TenantID: 1, Rule: json.RawMessage(`{"event":"login","op":"gte","count":1,"from":"` +
+		time.Now().UTC().AddDate(0, 0, -10).Format(time.DateOnly) + `"}`)}
+	e, _, _ := setup(t, delhi, daily, old, recent)
+	ev := event.Event{TenantID: 1, Name: "login", ChangedAttrs: []string{"city"}, NewContact: true}
+	var got []int64
+	for _, c := range e.candidates(&ev) {
+		got = append(got, c.ID)
+	}
+	if !equal(got, []int64{1, 6}) {
+		t.Errorf("streamed segments %v, want [1 6]", got)
 	}
 }
