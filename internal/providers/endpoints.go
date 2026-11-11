@@ -69,6 +69,22 @@ func EndpointsChanged(before, after map[string]string) bool {
 	return strings.Join(Endpoints(before), " ") != strings.Join(Endpoints(after), " ")
 }
 
+// credentialSettings are the settings that decide where and how secrets are put into requests
+// (the custom authentication, the custom request template).
+var credentialSettings = []string{"auth", "request"}
+
+// CredentialSettingsChanged reports whether settings that shape how secrets are sent changed. Saved
+// secrets are write-only, so whoever changes these enters every secret again: otherwise they could
+// steer a saved password into a request field or an answer they can read.
+func CredentialSettingsChanged(before, after map[string]string) bool {
+	for _, k := range credentialSettings {
+		if strings.TrimSpace(before[k]) != strings.TrimSpace(after[k]) {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckConfig validates settings beyond required fields: the custom HTTP authentication (with
 // its secrets). allowPrivate (local development) permits plain-http endpoints.
 func CheckConfig(kind string, config, secrets map[string]string, allowPrivate bool) error {

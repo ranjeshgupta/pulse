@@ -173,6 +173,14 @@ func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request, p model.Pr
 	if hostsChanged {
 		stored = map[string]string{} // whoever points it elsewhere enters the credentials again
 	}
+	if prevConfig != nil && !hostsChanged && providers.CredentialSettingsChanged(prevConfig, req.Config) {
+		for k := range stored {
+			if req.Secrets[k] == "" {
+				writeErr(w, http.StatusBadRequest, "the authentication or request settings changed: enter every secret again to save them")
+				return
+			}
+		}
+	}
 	merged := mergeSecrets(stored, req.Secrets)
 	refuse := func(msg string) {
 		if hostsChanged {

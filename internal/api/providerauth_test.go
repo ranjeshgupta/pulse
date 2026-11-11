@@ -183,4 +183,9 @@ func TestProviderCheckAuthAndPreview(t *testing.T) {
 	if w := do(t, h, "POST", "/v1/channels/providers/check-auth", "key-1", changed); w.Code != http.StatusBadRequest {
 		t.Errorf("changed settings with saved secrets: %d %s", w.Code, w.Body)
 	}
+	// Saving changed authentication settings likewise needs every secret again.
+	save := strings.Replace(strings.Replace(`{"channel":"sms",`+body[1:], `{"pw":"secret-pw"}`, `{}`, 1), `data.token`, `data`, 1)
+	if w := do(t, h, "PUT", fmt.Sprintf("/v1/channels/providers/%d", created.ID), "key-1", save); w.Code != http.StatusBadRequest {
+		t.Errorf("saving changed auth with saved secrets: %d %s", w.Code, w.Body)
+	}
 }

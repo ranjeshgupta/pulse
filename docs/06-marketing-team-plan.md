@@ -455,6 +455,8 @@ Each milestone adds what it needs here.
   Gupshup) never follow a redirect to another site (`safehttp.SameOrigin`). Test connection with saved
   secrets works only for the saved settings (changed settings need every secret entered again), and
   its error text never contains a secret.
+- Saving a provider whose authentication or request settings changed also needs every secret entered
+  again (`providers.CredentialSettingsChanged`), the same rule as Test connection.
 - README: M5 features; provider list (Gmail, Google Workspace, Workspace relay, Gupshup SMS/WhatsApp/RCS, gateway
   custom request and authentication); the new settings page with every field, default and range; retention moved
   off Data & privacy and now daily per workspace; provider secrets merged key by key and cleared on a host change.
