@@ -43,8 +43,8 @@ func (f *mailboxMem) CheckBounceMailboxNow(context.Context, int64) error {
 type nopSession struct{}
 
 func (nopSession) Unseen(context.Context, int) ([]bounces.Message, error) { return nil, nil }
-func (nopSession) MarkSeen(context.Context, []uint32) error                { return nil }
-func (nopSession) Close() error                                            { return nil }
+func (nopSession) MarkSeen(context.Context, []uint32) error               { return nil }
+func (nopSession) Close() error                                           { return nil }
 
 func TestBounceMailboxSettings(t *testing.T) {
 	_, base, _ := newServer()

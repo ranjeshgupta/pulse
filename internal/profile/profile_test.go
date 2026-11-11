@@ -269,6 +269,44 @@ func TestIdentityMerge(t *testing.T) {
 	}
 }
 
+// An identify that arrives before the visitor's own first events (another partition) still merges:
+// the visitor is created already merged, and its events then follow it to the known contact.
+func TestIdentifyBeforeVisitorEvents(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store, pub := &memStore{contacts: map[string]model.Contact{}, points: map[int64]map[string]int{}}, &memPub{}
+	svc := New(store, rdb, pub)
+	ctx := context.Background()
+	ts := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	send := func(e event.Event) []event.Event {
+		b, _ := json.Marshal(e)
+		before := len(pub.recs)
+		if err := svc.HandleBatch(ctx, []*kgo.Record{{Value: b}}); err != nil {
+			t.Fatal(err)
+		}
+		var out []event.Event
+		for _, r := range pub.recs[before:] {
+			var e event.Event
+			_ = json.Unmarshal(r.Value, &e)
+			out = append(out, e)
+		}
+		return out
+	}
+	send(event.Event{ID: "k1", TenantID: 1, ExternalID: "u1", Name: "identify", Ts: ts, Props: map[string]any{"anonymous_id": "anon-q"}})
+	if store.contacts["anon-q"].Attrs["merged_into"] != "u1" {
+		t.Fatalf("visitor = %+v, want it created merged into u1", store.contacts["anon-q"])
+	}
+	late := send(event.Event{ID: "a1", TenantID: 1, ExternalID: "anon-q", Name: "page_view", Ts: ts})
+	if len(late) == 0 || late[0].ExternalID != "u1" || late[0].ContactID != store.contacts["u1"].ID {
+		t.Errorf("the visitor's first page view went to %+v, want u1", late)
+	}
+	// Only anonymous visitors are created this way; a server can't conjure a merged contact.
+	send(event.Event{ID: "k2", TenantID: 1, ExternalID: "u1", Name: "identify", Ts: ts, Props: map[string]any{"anonymous_id": "cust-9"}})
+	if _, ok := store.contacts["cust-9"]; ok {
+		t.Error("a non-anonymous id was created by an identify")
+	}
+}
+
 // A rule saved while the service runs applies to the next events once the version key changes.
 func TestScoringReloadsOnVersionBump(t *testing.T) {
 	mr := miniredis.RunT(t)

@@ -20,3 +20,6 @@
 .cv-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 34px; margin-bottom: 10px; }
 .cv-columns { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 14px; }
 .cv-columns .check { margin-bottom: 8px; }
+
+/* Event properties are long JSON without spaces: wrap them inside the drawer. */
+.event-props { overflow-wrap: anywhere; word-break: break-word; }

@@ -77,7 +77,7 @@ export const CHANNEL_NAMES: Record<Channel, string> = {
 export interface Workspace { id: number; name: string; slug: string; site_key: string }
 /** A user's role: a built-in one or "role:<id>" for a custom role. */
 export type RoleKey = "admin" | "editor" | "viewer" | `role:${number}`;
-export interface User { id: number; email: string; name: string; role: RoleKey; sso: boolean; created_at: string; last_login_at?: string }
+export interface User { id: number; email: string; name: string; role: RoleKey; sso: boolean; password: boolean; created_at: string; last_login_at?: string }
 export type Area = "contacts" | "segments" | "journeys" | "broadcasts" | "content" | "reports" | "channels" | "settings";
 export type Level = "none" | "view" | "edit" | "publish";
 export const LEVELS: Level[] = ["none", "view", "edit", "publish"];

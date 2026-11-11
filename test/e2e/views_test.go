@@ -89,7 +89,9 @@ func TestContactViews(t *testing.T) {
 	if slices.Contains(segmentsOf(t, c, plain), seg) {
 		t.Error("the saved segment took in a contact the view didn't list")
 	}
-	ids, _ := viewIDs(t, c, fmt.Sprintf("segment:%d", seg))
+	// segment: reads the ClickHouse copy of memberships, a moment behind the live one above.
+	var ids []string
+	waitFor(t, 15*time.Second, func() bool { ids, _ = viewIDs(t, c, fmt.Sprintf("segment:%d", seg)); return len(ids) > 0 })
 	if !slices.Equal(ids, []string{vip}) {
 		t.Errorf("segment:%d lists %v", seg, ids)
 	}

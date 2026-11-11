@@ -380,12 +380,11 @@ first admin with the workspace's API key:
 ```bash
 curl -s -X POST https://pulse.example.com/v1/tenants \
   -H "Authorization: Bearer $PULSE_ADMIN_TOKEN" -d '{"name":"Acme Retail"}'
-# → {"id":…,"api_key":"pk_…","site_key":"sk_…"}
+# → {"id":…,"slug":"acme-retail","api_key":"pk_…","site_key":"sk_…"}   (slug: the workspace ID)
 
 KEY=pk_…   # shown once
 curl -s -X POST https://pulse.example.com/v1/users -H "Authorization: Bearer $KEY" \
   -d '{"email":"owner@acme.example","name":"Asha Rao","role":"admin","password":"a temporary password"}'
-curl -s https://pulse.example.com/v1/auth/me -H "Authorization: Bearer $KEY"   # workspace.slug: the workspace ID
 ```
 
 Send the workspace ID, email and temporary password to the new admin privately; they can then add
@@ -426,8 +425,8 @@ to repeat and run on every `migrate`.
 3. **One server (`pulse all`):** `docker compose up -d` with the new image. Pulse runs the
    migrations on start, then serves.
 4. **Separate roles:** run `pulse migrate` once (the `migrate` service above), wait for it to
-   succeed, then restart the roles, `api` last. Don't start several `migrate` (or `all`) processes at
-   the same time: migrations take no lock.
+   succeed, then restart the roles, `api` last. If several `migrate` (or `all`) processes start at
+   once, a Postgres advisory lock makes them migrate one at a time; the later ones find nothing to do.
 
 Events that arrive during the restart wait in Kafka and are processed when the roles are back.
 

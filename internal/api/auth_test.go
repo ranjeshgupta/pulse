@@ -137,6 +137,12 @@ func TestLoginRateLimit(t *testing.T) {
 	s.RDB = redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	h := s.Handler()
 	browser(t, h, "POST", "/v1/auth/signup", `{"workspace":"Acme","email":"a@acme.io","password":"long enough pw"}`, nil, false)
+	// Successful sign-ins don't use up the limit.
+	for i := 0; i < loginAttempts+2; i++ {
+		if w := browser(t, h, "POST", "/v1/auth/login", `{"workspace":"acme","email":"a@acme.io","password":"long enough pw"}`, nil, false); w.Code != 200 {
+			t.Fatalf("sign-in %d: %d", i+1, w.Code)
+		}
+	}
 	for i := 0; i < loginAttempts; i++ {
 		browser(t, h, "POST", "/v1/auth/login", `{"workspace":"acme","email":"a@acme.io","password":"wrong wrong"}`, nil, false)
 	}

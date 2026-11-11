@@ -16,7 +16,7 @@ make docs-shots SHOT=01,dev-01     # several, comma-separated
 1. runs `make docs-seed`, which creates the **Acme Retail** workspace (`acme-retail`) the first time
    and does nothing after that (credentials: [deploy/dev-seed.md](../../deploy/dev-seed.md)). Once
    the scripts have saved a signed-in session in `.cache/docs-shots/sessions/`, this step is skipped:
-   Pulse allows only 10 sign-ins per workspace and email in 15 minutes. After resetting the
+   Pulse allows 10 failed sign-ins per workspace and email in 15 minutes, and reusing the session keeps the runs quick. After resetting the
    database, run `make docs-seed` yourself;
 2. starts `mcr.microsoft.com/playwright:v1.49.1-jammy` with `--network host`, so the browser reaches
    Pulse at `http://localhost:7080` and Mailpit at `http://localhost:18025`. The container is only a
@@ -73,7 +73,7 @@ relative path: `![What the reader sees](img/03-segments-list.png)`.
 | Helper | Does |
 |---|---|
 | `session(browser, { size, signIn })` | A new browser context and page. `size`: `"desktop"` (1440×900, the default) or `"mobile"` (390×844). `signIn`: the docs workspace by default (`DOCS`), other `{workspace, email, password}`, or `null` for signed out |
-| `login(context, creds)` | Signs in through the API (no form). `session()` already does this, once per workspace and email: Pulse allows 10 sign-ins per 15 minutes, so the session cookie is kept in `.cache/docs-shots/sessions/` and reused while it works |
+| `login(context, creds)` | Signs in through the API (no form). `session()` already does this, once per workspace and email: the session cookie is kept in `.cache/docs-shots/sessions/` and reused while it works |
 | `api(context, method, path, body)` | Calls the Pulse API with the context's session: set up data a shot needs |
 | `go(page, path)` | Opens an app path and waits until it has settled |
 | `settle(page, { quiet })` | Waits for network idle, fonts and loading placeholders, then `quiet` ms |

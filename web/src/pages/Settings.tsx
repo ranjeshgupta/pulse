@@ -48,7 +48,7 @@ export function Team() {
                   </select>
                 ) : roleName(u.role, roles)}
               </td>
-              <td>{u.sso ? "SSO" : "Password"}</td>
+              <td>{signsInWith(u)}</td>
               <td className="muted">{timeAgo(u.last_login_at)}</td>
               <td className="num">{admin && u.id !== me?.user?.id && <button className="btn ghost sm" onClick={() => confirm(`Remove ${u.email}? They're signed out everywhere.`) && remove.mutate(u.id)}>Remove</button>}</td>
             </tr>
@@ -356,4 +356,10 @@ export function Scoring() {
       </div>
     </div>
   );
+}
+
+// signsInWith says how a teammate signs in: a teammate added without a password can only use SSO.
+function signsInWith(u: User): string {
+  if (u.password && u.sso) return "Password or SSO";
+  return u.password ? "Password" : "SSO";
 }

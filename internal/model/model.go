@@ -26,7 +26,8 @@ type User struct {
 	Role         string     `json:"role"`
 	PasswordHash string     `json:"-"`
 	SSOSubject   string     `json:"-"`
-	SSO          bool       `json:"sso"` // signs in through SSO
+	SSO          bool       `json:"sso"`      // has signed in through SSO
+	Password     bool       `json:"password"` // has a password
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
@@ -350,8 +351,8 @@ type Form struct {
 }
 
 type FormField struct {
-	Key      string   `json:"key"` // the profile attribute it sets ("email" sets the contact's email)
-	Label    string   `json:"label"`
+	Key   string `json:"key"` // the profile attribute it sets ("email" sets the contact's email)
+	Label string `json:"label"`
 	// text | email | tel | number | textarea | select | checkbox | hidden | file | page_break
 	// (page_break starts a new page; its label titles that page; it has no value)
 	Type     string   `json:"type"`

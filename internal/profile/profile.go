@@ -845,14 +845,22 @@ func (s *Service) redirectOnce(ctx context.Context, evs []event.Event, contacts 
 	return moved, nil
 }
 
-// lookupAnonymous loads the contacts named by identify and merge_requested events (without
-// creating any).
+// lookupAnonymous loads the contacts named by identify and merge_requested events. An identify's
+// anonymous visitor (anon-…) that doesn't exist yet is created, so the fold below marks it merged:
+// the visitor's own events can reach another partition after the identify, and must then follow
+// it to the known contact instead of starting a separate profile. A merge_requested loser is only
+// looked up.
 func (s *Service) lookupAnonymous(ctx context.Context, evs []event.Event, contacts map[string]model.Contact) error {
-	want := map[int64][]string{}
+	want, create := map[int64][]string{}, map[int64][]string{}
 	for i := range evs {
 		if k, ok := mergeKey(&evs[i]); ok {
 			if _, have := contacts[k]; !have {
-				want[evs[i].TenantID] = append(want[evs[i].TenantID], mergeSource(&evs[i]))
+				from := mergeSource(&evs[i])
+				if evs[i].Name == event.Identify && strings.HasPrefix(from, "anon-") {
+					create[evs[i].TenantID] = append(create[evs[i].TenantID], from)
+				} else {
+					want[evs[i].TenantID] = append(want[evs[i].TenantID], from)
+				}
 			}
 		}
 	}
@@ -860,6 +868,15 @@ func (s *Service) lookupAnonymous(ctx context.Context, evs []event.Event, contac
 		found, err := s.store.LookupContacts(ctx, tenant, exts)
 		if err != nil {
 			return fmt.Errorf("lookup visitors: %w", err)
+		}
+		for ext, c := range found {
+			contacts[ckey(tenant, ext)] = c
+		}
+	}
+	for tenant, exts := range create {
+		found, _, err := s.store.ResolveContacts(ctx, tenant, exts)
+		if err != nil {
+			return fmt.Errorf("resolve visitors: %w", err)
 		}
 		for ext, c := range found {
 			contacts[ckey(tenant, ext)] = c

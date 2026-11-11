@@ -329,7 +329,7 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
           {evs.data?.events.map((e) => (
             <tr key={e.id}>
               <td style={{ width: 150 }}>{e.name}</td>
-              <td className="muted xs">{e.props !== "{}" ? e.props : ""}</td>
+              <td className="muted xs event-props">{e.props !== "{}" ? e.props : ""}</td>
               <td className="muted xs" style={{ whiteSpace: "nowrap" }}>{timeAgo(e.ts)}</td>
             </tr>
           ))}

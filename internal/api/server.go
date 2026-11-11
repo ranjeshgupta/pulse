@@ -412,16 +412,18 @@ func (s *Server) createTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	key, siteKey := auth.NewToken("pk_"), auth.NewToken("sk_")
 	var id int64
+	var made string
 	err := withUniqueSlug(req.Name, func(slug string) error {
 		var err error
 		id, err = s.Store.CreateTenant(r.Context(), req.Name, slug, HashKey(key), siteKey)
+		made = slug
 		return err
 	})
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "api_key": key, "site_key": siteKey})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "slug": made, "api_key": key, "site_key": siteKey})
 }
 
 func (s *Server) secureCookies() bool {

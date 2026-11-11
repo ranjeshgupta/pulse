@@ -110,6 +110,8 @@ consent, tags and points directly (imports).
   `merged_into` the winner. The API adds `list_joined` events for the loser's static lists after the merge request, and a
   short Redis reservation stops two merges of the same contacts from racing on different partitions. Later events of a
   merged contact (and of contacts merged into it before) follow `merged_into` to the winner.
+  If an identify arrives before the visitor's own first events (they can sit on another partition), the `anon-`
+  visitor is created right then, already merged, so those events follow it to the known contact too.
 
 ## Segment rules
 
@@ -341,7 +343,8 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv2`)
   from `events`, for reports.
 
-Migrations: `migrations/postgres/001`–`018` and `migrations/clickhouse/001`–`004`, applied by `pulse migrate` (and `pulse all`).
+Migrations: `migrations/postgres/001`–`018` and `migrations/clickhouse/001`–`004`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
+migrate one at a time.
 
 ## Public pages and origins
 - Landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`) are workspace-authored. With `PULSE_PAGES_URL` set they are

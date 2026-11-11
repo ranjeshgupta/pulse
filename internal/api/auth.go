@@ -150,6 +150,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.loginSucceeded(r.Context(), req.Workspace, req.Email)
 	s.auditSignIn(r, u.TenantID, u.ID, u.Email, "sign-in", true)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
@@ -162,12 +163,26 @@ func (s *Server) lookupLogin(ctx context.Context, slug, email string) (model.Use
 	return s.Store.UserByEmail(ctx, t.ID, email)
 }
 
-// allowLogin counts attempts per (workspace, email). Without Redis it allows everything.
+// loginKey is the Redis counter of sign-in attempts for (workspace, email).
+func loginKey(slug, email string) string {
+	return "login:" + strings.ToLower(slug) + ":" + strings.ToLower(email)
+}
+
+// loginSucceeded clears the attempt counter: only failed attempts in a row should lock someone out.
+func (s *Server) loginSucceeded(ctx context.Context, slug, email string) {
+	if s.RDB != nil {
+		s.RDB.Del(ctx, loginKey(slug, email))
+	}
+}
+
+// allowLogin counts attempts per (workspace, email), before the password is checked so parallel
+// guesses can't slip past the limit; a successful sign-in clears the count. Without Redis it allows
+// everything.
 func (s *Server) allowLogin(ctx context.Context, slug, email string) bool {
 	if s.RDB == nil {
 		return true
 	}
-	key := "login:" + strings.ToLower(slug) + ":" + strings.ToLower(email)
+	key := loginKey(slug, email)
 	n, err := s.RDB.Incr(ctx, key).Result()
 	if err != nil {
 		return true // fail open on a Redis outage rather than locking everyone out

@@ -43,6 +43,27 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 
 func (s *Store) Close() { s.db.Close() }
 
+// migrationLockID is the Postgres advisory lock key that serialises migrations ("pulse" in ASCII).
+const migrationLockID = 0x70756c7365
+
+// MigrationLock waits until no other Pulse process is migrating, and holds the lock (on its own
+// connection) until release is called. Processes that start together then migrate one at a time;
+// the later ones find nothing left to apply.
+func (s *Store) MigrationLock(ctx context.Context) (release func(), err error) {
+	conn, err := s.db.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, int64(migrationLockID)); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("wait for the migration lock: %w", err)
+	}
+	return func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, int64(migrationLockID))
+		conn.Release()
+	}, nil
+}
+
 // Migrate applies every *.sql file in dir that has not been applied yet, in name order.
 func (s *Store) Migrate(ctx context.Context, files fs.FS, dir string) error {
 	if _, err := s.db.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (

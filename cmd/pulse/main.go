@@ -6,7 +6,7 @@
 //	pulse chsink    events.enriched, segment.membership -> ClickHouse
 //	pulse segments  events.enriched -> segment membership (+ backfills and sweeps)
 //	pulse journeys  segment.membership, events.enriched -> journey steps (+ timers)
-//	pulse dispatch  messages.email -> SMTP
+//	pulse dispatch  messages.<channel> -> email, SMS, WhatsApp, RCS, push and app inbox providers
 //	pulse webhooks  events -> customers' outbound webhooks (and Zapier / Make subscriptions)
 //	pulse integrations  CRM pulls on a schedule, ad audience sync (segment.membership, events.enriched),
 //	                    bounce mailboxes (IMAP)
@@ -33,6 +33,7 @@ import (
 
 	"pulse/internal/api"
 	"pulse/internal/auth"
+	"pulse/internal/bounces"
 	"pulse/internal/broadcast"
 	"pulse/internal/channel"
 	"pulse/internal/chsink"
@@ -41,7 +42,6 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/geoip"
 	"pulse/internal/importer"
-	"pulse/internal/bounces"
 	"pulse/internal/integrations"
 	"pulse/internal/journey"
 	"pulse/internal/kafka"
@@ -213,6 +213,12 @@ func runMigrate(ctx context.Context, d *deps) error {
 	if err != nil {
 		return err
 	}
+	// One process migrates at a time (Postgres and ClickHouse alike); the others wait, then skip.
+	release, err := pgs.MigrationLock(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if err := pgs.Migrate(ctx, migrations.Postgres, "postgres"); err != nil {
 		return err
 	}

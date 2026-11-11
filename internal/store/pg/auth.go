@@ -91,6 +91,7 @@ func scanUser(row pgx.Row) (model.User, error) {
 	var u model.User
 	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.SSOSubject, &u.CreatedAt, &u.LastLoginAt)
 	u.SSO = u.SSOSubject != ""
+	u.Password = u.PasswordHash != ""
 	return u, notFound(err)
 }
 

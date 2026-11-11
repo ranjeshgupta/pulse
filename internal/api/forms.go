@@ -276,7 +276,7 @@ type formInput struct {
 	Honeypot string
 	Uploads  map[string]forms.Upload // files of file fields, by field key
 	Elapsed  time.Duration           // since the form was shown
-	Meta     map[string]any // extra form_submitted properties (e.g. asset_id)
+	Meta     map[string]any          // extra form_submitted properties (e.g. asset_id)
 	// Attribution: the web SDK's first- and last-touch UTM attributes, added to the submitter's
 	// profile (fields of the form win). Only the attribution keys are taken.
 	Attribution map[string]string
