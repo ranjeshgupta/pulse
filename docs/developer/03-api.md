@@ -1038,8 +1038,8 @@ the path, a signature, or nothing).
 | `POST` | `/v1/templates/text` | Plain-text version of an email's HTML | content view |
 | `POST` | `/v1/templates/{id}/duplicate` | Copy a template ("… (copy)", reusable); 201 | content edit |
 | `GET` | `/v1/test-contacts` | Saved test contacts | content view |
-| `POST` | `/v1/test-contacts` | Add one (`name`, and `external_id` or any of `email`, `phone`, `push_token`); at most 50 | content edit |
-| `PUT` | `/v1/test-contacts/{id}` | Change one | content edit |
+| `POST` | `/v1/test-contacts` | Add one (`name`, and `external_id` or any of `email`, `phone`, `push_token`); at most 50 | content edit (+ channels edit without `external_id`) |
+| `PUT` | `/v1/test-contacts/{id}` | Change one | content edit (+ channels edit without `external_id`) |
 | `DELETE` | `/v1/test-contacts/{id}` | Remove one | content edit |
 
 ### Journeys
@@ -1087,7 +1087,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/channels/providers` | Add a provider (`channel`, `provider`, `name`, `config`, `secrets`, `is_default`) | channels edit + settings edit |
 | `PUT` | `/v1/channels/providers/{id}` | Change a provider (omitted secrets are kept) | channels edit + settings edit |
 | `DELETE` | `/v1/channels/providers/{id}` | Remove a provider | channels edit + settings edit |
-| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `event` properties for `{{event.x}}`); 202 | content edit |
+| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `event` properties for `{{event.x}}`); 202; 30 a minute per workspace (429) | content edit |
 | `GET` | `/v1/sandbox/messages` | Messages the sandbox providers recorded (test inbox) | content view |
 | `POST` | `/v1/sandbox/receipts` | Simulate a delivery report for a sandbox message | content edit |
 | `POST` | `/v1/sandbox/inbound` | Simulate a reply from a phone number (e.g. STOP) | content edit |

@@ -283,6 +283,9 @@ Pass `onsite: false` to `init` to turn slots and focus items off on a page.
 ## Web push
 
 Standard web push (VAPID), no Firebase needed. Pulse creates the workspace's key pair on first use.
+Pulse accepts and sends to subscriptions only on the browsers' push services (`https` endpoints on
+`fcm.googleapis.com`, `push.services.mozilla.com`, `push.apple.com` or `notify.windows.com`); any other
+endpoint is refused with `400` when registered, so a page script can't point Pulse at another address.
 
 1. Serve a service worker file from your site's root, e.g. **`/pulse-sw.js`**, containing one line:
 

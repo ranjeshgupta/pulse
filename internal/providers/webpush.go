@@ -7,9 +7,11 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -18,6 +20,38 @@ import (
 // IsWebPushSubscription reports whether a push token is a browser PushSubscription.
 func IsWebPushSubscription(token string) bool {
 	return strings.HasPrefix(strings.TrimSpace(token), "{")
+}
+
+// webPushHosts are the browser push services a subscription's endpoint may point at. Browsers only
+// hand out endpoints on these, so anything else came from somebody's script, and sending there would
+// let a public site key make Pulse post to any address (an internal service, a cloud metadata URL).
+var webPushHosts = []string{
+	"fcm.googleapis.com", "android.googleapis.com", // Chrome, Edge (Chromium), Opera, Samsung
+	"push.services.mozilla.com", // Firefox (updates.push.services.mozilla.com)
+	"notify.windows.com",        // legacy Edge (*.notify.windows.com)
+	"push.apple.com",            // Safari (web.push.apple.com)
+}
+
+// CheckWebPushSubscription reports whether token is a browser PushSubscription whose endpoint is an
+// https URL on a known push service.
+func CheckWebPushSubscription(token string) error {
+	var sub struct {
+		Endpoint string `json:"endpoint"`
+	}
+	if err := json.Unmarshal([]byte(token), &sub); err != nil || sub.Endpoint == "" {
+		return errors.New("not a valid browser push subscription")
+	}
+	u, err := url.Parse(sub.Endpoint)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return errors.New("the push subscription's endpoint must be an https URL of a browser push service")
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, h := range webPushHosts {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the push subscription's endpoint %q isn't a known browser push service", host)
 }
 
 // GenerateVAPIDKeys returns a new key pair (base64url, as browsers and the protocol use them).
@@ -41,6 +75,9 @@ type WebPushPayload struct {
 }
 
 func (p *WebPush) Send(ctx context.Context, o Outbound) (Result, error) {
+	if err := CheckWebPushSubscription(o.To); err != nil {
+		return Result{}, Unreachable(err.Error())
+	}
 	var sub webpush.Subscription
 	if err := json.Unmarshal([]byte(o.To), &sub); err != nil || sub.Endpoint == "" {
 		return Result{}, Unreachable("not a valid browser push subscription")

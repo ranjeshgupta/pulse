@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,6 +38,7 @@ import (
 	"pulse/internal/providers"
 	"pulse/internal/reach"
 	"pulse/internal/replies"
+	"pulse/internal/safehttp"
 	"pulse/internal/store/pg"
 	"pulse/internal/tracking"
 )
@@ -1042,7 +1042,8 @@ func (d *Dispatcher) webPusher(ctx context.Context, tenant int64) (providers.Pro
 	}
 	wp := &providers.WebPush{HTTP: d.cfg.Providers.HTTP, PublicKey: pub, PrivateKey: string(priv), Subject: d.cfg.PushSubject}
 	if wp.HTTP == nil {
-		wp.HTTP = &http.Client{Timeout: 15 * time.Second}
+		// Endpoints come from browsers: never let one reach a private address.
+		wp.HTTP = safehttp.Client(15*time.Second, d.cfg.Providers.AllowPrivate)
 	}
 	d.mu.Lock()
 	d.senders[key] = cached[providers.Provider]{v: wp, exp: d.now().Add(cacheTTL)}

@@ -363,7 +363,11 @@ still pick a sample trigger event (tutorial 13).
 
 <img src="img/04-send-test-saved.png" alt="Send a test: Cart rescue SMS, sent to Priya (QA) (+919812399001)" width="420">
 
-Adding and editing test contacts needs edit access to content, as sending tests does.
+Adding and editing test contacts needs edit access to content, as sending tests does. A test contact
+with its own **addresses** also needs edit access to channels (the **Admin** role), because tests to
+it skip consent: admins keep that list, and everyone who checks messages sends to it. Test sends are
+limited to 30 a minute per workspace, and each one is in the audit log. A browser push token must be a
+subscription from a browser push service (Chrome, Firefox, Safari, Edge).
 
 ## What you have now
 

@@ -163,3 +163,16 @@ func TestCampaignHubNeedsViewAccess(t *testing.T) {
 		t.Fatalf("tags without access: %d", w.Code)
 	}
 }
+
+// Only someone who may change channels saves a test contact with bare addresses.
+func TestBareTestContactNeedsChannelsEdit(t *testing.T) {
+	s, st, _ := newSchemaServer(t)
+	h := s.Handler()
+	hash, _ := auth.HashPassword("long enough pw")
+	st.tenants["acme"] = model.Tenant{ID: 1, Slug: "acme"}
+	st.users = append(st.users, model.User{ID: 7, TenantID: 1, Email: "ed@acme.io", Role: auth.RoleEditor, PasswordHash: hash})
+	cookie := sessionFrom(t, browser(t, h, "POST", "/v1/auth/login", `{"workspace":"acme","email":"ed@acme.io","password":"long enough pw"}`, nil, false))
+	if w := browser(t, h, "POST", "/v1/test-contacts", `{"name":"Anyone","email":"someone@else.test"}`, cookie, true); w.Code != http.StatusForbidden {
+		t.Errorf("editor saving a bare address: %d %s", w.Code, w.Body)
+	}
+}

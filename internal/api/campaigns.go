@@ -25,6 +25,7 @@ import (
 	"pulse/internal/dispatch"
 	"pulse/internal/journey"
 	"pulse/internal/model"
+	"pulse/internal/providers"
 	"pulse/internal/reach"
 	"pulse/internal/schedule"
 	"pulse/internal/segment"
@@ -61,8 +62,8 @@ func (s *Server) campaignRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/segments/{id}/reach", s.tenant(s.segmentReach))
 	mux.HandleFunc("PUT /v1/channels/providers/{id}/limits", s.tenant(s.putProviderLimits))
 	mux.HandleFunc("GET /v1/test-contacts", s.tenant(s.listTestContacts))
-	mux.HandleFunc("POST /v1/test-contacts", s.tenant(s.saveTestContact))
-	mux.HandleFunc("PUT /v1/test-contacts/{id}", s.tenant(s.saveTestContact))
+	mux.HandleFunc("POST /v1/test-contacts", s.authed(s.saveTestContact))
+	mux.HandleFunc("PUT /v1/test-contacts/{id}", s.authed(s.saveTestContact))
 	mux.HandleFunc("DELETE /v1/test-contacts/{id}", s.tenant(s.deleteTestContact))
 }
 
@@ -824,10 +825,19 @@ func ValidTestContact(tc model.TestContact) error {
 	if len(tc.PushToken) > 4096 {
 		errs = append(errs, errors.New("the push token is too long"))
 	}
+	if providers.IsWebPushSubscription(tc.PushToken) {
+		if err := providers.CheckWebPushSubscription(tc.PushToken); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return errors.Join(errs...)
 }
 
-func (s *Server) saveTestContact(w http.ResponseWriter, r *http.Request, tenant int64) {
+// A test contact with bare addresses (no contact behind it) can be sent anything, with no consent
+// check, by anyone with content edit: so only someone who may change channels (channels edit) can
+// save one. Content editors send tests to that list, or to real contacts.
+func (s *Server) saveTestContact(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	var tc model.TestContact
 	if !decode(w, r, &tc) {
 		return
@@ -844,6 +854,10 @@ func (s *Server) saveTestContact(w http.ResponseWriter, r *http.Request, tenant 
 	tc.ExternalID, tc.PushToken = strings.TrimSpace(tc.ExternalID), strings.TrimSpace(tc.PushToken)
 	if err := ValidTestContact(tc); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if tc.ExternalID == "" && !p.Perms.Allows(auth.AreaChannels, auth.Edit) {
+		writeErr(w, http.StatusForbidden, "saving a test contact with its own addresses needs edit access to channels; choose an existing contact instead")
 		return
 	}
 	if tc.ExternalID != "" {

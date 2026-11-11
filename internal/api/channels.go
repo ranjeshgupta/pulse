@@ -203,6 +203,10 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request, p model.
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// testSendsPerMinute caps test sends per workspace: they skip consent, so they mustn't become a way
+// to mail anyone in bulk.
+const testSendsPerMinute = 30
+
 // testSend sends a template to one contact now, through the normal dispatch path.
 func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) {
 	var req struct {
@@ -215,6 +219,10 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		Event map[string]any `json:"event"`
 	}
 	if !decode(w, r, &req) || !eventFits(w, req.Event) {
+		return
+	}
+	if !s.allowTenant(r.Context(), "testsend", tenant, testSendsPerMinute) {
+		writeErr(w, http.StatusTooManyRequests, "too many test sends; try again in a minute")
 		return
 	}
 	t, err := s.uiStore().Template(r.Context(), tenant, req.TemplateID)

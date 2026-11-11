@@ -21,6 +21,7 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
+	"pulse/internal/providers"
 )
 
 const (
@@ -208,6 +209,12 @@ func (s *Server) webDevice(w http.ResponseWriter, r *http.Request) {
 	if req.ExternalID == "" || req.Token == "" || len(req.Token) > 4096 || len(req.ExternalID) > 255 {
 		writeErr(w, http.StatusBadRequest, "external_id and token are required")
 		return
+	}
+	if providers.IsWebPushSubscription(req.Token) {
+		if err := providers.CheckWebPushSubscription(req.Token); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	found, _, err := s.chStore().ResolveContacts(r.Context(), t.ID, []string{req.ExternalID})
 	if err != nil {
