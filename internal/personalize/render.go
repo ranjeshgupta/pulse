@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	texttemplate "text/template"
+	"text/template/parse"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -92,6 +93,91 @@ func (r *Renderer) Text(name, src string, dot any) (string, error) {
 	return strings.ReplaceAll(b.String(), "<no value>", ""), nil
 }
 
+// JSONRaw is an already encoded JSON value (the json pipe, or {{json .x}} in a webhook body): a
+// JSON body inserts it as it is.
+type JSONRaw string
+
+// JSON renders a JSON request body (journey webhooks). Every value, old syntax or new, is inserted
+// JSON-escaped without quotes, so a value can't close its string and add fields: write
+// "name": "{{contact.first_name}}". The json pipe inserts a whole JSON value ("cart": {{event.items | json}}).
+// The result must be valid JSON.
+func (r *Renderer) JSON(name, src string, dot any) (string, error) {
+	if !strings.Contains(src, "{{") {
+		return src, nil
+	}
+	tr, _, err := Translate(src, false)
+	if err != nil {
+		return "", err
+	}
+	tpl, err := texttemplate.New(name).Option("missingkey=zero").Funcs(r.funcs(false)).Parse(tr)
+	if err != nil {
+		return "", err
+	}
+	for _, t := range tpl.Templates() {
+		if t.Tree != nil {
+			escapeJSON(t.Tree, t.Tree.Root)
+		}
+	}
+	var b bytes.Buffer
+	if err := tpl.Execute(&b, dot); err != nil {
+		return "", err
+	}
+	out := b.String()
+	if !json.Valid([]byte(out)) {
+		return "", fmt.Errorf("the body isn't valid JSON once filled in (put text variables inside quotes, and use | json for lists and objects)")
+	}
+	return out, nil
+}
+
+// escapeJSON ends every action's pipeline with pulseJSONEsc, like html/template's escaper does
+// for HTML.
+func escapeJSON(t *parse.Tree, n parse.Node) {
+	switch n := n.(type) {
+	case *parse.ListNode:
+		if n == nil {
+			return
+		}
+		for _, c := range n.Nodes {
+			escapeJSON(t, c)
+		}
+	case *parse.ActionNode:
+		if len(n.Pipe.Decl) == 0 {
+			id := parse.NewIdentifier("pulseJSONEsc").SetTree(t).SetPos(n.Pos)
+			n.Pipe.Cmds = append(n.Pipe.Cmds, &parse.CommandNode{NodeType: parse.NodeCommand, Pos: n.Pos, Args: []parse.Node{id}})
+		}
+	case *parse.IfNode:
+		escapeJSON(t, n.List)
+		escapeJSON(t, n.ElseList)
+	case *parse.RangeNode:
+		escapeJSON(t, n.List)
+		escapeJSON(t, n.ElseList)
+	case *parse.WithNode:
+		escapeJSON(t, n.List)
+		escapeJSON(t, n.ElseList)
+	}
+}
+
+// jsonEscape is a value as the inside of a JSON string; JSONRaw passes through.
+func jsonEscape(v any) any {
+	if j, ok := v.(JSONRaw); ok {
+		return string(j)
+	}
+	var s string
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		s = x
+	default:
+		s = Format(v)
+		if s == "" {
+			s = fmt.Sprint(v)
+		}
+	}
+	b, _ := json.Marshal(s)
+	return string(b[1 : len(b)-1])
+}
+
 // HTML renders an HTML document: every value is escaped for where it lands (text, attribute, URL).
 func (r *Renderer) HTML(name, src string, dot any) (string, error) {
 	if !strings.Contains(src, "{{") {
@@ -156,13 +242,17 @@ func (r *Renderer) funcs(html bool) map[string]any {
 			max, _ := strconv.Atoi(n)
 			return truncate(Format(v), max)
 		},
-		"pulseJSON": func(v any) string {
+		"pulseJSON": func(v any) JSONRaw {
 			b, _ := json.Marshal(v)
-			return string(b)
+			return JSONRaw(b)
 		},
+		"pulseJSONEsc": jsonEscape,
 		"pulseOut": func(v any) any {
 			if u, ok := v.(htmltemplate.URL); ok {
 				return u
+			}
+			if j, ok := v.(JSONRaw); ok {
+				return j
 			}
 			return Format(v)
 		},

@@ -632,12 +632,20 @@ These run on raw events today and are fine into the hundreds of millions of rows
   without exponents; lists join with ", ". A variable with no value and no default is recorded in `Rendered.Missing`.
 - **Trigger context.** When an event or form submission enrolls a contact, the engine stores
   `eventschema.MessageProps(schema, props)` on `journey_enrollments.trigger` (migration 021): the props minus the schema's
-  personal paths, at most 16 KB (largest top-level properties dropped first). The journey role keeps its own
+  personal paths, at most 16 KB (largest top-level properties dropped first). Nothing is stored for an event marked
+  `Unverified` (`messageTrigger`): `POST /v1/web/events` (browser and app SDKs) sets it on every event without a
+  verified identity (`verifiedIdentity`), `POST /v1/events` clears it (the API key proves the sender), and it is never
+  taken from a request body; otherwise anyone could put their text and links into a contact's messages by sending an
+  event for that ID. The journey role keeps its own
   `eventschema.Cache` for this. Send steps (`send_*`, `send_message`, `notify_user`) of event and form journeys read it
   (`EnrollmentTrigger`) and put it on the Kafka message with the journey's name and the step (`model.Message.Event`,
   `Campaign`, `Step`); the SMS fallback copies them. Broadcasts set `Campaign` only.
 - **Missing values.** `templates.missing_values`: `empty` (default) or `skip`. With `skip` and anything missing, the
   dispatcher records `<channel>_failed {reason: "skipped: no value for …", skipped: "missing_value"}` and sends nothing.
+- **Webhook bodies** render with `Renderer.JSON`: every action, old syntax or new, ends in `pulseJSONEsc` (the
+  template tree is rewritten, as html/template does), so values land JSON-escaped and must sit inside quotes; the
+  `json` pipe and `{{json .x}}` return `JSONRaw`, inserted as it is. A body that isn't valid JSON once filled is not
+  sent (the step fails with `webhook_failed`).
 - **Elsewhere.** Webhook bodies, `push_dwc` HTML (`html/template`, escaped) and `update_attr` values render with the
   trigger event when the step runs. `POST /v1/web/inapp` fills in-app campaigns' title, body and buttons per app user
   (`inapp.Personalize`; contact variables only). Public routes use the contact's data only for a verified identity

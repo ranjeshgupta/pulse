@@ -16,7 +16,8 @@ Gupshup gets SMS, WhatsApp and RCS.
   events are never refused.
 - Behaviour ranges older than 365 days are evaluated by the sweep, not in real time; the UI says so.
 - Event properties copied into messages are capped at 16 KB, and properties the schema marks personal
-  are left out.
+  are left out. Only events from a proven sender (server API key, or a verified web/app identity) are
+  copied; webhook bodies JSON-escape every value.
 - The product contact field can be set by imports, servers and a journey step, and an event schema can
   add a property's value to a list field automatically (e.g. a purchase adds `product_code` to
   `products`).

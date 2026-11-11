@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -152,9 +154,9 @@ func TestSendMessageWithoutAMatchingRuleSkips(t *testing.T) {
 
 func TestSendMessageRuleValidation(t *testing.T) {
 	bad := map[string]string{
-		`{"type":"send_message","channels":[{"channel":"sms","template_id":1,"when":[{"prop":"phone_country","op":"eq","value":"IN"}]}],"next":"x"}`:       "contact.<field> or event.<property>",
+		`{"type":"send_message","channels":[{"channel":"sms","template_id":1,"when":[{"prop":"phone_country","op":"eq","value":"IN"}]}],"next":"x"}`:            "contact.<field> or event.<property>",
 		`{"type":"send_message","channels":[{"channel":"sms","template_id":1,"when":[{"prop":"contact.phone_country","op":"magic","value":"IN"}]}],"next":"x"}`: "magic",
-		`{"type":"send_message","channels":[{"channel":"sms","template_id":1,"fallback_template_id":2}],"next":"x"}`:                                         "only WhatsApp and RCS",
+		`{"type":"send_message","channels":[{"channel":"sms","template_id":1,"fallback_template_id":2}],"next":"x"}`:                                            "only WhatsApp and RCS",
 	}
 	for node, want := range bad {
 		_, err := ParseGraph([]byte(fmt.Sprintf(start, node)))
@@ -200,3 +202,52 @@ func TestPushDWCKeepsAnAnonymousVersion(t *testing.T) {
 		t.Errorf("stored %q", stored)
 	}
 }
+
+// Properties of an event nobody proved they sent never reach the contact's messages.
+func TestUnverifiedTriggerIsNotKept(t *testing.T) {
+	ev := &event.Event{Name: "cart_abandoned", Props: map[string]any{"product_name": "Yoga mat"}}
+	if got := messageTrigger(ev, nil); !strings.Contains(string(got), "Yoga mat") {
+		t.Errorf("verified: %s", got)
+	}
+	ev.Unverified = true
+	if got := messageTrigger(ev, nil); got != nil {
+		t.Errorf("unverified kept: %s", got)
+	}
+}
+
+// Webhook bodies escape every value, so an event property can't add fields to the JSON.
+func TestWebhookBodyEscapesValues(t *testing.T) {
+	x, _, _, _, _ := builderExecutor(t, nil)
+	var got string
+	x.HTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		got = string(b)
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	x.Store = &triggerStore{fakeStore: x.Store.(*fakeStore), trigger: json.RawMessage(`{"name":"x\", \"admin\": true, \"y\": \"","items":[1,2]}`)}
+	g := graph(t, `{"trigger":{"type":"event","event":"cart_abandoned"},"entry":"s","nodes":{
+		"s":{"type":"webhook","url":"https://x.test/h","body":"{\"p\": \"{{event.name}}\", \"old\": \"{{.Attrs.first_name}}\", \"items\": {{event.items | json}}, \"all\": {{json .Attrs}}}","next":"x"},
+		"x":{"type":"exit"}}}`)
+	if err := x.Run(context.Background(), g, en, "s"); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(got), &body); err != nil {
+		t.Fatalf("body %q: %v", got, err)
+	}
+	if _, injected := body["admin"]; injected || !strings.Contains(attrString(body["p"]), `"admin"`) {
+		t.Errorf("value escaped into fields: %q", got)
+	}
+	if items, _ := body["items"].([]any); len(items) != 2 {
+		t.Errorf("json pipe: %q", got)
+	}
+	if _, ok := body["all"].(map[string]any); !ok {
+		t.Errorf("{{json .Attrs}}: %q", got)
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func attrString(v any) string { s, _ := v.(string); return s }

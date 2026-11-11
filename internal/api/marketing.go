@@ -53,7 +53,8 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
 	stageNamed := s.stageLookup(tenant)
 	for i := range evs {
 		e := &evs[i]
-		e.TenantID = tenant // never trust a tenant id in the body
+		e.TenantID = tenant  // never trust a tenant id in the body
+		e.Unverified = false // the server API key proves the sender
 		e.ContactID, e.NewContact, e.ChangedAttrs, e.Profile = 0, false, nil, nil
 		if event.PlatformOnly(e.Name) {
 			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+e.Name+" is recorded by Pulse itself (use the contact's company or merge API)")

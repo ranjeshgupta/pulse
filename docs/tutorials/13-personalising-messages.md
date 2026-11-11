@@ -98,7 +98,12 @@ What is kept:
 - the event's properties, up to **16 KB** (when an event carries more, its largest properties are
   left out first);
 - **without** the properties its schema marks **personal** (tutorial 12, section 5): they never reach
-  a message.
+  a message;
+- **only for events whose sender is proven**: events your server sends with the API key, and website
+  or app events from a verified identity (identity secret plus the user hash, the same as the
+  **Verified identity** paragraph in section 9). Anyone can send a website event for any ID, so
+  without that proof `{{event.x}}` takes its default. If your cart and checkout events come from the
+  browser, turn on identity verification, or send those events from your server.
 
 The template editor doesn't know which journey will send it, so choose the event above the editor
 (**Trigger event for {{event.…}}**, section 4): the picker then lists its properties and the preview
@@ -172,7 +177,7 @@ the contact can receive.
 
 | Where | What |
 |---|---|
-| Journeys → **Send a webhook** → Body | Contact, event and campaign variables; use `\| json` to put a value in JSON: `{"cart": {{event.cart_id \| json}}}` |
+| Journeys → **Send a webhook** → Body | Contact, event and campaign variables. Values are JSON-escaped, so put text inside quotes: `{"name": "{{contact.first_name}}"}`; use `\| json` for a whole value, such as a list: `{"items": {{event.items \| json}}}`. A body that isn't valid JSON once filled in isn't sent |
 | Journeys → **Push dynamic content** | The HTML for the slot, filled (and escaped) when the step runs. Contact values show only to visitors whose identity is verified (below); others see the defaults |
 | Journeys → **Update contact** | Values such as `{{event.product_name}}` copy a property onto the contact |
 | **On-site & in-app → In-app** | Title, message and buttons take contact variables, for verified app users (below); everyone else gets the defaults |

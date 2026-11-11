@@ -188,6 +188,11 @@ type Event struct {
 	Props      map[string]any `json:"props,omitempty"`
 	Attrs      map[string]any `json:"attrs,omitempty"` // attributes to merge into the profile
 	Email      string         `json:"email,omitempty"` // shorthand for attrs.email
+	// Unverified marks a browser or app event whose identity wasn't proven (no identity secret, or
+	// no valid user hash): anyone could have sent it for this ID. Set by the API on every event it
+	// accepts, never taken from the body. Journeys don't copy such an event's properties into
+	// messages ({{event.x}}).
+	Unverified bool `json:"unverified,omitempty"`
 
 	// Set by the profile role before the event reaches events.enriched.
 	ContactID    uint32         `json:"contact_id,omitempty"`

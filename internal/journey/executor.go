@@ -315,9 +315,9 @@ type webhookData struct {
 }
 
 // jsonFunc is {{json .Attrs}} in webhook bodies.
-var jsonFunc = map[string]any{"json": func(v any) string {
+var jsonFunc = map[string]any{"json": func(v any) personalize.JSONRaw {
 	b, _ := json.Marshal(v)
-	return string(b)
+	return personalize.JSONRaw(b)
 }}
 
 // checkBody checks a webhook body's variables and pipes. (Go template mistakes surface when the step
@@ -384,7 +384,7 @@ func (x *Executor) webhook(ctx context.Context, g Graph, n Node, en model.Enroll
 		r := personalize.New(personalize.Vars{Contact: c, Event: ev,
 			Campaign: personalize.Campaign{ID: en.JourneyID, Name: g.Name, Type: "journey", Step: step, Channel: "webhook"}})
 		r.Extra = jsonFunc
-		out, err := r.Text("body", n.Body, webhookData{c, c.Attrs, en.JourneyID, en.ID, step})
+		out, err := r.JSON("body", n.Body, webhookData{c, c.Attrs, en.JourneyID, en.ID, step})
 		if err != nil {
 			return fmt.Errorf("webhook body: %w", err)
 		}

@@ -80,7 +80,7 @@ type Engine struct {
 	log   *slog.Logger
 	// Schemas (optional) leaves personal properties out of the trigger event kept for messages.
 	Schemas SchemaLookup
-	idx   atomic.Pointer[index]
+	idx     atomic.Pointer[index]
 	// changed asks RunTimers for a refresh now (Notify).
 	changed chan struct{}
 	// changes records loaded versions for Announce (WatchChanges); nil without Redis.
@@ -263,8 +263,10 @@ func (e *Engine) enrollWith(ctx context.Context, j *active, contact uint32, ev *
 		if e.Schemas != nil {
 			s = e.Schemas.Lookup(ctx, ev.TenantID, ev.Name)
 		}
-		if err := e.store.SetEnrollmentTrigger(ctx, en.ID, eventschema.MessageProps(s, ev.Props)); err != nil {
-			return err
+		if props := messageTrigger(ev, s); props != nil {
+			if err := e.store.SetEnrollmentTrigger(ctx, en.ID, props); err != nil {
+				return err
+			}
 		}
 	}
 	if err := e.exec.Milestone(ctx, en, "journey_entered"); err != nil {
@@ -397,4 +399,14 @@ func (s KafkaSender) Send(ctx context.Context, m model.Message) error {
 // (its only way to change), rather than a backfill or sweep.
 func liveSource(src string) bool {
 	return src == "stream" || src == "dependent" || src == "manual" || src == "daily"
+}
+
+// messageTrigger is what an enrollment keeps of its trigger event for {{event.x}}: the properties
+// without personal ones, capped; nothing for an unverified browser or app event, which anyone
+// could have sent for this ID (its text and links must not reach the contact's messages).
+func messageTrigger(ev *event.Event, s *eventschema.Schema) json.RawMessage {
+	if ev == nil || ev.Unverified {
+		return nil
+	}
+	return eventschema.MessageProps(s, ev.Props)
 }

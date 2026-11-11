@@ -1,6 +1,7 @@
 package personalize
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -44,41 +45,41 @@ func text(t *testing.T, v Vars, src string) (string, []string) {
 
 func TestVariablesAndPipes(t *testing.T) {
 	cases := map[string]string{
-		"{{contact.first_name}}":                         "asha rao",
-		"{{ contact.first_name | title }}":               "Asha Rao",
-		"{{contact.first_name | upper}}":                 "ASHA RAO",
-		"{{contact.city | lower}}":                       "pune",
-		"{{contact.email}}":                              "asha@example.com",
-		"{{contact.external_id}}":                        "u1",
-		"{{contact.phone_country}}":                      "IN",
-		"{{contact.products}}":                           "KIT-1, BED-2",
-		"{{contact.address.pin}}":                        "411001",
-		"{{contact.nickname | default:\"there\"}}":       "there",
+		"{{contact.first_name}}":                          "asha rao",
+		"{{ contact.first_name | title }}":                "Asha Rao",
+		"{{contact.first_name | upper}}":                  "ASHA RAO",
+		"{{contact.city | lower}}":                        "pune",
+		"{{contact.email}}":                               "asha@example.com",
+		"{{contact.external_id}}":                         "u1",
+		"{{contact.phone_country}}":                       "IN",
+		"{{contact.products}}":                            "KIT-1, BED-2",
+		"{{contact.address.pin}}":                         "411001",
+		"{{contact.nickname | default:\"there\"}}":        "there",
 		"{{contact.nickname | default:'friend' | upper}}": "FRIEND",
-		"{{event.items.0.name}}":                         "Yoga mat",
-		"{{event.items.1.price | money:\"INR\"}}":        "₹349.00",
-		"{{event.items[].name}}":                         "Yoga mat, Water bottle",
-		"{{event.total | money}}":                        "₹1,23,456.50",
-		"{{event.total | money:\"USD\"}}":                "$123,456.50",
-		"{{event.total | money:\"XYZ\"}}":                "XYZ 123,456.50",
-		"{{event.total | number}}":                       "123,456.50",
-		"{{event.total | number:0}}":                     "123,457",
-		"{{event.cart_id}}":                              "c-9",
-		"{{event.at | date:\"2 Jan 2006 15:04\"}}":       "11 Nov 2026 02:00", // in the contact's zone (IST)
-		"{{event.day | date}}":                           "12 Nov 2026",       // a calendar date stays that day
-		"{{event.items.0.name | truncate:4}}":            "Yog…",
-		"{{event.items.0.name | truncate:40}}":           "Yoga mat",
-		"{{event.items.0.name | urlencode}}":            "Yoga+mat",
-		"{{event.items.0.name | json}}":                  `"Yoga mat"`,
+		"{{event.items.0.name}}":                          "Yoga mat",
+		"{{event.items.1.price | money:\"INR\"}}":         "₹349.00",
+		"{{event.items[].name}}":                          "Yoga mat, Water bottle",
+		"{{event.total | money}}":                         "₹1,23,456.50",
+		"{{event.total | money:\"USD\"}}":                 "$123,456.50",
+		"{{event.total | money:\"XYZ\"}}":                 "XYZ 123,456.50",
+		"{{event.total | number}}":                        "123,456.50",
+		"{{event.total | number:0}}":                      "123,457",
+		"{{event.cart_id}}":                               "c-9",
+		"{{event.at | date:\"2 Jan 2006 15:04\"}}":        "11 Nov 2026 02:00", // in the contact's zone (IST)
+		"{{event.day | date}}":                            "12 Nov 2026",       // a calendar date stays that day
+		"{{event.items.0.name | truncate:4}}":             "Yog…",
+		"{{event.items.0.name | truncate:40}}":            "Yoga mat",
+		"{{event.items.0.name | urlencode}}":              "Yoga+mat",
+		"{{event.items.0.name | json}}":                   `"Yoga mat"`,
 		"{{campaign.name}} #{{campaign.id}} {{campaign.step}} {{campaign.type}} {{campaign.channel}} {{campaign.template}}": "Cart rescue #7 s1 journey email Cart reminder",
 		"{{links.unsubscribe}}":                         "https://p.example.com/u/tok",
 		"{{links.preferences}}":                         "https://p.example.com/p/tok",
-		"Hi {{.Attrs.first_name}} from {{.Attrs.city}}": "Hi asha rao from Pune",          // the older syntax
-		"{{.Contact.Email}} / {{contact.city}}":          "asha@example.com / Pune",        // mixed
-		"{{if .Attrs.city}}in {{contact.city}}{{end}}":   "in Pune",                        // Go actions around
-		"{{- contact.city -}} !":                         "Pune!",                          // trim markers
-		"{{event.note}}":                                 "a & b <c>",                      // text is not escaped
-		"{{event.missing | default:\"0\" | money}}":      "₹0.00",
+		"Hi {{.Attrs.first_name}} from {{.Attrs.city}}": "Hi asha rao from Pune",   // the older syntax
+		"{{.Contact.Email}} / {{contact.city}}":         "asha@example.com / Pune", // mixed
+		"{{if .Attrs.city}}in {{contact.city}}{{end}}":  "in Pune",                 // Go actions around
+		"{{- contact.city -}} !":                        "Pune!",                   // trim markers
+		"{{event.note}}":                                "a & b <c>",               // text is not escaped
+		"{{event.missing | default:\"0\" | money}}":     "₹0.00",
 	}
 	for src, want := range cases {
 		if got, _ := text(t, vars(), src); got != want {
@@ -136,18 +137,18 @@ func TestMissingValues(t *testing.T) {
 
 func TestTranslateErrors(t *testing.T) {
 	bad := map[string]string{
-		"{{contact.first_name | shout}}":     "unknown pipe",
-		"{{contact.first_name | default}}":   "default needs a value",
-		"{{contact.first_name | upper:1}}":   "upper takes no value",
-		"{{contact.x | truncate:abc}}":       "truncate needs a number",
-		"{{contact.x | number:9}}":           "number takes 0 to 6",
-		"{{contact.}}":                       "name a contact field",
-		"{{contact.a-b}}":                    "isn't a field name",
-		"{{campaign.owner}}":                 "campaign has",
-		"{{links.webview}}":                  "links has",
-		"{{event.a[].b[].c}}":                "one list",
-		"{{contact.x | default:\"open}}":     "",
-		"{{contact.x | default:two words}}":  "put the value in quotes",
+		"{{contact.first_name | shout}}":    "unknown pipe",
+		"{{contact.first_name | default}}":  "default needs a value",
+		"{{contact.first_name | upper:1}}":  "upper takes no value",
+		"{{contact.x | truncate:abc}}":      "truncate needs a number",
+		"{{contact.x | number:9}}":          "number takes 0 to 6",
+		"{{contact.}}":                      "name a contact field",
+		"{{contact.a-b}}":                   "isn't a field name",
+		"{{campaign.owner}}":                "campaign has",
+		"{{links.webview}}":                 "links has",
+		"{{event.a[].b[].c}}":               "one list",
+		"{{contact.x | default:\"open}}":    "",
+		"{{contact.x | default:two words}}": "put the value in quotes",
 	}
 	for src, want := range bad {
 		_, _, err := Translate(src, false)
@@ -202,3 +203,18 @@ func TestFormatHelpers(t *testing.T) {
 }
 
 func nil0() *time.Location { return time.UTC }
+
+func TestJSONBodies(t *testing.T) {
+	r := New(Vars{Contact: model.Contact{Attrs: map[string]any{"first_name": `Asha", "admin": true, "x": "`}}})
+	out, err := r.JSON("b", `{"n": "{{contact.first_name}}", "o": "{{.Attrs.first_name}}"}`, map[string]any{"Attrs": r.vars.Contact.Attrs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil || len(m) != 2 {
+		t.Errorf("injected: %s (%v)", out, err)
+	}
+	if _, err := r.JSON("b", `{"n": {{contact.first_name}}}`, nil); err == nil {
+		t.Error("unquoted text value made valid JSON")
+	}
+}

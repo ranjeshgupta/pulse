@@ -140,6 +140,7 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "event "+strconv.Itoa(i)+": user_hash is missing or wrong for this user id")
 			return
 		}
+		e.Unverified = !verifiedIdentity(t, e.ExternalID, hash)
 		for k := range e.Attrs {
 			if consent.IsReserved(k) {
 				delete(e.Attrs, k)
