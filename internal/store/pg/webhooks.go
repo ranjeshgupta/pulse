@@ -4,7 +4,6 @@ package pg
 
 import (
 	"context"
-	"math/rand/v2"
 
 	"github.com/jackc/pgx/v5"
 
@@ -70,15 +69,13 @@ func (s *Store) ActiveWebhookRows(ctx context.Context) ([]model.Webhook, error) 
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.Webhook, error) { return scanWebhook(r) })
 }
 
-// RecordDelivery logs an attempt; now and then it prunes attempts older than a week.
+// RecordDelivery logs an attempt. Old attempts are deleted by the daily retention cleanup
+// (Settings → Automation & limits, a week by default).
 func (s *Store) RecordDelivery(ctx context.Context, d webhooks.Delivery) error {
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO webhook_deliveries (webhook_id, event_id, event_name, attempt, status, error, duration_ms, final, test)
 		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9 WHERE EXISTS (SELECT 1 FROM webhooks WHERE id = $1)`,
 		d.WebhookID, d.EventID, d.EventName, d.Attempt, d.Status, d.Error, d.DurationMS, d.Final, d.Test)
-	if err == nil && rand.IntN(200) == 0 {
-		_, err = s.db.Exec(ctx, `DELETE FROM webhook_deliveries WHERE at < now() - interval '7 days'`)
-	}
 	return err
 }
 

@@ -105,10 +105,17 @@ func TestDeliveryTruthAndDashboards(t *testing.T) {
 
 	// The provider webhooks.
 	hook := bounceURL(t, c)
-	jsonCall(t, c, "PUT", "/v1/settings/bounces/signing", map[string]any{"mailgun_signing_key": "key-m4-" + run}, 200)
 	if code := postHook(t, hook, `[{"email":"`+addr("a")+`","event":"delivered","pulse_ref":"`+refA+`"},{"email":"`+addr("b")+
 		`","event":"delivered","smtp-id":"<`+refB+`@example.com>"}]`, nil); code != 200 {
 		t.Fatalf("sendgrid delivered: %d", code)
+	}
+	if code := postHook(t, hook, `{"RecordType":"SpamComplaint","Email":"`+addr("b")+`","Metadata":{"pulse_ref":"`+refB+`"}}`, nil); code != 200 {
+		t.Fatalf("postmark complaint: %d", code)
+	}
+	// Once a signing key is saved, the URL fails closed: unsigned formats are refused (91a365e).
+	jsonCall(t, c, "PUT", "/v1/settings/bounces/signing", map[string]any{"mailgun_signing_key": "key-m4-" + run}, 200)
+	if code := postHook(t, hook, `{"RecordType":"SpamComplaint","Email":"`+addr("a")+`","Metadata":{"pulse_ref":"`+refA+`"}}`, nil); code != 401 {
+		t.Errorf("an unsigned Postmark post after a key was saved: %d, want 401", code)
 	}
 	ts := fmt.Sprint(time.Now().Unix())
 	mac := hmac.New(sha256.New, []byte("key-m4-"+run))
@@ -127,9 +134,6 @@ func TestDeliveryTruthAndDashboards(t *testing.T) {
 	replay := bytes.Replace(mg, []byte(`"severity":"permanent"`), []byte(`"severity":"temporary"`), 1)
 	if code := postHook(t, hook, string(replay), nil); code != 401 {
 		t.Errorf("a replayed Mailgun signature with another body: %d, want 401", code)
-	}
-	if code := postHook(t, hook, `{"RecordType":"SpamComplaint","Email":"`+addr("b")+`","Metadata":{"pulse_ref":"`+refB+`"}}`, nil); code != 200 {
-		t.Fatalf("postmark complaint: %d", code)
 	}
 
 	// a opens and clicks both links (one is a file: a download too).

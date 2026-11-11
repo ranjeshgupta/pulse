@@ -96,6 +96,21 @@ func TestRoutePermissions(t *testing.T) {
 		{"GET /v1/contacts/{external_id}/messages", auth.Perms{auth.AreaBroadcasts: auth.Edit}, false},
 		{"PUT /v1/settings/bounces/signing", editor, false},
 		{"PUT /v1/settings/bounces/signing", auth.Perms{auth.AreaSettings: auth.Edit}, true},
+		// M5 automation & limits
+		{"GET /v1/settings/automation", editor, true}, // settings view
+		{"GET /v1/settings/automation", viewer, false},
+		{"PUT /v1/settings/automation", editor, false},
+		{"PUT /v1/settings/automation", auth.Perms{auth.AreaSettings: auth.Edit}, true},
+		{"POST /v1/settings/automation/preview", editor, false},
+		{"POST /v1/settings/automation/preview", auth.Perms{auth.AreaSettings: auth.Edit}, true},
+		{"POST /v1/settings/automation/run-retention", editor, false},
+		{"POST /v1/settings/automation/run-retention", auth.Perms{auth.AreaContacts: auth.Edit, auth.AreaSettings: auth.View}, false},
+		{"POST /v1/settings/automation/run-retention", auth.Perms{auth.AreaSettings: auth.Edit}, true},
+		// M5 provider tools (handlers also need settings edit: s.admin)
+		{"POST /v1/channels/providers/check-auth", viewer, false},
+		{"POST /v1/channels/providers/check-auth", auth.Perms{auth.AreaChannels: auth.Edit}, true},
+		{"POST /v1/channels/providers/preview", auth.Perms{auth.AreaChannels: auth.View, auth.AreaSettings: auth.Edit}, false},
+		{"POST /v1/channels/providers/preview", auth.Perms{auth.AreaChannels: auth.Edit}, true},
 	} {
 		method, path, _ := strings.Cut(tc.pattern, " ")
 		r, _ := http.NewRequest(method, path, nil)

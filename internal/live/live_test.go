@@ -57,3 +57,40 @@ func TestFeedIsCappedAndTenantScoped(t *testing.T) {
 		t.Error("cursor check")
 	}
 }
+
+// A workspace's own feed size (Settings → Automation & limits) caps its stream; others keep Keep.
+func TestFeedSizePerWorkspace(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	if err := SetSize(ctx, rdb, 1, 100); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_800_000_000, 0)
+	f := Feed{RDB: rdb, Now: func() time.Time { return now }}
+	for s := range 4 {
+		var evs []event.Event
+		for i := range MaxPerSecond {
+			for _, tenant := range []int64{1, 2} {
+				evs = append(evs, event.Event{ID: fmt.Sprint(s, "-", i), TenantID: tenant, Name: "x", Ts: now})
+			}
+		}
+		if err := f.Push(ctx, evs); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Second)
+	}
+	if n, _ := rdb.XLen(ctx, Key(1)).Result(); n > 100 {
+		t.Errorf("workspace 1 keeps %d, want at most its size 100", n)
+	}
+	if n, _ := rdb.XLen(ctx, Key(2)).Result(); n != 4*MaxPerSecond {
+		t.Errorf("workspace 2 keeps %d, want all %d (under Keep)", n, 4*MaxPerSecond)
+	}
+	// back to the default: the key goes away
+	if err := SetSize(ctx, rdb, 1, Keep); err != nil || mr.Exists(SizeKey(1)) {
+		t.Errorf("default size must remove the key (%v)", err)
+	}
+	if sizeOf("junk") != Keep || sizeOf("20000") != Keep || sizeOf("250") != 250 {
+		t.Error("sizeOf")
+	}
+}

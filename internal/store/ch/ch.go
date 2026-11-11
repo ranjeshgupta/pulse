@@ -14,6 +14,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
 	"pulse/internal/attr"
+	"pulse/internal/automation"
 	"pulse/internal/event"
 	"pulse/internal/segment"
 )
@@ -223,13 +224,63 @@ func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) 
 	return s.conn.Exec(ctx, "DELETE FROM contacts WHERE tenant_id = ? AND id IN ?", uint64(tenant), ids)
 }
 
-// DeleteEventsBefore removes a workspace's events (and message outcomes) older than days.
-func (s *Store) DeleteEventsBefore(ctx context.Context, tenant int64, days int) error {
-	cutoff := time.Now().AddDate(0, 0, -days)
-	for _, table := range []string{"events", "message_events"} {
-		if err := s.conn.Exec(ctx, "DELETE FROM "+table+" WHERE tenant_id = ? AND ts < ?", uint64(tenant), cutoff); err != nil {
-			return fmt.Errorf("%s: %w", table, err)
+// retentionWhere is the WHERE clause of a retention delete (automation.Delete): the workspace,
+// the delete's name predicate, and ts before the cutoff (partition pruning keeps it to old months).
+func retentionWhere(tenant int64, d automation.Delete, cutoff time.Time) (string, []any, error) {
+	if d.Table != automation.TableEvents && d.Table != automation.TableMessageEvents {
+		return "", nil, fmt.Errorf("retention: unknown table %q", d.Table)
+	}
+	q := "FROM " + d.Table + " WHERE tenant_id = ? AND ts < ?"
+	args := []any{uint64(tenant), cutoff}
+	if len(d.Names) > 0 {
+		if d.Table != automation.TableEvents {
+			return "", nil, fmt.Errorf("retention: names apply to events only")
 		}
+		if d.NotIn {
+			q += " AND name NOT IN ?"
+		} else {
+			q += " AND name IN ?"
+		}
+		args = append(args, d.Names)
+	}
+	return q, args, nil
+}
+
+// HasOlder reports whether a retention delete would remove anything: one row is enough, so it
+// reads only the old partitions and stops at the first match.
+func (s *Store) HasOlder(ctx context.Context, tenant int64, d automation.Delete, cutoff time.Time) (bool, error) {
+	where, args, err := retentionWhere(tenant, d, cutoff)
+	if err != nil {
+		return false, err
+	}
+	rows, err := s.conn.Query(ctx, "SELECT 1 "+where+" LIMIT 1", args...)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	return rows.Next(), rows.Err()
+}
+
+// CountOlder counts what a retention delete would remove now (the settings preview).
+func (s *Store) CountOlder(ctx context.Context, tenant int64, d automation.Delete, cutoff time.Time) (uint64, error) {
+	where, args, err := retentionWhere(tenant, d, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	var n uint64
+	err = s.conn.QueryRow(ctx, "SELECT count() "+where, args...).Scan(&n)
+	return n, err
+}
+
+// DeleteOlder runs a retention delete (a lightweight DELETE: rows vanish from queries at once and
+// are dropped from disk by later merges).
+func (s *Store) DeleteOlder(ctx context.Context, tenant int64, d automation.Delete, cutoff time.Time) error {
+	where, args, err := retentionWhere(tenant, d, cutoff)
+	if err != nil {
+		return err
+	}
+	if err := s.conn.Exec(ctx, "DELETE "+where, args...); err != nil {
+		return fmt.Errorf("%s: %w", d.Table, err)
 	}
 	return nil
 }

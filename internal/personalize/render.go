@@ -36,6 +36,8 @@ type Vars struct {
 	Event    map[string]any    // the triggering event's properties (nil for broadcasts)
 	Campaign Campaign          //
 	Links    map[string]string // unsubscribe, preferences
+	// Message is the message.* namespace (gateway request templates): see MessageKeys.
+	Message map[string]any
 }
 
 // Renderer fills templates for one message and remembers which variables had no value (and no
@@ -300,6 +302,9 @@ func (r *Renderer) Value(name string) any {
 		}
 	case NSLinks:
 		return r.vars.Links[path]
+	case NSMessage:
+		v, _ := Lookup(r.vars.Message, path)
+		return v
 	}
 	return nil
 }

@@ -29,12 +29,14 @@ import (
 // fakeSMTP is an in-process SMTP server on 127.0.0.1 that records connections and messages.
 type fakeSMTP struct {
 	ln       net.Listener
-	greet    time.Duration       // per-connection setup cost before the greeting
-	tls      *tls.Config         // when set, STARTTLS is advertised
-	user     string              // when set, AUTH PLAIN is required before MAIL
-	pass     string              //
-	rcpt     func(string) string // optional reply to RCPT TO (default 250)
-	dropMsgs int                 // close the connection silently after this many messages (0: never)
+	greet    time.Duration        // per-connection setup cost before the greeting
+	tls      *tls.Config          // when set, STARTTLS is advertised
+	user     string               // when set, AUTH PLAIN is required before MAIL
+	pass     string               //
+	rcpt     func(string) string  // optional reply to RCPT TO (default 250)
+	dropMsgs int                  // close the connection silently after this many messages (0: never)
+	xoauth   func(ir string) bool // when set, AUTH XOAUTH2 is offered and checked with it
+	helos    []string             // EHLO names seen
 
 	mu        sync.Mutex
 	conns     int // connections accepted
@@ -130,12 +132,15 @@ func (f *fakeSMTP) serve(nc net.Conn, n int) {
 		verb, arg, _ := strings.Cut(line, " ")
 		switch strings.ToUpper(verb) {
 		case "EHLO", "HELO":
+			f.mu.Lock()
+			f.helos = append(f.helos, arg)
+			f.mu.Unlock()
 			lines := []string{"250-fake.test"}
 			if f.tls != nil && !isTLS {
 				lines = append(lines, "250-STARTTLS")
 			}
-			if f.user != "" {
-				lines = append(lines, "250-AUTH PLAIN")
+			if f.user != "" || f.xoauth != nil {
+				lines = append(lines, "250-AUTH PLAIN XOAUTH2")
 			}
 			lines = append(lines, "250 8BITMIME")
 			reply(strings.Join(lines, "\r\n"))
@@ -157,6 +162,15 @@ func (f *fakeSMTP) serve(nc net.Conn, n int) {
 			f.mu.Unlock()
 			mech, ir, _ := strings.Cut(arg, " ")
 			b, _ := base64.StdEncoding.DecodeString(ir)
+			if strings.ToUpper(mech) == "XOAUTH2" && f.xoauth != nil {
+				if f.xoauth(string(b)) {
+					authed = true
+					reply("235 ok")
+				} else {
+					reply("535 bad token")
+				}
+				continue
+			}
 			if strings.ToUpper(mech) == "PLAIN" && string(b) == "\x00"+f.user+"\x00"+f.pass {
 				authed = true
 				reply("235 ok")
@@ -164,7 +178,7 @@ func (f *fakeSMTP) serve(nc net.Conn, n int) {
 				reply("535 bad credentials")
 			}
 		case "MAIL":
-			if f.user != "" && !authed {
+			if (f.user != "" || f.xoauth != nil) && !authed {
 				reply("530 authentication required")
 				continue
 			}

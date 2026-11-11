@@ -359,8 +359,10 @@ func (s *Store) AllSegments(ctx context.Context) ([]model.Segment, error) {
 }
 
 // ClaimSegmentWork claims one segment that needs a backfill (status 'new'), else a daily segment
-// whose refresh time has come, else a sweep (event windows, not swept within sweepEvery; daily
-// segments are never swept). Returns ok=false when there is nothing to do. A crashed worker's
+// whose refresh time has come, else a sweep (event windows, not swept within the workspace's sweep
+// interval: Settings → Automation & limits, else sweepEvery; daily segments are never swept).
+// The interval is one indexed lookup of the segment's workspace settings per candidate, and
+// candidates swept less than a minute ago are never looked at. Returns ok=false when there is nothing to do. A crashed worker's
 // 'building' claim expires after 10 minutes, and a daily claim is retried after 10 minutes.
 func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) (seg model.Segment, source string, ok bool, err error) {
 	rows, err := s.db.Query(ctx, `
@@ -402,7 +404,11 @@ func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) 
 		UPDATE segments SET swept_at = now()
 		WHERE id = (
 			SELECT id FROM segments
-			WHERE status = 'ready' AND has_window AND refresh IS NULL AND (swept_at IS NULL OR swept_at < now() - $1::interval)
+			WHERE status = 'ready' AND has_window AND refresh IS NULL
+			  AND (swept_at IS NULL OR swept_at < now() - least($1::interval, interval '1 minute') AND swept_at < now() - coalesce(
+			      (SELECT make_interval(mins => nullif(ts.automation->'schedules'->>'sweep_minutes', '')::int)
+			       FROM tenant_settings ts WHERE ts.tenant_id = segments.tenant_id
+			         AND coalesce(nullif(ts.automation->'schedules'->>'sweep_minutes', '')::int, 0) > 0), $1::interval))
 			ORDER BY swept_at NULLS FIRST LIMIT 1 FOR UPDATE SKIP LOCKED)
 		RETURNING `+segmentCols, sweepEvery)
 	if err != nil {

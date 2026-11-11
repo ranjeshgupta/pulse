@@ -199,7 +199,7 @@ export interface DuplicateGroup { value: string; total: number; contacts: Contac
 export interface EventRow { id: string; name: string; ts: string; props: string }
 
 export interface ChannelContent {
-  text?: string; sender_id?: string;
+  text?: string; sender_id?: string; dlt_template_id?: string; dlt_entity_id?: string;
   /** sms, rcs: replace links with short tracked links (…/t/s/…), recorded as sms_clicked / rcs_clicked. */
   track_links?: boolean;
   template_name?: string; language?: string; body_params?: string[]; header_image_url?: string; preview_text?: string;
@@ -319,8 +319,11 @@ export interface Journey {
 }
 export type Stats = { status: Record<string, number>; node: Record<string, number> };
 
-export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean }
-export interface ProviderKind { id: string; channel: Channel; name: string; description: string; config: ProviderField[]; secrets: ProviderField[] }
+export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean; default?: string; hint?: string; options?: string[] }
+export interface ProviderKind {
+  id: string; channel: Channel; name: string; description: string; config: ProviderField[]; secrets: ProviderField[];
+  notes?: string; default_limits?: ProviderLimits; auth?: boolean; custom_request?: boolean;
+}
 /** Per-provider sending limits: messages per second and a daily quota whose day runs in timezone (0 = none). */
 export interface ProviderLimits { rate_per_second?: number; daily_quota?: number; timezone?: string }
 export interface Provider {
@@ -628,3 +631,49 @@ export interface Estimate {
   ready: boolean; computed_at: string; cached_until: string;
 }
 export interface SegmentReach { segment: number; size: number; ready: boolean; channels: { channel: Channel; after_consent: number; reachable: number }[] }
+
+// ---- M5 Settings → Automation & limits (GET/PUT /v1/settings/automation) ----
+
+/** Retention in days (0 = forever); null message/web-view days follow event_days. */
+export interface AutomationRetention {
+  event_days: number;
+  message_event_days: number | null;
+  web_view_days: number | null;
+  event_overrides: Record<string, number> | null;
+  anonymous_days: number;
+  audit_days: number;
+  import_days: number;
+  webhook_delivery_days: number;
+  integration_log_days: number;
+  sandbox_days: number;
+  live_feed_size: number;
+}
+export interface AutomationSettings {
+  retention: AutomationRetention;
+  retries: { attempts: number; max_backoff_seconds: number };
+  schedules: { sweep_minutes: number; reach_rebuild_hour: number; daily_segment_at: string; daily_segment_tz: string };
+  messages: { inbox_expiry_days: number };
+  default_limits: Record<string, ProviderLimits> | null;
+}
+export interface AutomationLimit { min: number; max: number; zero: boolean }
+export interface AutomationResponse {
+  settings: AutomationSettings;
+  defaults: AutomationSettings;
+  limits: Record<string, AutomationLimit>;
+  server: { sweep_minutes: number; web_view_names: string[]; limit_channels: string[]; max_overrides: number; retention_hour_utc: number; last_retention_run: string | null };
+}
+/** One delete a retention change would run now (POST /v1/settings/automation/preview). */
+export interface RetentionPreviewItem {
+  key: string;
+  store: "clickhouse" | "postgres";
+  table: string;
+  names?: string[];
+  not_in?: boolean;
+  days: number;
+  cutoff: string;
+  old_days: number;
+  old_days_by_name?: Record<string, number>;
+  rows: number;
+  error?: string;
+}
+export interface RetentionPreview { items: RetentionPreviewItem[]; approximate: boolean; cached: boolean }

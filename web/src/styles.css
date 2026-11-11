@@ -401,3 +401,8 @@ select.btn-like { font-weight: 560; background-color: var(--cobalt); color: #fff
 .quota-bar > span { display: block; height: 100%; background: var(--cobalt); }
 .quota-bar.full > span { background: var(--danger); }
 @media (max-width: 900px) { .wizard-split { grid-template-columns: 1fr; } .wizard-aside { position: static; } }
+
+/* M5 provider form: authentication and custom request groups, request preview */
+.fieldset { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 10px 14px 4px; margin: 0 0 14px; }
+.fieldset legend { font-size: 12px; font-weight: 600; padding: 0 6px; color: var(--ink-2, inherit); }
+.code-block { background: var(--porcelain); border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; }

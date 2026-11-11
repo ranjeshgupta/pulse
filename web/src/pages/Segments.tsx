@@ -2,7 +2,8 @@ import { DuplicateButton, ReachByChannel } from "../campaignUI";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type Segment, type SegmentRefresh } from "../api";
+import { api, type AutomationResponse, type Segment, type SegmentRefresh } from "../api";
+import { dailySegmentDefault } from "../automation";
 import { useCan } from "../auth";
 import { describe, newGroup, problems, rootFromRule, toRule, type Group } from "../segmentRules";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, timeAgo, useToast } from "../ui";
@@ -239,18 +240,22 @@ const ZONES = ["UTC", "Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/Lo
 /** RefreshField: Live (members follow every event) or Daily at a time (rebuilt once a day). */
 function RefreshField({ value, onChange }: { value: SegmentRefresh; onChange: (r: SegmentRefresh) => void }) {
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zones = [...new Set([value.tz || browserZone, browserZone, ...ZONES].filter(Boolean))];
+  // The workspace's default time and zone (Settings → Automation & limits), for roles that may read settings.
+  const canSettings = useCan("settings", "view");
+  const auto = useQuery({ queryKey: ["automation"], queryFn: () => api.get<AutomationResponse>("/v1/settings/automation"), enabled: canSettings, staleTime: 60_000 });
+  const daily = dailySegmentDefault(auto.data?.settings, browserZone);
+  const zones = [...new Set([value.tz || daily.tz, daily.tz, browserZone, ...ZONES].filter(Boolean))];
   return (
     <fieldset className="seg-refresh panel">
       <legend className="small">Refresh</legend>
       <div className="row" role="radiogroup" aria-label="Refresh">
         <label className="small"><input type="radio" checked={value.mode !== "daily"} onChange={() => onChange({ mode: "live" })} /> Live: contacts join and leave as events arrive (default)</label>
-        <label className="small"><input type="radio" checked={value.mode === "daily"} onChange={() => onChange({ mode: "daily", at: value.at || "06:00", tz: value.tz || browserZone })} /> Daily at a set time</label>
+        <label className="small"><input type="radio" checked={value.mode === "daily"} onChange={() => onChange({ mode: "daily", at: value.at || daily.at, tz: value.tz || daily.tz })} /> Daily at a set time</label>
       </div>
       {value.mode === "daily" && (
         <div className="row" style={{ marginTop: 8 }}>
-          <input className="input" type="time" value={value.at ?? "06:00"} onChange={(e) => onChange({ ...value, at: e.target.value })} aria-label="Refresh time" style={{ width: 120 }} />
-          <select className="select" value={value.tz ?? browserZone} onChange={(e) => onChange({ ...value, tz: e.target.value })} aria-label="Time zone">
+          <input className="input" type="time" value={value.at ?? daily.at} onChange={(e) => onChange({ ...value, at: e.target.value })} aria-label="Refresh time" style={{ width: 120 }} />
+          <select className="select" value={value.tz ?? daily.tz} onChange={(e) => onChange({ ...value, tz: e.target.value })} aria-label="Time zone">
             {zones.map((z) => <option key={z} value={z}>{z}</option>)}
           </select>
           <span className="xs muted">Members change only at this time each day: good for daily sends that must not shift during the day.</span>

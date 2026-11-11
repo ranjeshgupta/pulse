@@ -271,6 +271,10 @@ export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, sco
             <>
               <Field label="Message" hint={<SmsCount text={c.text ?? ""} />}><TemplatedText label="Message" value={c.text ?? ""} onChange={(text) => setC({ text })} /></Field>
               <Field label="Sender ID" hint="Your registered header (e.g. PULSEX for India DLT). Leave empty to use the provider's default."><input className="input" value={c.sender_id ?? ""} onChange={(e) => setC({ sender_id: e.target.value })} /></Field>
+              <div className="grid-2">
+                <Field label="DLT template ID (India)" hint="The ID this exact text is registered under on the DLT portal. Gupshup sends it with each message."><input className="input" value={c.dlt_template_id ?? ""} onChange={(e) => setC({ dlt_template_id: e.target.value.trim() || undefined })} /></Field>
+                <Field label="DLT principal entity ID" hint="Leave empty to use the provider's."><input className="input" value={c.dlt_entity_id ?? ""} onChange={(e) => setC({ dlt_entity_id: e.target.value.trim() || undefined })} /></Field>
+              </div>
               <TrackLinks c={c} setC={setC} />
               <p className="xs muted">{PERSONALIZE}</p>
             </>

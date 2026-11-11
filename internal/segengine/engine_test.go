@@ -182,6 +182,10 @@ func TestHandleBatchOrderAndCounters(t *testing.T) {
 
 func TestRebuildPublishesDiff(t *testing.T) {
 	e, rdb, pub := setup(t, delhi)
+	e.store.(*memStore).contacts = []model.Contact{
+		{ID: 2, TenantID: 1, Attrs: map[string]any{"city": "Delhi"}},
+		{ID: 5, TenantID: 1, Attrs: map[string]any{"city": "Delhi"}},
+	}
 	ctx := context.Background()
 	mem := segment.Membership{RDB: rdb}
 	// Contacts 2 and 9 are members before the rebuild; the query returns 2 and 5.
@@ -201,6 +205,36 @@ func TestRebuildPublishesDiff(t *testing.T) {
 	}
 	if n, _ := mem.Size(ctx, 1, 1); n != 2 {
 		t.Errorf("size after rebuild = %d, want 2", n)
+	}
+}
+
+// The M1 flake (TestListEnumFieldsAndPhoneCountry): a catch-up rebuild read ClickHouse before a
+// contact's newer event reached it, and put back a contact the stream had just taken out. The
+// rebuild now checks a small diff against current profiles, so stale ClickHouse rows change nothing.
+func TestRebuildDoesNotUndoNewerStreamChanges(t *testing.T) {
+	e, rdb, pub := setup(t, delhi) // ClickHouse (stale) says 2 and 5 are in Delhi
+	e.store.(*memStore).contacts = []model.Contact{
+		{ID: 2, TenantID: 1, Attrs: map[string]any{"city": "Mumbai"}}, // moved; the stream already took it out
+		{ID: 5, TenantID: 1, Attrs: map[string]any{"city": "Delhi"}},
+		{ID: 7, TenantID: 1, Attrs: map[string]any{"city": "Delhi"}}, // joined; not in ClickHouse yet
+	}
+	ctx := context.Background()
+	mem := segment.Membership{RDB: rdb}
+	_, _ = mem.SetMember(ctx, 1, 1, 7, true)
+	in, out, err := e.Rebuild(ctx, delhi, "backfill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in != 1 || out != 0 {
+		t.Errorf("entered %d exited %d, want 1 and 0", in, out)
+	}
+	if ch := pub.changes(t); len(ch) != 1 || ch[0].ContactID != 5 || !ch[0].Entered {
+		t.Errorf("changes = %+v", ch)
+	}
+	for id, want := range map[uint32]bool{2: false, 5: true, 7: true} {
+		if got, _ := mem.IsMember(ctx, 1, 1, id); got != want {
+			t.Errorf("contact %d member %v, want %v", id, got, want)
+		}
 	}
 }
 

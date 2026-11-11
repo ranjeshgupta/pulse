@@ -47,6 +47,7 @@ type poolKey struct {
 	maxConns, perConn int
 	tlsConfig         *tls.Config // tests only: a custom root CA
 	dial              string      // tests only: a custom dialer
+	helo              string      // the name given in EHLO (default localhost)
 }
 
 type smtpConn struct {
@@ -103,7 +104,7 @@ func (s *SMTP) poolKey() (poolKey, string, error) {
 	}
 	k := poolKey{addr: s.Addr, serverName: host, implicitTLS: port == "465",
 		username: s.username, passSum: s.passSum, maxConns: s.MaxConns, perConn: s.MessagesPerConn,
-		tlsConfig: s.tlsConfig}
+		tlsConfig: s.tlsConfig, helo: s.Helo}
 	if k.maxConns <= 0 {
 		k.maxConns = defaultSMTPMaxConns
 	}
@@ -334,7 +335,11 @@ func (p *smtpPool) handshake(ctx context.Context, sc *smtpConn) (*smtpConn, erro
 		_ = c.Close()
 		return nil, err
 	}
-	if err := c.Hello("localhost"); err != nil {
+	helo := p.key.helo
+	if helo == "" {
+		helo = "localhost"
+	}
+	if err := c.Hello(helo); err != nil {
 		return fail(err)
 	}
 	if !p.key.implicitTLS {

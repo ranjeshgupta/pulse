@@ -46,6 +46,7 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/eventschema"
 	"pulse/internal/geoip"
+	"pulse/internal/httpauth"
 	"pulse/internal/importer"
 	"pulse/internal/integrations"
 	"pulse/internal/journey"
@@ -298,7 +299,7 @@ func runAPI(ctx context.Context, d *deps) error {
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
-		Schemas: eventschema.NewCache(pgs, d.redis(), d.log),
+		Schemas: eventschema.NewCache(pgs, d.redis(), d.log), SweepInterval: d.cfg.SweepInterval,
 	})
 	srv := &http.Server{
 		Addr:              d.cfg.HTTPAddr,
@@ -383,7 +384,7 @@ func runSegments(ctx context.Context, d *deps) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return eng.RunMaintenance(ctx) })
 	// Reachability bitmaps (package reach): rebuilt when missing and daily; events keep them current.
-	rb := &reach.Rebuilder{Store: pgs, RDB: d.redis(), Log: d.log}
+	rb := &reach.Rebuilder{Store: pgs, RDB: d.redis(), Log: d.log, Settings: pgs} // rebuild hour: Settings → Automation & limits
 	g.Go(func() error { return rb.Run(ctx) })
 	g.Go(func() error { return c.RunPartitionBatches(ctx, eng.HandleBatch) })
 	g.Go(func() error { return mc.RunPartitionBatches(ctx, eng.HandleMembership) })
@@ -498,7 +499,7 @@ func runDispatch(ctx context.Context, d *deps) error {
 		EmailDefault: &providers.SMTP{Addr: d.cfg.SMTPAddr, Service: providers.DetectService(smtpHost(d.cfg.SMTPAddr))},
 		Rates:        map[string]float64{channel.Email: d.cfg.EmailRate},
 		Box:          box,
-		Providers:    providers.Deps{Sandbox: pgs, AllowPrivate: d.cfg.AllowPrivateWebhooks},
+		Providers:    providers.Deps{Sandbox: pgs, AllowPrivate: d.cfg.AllowPrivateWebhooks, Tokens: tokenCache(d.redis(), box)},
 		Tracking:     d.tracking(box),
 		PushSubject:  pushSubject(d.cfg.PublicURL),
 		Log:          d.log,
@@ -512,6 +513,15 @@ func runDispatch(ctx context.Context, d *deps) error {
 	g.Go(func() error { return c.Run(ctx, disp.Handle) })
 	g.Go(func() error { return disp.RunDeferred(ctx) })
 	return g.Wait()
+}
+
+// tokenCache shares custom HTTP auth tokens (httpauth) between instances, sealed with the server key.
+func tokenCache(rdb redis.Cmdable, box *auth.Box) httpauth.Cache {
+	c := httpauth.RedisCache{RDB: rdb}
+	if box != nil {
+		c.Box = box
+	}
+	return c
 }
 
 // pushSubject is the contact web push services may use: the public site when it's https,
@@ -529,7 +539,7 @@ func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
 	if err != nil {
 		return err
 	}
-	c := &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log}
+	c := &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log, RDB: d.redis()}
 	go func() {
 		tick := time.NewTicker(time.Hour)
 		defer tick.Stop()

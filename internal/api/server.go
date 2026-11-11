@@ -113,6 +113,9 @@ type Deps struct {
 	// Schemas holds event schemas, so POST /v1/events can refuse events whose schema is in
 	// enforce mode (nil: nothing is refused).
 	Schemas *eventschema.Cache
+	// SweepInterval is the server's segment sweep interval (PULSE_SWEEP_INTERVAL), the default of
+	// the workspace setting (0: 5 minutes).
+	SweepInterval time.Duration
 }
 
 type Server struct {
@@ -205,6 +208,7 @@ func (s *Server) Handler() http.Handler {
 	s.inboxRoutes(mux)
 	s.inappRoutes(mux)
 	s.dataSettingsRoutes(mux)
+	s.automationRoutes(mux)
 	s.auditRoutes(mux)
 	s.preferenceRoutes(mux)
 	s.assetRoutes(mux)

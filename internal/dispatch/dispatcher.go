@@ -35,6 +35,7 @@ import (
 	"pulse/internal/event"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
+	"pulse/internal/personalize"
 	"pulse/internal/providers"
 	"pulse/internal/reach"
 	"pulse/internal/reasons"
@@ -98,6 +99,7 @@ type Dispatcher struct {
 	vias      map[string]cached[sendVia]            // default providers with their limits
 	rules     map[int64]cached[delivery.Rules]
 	files     map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
+	autoCache sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
 	fileBytes int
 }
 
@@ -308,7 +310,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	var p providers.Provider
 	var via sendVia
 	if m.Channel == channel.Inbox {
-		p = &inboxSender{store: d.store, contact: c, msg: m}
+		p = &inboxSender{store: d.store, contact: c, msg: m, expiryDays: d.automation(ctx, m.TenantID).Messages.InboxExpiryDays}
 	}
 	for _, tg := range targets {
 		if p != nil {
@@ -366,6 +368,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 		res, err := via.Send(ctx, providers.Outbound{
 			TenantID: m.TenantID, MessageID: m.ID, Channel: m.Channel, To: tg.to, Platform: tg.platform,
 			From: d.cfg.From, Rendered: rendered, Headers: headers, Attachments: files, Ref: ref,
+			Vars: outboundVars(m, c, unsub, prefs),
 		})
 		switch {
 		case err == nil:
@@ -1029,8 +1032,24 @@ func (d *Dispatcher) buildVia(ctx context.Context, tenant int64, ch string) (sen
 	if err != nil {
 		return sendVia{}, err
 	}
-	p, err := providers.New(cfg.Kind, d.cfg.Providers, cfg.Config, secrets)
+	deps := d.cfg.Providers
+	deps.Scope = providers.TokenScope(tenant, cfg.ID) // custom HTTP auth tokens are per provider
+	p, err := providers.New(cfg.Kind, deps, cfg.Config, secrets)
 	return sendVia{p: p, id: cfg.ID, name: cfg.Name, limits: cfg.Limits}, err
+}
+
+// outboundVars is the personalisation context handed to providers whose requests are templates
+// (the gateway's custom-request mode).
+func outboundVars(m model.Message, c model.Contact, unsub, prefs string) *personalize.Vars {
+	v := vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs})
+	links := map[string]string{}
+	if unsub != "" {
+		links["unsubscribe"] = unsub
+	}
+	if prefs != "" {
+		links["preferences"] = prefs
+	}
+	return &personalize.Vars{Contact: c, Event: v.Event, Campaign: v.Campaign, Links: links}
 }
 
 // senderVia is sender with the provider's id and limits (cached like sender).
@@ -1058,12 +1077,17 @@ type inboxSender struct {
 	store   Store
 	contact model.Contact
 	msg     model.Message
+	// expiryDays applies when the template doesn't set its own (the workspace's setting, 30 by default)
+	expiryDays int
 }
 
 func (s *inboxSender) Send(ctx context.Context, o providers.Outbound) (providers.Result, error) {
 	c := o.Rendered.Content
 	days := c.ExpiresDays
 	if days == 0 {
+		days = s.expiryDays
+	}
+	if days <= 0 {
 		days = 30
 	}
 	meta := map[string]any{"template_id": s.msg.TemplateID, "journey_id": s.msg.JourneyID}

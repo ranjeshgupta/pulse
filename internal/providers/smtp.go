@@ -88,6 +88,9 @@ type SMTP struct {
 	// Service is the sending service behind the relay (EmailServices), which decides the metadata
 	// header that carries the message reference into its webhooks.
 	Service string
+	// Helo is the name given in EHLO (default localhost); Google's SMTP relay wants the sending
+	// domain.
+	Helo string
 
 	username, passSum string                                                            // identify the login in the pool key (passSum: SHA-256 of the password)
 	tlsConfig         *tls.Config                                                       // tests: trust a test CA (production uses the system roots)

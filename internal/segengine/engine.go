@@ -49,6 +49,8 @@ const (
 	// in flight to ClickHouse while the segment was joining the streaming index.
 	catchUpAfter = 5 * time.Second
 	dedupeTTL    = 24 * time.Hour
+	// verifyLimit: rebuild diffs up to this size are checked contact by contact (see Rebuild).
+	verifyLimit = 20000
 
 	// Sources of membership changes this engine makes while following dependencies. Changes with
 	// these sources already had their dependents evaluated.
@@ -727,7 +729,29 @@ func (e *Engine) Rebuild(ctx context.Context, s model.Segment, source string) (e
 	}
 	cur := segment.Build(ids)
 	in, out := segment.Diff(old, cur)
-	if err := e.mem.Replace(ctx, s.TenantID, s.ID, cur); err != nil {
+	// ClickHouse lags the stream: a contact whose newer event the stream already evaluated may
+	// still look like its old self there. For a segment the stream keeps current, a small diff is
+	// checked against the contact's current profile (Postgres) and counters (Redis), exactly as the
+	// stream would evaluate it, and only the changes that still hold are applied, bit by bit, so a
+	// catch-up rebuild never undoes a newer streaming result. Large diffs (a first backfill of a
+	// big segment) replace the bitmap as before.
+	if n := len(in) + len(out); n > 0 && n <= verifyLimit && e.indexed(s) && !s.Refresh.Daily() && !rule.SweepOnly(now) {
+		if in, out, err = e.verify(ctx, s.TenantID, rule, in, out, now); err != nil {
+			return 0, 0, err
+		}
+		pipe := e.rdb.Pipeline()
+		for _, id := range in {
+			pipe.SetBit(ctx, segment.MemberKey(s.TenantID, s.ID), int64(id), 1)
+		}
+		for _, id := range out {
+			pipe.SetBit(ctx, segment.MemberKey(s.TenantID, s.ID), int64(id), 0)
+		}
+		if len(in)+len(out) > 0 {
+			if _, err := pipe.Exec(ctx); err != nil {
+				return 0, 0, err
+			}
+		}
+	} else if err := e.mem.Replace(ctx, s.TenantID, s.ID, cur); err != nil {
 		return 0, 0, err
 	}
 
@@ -756,6 +780,49 @@ func (e *Engine) Rebuild(ctx context.Context, s model.Segment, source string) (e
 		}
 	}
 	return len(in), len(out), flush()
+}
+
+// verify keeps the entries and exits that the contacts' current profiles and counters confirm.
+// A contact without a profile (deleted) or merged away is in no segment.
+func (e *Engine) verify(ctx context.Context, tenant int64, rule segment.Rule, in, out []uint32, now time.Time) ([]uint32, []uint32, error) {
+	all := append(append([]uint32{}, in...), out...)
+	profiles := make(map[uint32]map[string]any, len(all))
+	for start := 0; start < len(all); start += publishChunk {
+		cs, err := e.store.ContactsByIDs(ctx, tenant, all[start:min(start+publishChunk, len(all))])
+		if err != nil {
+			return nil, nil, fmt.Errorf("load contacts: %w", err)
+		}
+		for _, c := range cs {
+			profiles[c.ID] = c.Attrs
+		}
+	}
+	member := func(id uint32) (bool, error) {
+		attrs, ok := profiles[id]
+		if !ok || mergedAway(attrs) {
+			return false, nil
+		}
+		return segment.Eval(ctx, rule, attrs, segment.NewRedisCounter(e.rdb, tenant, id, now))
+	}
+	var keepIn, keepOut []uint32
+	for _, id := range in {
+		ok, err := member(id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if ok {
+			keepIn = append(keepIn, id)
+		}
+	}
+	for _, id := range out {
+		ok, err := member(id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			keepOut = append(keepOut, id)
+		}
+	}
+	return keepIn, keepOut, nil
 }
 
 // RunMaintenance refreshes the index and processes backfills and sweeps until ctx is done.

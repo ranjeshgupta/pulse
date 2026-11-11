@@ -16,6 +16,7 @@ export const SETTINGS_NAV: { title: string; items: SettingsItem[] }[] = [
       { to: "/settings/roles", label: "Roles", hint: "What each role may view, edit and publish", need: ["settings", "view"] },
       { to: "/settings/access", label: "Sign-in & keys", hint: "SSO, API keys, the website snippet", need: ["settings", "edit"] },
       { to: "/settings/audit", label: "Audit log", hint: "Who changed what, and when", need: ["settings", "edit"] },
+      { to: "/settings/automation", label: "Automation & limits", hint: "Data retention, retries, schedules, default quotas", need: ["settings", "view"] },
     ],
   },
   {
@@ -24,7 +25,7 @@ export const SETTINGS_NAV: { title: string; items: SettingsItem[] }[] = [
       { to: "/settings/attributes", label: "Contact fields", hint: "Names and types of profile attributes", need: ["segments", "view"] },
       { to: "/settings/scoring", label: "Scoring", hint: "Points for events", need: ["segments", "view"] },
       { to: "/settings/stages", label: "Stages", hint: "Lifecycle stages", need: ["segments", "view"] },
-      { to: "/settings/data", label: "Data & privacy", hint: "Anonymous tracking and retention", need: ["settings", "view"] },
+      { to: "/settings/data", label: "Data & privacy", hint: "Anonymous tracking and visitor location", need: ["settings", "view"] },
     ],
   },
   {

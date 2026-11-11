@@ -76,6 +76,17 @@ var special = map[string]need{
 	"GET /v1/campaigns":          {"", auth.None},
 	"GET /v1/campaigns/tags":     {"", auth.None},
 	"POST /v1/segments/estimate": {auth.AreaSegments, auth.View}, // counts only, like a segment preview
+	// M5 Settings → Automation & limits. Reading them needs settings view, like delivery rules and
+	// data settings: nothing in them is secret, and editors should see why old data disappears.
+	// Changing, previewing (it scans old data to count it) and running cleanup need settings edit.
+	"GET /v1/settings/automation":                {auth.AreaSettings, auth.View},
+	"PUT /v1/settings/automation":                {auth.AreaSettings, auth.Edit},
+	"POST /v1/settings/automation/preview":       {auth.AreaSettings, auth.Edit},
+	"POST /v1/settings/automation/run-retention": {auth.AreaSettings, auth.Edit},
+	// M5 provider tools: they use the provider's credentials, so the handlers also need settings
+	// edit (like saving a provider).
+	"POST /v1/channels/providers/check-auth": {auth.AreaChannels, auth.Edit},
+	"POST /v1/channels/providers/preview":    {auth.AreaChannels, auth.Edit},
 }
 
 type need struct {

@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"pulse/internal/channel"
+	"pulse/internal/httpauth"
+	"pulse/internal/model"
+	"pulse/internal/personalize"
 )
 
 // Errors adapters return so the dispatcher can decide what to do. Anything else is transient and retried.
@@ -59,6 +62,9 @@ type Outbound struct {
 	Ref string
 	// email: files to attach (SMTP sends them in multipart/mixed; the custom gateway gets URLs)
 	Attachments []Attachment
+	// Vars are the message's personalisation variables (contact, event, campaign), for providers
+	// whose request is a template (the gateway's custom-request mode). Nil in provider tests.
+	Vars *personalize.Vars
 }
 
 // Attachment is one file attached to an email.
@@ -128,6 +134,12 @@ type Field struct {
 	Label       string `json:"label"`
 	Placeholder string `json:"placeholder,omitempty"`
 	Required    bool   `json:"required"`
+	// Default is the value used when the setting is left empty (shown in the form).
+	Default string `json:"default,omitempty"`
+	// Hint explains the setting under the field.
+	Hint string `json:"hint,omitempty"`
+	// Options limits the value to a list (the form shows a select).
+	Options []string `json:"options,omitempty"`
 }
 
 // Kind is one provider type in the catalog.
@@ -138,6 +150,15 @@ type Kind struct {
 	Description string  `json:"description"`
 	Config      []Field `json:"config"`
 	Secrets     []Field `json:"secrets"`
+	// Notes is guidance shown with the form (limits, what the preset is for, unconfirmed endpoints).
+	Notes string `json:"notes,omitempty"`
+	// DefaultLimits are the M3 rate and daily quota a new provider of this kind starts with
+	// (e.g. Gmail's ~500 messages a day); the workspace may change them.
+	DefaultLimits *model.ProviderLimits `json:"default_limits,omitempty"`
+	// Auth: the provider takes custom HTTP authentication (package httpauth) in config["auth"].
+	Auth bool `json:"auth,omitempty"`
+	// CustomRequest: the provider offers the custom-request mode (config["mode"] = "custom").
+	CustomRequest bool `json:"custom_request,omitempty"`
 	// New builds an adapter from saved settings.
 	New func(d Deps, config, secrets map[string]string) (Provider, error) `json:"-"`
 }
@@ -149,6 +170,12 @@ type Deps struct {
 	// AllowPrivate lets user-entered endpoints (the custom gateway) reach private addresses
 	// (local development only).
 	AllowPrivate bool
+	// Tokens caches access tokens of custom HTTP authentication (httpauth) across instances;
+	// nil keeps them in this process only.
+	Tokens httpauth.Cache
+	// Scope names the provider whose tokens are cached ("<tenant>:<provider id>"), so workspaces
+	// and providers never share a token. Set per provider by whoever builds the adapter.
+	Scope string
 }
 
 var kinds = map[string]Kind{}
@@ -278,7 +305,8 @@ func ReportsDelivery(kind string, config map[string]string) bool {
 	case kind == "smtp":
 		svc, err := smtpService(config["service"], config["host"])
 		return err == nil && svc != ServiceOther
-	case kind == "twilio", kind == "meta_whatsapp", kind == "google_rbm", strings.HasPrefix(kind, "http_"), strings.HasPrefix(kind, "sandbox_"):
+	case kind == "twilio", kind == "meta_whatsapp", kind == "google_rbm",
+		kind == "gupshup_sms", kind == "gupshup_whatsapp", kind == "gupshup_rcs", strings.HasPrefix(kind, "http_"), strings.HasPrefix(kind, "sandbox_"):
 		return true
 	}
 	return false

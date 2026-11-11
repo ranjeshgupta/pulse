@@ -36,7 +36,12 @@ func TestCatalogKinds(t *testing.T) {
 func TestNewWithRequiredSettings(t *testing.T) {
 	sa := testServiceAccount(t, "https://oauth2.googleapis.com/token")
 	extra := map[string]map[string]string{
-		"twilio": {"from": "+14155550123"}, // one of from / messaging_service_sid is needed
+		"twilio":          {"from": "+14155550123"}, // one of from / messaging_service_sid is needed
+		"gmail_smtp":      {"username": "me@gmail.com", "password": "app-pass"},
+		"gworkspace_smtp": {"username": "me@acme.com", "password": "app-pass"},
+	}
+	for _, ch := range channel.External { // standard mode: an endpoint and a signing secret
+		extra["http_"+ch] = map[string]string{"url": "https://gateway.example.com/pulse", "signing_secret": "s"}
 	}
 	for _, k := range Catalog() {
 		t.Run(k.ID, func(t *testing.T) {
@@ -58,7 +63,11 @@ func TestNewWithRequiredSettings(t *testing.T) {
 				}
 			}
 			for key, v := range extra[k.ID] {
-				config[key] = v
+				if key == "password" || key == "signing_secret" {
+					secrets[key] = v
+				} else {
+					config[key] = v
+				}
 			}
 			if err := k.Validate(config, secrets, true); err != nil {
 				t.Fatal(err)

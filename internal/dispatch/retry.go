@@ -6,8 +6,10 @@ package dispatch
 // place: that would hold up the partition, and with it other workspaces' messages, for as long as
 // the provider is down. The message is parked in a Redis sorted set scored by when to try again,
 // and RunDeferred re-publishes it to its channel topic then, with the number of tries so far in the
-// record header HeaderTries. The waits grow from 30 seconds to an hour (about 1 h 50 min in all),
-// and are at least the provider's Retry-After. After the last try the message is recorded as
+// record header HeaderTries. By default the waits grow from 30 seconds to an hour (8 tries, about
+// 1 h 50 min in all), and are at least the provider's Retry-After (capped at the longest wait);
+// each workspace can change the number of tries and the longest wait (Settings → Automation &
+// limits, automation.Retries.Schedule). After the last try the message is recorded as
 // <channel>_failed with the reason. A retried message keeps its id and isn't marked sent until it
 // goes out, so the "already sent" check lets it through exactly once.
 
@@ -21,6 +23,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/automation"
 	"pulse/internal/channel"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
@@ -33,15 +36,14 @@ const (
 	retryKey = "retry:messages"
 	// HeaderTries is the record header with how many times a re-published message was tried.
 	HeaderTries = "pulse-tries"
-	// maxRetryAfter caps how long a provider's Retry-After can hold a message.
-	maxRetryAfter = time.Hour
+	// maxRetryAfter caps how long a provider's Retry-After can hold a message (by default).
+	maxRetryAfter = automation.DefaultMaxBackoff
 	retryBatch    = 500
 )
 
-// RetryBackoff is the wait before each retry of a temporarily failed send; when they are used up
-// (8 tries in all), the message fails.
-var RetryBackoff = []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute,
-	10 * time.Minute, 30 * time.Minute, time.Hour}
+// RetryBackoff is the default wait before each retry of a temporarily failed send; when they are
+// used up (8 tries in all), the message fails.
+var RetryBackoff = automation.BaseBackoff
 
 type parked struct {
 	Tries int           `json:"tries"`
@@ -52,20 +54,26 @@ type parked struct {
 // RetryBackoff, or the provider's Retry-After when that is longer (up to an hour). ok is false
 // when the retries are used up.
 func retryDelay(tries int, err error) (wait time.Duration, ok bool) {
-	if tries < 1 || tries > len(RetryBackoff) {
+	return retryDelayIn(RetryBackoff, maxRetryAfter, tries, err)
+}
+
+// retryDelayIn is retryDelay with a workspace's schedule and Retry-After cap.
+func retryDelayIn(schedule []time.Duration, capAfter time.Duration, tries int, err error) (wait time.Duration, ok bool) {
+	if tries < 1 || tries > len(schedule) {
 		return 0, false
 	}
-	wait = RetryBackoff[tries-1]
+	wait = schedule[tries-1]
 	if after, ok := providers.RetryAfter(err); ok {
-		wait = max(wait, min(after, maxRetryAfter))
+		wait = max(wait, min(after, capAfter))
 	}
 	return wait, true
 }
 
 // retryLater parks a message that has now failed temporarily tries times, or calls giveUp with
-// the reason when the retries are used up.
+// the reason when the workspace's retries are used up.
 func (d *Dispatcher) retryLater(ctx context.Context, m model.Message, tries int, err error, giveUp func(reason string) error) error {
-	wait, ok := retryDelay(tries, err)
+	r := d.automation(ctx, m.TenantID).Retries
+	wait, ok := retryDelayIn(r.Schedule(), r.MaxBackoff(), tries, err)
 	if !ok {
 		return giveUp(fmt.Sprintf("gave up after %d tries: %v", tries, err))
 	}

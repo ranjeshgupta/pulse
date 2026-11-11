@@ -477,7 +477,9 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, p model.Pr
 		s.fail(w, err)
 		return
 	}
-	prov, err := providers.New(cfg.Kind, providers.Deps{Sandbox: sandboxSink(s)}, cfg.Config, secrets)
+	deps := s.providerDeps(p.TenantID, id)
+	deps.Sandbox = sandboxSink(s)
+	prov, err := providers.New(cfg.Kind, deps, cfg.Config, secrets)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "these settings don't work: "+err.Error())
 		return

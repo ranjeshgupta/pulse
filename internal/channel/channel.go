@@ -52,6 +52,10 @@ type Content struct {
 	// sms; Text is also rcs, and email's plain-text part (generated from the HTML when empty)
 	Text     string `json:"text,omitempty"`
 	SenderID string `json:"sender_id,omitempty"` // sms: alphanumeric sender / DLT header
+	// sms in India: the DLT template id this text was registered under, and the principal entity
+	// id when it differs from the provider's (Gupshup Enterprise sends both with each message).
+	DLTTemplateID string `json:"dlt_template_id,omitempty"`
+	DLTEntityID   string `json:"dlt_entity_id,omitempty"`
 	// sms, rcs: replace http(s) links in the text (and RCS url suggestions) with short tracked
 	// links (/t/s/{code}), so clicks are recorded as sms_clicked / rcs_clicked.
 	TrackLinks bool `json:"track_links,omitempty"`

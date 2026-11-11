@@ -31,7 +31,15 @@ const (
 	NSEvent    = "event"
 	NSCampaign = "campaign"
 	NSLinks    = "links"
+	// NSMessage is the message being sent (to, text, subject…), for request templates of the
+	// custom HTTP gateway only (message templates have it empty).
+	NSMessage = "message"
 )
+
+// MessageKeys are the message.* variables of gateway request templates.
+var MessageKeys = []string{"id", "channel", "to", "from", "platform", "subject", "html", "text", "title", "body",
+	"image_url", "url", "sender_id", "dlt_template_id", "dlt_entity_id", "template_name", "language", "params",
+	"header_image_url", "suggestions", "card", "data", "ref"}
 
 // CampaignKeys are the campaign.* variables.
 var CampaignKeys = []string{"name", "id", "type", "step", "channel", "template"}
@@ -101,7 +109,7 @@ const maxPathSegments = 6
 // IsStandard reports whether an action's text (between the braces, trimmed) uses the standard
 // syntax: it starts with contact., event., campaign. or links.
 func IsStandard(action string) bool {
-	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks} {
+	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage} {
 		if strings.HasPrefix(action, ns+".") {
 			return true
 		}
@@ -338,6 +346,10 @@ func checkVar(v string) error {
 	case NSLinks:
 		if len(segs) != 1 || !contains(LinkKeys, path) {
 			return fmt.Errorf("links has %s", strings.Join(LinkKeys, ", "))
+		}
+	case NSMessage:
+		if !contains(MessageKeys, segs[0]) {
+			return fmt.Errorf("message has %s", strings.Join(MessageKeys, ", "))
 		}
 	}
 	return nil

@@ -5,6 +5,8 @@ import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { BounceMailboxPanel } from "./BounceMailbox";
+import { AuthEditor, ConfigField, CustomRequestEditor, ProviderTools } from "./ProviderSettings";
+import { hostsChanged } from "../providerAuth";
 
 export function Channels() {
   const admin = useIsAdmin();
@@ -81,6 +83,9 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
   const [config, setConfig] = useState<Record<string, string>>(provider?.config ?? {});
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [isDefault, setDefault] = useState(provider?.is_default ?? true);
+  const setKey = (k: string, v: string) => setConfig((c) => ({ ...c, [k]: v }));
+  const custom = config.mode === "custom";
+  const moved = !!provider && hostsChanged(provider.config, config);
 
   const save = useMutation({
     mutationFn: () => {
@@ -110,19 +115,28 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
         </Field>
       )}
       {kind && <p className="small muted" style={{ marginBottom: 14 }}>{kind.description}</p>}
+      {kind?.notes && <div className="alert info" style={{ marginBottom: 14 }}>{kind.notes}</div>}
+      {kind?.default_limits && !provider && (
+        <p className="xs muted" style={{ marginBottom: 14 }}>
+          Starts with a daily quota of {kind.default_limits.daily_quota?.toLocaleString() ?? "none"}
+          {kind.default_limits.rate_per_second ? ` and ${kind.default_limits.rate_per_second} messages a second` : ""}; change it under Limits.
+        </p>
+      )}
       <Field label="Name in Pulse"><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
-      {kind?.config.map((f) => (
-        <Field key={f.key} label={f.label + (f.required ? "" : " (optional)")}>
-          <input className="input" value={config[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setConfig({ ...config, [f.key]: e.target.value })} />
-        </Field>
+      {kind?.config.filter((f) => !(custom && f.key === "url")).map((f) => (
+        <ConfigField key={f.key} f={f} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />
       ))}
-      {kind?.secrets.map((f) => (
-        <Field key={f.key} label={f.label + (f.required ? "" : " (optional)")} hint={provider?.has_secrets ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}>
+      {kind?.custom_request && custom && <CustomRequestEditor channel={channel} config={config} setConfig={setKey} />}
+      {kind?.auth && <AuthEditor config={config} setConfig={setKey} secrets={secrets} setSecret={(k, v) => setSecrets({ ...secrets, [k]: v })} saved={!!provider?.has_secrets && !moved} />}
+      {provider && moved && <div className="alert info" style={{ marginBottom: 12 }}>An endpoint's host changed: the saved secrets will be cleared, so enter every secret again.</div>}
+      {kind?.secrets.filter((f) => !(custom && f.key === "signing_secret") && !(!custom && f.key === "receipt_token" && kind.custom_request)).map((f) => (
+        <Field key={f.key} label={f.label + (f.required ? "" : " (optional)")} hint={<>{f.hint && <>{f.hint} </>}{provider?.has_secrets && !moved ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}</>}>
           {f.key.includes("json")
             ? <textarea className="textarea code" value={secrets[f.key] ?? ""} placeholder={f.placeholder ?? "Paste the service account JSON"} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />
             : <input className="input" type="password" autoComplete="off" value={secrets[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />}
         </Field>
       ))}
+      {kind && <ProviderTools draft={{ provider_id: provider?.id, provider: kind.id, config, secrets }} canAuth={!!kind.auth || kind.id.endsWith("_smtp")} canPreview={!!kind.auth || kind.id.startsWith("gupshup_")} />}
       <label className="check"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />Use for all {CHANNEL_NAMES[channel]} messages</label>
     </Modal>
   );

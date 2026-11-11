@@ -49,15 +49,20 @@ func (s *Server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/devices", s.tenant(s.registerDevice))
 	mux.HandleFunc("POST /v1/webhooks/providers/{id}", s.providerWebhook)
 	mux.HandleFunc("GET /v1/webhooks/providers/{id}", s.providerWebhookChallenge)
+	s.providerToolRoutes(mux)
 }
 
 // providerWebhookChallenge answers providers that verify a webhook URL before using it.
 func (s *Server) providerWebhookChallenge(w http.ResponseWriter, r *http.Request) {
-	p, _, ok := s.webhookProvider(w, r)
+	p, cfg, ok := s.webhookProvider(w, r)
 	if !ok {
 		return
 	}
 	cr, ok := p.(providers.ChallengeResponder)
+	if g, get := p.(providers.GetReceiver); !ok && get && g.ReceivesGet() {
+		s.receipts(w, r, p, cfg) // delivery reports sent with GET (Gupshup)
+		return
+	}
 	if !ok {
 		writeErr(w, http.StatusNotFound, "this provider has no webhook challenge")
 		return
@@ -90,7 +95,7 @@ func (s *Server) webhookProvider(w http.ResponseWriter, r *http.Request) (provid
 		s.fail(w, err)
 		return nil, cfg, false
 	}
-	p, err := providers.New(cfg.Kind, providers.Deps{}, cfg.Config, secrets)
+	p, err := providers.New(cfg.Kind, s.providerDeps(cfg.TenantID, cfg.ID), cfg.Config, secrets)
 	if err != nil {
 		s.fail(w, err)
 		return nil, cfg, false
@@ -124,13 +129,18 @@ func (s *Server) webhookURL(id int64) string {
 }
 
 // saveProvider creates (POST) or updates (PUT) a provider. Secrets are encrypted before storage and
-// never returned; omitting them on update keeps the stored ones.
+// never returned; on update, a secret left empty keeps its stored value (merged key by key), unless
+// an endpoint's host changed: then the stored secrets are dropped and must be entered again, so
+// credentials never follow a URL to a new host. A new provider starts with its kind's preset
+// limits (Gmail's daily quota…) or the workspace's default limits for the channel.
 func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	var req model.Provider
 	if !decode(w, r, &req) {
 		return
 	}
 	req.TenantID = p.TenantID
+	stored := map[string]string{}
+	var prevConfig map[string]string
 	if r.Method == http.MethodPut {
 		id, ok := pathID(w, r)
 		if !ok {
@@ -142,6 +152,11 @@ func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request, p model.Pr
 			return
 		}
 		req.ID, req.Channel, req.Kind = id, cur.Channel, cur.Kind // kind and channel are fixed
+		prevConfig = cur.Config
+		if stored, err = s.storedSecrets(r.Context(), p.TenantID, id); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	kind, ok := providers.Lookup(req.Kind)
 	if !ok || kind.Channel != req.Channel {
@@ -154,31 +169,59 @@ func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request, p model.Pr
 	if req.Config == nil {
 		req.Config = map[string]string{}
 	}
-	if err := kind.Validate(req.Config, req.Secrets, req.ID == 0); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+	hostsChanged := prevConfig != nil && providers.EndpointsChanged(prevConfig, req.Config)
+	if hostsChanged {
+		stored = map[string]string{} // whoever points it elsewhere enters the credentials again
+	}
+	merged := mergeSecrets(stored, req.Secrets)
+	refuse := func(msg string) {
+		if hostsChanged {
+			msg += " (an endpoint's host changed, so the saved secrets were cleared: enter them again)"
+		}
+		writeErr(w, http.StatusBadRequest, msg)
+	}
+	if err := kind.Validate(req.Config, merged, true); err != nil {
+		refuse(err.Error())
+		return
+	}
+	if err := providers.CheckConfig(req.Kind, req.Config, merged, s.AllowPrivateWebhooks); err != nil {
+		refuse(err.Error())
 		return
 	}
 	// Building the adapter now catches malformed credentials (e.g. a broken service-account JSON)
-	// at save time, instead of as endlessly retried sends.
-	if len(req.Secrets) > 0 {
-		if _, err := providers.New(req.Kind, providers.Deps{}, req.Config, req.Secrets); err != nil {
-			writeErr(w, http.StatusBadRequest, "these settings don't work: "+err.Error())
-			return
-		}
+	// and settings (a request template that doesn't parse) at save time, instead of as endlessly
+	// retried sends.
+	if _, err := providers.New(req.Kind, providers.Deps{AllowPrivate: s.AllowPrivateWebhooks}, req.Config, merged); err != nil {
+		refuse("these settings don't work: " + err.Error())
+		return
 	}
 	var sealed []byte
-	if len(req.Secrets) > 0 {
+	if len(req.Secrets) > 0 || hostsChanged {
 		if s.Box == nil {
 			writeErr(w, http.StatusServiceUnavailable, "server has no secret key configured")
 			return
 		}
-		b, _ := json.Marshal(req.Secrets)
+		b, _ := json.Marshal(merged)
 		sealed = s.Box.Seal(b)
 	}
 	id, err := s.chStore().SaveProvider(r.Context(), req, sealed)
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	if req.ID == 0 {
+		var explicit *model.ProviderLimits
+		if req.Limits != (model.ProviderLimits{}) {
+			explicit = &req.Limits
+		}
+		if l := s.newProviderLimits(r.Context(), p.TenantID, req.Channel, explicit, kind.DefaultLimits); l != (model.ProviderLimits{}) {
+			if err := dispatch.ValidateLimits(l); err == nil {
+				if err := s.campStore().SetProviderLimits(r.Context(), p.TenantID, id, l); err != nil {
+					s.fail(w, err)
+					return
+				}
+			}
+		}
 	}
 	// Twilio only reports delivery when each message names a callback URL: point it at this provider.
 	if req.Kind == "twilio" && req.Config["status_callback_url"] == "" {
@@ -188,7 +231,33 @@ func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request, p model.Pr
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "webhook_url": s.webhookURL(id)})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "webhook_url": s.webhookURL(id), "secrets_cleared": hostsChanged})
+}
+
+// mergeSecrets is stored overlaid with the non-empty edited values.
+func mergeSecrets(stored, edited map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range stored {
+		out[k] = v
+	}
+	for k, v := range edited {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// storedSecrets opens a provider's saved secrets (of this workspace only).
+func (s *Server) storedSecrets(ctx context.Context, tenant, id int64) (map[string]string, error) {
+	cfg, sealed, err := s.chStore().ProviderForWebhook(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.TenantID != tenant {
+		return nil, pg.ErrNotFound
+	}
+	return dispatch.OpenSecrets(s.Box, sealed)
 }
 
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request, p model.Principal) {
@@ -338,6 +407,11 @@ func (s *Server) providerWebhook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.receipts(w, r, p, cfg)
+}
+
+// receipts parses and publishes a provider's delivery reports and inbound messages.
+func (s *Server) receipts(w http.ResponseWriter, r *http.Request, p providers.Provider, cfg model.Provider) {
 	tenant := cfg.TenantID
 	parser, ok := p.(providers.ReceiptParser)
 	if !ok {

@@ -11,6 +11,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
+	"pulse/internal/automation"
 	"pulse/internal/channel"
 	"pulse/internal/segment"
 )
@@ -261,5 +262,34 @@ func TestSampleIDs(t *testing.T) {
 	}
 	if out, f := SampleIDs(ids, 100, 10); len(out) != 10 || f != 100 || out[1] != 100 {
 		t.Errorf("sample %v %v", out, f)
+	}
+}
+
+type hourSettings map[int64]int
+
+func (h hourSettings) AutomationSettings(_ context.Context, tenant int64) (automation.Settings, error) {
+	s := automation.Defaults()
+	if hr, ok := h[tenant]; ok {
+		s.Schedules.ReachRebuildHour = hr
+	}
+	return s, nil
+}
+
+// A workspace with a rebuild hour stays fresh until that hour; others for a day, as before.
+func TestRebuildHour(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	now := time.Date(2026, 11, 11, 5, 0, 0, 0, time.UTC)
+	rb := &Rebuilder{Store: &fakeStore{}, RDB: rdb, Log: slog.New(slog.DiscardHandler), Now: func() time.Time { return now },
+		Settings: hourSettings{1: 2}}
+	if err := rb.RunDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ttl := mr.TTL(BuiltKey(1)); ttl != 21*time.Hour {
+		t.Errorf("rebuild at 02:00 UTC: TTL %v, want 21h", ttl)
+	}
+	if ttl := mr.TTL(BuiltKey(2)); ttl != 24*time.Hour {
+		t.Errorf("default: TTL %v, want 24h", ttl)
 	}
 }

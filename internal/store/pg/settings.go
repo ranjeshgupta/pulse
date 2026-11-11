@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"pulse/internal/automation"
 	"pulse/internal/delivery"
 	"pulse/internal/model"
 )
@@ -42,10 +43,12 @@ func (s *Store) PutDeliveryRules(ctx context.Context, tenant int64, r delivery.R
 }
 
 // DataSettings returns a workspace's tracking and retention settings (defaults when never set).
+// Retention lives in the automation settings (Settings → Automation & limits) now; these are its
+// three original values.
 func (s *Store) DataSettings(ctx context.Context, tenant int64) (model.DataSettings, error) {
 	d := model.DefaultDataSettings()
-	var tracking, retention []byte
-	err := s.db.QueryRow(ctx, `SELECT tracking, retention FROM tenant_settings WHERE tenant_id = $1`, tenant).Scan(&tracking, &retention)
+	var tracking, auto []byte
+	err := s.db.QueryRow(ctx, `SELECT tracking, automation FROM tenant_settings WHERE tenant_id = $1`, tenant).Scan(&tracking, &auto)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, nil
 	} else if err != nil {
@@ -54,40 +57,38 @@ func (s *Store) DataSettings(ctx context.Context, tenant int64) (model.DataSetti
 	if err := json.Unmarshal(tracking, &d.Tracking); err != nil {
 		return d, err
 	}
-	return d, json.Unmarshal(retention, &d.Retention)
+	a, err := automation.Load(auto)
+	d.Retention = model.RetentionSettings{AnonymousDays: a.Retention.AnonymousDays, EventDays: a.Retention.EventDays, AuditDays: a.Retention.AuditDays}
+	return d, err
 }
 
+// PutDataSettings stores tracking, and merges the three retention values into the automation
+// settings, keeping every other automation setting (per-name retention, retries, ...) as it is.
 func (s *Store) PutDataSettings(ctx context.Context, tenant int64, d model.DataSettings) error {
-	tracking, _ := json.Marshal(d.Tracking)
-	retention, _ := json.Marshal(d.Retention)
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO tenant_settings (tenant_id, tracking, retention) VALUES ($1, $2, $3)
-		ON CONFLICT (tenant_id) DO UPDATE SET tracking = EXCLUDED.tracking, retention = EXCLUDED.retention, updated_at = now()`,
-		tenant, tracking, retention)
-	return err
-}
-
-// Retentions lists the workspaces that delete data after a while, with their settings.
-func (s *Store) Retentions(ctx context.Context) (map[int64]model.RetentionSettings, error) {
-	rows, err := s.db.Query(ctx, `SELECT tenant_id, retention FROM tenant_settings
-		WHERE (retention->>'anonymous_days')::int > 0 OR (retention->>'event_days')::int > 0 OR (retention->>'audit_days')::int > 0`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[int64]model.RetentionSettings{}
-	for rows.Next() {
-		var id int64
-		var raw []byte
-		if err := rows.Scan(&id, &raw); err != nil {
-			return nil, err
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var auto []byte
+		err := tx.QueryRow(ctx, `SELECT automation FROM tenant_settings WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&auto)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
 		}
-		var r model.RetentionSettings
-		if json.Unmarshal(raw, &r) == nil {
-			out[id] = r
+		a, err := automation.Load(auto)
+		if err != nil {
+			return err
 		}
-	}
-	return out, rows.Err()
+		a.Retention.AnonymousDays, a.Retention.EventDays, a.Retention.AuditDays = d.Retention.AnonymousDays, d.Retention.EventDays, d.Retention.AuditDays
+		tracking, _ := json.Marshal(d.Tracking)
+		retention, _ := json.Marshal(d.Retention)
+		ab, err := json.Marshal(a)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO tenant_settings (tenant_id, tracking, retention, automation) VALUES ($1, $2, $3, $4)
+			ON CONFLICT (tenant_id) DO UPDATE SET tracking = EXCLUDED.tracking, retention = EXCLUDED.retention,
+				automation = EXCLUDED.automation, updated_at = now()`,
+			tenant, tracking, retention, ab)
+		return err
+	})
 }
 
 // IdleAnonymous returns up to limit anonymous visitors not updated for days.
@@ -127,10 +128,4 @@ func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) 
 		}
 		return nil
 	})
-}
-
-// PruneAudit deletes audit entries older than days.
-func (s *Store) PruneAudit(ctx context.Context, tenant int64, days int) (int64, error) {
-	tag, err := s.db.Exec(ctx, `DELETE FROM audit_log WHERE tenant_id = $1 AND at < now() - make_interval(days => $2)`, tenant, days)
-	return tag.RowsAffected(), err
 }

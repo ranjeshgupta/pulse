@@ -46,7 +46,7 @@ Gupshup gets SMS, WhatsApp and RCS.
 | 15 | Exclude in segmentation | Already | M1 ✅ adds a "none of" group |
 | 16 | Audience count after every filter | ✅ M3: exact count after exclusions, consent, reachability and caps | M3 ✅ |
 | 17 | Test WhatsApp / push | Already; ✅ M3: saved test contacts in every Send a test | M3 ✅ |
-| 18 | Timely delivery, daily quota | ✅ M3: per-provider rates and daily quotas, send deadlines, pooled SMTP | M3 ✅ |
+| 18 | Timely delivery, daily quota | ✅ M3: per-provider rates and daily quotas, send deadlines, pooled SMTP; ✅ M5: preset quotas (Gmail, Workspace, relay) and workspace default limits | M3 ✅, M5 ✅ |
 | 19 | A/B testing | Already | |
 | 20 | DAU / WAU / MAU | ✅ M4: Analytics → Users (DAU / WAU / MAU, stickiness, new vs returning, platform, source) | M4 ✅ |
 | 21 | Real-time activity | ✅ M4: Analytics → Live events | M4 ✅ |
@@ -84,7 +84,7 @@ with screenshots, and committed on its own.
    email delivered from provider webhooks, failure reasons, the audience → sent → bounced breakdown,
    User / Campaign / Product dashboards with DAU/WAU/MAU, a live event feed, a full contact page
    (1/7/30/365-day activity, reachability, purchases, journeys, messages).
-5. **M5 Channels and settings.** Custom HTTP authentication (basic, bearer, API key, OAuth2 client
+5. **M5 Channels and settings (done).** Custom HTTP authentication (basic, bearer, API key, OAuth2 client
    credentials, login request → token → main request, refresh on 401) and a custom-request mode;
    Gmail / Workspace SMTP (app password or XOAUTH2) and Workspace SMTP relay presets; Gupshup SMS,
    WhatsApp and RCS; Settings → Automation & limits for retention per log type and per event name,
@@ -92,6 +92,13 @@ with screenshots, and committed on its own.
 6. **M6 AMP and on-site.** AMP email part with validation, preview and a visual block builder
    (carousel, accordion, forms and polls that post back to Pulse), web content variants with rules,
    ordering and an overlap view, a no-code push opt-in prompt and install check.
+
+7. **M7 Clarity review** (owner's request, 2026-11-11; after M6, before the final docs pass). Every
+   contact count anywhere (segments, audience estimate steps, reach by channel, funnels, journey
+   steps, dashboards, reports, product buyers) opens the contact list filtered to exactly those
+   contacts. One clear campaign navigation instead of "All campaigns" next to separate Journeys and
+   Broadcasts entries. A review of everything built for wording, duplicate entry points and unclear
+   states that would confuse non-technical marketers, and fixes for all of it.
 
 ## M1 as built
 
@@ -293,6 +300,131 @@ Built as designed, with these choices:
   (delivered, read, blocked, spam policy), product views and app screen views.
 - **Docs** are deferred to the final docs pass (product owner, after M6); see the M4 report for the list.
 
+## M5 as built
+
+Built as designed, with these choices:
+
+- **Custom HTTP authentication** is `internal/httpauth`: `none`, `basic`, `bearer`, `api_key` (header or query,
+  name configurable), `oauth2` (client credentials; also the refresh-token grant, used by Gmail XOAUTH2; the client
+  secret in the form body or as basic auth; scope, audience) and `login` (method, URL, headers and a body template
+  with `{{secrets.x}}` — JSON-escaped in a JSON body, percent-encoded in a form or the URL; the token read by JSON path
+  (`data.token`, `items[0].t`, `items.0.t`), a response header (a leading `Bearer ` dropped) or a regular expression
+  (its group, or the whole match); expiry from a JSON path (seconds left, a Unix time in s or ms, or RFC 3339), a
+  fixed lifetime, or unknown = 1 hour). The token goes into a header (template, default `Authorization: Bearer
+  {{token}}`), a query parameter or a top-level body field (JSON object or form). The settings are JSON in the
+  provider's `config.auth`; secrets live with the provider's sealed secrets (`auth_username`, `auth_password`,
+  `auth_token`, `auth_api_key`, `auth_client_secret`, `auth_refresh_token` and every `{{secrets.x}}` the login
+  names, each its own masked field in the form).
+- **Token cache.** Redis key `httpauth:{tenant}:{provider}:{fingerprint}` (the fingerprint hashes the auth settings and
+  secrets, so a changed password never reuses a token), value sealed with the server key. Each process also keeps its
+  copy. A missing or nearly expired token (margin: a tenth of its lifetime, at most a minute) is fetched under a
+  `SET NX` lock (15 s); other instances poll the cache for up to 8 s, then log in themselves. A 401 on the main
+  request drops the token (compare-and-delete, so a token another instance just refreshed survives) and retries once;
+  a second 401 is returned as is. A login or token endpoint answering 4xx (not 429) is permanent (`provider_auth`),
+  and so is a login answer without the token where the settings say (`httpauth.ErrConfig`); 5xx and network errors
+  are retried like any send. Only adapters built by the dispatcher (and test sends) share the cache; "Test connection"
+  and previews never read or write it.
+- **Host pinning** (`providers.Endpoints`): every URL setting (`url`, `*_url` except Twilio's `status_callback_url`,
+  which is Pulse's), an SMTP `host`, the custom request's URL and the auth's login/token URLs, as scheme://host.
+  When a provider is saved with a different set, its stored secrets are dropped and every secret must be entered again
+  (the save is refused until they are; the response says `secrets_cleared`). Provider secrets are now **merged key by
+  key** on update (an empty field keeps its saved value, as the form always said); before M5 any secret sent replaced
+  them all. Login and token URLs go through `safehttp` (private addresses refused unless
+  `PULSE_ALLOW_PRIVATE_WEBHOOKS`, which also allows plain http); otherwise https only. A `{{secrets.x}}` (or any
+  template) is refused in the scheme, user info, host or port of the login URL and the OAuth2 token URL — only the path
+  and query may hold one — both when the settings are validated and again when the request is built (the filled-in
+  URL must keep the written origin), so a secret can never choose, or leak through, the host that is called (security
+  review during M5); the custom request's URL follows the same fixed-origin rule.
+- **Custom-request mode** (`http_*` providers, `config.mode = custom`, the template in `config.request`): method
+  (GET/POST/PUT/PATCH), URL, headers, content type, body; the success rule (status range, default 200–299, plus an
+  optional JSON path that must equal a value, or be present and not false); the provider message id by JSON path; a
+  receipt mapping (optional list path, id path, status path, a status value map to delivered / read / failed /
+  undeliverable (failed with the SMS fallback) / bounced, reason and code paths). Templates take `{{contact.x}}`,
+  `{{event.x}}`, `{{campaign.x}}` and a new `{{message.x}}` namespace (to, text, subject, html, title, body,
+  sender_id, dlt_template_id, template_name, params, suggestions, card, ref…; `personalize.MessageKeys`); it's empty in
+  message templates. JSON bodies use `Renderer.JSON` (every value JSON-escaped); form bodies and query values are
+  rendered value by value and percent-encoded; header values with a line break refuse the send. The URL's scheme and
+  host can't be templated, so contact data never picks the destination. The dispatcher passes the message's
+  personalisation context to providers (`Outbound.Vars`). Answers: 404/410 unreachable, 429/5xx retried, a 2xx
+  outside the success rule or a JSON value mismatch permanent. Standard mode is unchanged, but its endpoint and
+  signing secret are now required only in that mode, and it can also carry custom auth.
+- **Receipts fail closed.** Custom-mode receipts need the provider's `receipt_token`: as a header, a query parameter,
+  or the key of an HMAC-SHA256 of the body (hex or base64, `sha256=` prefix allowed). Without a saved token every
+  receipt is refused. Gupshup webhooks need the provider's `webhook_token` (`?token=` or `X-Pulse-Token`), required
+  when saving; the coordinator's fail-closed rule (91a365e) applies.
+- **Preview and Test connection.** `POST /v1/channels/providers/preview` returns the exact request (method, URL,
+  headers, body) a provider would send for Pulse's test message, or for a template rendered for a contact
+  (`template_id`, `external_id`, `event`; a contact's data needs contacts view); secrets are masked (••••, the whole
+  `Authorization` value) and the token shows as `{{token}}`. `POST /v1/channels/providers/check-auth` runs the login or
+  token request now and returns the token masked (first and last four characters at most) and its expiry; 20 a minute
+  per workspace. Both take the settings being edited (`provider_id` for saved secrets, not used when a host changed),
+  need channels edit and settings edit (like saving a provider) and are audited like other changes (secrets
+  redacted). Send test is the existing provider test, now built with the provider's token scope and
+  `AllowPrivate`.
+- **Email presets.** `gmail_smtp` (Gmail, 500/day, 1/s) and `gworkspace_smtp` (Workspace, 2,000/day, 2/s): smtp.gmail.com
+  587 STARTTLS or 465 TLS, an app password (spaces removed) or XOAUTH2 (OAuth client + refresh token → access token
+  from Google's token endpoint through httpauth, cached per provider; AUTH only over TLS). `gworkspace_relay`
+  (10,000/day): smtp-relay.gmail.com 587/465/25, allowed by IP (EHLO with your domain, a new `helo_domain`
+  setting, `SMTP.Helo`) or SMTP auth. A new provider starts with its kind's limits (`Kind.DefaultLimits`) unless
+  limits are sent with it; otherwise with the workspace's default limits for the channel (Automation & limits). The
+  form shows each preset's limits and that bulk mail belongs on the relay or a sending service. Gmail/relay report no
+  delivery (plain SMTP).
+- **Gupshup** (`gupshup_sms`, `gupshup_whatsapp`, `gupshup_rcs`), from Gupshup's public docs, tested against mocks only
+  (every base URL editable; the form says to confirm the endpoints with a real account):
+  SMS through the Enterprise gateway (`GatewayAPI/rest`, `method=SendMessage`, userid/password, `msg_type` TEXT or
+  UNICODE_TEXT chosen from the text, `mask` = sender ID, DLT `principalEntityId` / `dltTemplateId` from the template —
+  new SMS template fields `dlt_template_id` and `dlt_entity_id` — or the provider's defaults); delivery reports by POST
+  or GET (GET webhooks reach the parser for these kinds, `providers.GetReceiver`), causes mapped to reason codes
+  (unknown subscriber → invalid_number and sms_bounced, DND → consent, blocked → blocked, template mismatch → template…).
+  WhatsApp through `/wa/api/v1/template/msg` (Gupshup template id = the template's name, body params, header image) or
+  `/wa/api/v1/msg` (session text), `apikey` header; v2 message events delivered / read / failed matched on `gsId`;
+  Gupshup codes (1002 not on WhatsApp → fallback, 1006–1012 consent, 4001 rate limited…) and Meta codes (131026 →
+  "undeliverable (possibly blocked)") to reason codes; inbound messages feed reply keywords. RCS through the Enterprise
+  gateway with an RBM-style `contentMessage` (text, rich card, suggestions) — the least certain part, see Risks;
+  "RCS not supported" answers fall back to SMS. Each kind has Preview (`PreviewRequest`, secrets masked) and Send test,
+  and the M3 rate/quota fields.
+- **Settings → Automation & limits** (`internal/automation`, `tenant_settings.automation`, migration pg 024; settings
+  view to read, settings edit to change; audited; the page shows each value with its default and an explanation):
+  retention per log type — events, message events, page/screen views (`page_view`, `screen_view`,
+  `landing_page_viewed`; null = like events), audit log (365), import history, webhook deliveries (7), integration log
+  (7), sandbox test inbox, live feed size (1,000 entries) — and per event-name overrides (0 = forever) that always win
+  over a type-wide delete (each name belongs to exactly one delete group); anonymous visitors (days idle, 0 = off);
+  send retries (attempts 8 and longest wait 1 h: the old 30 s … 1 h schedule cut, capped or extended by doubling;
+  Retry-After capped by the same wait); segment sweep interval (0 = the server's `PULSE_SWEEP_INTERVAL`, honoured in
+  the claim SQL), reachability rebuild hour (default: a day after the last rebuild, as before), default time and zone
+  for new daily segments (06:00, browser zone), app inbox expiry (30 days), default provider limits per channel.
+  Every default equals the behaviour before M5. Changing a retention to something shorter opens "What will be
+  deleted" (`POST /v1/settings/automation/preview`: ClickHouse counts over the old partitions and Postgres counts,
+  cached 60 s, one uncached preview per workspace every 5 s) and needs a confirmation. `POST
+  /v1/settings/automation/run-retention` runs a workspace's cleanup now (settings edit; used by the e2e test).
+  `PUT /v1/settings/data` still edits the three old retention values, merged into the new document.
+- **Retention at scale.** Cleanup runs once a day per workspace (in UTC hour `tenant % 24`, claimed in
+  `retention_runs` so several workers never repeat it; a workspace that missed its hour runs after 47 h) instead of
+  every hour: one `DELETE … WHERE tenant_id = ? AND ts < cutoff AND name IN/NOT IN (…)` per group (lightweight
+  deletes, which hide rows at once), each skipped when a `SELECT 1 … LIMIT 1` finds nothing older; Postgres logs in
+  `LIMIT 5000` batches. Global random 7-day prunes of webhook deliveries and the integration log moved into it.
+  Workspaces that existed without a settings row keep their audit log forever (migration 024 writes
+  `audit_days: 0` for them: the old cleanup never read them); new workspaces get the 365 days the app always showed.
+- **Hard-coded automatic behaviour found:** made configurable — everything listed above. Deliberately fixed (most listed on
+  the page under "Fixed by the platform"): per-channel workspace send rates (`dispatch.DefaultRates`,
+  `PULSE_EMAIL_RATE`: shared server capacity), "already sent" de-duplication 7 days and receipt matching 3 days,
+  frequency-cap counters 32 days, held-message release every 5 s, purge of deleted inbox messages after 7 days, journey
+  effects 30 days (idempotency), SMS short links 30 days, attachment links 7 days, live feed 50 events/s and 4 KB of
+  properties, outbound webhook retries (30 s … 6 h; a candidate for later), segment claim expiry 10 min, cache lifetimes
+  (estimates 30 s, dashboards 1 min, event catalog 2 min, schemas 5 min), sessions 14 days, sign-in rate window
+  15 min, RCS reply window 7 days, schema violation counters, test sends 30/min and connection tests 20/min (abuse
+  limits), and the global `PULSE_MAINTENANCE_INTERVAL` / `PULSE_AUDIENCE_RECONCILE_INTERVAL` passes.
+- **The M1 e2e flake** (`TestListEnumFieldsAndPhoneCountry`, waiting for a contact to leave segments) was a bug, not
+  timing: a new segment's catch-up rebuild (5 s after its backfill) read ClickHouse before the contact's second
+  identify had reached it and replaced the bitmap, putting back a contact the stream had just taken out; nothing
+  corrected it until the next sweep. `segengine.Rebuild` now checks diffs of up to 20,000 contacts of a streamed
+  segment against the contacts' current profiles (Postgres) and counters (Redis), evaluated exactly as the stream
+  does, and applies only the changes that still hold, bit by bit; larger diffs (a first backfill of a big segment)
+  replace the bitmap as before. The test is unchanged.
+- **Not built:** Gupshup RCS delivery-report and inbound formats are inferred (no public docs found);
+  per-workspace maintenance interval (a global pass); a no-secret preview of SMTP presets (they have Test connection
+  and Send test, not a request preview, since SMTP has no HTTP request).
+
 ## Docs for the final pass
 
 From M4 on, docs and screenshots are updated in one pass after M6 (owner's decision, 2026-11-11).
@@ -318,12 +450,39 @@ Each milestone adds what it needs here.
   10 (Users, Campaign performance, Products, Live events); new 15 "Delivery and dashboards" in the index.
 - Screenshots: new `15-*.mjs`; retake 02, 04, 07, 10, 14 and every shot showing the sidebar.
 
+**M5:**
+- README: M5 features; provider list (Gmail, Google Workspace, Workspace relay, Gupshup SMS/WhatsApp/RCS, gateway
+  custom request and authentication); the new settings page with every field, default and range; retention moved
+  off Data & privacy and now daily per workspace; provider secrets merged key by key and cleared on a host change.
+- docs/02-architecture.md: `internal/httpauth` (types, token cache keys, lock, 401 retry, sealing), host pinning,
+  gateway custom-request mode and `{{message.x}}`, `Outbound.Vars`, Gupshup adapters and GET receipts, SMTP `Helo`
+  and XOAUTH2, `internal/automation` and `tenant_settings.automation`, migration pg 024 and `retention_runs`, daily
+  per-workspace retention with event groups, per-workspace retries / sweep interval / rebuild hour / live feed size,
+  the rebuild verification in segengine (M1 flake).
+- docs/05-feature-parity.md: custom auth, custom requests, Gmail/Workspace/relay, Gupshup, automation settings.
+- Developer 03 (API): `POST /v1/channels/providers/check-auth`, `POST /v1/channels/providers/preview`, provider save
+  (merge, `secrets_cleared`, preset limits, `limits` on create), `GET|PUT /v1/settings/automation`,
+  `POST /v1/settings/automation/preview`, `POST /v1/settings/automation/run-retention`, the `PUT /v1/settings/data`
+  merge, SMS template `dlt_template_id` / `dlt_entity_id`.
+- Developer 06 (webhooks/providers): authentication types and the login flow (JSON path / header / regex, expiry,
+  injection, refresh on 401), the custom request (template variables and escaping, success rule, id path, receipt
+  mapping and verification, fail-closed), Gupshup webhook set-up (`?token=`, v2 events, delivery report URL by GET or
+  POST), endpoints unconfirmed; Gmail XOAUTH2 setup (OAuth client, refresh token for https://mail.google.com/) and
+  relay setup (Admin console, IP allowlist, EHLO domain).
+- Tutorials: 4 (Channels: Gmail / Workspace / relay presets with their limits, Gupshup, custom gateway with
+  authentication, Test connection, Preview request), 5 (SMS template DLT fields), 11 (or the settings tutorial:
+  Automation & limits, the "What will be deleted" dialog, Data & privacy now linking there); a new tutorial 16
+  "Connecting any provider" (custom request + login flow walk-through) in the index.
+- Screenshots: new `16-*.mjs` (provider form with authentication, custom request, Test connection result, request
+  preview; Automation & limits page; What will be deleted dialog); retake the Channels provider form (presets, notes),
+  the SMS template editor, Data & privacy, Segments "Daily at" default, and every shot showing the settings menu.
+
 ## Risks
 
 - Gmail shows AMP only for senders Google has registered (SPF, DKIM, DMARC); that is outside Pulse.
 - Plain SMTP relays give no delivery webhooks, so "delivered" exists only for sending services; their
   bounces come only through the bounce mailbox. Bounces from before M4 can't be linked to campaigns.
 - Gupshup endpoints and parameters must be confirmed with a real account; adapters are tested against
-  mocks.
+  mocks. RCS formats (send body, delivery reports, inbound) are inferred from RBM, not documented by Gupshup.
 - At 100M contacts, audience estimates (Redis bitmap operations) are cached and rate-limited, and
   per-event-name retention runs as daily batched ClickHouse deletes.

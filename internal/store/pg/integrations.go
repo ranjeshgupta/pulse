@@ -5,7 +5,6 @@ package pg
 import (
 	"context"
 	"errors"
-	"math/rand/v2"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -143,7 +142,8 @@ func (s *Store) SetIntegrationStatus(ctx context.Context, id int64, status, last
 	return err
 }
 
-// LogIntegration appends to a connector's log; now and then it prunes entries older than a week.
+// LogIntegration appends to a connector's log. Old entries are deleted by the daily retention
+// cleanup (Settings → Automation & limits, a week by default).
 func (s *Store) LogIntegration(ctx context.Context, id int64, e integrations.LogEntry) error {
 	if len(e.Message) > 1000 {
 		e.Message = e.Message[:1000]
@@ -151,9 +151,6 @@ func (s *Store) LogIntegration(ctx context.Context, id int64, e integrations.Log
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO integration_log (integration_id, action, ok, count, message)
 		SELECT $1, $2, $3, $4, $5 WHERE EXISTS (SELECT 1 FROM integrations WHERE id = $1)`, id, e.Action, e.OK, e.Count, e.Message)
-	if err == nil && rand.IntN(200) == 0 {
-		_, err = s.db.Exec(ctx, `DELETE FROM integration_log WHERE at < now() - interval '7 days'`)
-	}
 	return err
 }
 

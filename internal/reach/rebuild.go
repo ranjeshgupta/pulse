@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"pulse/internal/automation"
 )
 
 // Row is what a rebuild reads of one contact: its id and the attributes Bits looks at (with
@@ -31,8 +33,31 @@ type Rebuilder struct {
 	RDB   redis.Cmdable
 	Log   *slog.Logger
 	Now   func() time.Time
-	// Every is how long a rebuild stays fresh (a day by default).
+	// Every is how long a rebuild stays fresh (a day by default). When it is unset and Settings
+	// is set, a workspace with a rebuild hour (automation.Schedules.ReachRebuildHour) is rebuilt
+	// at that hour instead.
 	Every time.Duration
+	// Settings reads workspaces' automation settings (optional; pg.Store).
+	Settings SettingsStore
+}
+
+// SettingsStore reads a workspace's automation settings.
+type SettingsStore interface {
+	AutomationSettings(ctx context.Context, tenant int64) (automation.Settings, error)
+}
+
+// freshFor is how long a rebuild done now stays fresh.
+func (r *Rebuilder) freshFor(ctx context.Context, tenant int64) time.Duration {
+	if r.Every > 0 {
+		return r.Every
+	}
+	if r.Settings != nil {
+		if a, err := r.Settings.AutomationSettings(ctx, tenant); err == nil {
+			now := r.now()
+			return a.Schedules.NextRebuild(now).Sub(now)
+		}
+	}
+	return 24 * time.Hour
 }
 
 const (
@@ -156,11 +181,7 @@ func (r *Rebuilder) Rebuild(ctx context.Context, tenant int64) (int, error) {
 			break
 		}
 	}
-	every := r.Every
-	if every <= 0 {
-		every = 24 * time.Hour
-	}
-	return n, r.RDB.Set(ctx, BuiltKey(tenant), r.now().UTC().Format(time.RFC3339), every).Err()
+	return n, r.RDB.Set(ctx, BuiltKey(tenant), r.now().UTC().Format(time.RFC3339), r.freshFor(ctx, tenant)).Err()
 }
 
 // trim drops trailing zero bytes (the doubling growth above over-allocates).
