@@ -35,7 +35,7 @@ export function ReportList() {
       <div className="panel">
         {rs.length === 0 && !q.isLoading ? (
           <Empty title="No reports yet" action={<Link className="btn primary" to="/reports/new">Create a report</Link>}>
-            Build reports like "Revenue by product", "Purchases per day" or "Email outcomes by broadcast".
+            Build reports like "Revenue by product", "Purchases per day" or "Email outcomes by campaign".
           </Empty>
         ) : (
           <table className="table">

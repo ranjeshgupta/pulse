@@ -72,7 +72,7 @@ describe("who may open a list", () => {
 
   it("says why a number isn't a link", () => {
     expect(whyNoLink(reports, [["in", 4]])).toMatch(/view access to contacts/);
-    expect(whyNoLink(contacts, outcomeFilters("journey", 7, "sent"))).toMatch(/journeys or reports/);
+    expect(whyNoLink(contacts, outcomeFilters("journey", 7, "sent"))).toMatch(/triggered & automation campaigns or reports/);
     expect(whyNoLink(both, [["in", 4]])).toBe("");
   });
 });

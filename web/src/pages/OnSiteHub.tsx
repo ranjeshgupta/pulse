@@ -119,7 +119,7 @@ function NewOnSiteModal({ onClose }: { onClose: () => void }) {
   const nav = useNavigate();
   const [channel, setChannel] = useState<Channel | null>(null);
   return (
-    <Modal title="New on-site or in-app message" onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
+    <Modal title="New website or app message" onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
       <p className="small muted" style={{ marginBottom: 10 }}>Where should it show?</p>
       <div className="seg-kind" role="radiogroup" aria-label="Channel">
         <button role="radio" aria-checked={channel === "website"} className={channel === "website" ? "on" : ""} onClick={() => setChannel("website")}>

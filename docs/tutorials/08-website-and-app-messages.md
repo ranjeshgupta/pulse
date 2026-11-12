@@ -27,7 +27,7 @@ once) and the share who tapped a button. Filter with **All / Website / Mobile ap
 
 Click **New**. Pulse asks where it should show; choose **Website**, then what kind:
 
-<img src="img/08-new.png" alt="New on-site or in-app message: Website or Mobile app, then Pop-up, banner bar or slide-in, or Dynamic web content" width="420">
+<img src="img/08-new.png" alt="New website or app message: Website or Mobile app, then Pop-up, banner bar or slide-in, or Dynamic web content" width="420">
 
 ## 2. A slide-in on your website
 

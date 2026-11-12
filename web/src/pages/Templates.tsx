@@ -26,6 +26,9 @@ function savedScope(): string {
   try { return localStorage.getItem(SCOPE_KEY) ?? ""; } catch { return ""; }
 }
 
+
+/** channelWord: a channel's name inside a sentence ("email", "push", but "SMS", "WhatsApp"). */
+const channelWord = (c: Channel) => { const n = CHANNEL_NAMES[c]; return /^[A-Z][a-z]+$/.test(n) ? n.toLowerCase() : n; };
 export function TemplateList() {
   const [params, setParams] = useSearchParams();
   const channel = (params.get("channel") ?? "") as Channel | "";
@@ -36,7 +39,7 @@ export function TemplateList() {
       <PageHead
         title="Message templates"
         intro="Reusable content for the email, SMS, WhatsApp, RCS, push and app inbox messages your campaigns send. Each template belongs to one channel. (Website and app pop-ups are made under Website & app messages; landing pages under Landing pages.)"
-        actions={<Link className="btn primary" to={`/templates/new?channel=${channel || "email"}`}>New {channel ? CHANNEL_NAMES[channel] : "email"} template</Link>}
+        actions={<Link className="btn primary" to={`/templates/new?channel=${channel || "email"}`}>New {channelWord(channel || "email")} template</Link>}
       />
       <div className="tabs" role="tablist">
         {(["", ...CHANNELS] as const).map((c) => (
@@ -146,9 +149,9 @@ export function TemplateEdit() {
     <div className="page" style={t.channel === "email" ? { maxWidth: "none" } : undefined}>
       <PageHead
         back={<Link className="back" to={`/templates?channel=${t.channel}`}>Message templates</Link>}
-        title={isNew ? `New ${CHANNEL_NAMES[t.channel]} template` : t.name || "Template"}
+        title={isNew ? `New ${channelWord(t.channel)} template` : t.name || "Template"}
         actions={<>
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this template? Journey steps that use it will fail to send.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this template? Campaigns that use it will fail to send.") && remove.mutate()}>Delete</button>}
           {!isNew && <DuplicateButton path={`/v1/templates/${id}/duplicate`} open={(nid) => `/templates/${nid}`} invalidate={["templates"]} />}
           <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setT({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
           <button className="btn" disabled={isNew} title={isNew ? "Save the template first" : undefined} onClick={() => setTesting(true)}>Send a test</button>

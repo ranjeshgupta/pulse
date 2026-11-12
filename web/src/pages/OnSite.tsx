@@ -109,7 +109,7 @@ export function FocusEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/on-site?channel=website">On-site &amp; in-app</Link>}
+        back={<Link className="back" to="/on-site?channel=website">Website &amp; app messages</Link>}
         title={isNew ? "New focus item" : f.name}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this focus item?") && remove.mutate()}>Delete</button>}
@@ -487,7 +487,7 @@ export function DWCEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/on-site?channel=website">On-site &amp; in-app</Link>}
+        back={<Link className="back" to="/on-site?channel=website">Website &amp; app messages</Link>}
         title={isNew ? "New content slot" : d.name}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this slot? The placeholder on your pages will stay empty.") && remove.mutate()}>Delete</button>}

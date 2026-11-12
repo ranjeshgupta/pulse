@@ -50,8 +50,8 @@ export function campaignLink(m: Pick<ContactMessage, "source" | "source_id">): s
 /** campaignName names a message's campaign when the server didn't (deleted ones). */
 export function campaignName(m: Pick<ContactMessage, "source" | "source_id" | "campaign">): string {
   if (m.campaign) return m.campaign;
-  if (m.source === "broadcast") return `Broadcast ${m.source_id}`;
-  if (m.source === "journey") return `Journey ${m.source_id}`;
+  if (m.source === "broadcast") return `One-time campaign ${m.source_id} (deleted)`;
+  if (m.source === "journey") return `Campaign ${m.source_id} (deleted)`;
   return "Other";
 }
 

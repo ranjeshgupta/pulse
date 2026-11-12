@@ -21,6 +21,9 @@ export function contactsHref(filters: ContactFilter[]): string {
 }
 
 /** What each filter needs on top of contacts view: any one of these areas' view access. */
+/** AREA_WORDS: role areas as the Roles page names them. */
+const AREA_WORDS: Partial<Record<Area, string>> = { broadcasts: "one-time campaigns", journeys: "triggered & automation campaigns" };
+
 const NEEDS: Record<string, Area[]> = {
   "campaign:broadcast": ["broadcasts", "reports"],
   "campaign:journey": ["journeys", "reports"],
@@ -52,7 +55,7 @@ export function canListContacts(perms: Perms | undefined, filters: ContactFilter
 export function whyNoLink(perms: Perms | undefined, filters: ContactFilter[]): string {
   if (!can(perms, "contacts", "view")) return "Your role can't open contact lists (it needs view access to contacts).";
   const missing = needKeys(filters).find((k) => !(NEEDS[k] ?? []).some((a) => can(perms, a, "view")));
-  return missing ? `Your role can't list these contacts (it needs view access to ${NEEDS[missing].join(" or ")}).` : "";
+  return missing ? `Your role can't list these contacts (it needs view access to ${NEEDS[missing].map((a) => AREA_WORDS[a] ?? a).join(" or ")}).` : "";
 }
 
 // ---- builders for the places that show counts ----

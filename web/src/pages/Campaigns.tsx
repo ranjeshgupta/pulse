@@ -442,7 +442,7 @@ export function OneTimeWizard() {
         {step === "schedule" && (
           <div style={{ maxWidth: 760 }}>
             <Field label="Repeat">
-              <select className="select" value={s.repeat} onChange={(e) => set({ repeat: e.target.value, local_time: e.target.value === "none" ? s.local_time : false })}>
+              <select className="select" value={s.repeat} onChange={(e) => set({ repeat: e.target.value, local_time: e.target.value === "none" ? s.local_time : false, ...(e.target.value === "none" ? { end_at: null } : {}) })}>
                 {Object.entries(REPEAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </Field>
@@ -450,7 +450,7 @@ export function OneTimeWizard() {
               <button type="button" className="btn sm" onClick={() => set({ start_at: nowISO(), local_time: false })}>Send now</button>
               <span className="xs muted">or choose a time:</span>
             </div>
-            <ScheduleFields start={s.start_at} end={s.end_at} onChange={(w) => set({ start_at: w.start_at ?? "", end_at: w.end_at ?? null })} startLabel={s.repeat === "none" ? "Send at" : "First send"} />
+            <ScheduleFields start={s.start_at} end={s.end_at} onChange={(w) => set({ start_at: w.start_at ?? "", end_at: w.end_at ?? null })} startLabel={s.repeat === "none" ? "Send at" : "First send"} once={s.repeat === "none"} />
             {s.repeat === "none" && (
               <label className="check"><input type="checkbox" checked={!!s.local_time} onChange={(e) => set({ local_time: e.target.checked })} />Send at {localClock(s.start_at)} in each contact's own time zone</label>
             )}

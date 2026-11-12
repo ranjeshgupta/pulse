@@ -515,7 +515,7 @@ func needWords(filter string) string {
 	case "campaign:broadcast":
 		return "one-time campaigns or reports"
 	case "campaign:journey", "journey":
-		return "journeys or reports"
+		return "triggered & automation campaigns or reports"
 	case "campaign:any":
 		return "reports"
 	}

@@ -38,7 +38,7 @@ describe("campaignLink and campaignName", () => {
     expect(campaignLink({ source: "broadcast", source_id: 4 })).toBe("/broadcasts/4");
     expect(campaignLink({ source: "journey", source_id: 9 })).toBe("/journeys/9");
     expect(campaignLink({ source: "other", source_id: 0 })).toBeNull();
-    expect(campaignName({ source: "journey", source_id: 9 })).toBe("Journey 9");
+    expect(campaignName({ source: "journey", source_id: 9 })).toBe("Campaign 9 (deleted)");
     expect(campaignName({ source: "broadcast", source_id: 4, campaign: "Sale" })).toBe("Sale");
   });
 });

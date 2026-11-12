@@ -126,6 +126,12 @@ const OBJECT_TYPES: { value: string; label: string }[] = [
   { value: "settings", label: "Settings" },
 ];
 
+/** objectWord names an audit row's object type as the filter does ("One-time campaigns" for broadcasts). */
+function objectWord(t: string, one = false): string {
+  const label = OBJECT_TYPES.find((o) => o.value === t)?.label ?? (t.charAt(0).toUpperCase() + t.slice(1)).replace(/[-_]/g, " ");
+  return one && label !== "Settings" ? label.replace(/s$/, "") : label; // one item: "One-time campaign #614"
+}
+
 function objectLink(e: AuditEntry): string | null {
   if (!e.object_id) return null;
   if (e.object_type === "settings" && e.action.includes("/webhooks/")) return `/settings/webhooks/${e.object_id}`;
@@ -231,9 +237,9 @@ export function AuditLog() {
                       <td>{e.actor}</td>
                       <td>{actionLabel(e.action)}</td>
                       <td>
-                        {link ? <Link to={link} onClick={(ev) => ev.stopPropagation()}>{e.object_type} #{e.object_id}</Link>
-                          : e.object_id ? <span className="muted">{e.object_type} {e.object_id}</span>
-                          : <span className="faint">{e.object_type}</span>}
+                        {link ? <Link to={link} onClick={(ev) => ev.stopPropagation()}>{objectWord(e.object_type, true)} #{e.object_id}</Link>
+                          : e.object_id ? <span className="muted">{objectWord(e.object_type, true)} {e.object_id}</span>
+                          : <span className="faint">{objectWord(e.object_type)}</span>}
                       </td>
                       <td><Outcome status={e.status} /></td>
                     </tr>

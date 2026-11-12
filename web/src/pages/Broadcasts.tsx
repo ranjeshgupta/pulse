@@ -155,7 +155,7 @@ export function BroadcastEdit() {
   });
   const cancel = useMutation({
     mutationFn: () => api.post(`/v1/broadcasts/${id}/cancel`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["broadcast", id] }); setB(null); toast({ text: "Broadcast cancelled. Nothing more will be sent." }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["broadcast", id] }); setB(null); toast({ text: "Campaign cancelled. Nothing more will be sent." }); },
   });
   const remove = useMutation({ mutationFn: () => api.del(`/v1/broadcasts/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["broadcasts"] }); nav("/broadcasts"); } });
 
@@ -258,14 +258,13 @@ export function BroadcastEdit() {
         <h3 style={{ margin: "10px 0 12px" }}>When</h3>
         <div className="grid-2">
           <Field label="Repeat">
-            <select className="select" value={b.repeat} onChange={(e) => set({ repeat: e.target.value as Repeat, local_time: e.target.value === "none" ? b.local_time : false })}>
+            <select className="select" value={b.repeat} onChange={(e) => set({ repeat: e.target.value as Repeat, local_time: e.target.value === "none" ? b.local_time : false, ...(e.target.value === "none" ? { end_at: null } : {}) })}>
               {Object.entries(REPEAT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
         </div>
-        <ScheduleFields start={b.start_at} end={b.end_at} onChange={(w) => set({ start_at: w.start_at ?? "", end_at: w.end_at ?? null })} startLabel={b.repeat === "none" ? "Send at" : "First send"} />
+        <ScheduleFields start={b.start_at} end={b.end_at} onChange={(w) => set({ start_at: w.start_at ?? "", end_at: w.end_at ?? null })} startLabel={b.repeat === "none" ? "Send at" : "First send"} once={b.repeat === "none"} />
         {b.repeat !== "none" && <p className="xs muted" style={{ marginTop: -6 }}>Sends {REPEAT_LABEL[b.repeat].toLowerCase()} at the same time. {b.end_at ? "" : "With no end, it keeps going until you cancel it."}</p>}
-        {b.repeat === "none" && !b.local_time && new Date(b.start_at) < new Date() && <p className="xs muted" style={{ marginTop: -6 }}>The time has passed, so scheduling sends it right away.</p>}
         {b.repeat === "none" && (
           <label className="check">
             <input type="checkbox" checked={!!b.local_time} onChange={(e) => set({ local_time: e.target.checked, timezone: e.target.checked ? browserZone() : "" })} />

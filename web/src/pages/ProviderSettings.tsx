@@ -14,7 +14,7 @@ type Setter = (key: string, value: string) => void;
 
 /** ConfigField renders one catalog setting: a select when it has options, else an input. */
 export function ConfigField({ f, value, onChange }: { f: ProviderField; value: string; onChange: (v: string) => void }) {
-  const label = f.label + (f.required ? "" : " (optional)");
+  const label = f.label + (f.required || f.options ? "" : " (optional)"); // a choice always has a value
   return (
     <Field label={label} hint={f.hint}>
       {f.options ? (

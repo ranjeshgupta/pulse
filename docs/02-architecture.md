@@ -959,11 +959,11 @@ These run on raw events today and are fine into the hundreds of millions of rows
   frequency cap alone) and sampled above ("about"). Bitmap builds and first pages are limited to 120 a minute per
   workspace (`rlview`). Where a list can differ from its number the response carries a `note`.
 - **Permissions** (`viewFilterNeeds` in `perms.go`): contacts view, plus broadcasts or reports view for
-  `campaign:broadcast`, journeys or reports view for `campaign:journey` and `journey:`, reports view for outcomes across
+  `campaign:broadcast`, triggered & automation campaigns (journeys area) or reports view for `campaign:journey` and `journey:`, reports view for outcomes across
   every campaign, content or reports view for `amp_poll:` and `form:`. The app mirrors the rules (`web/src/contactLinks.ts`)
   and leaves a number unlinked with a tooltip.
 - **Create segment from this list.** `POST /v1/contacts/view-segment {q, name}` (segments edit plus the view's needs;
-  audited; 10 a minute per workspace) makes a static segment and adds the list's contacts (up to 500,000) in the
+  audited; 10 a minute and 2 fills at a time per workspace) makes a static segment and adds the list's contacts (up to 500,000) in the
   background as `list_joined` events, from a 15-minute copy of the view's bitmap (`cvset:*:snap`).
 - **Campaign navigation.** One sidebar entry, Campaigns; the types One-time (broadcasts), Triggered (event or form
   journeys) and Automation (segment journeys) as in the M3 hub. `/journeys` and `/broadcasts` answer 301 from the server

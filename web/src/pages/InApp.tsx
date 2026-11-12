@@ -138,7 +138,7 @@ export function InAppEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/on-site?channel=app">On-site &amp; in-app</Link>}
+        back={<Link className="back" to="/on-site?channel=app">Website &amp; app messages</Link>}
         title={isNew ? "New in-app message" : m.name || "In-app message"}
         actions={<>
           {!isNew && <button className="btn danger" onClick={() => confirm("Delete this in-app message?") && remove.mutate()}>Delete</button>}

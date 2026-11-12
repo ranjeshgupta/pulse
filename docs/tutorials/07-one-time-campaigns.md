@@ -117,13 +117,13 @@ the percentage you set (here 2 or 4 of the 6).
 
 ## 5. When to send
 
-![When: Repeat Once, Send at (required), Ends (optional), "The time has passed, so scheduling sends it right away", the own-time-zone box, the send deadline, the Conversion goal and Who it reaches now](img/07-when.png)
+![When: Repeat Once, Send at (required), "The time has passed, so scheduling sends it right away", the own-time-zone box, the send deadline, the Conversion goal and Who it reaches now](img/07-when.png)
 
 | Field | |
 |---|---|
 | **Repeat** | **Once**, **Every day**, **Every week** or **Every month** |
 | **Send at (required)** | The date and time (it reads **First send** for a repeating campaign). It starts as now; a time that has passed means *send right away* |
-| **Ends (optional)** | For repeating campaigns: the last time it may send. Leave it empty to keep it going until you cancel it |
+| **Ends (optional)** | Repeating campaigns only (a **Once** campaign has no end): the last time it may send. Leave it empty to keep it going until you cancel it |
 
 Times are in your browser's time zone, and the campaign goes to everyone at that time. (Quiet hours, if
 you turn them on under Delivery rules, hold SMS, WhatsApp, RCS and push until they end in each

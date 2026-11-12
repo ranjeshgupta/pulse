@@ -45,7 +45,7 @@ export default async function (browser) {
   await shot(page, AREA, "08-list", { clip: page.locator(".page > *"), pad: 12 });
   await clearHighlights(page);
   await newBtn.click();
-  const modal = page.getByRole("dialog", { name: "New on-site or in-app message" });
+  const modal = page.getByRole("dialog", { name: "New website or app message" });
   await modal.getByRole("radio", { name: /^Website/ }).click();
   await settle(page);
   await shot(page, AREA, "08-new", { clip: modal, pad: 0 });
