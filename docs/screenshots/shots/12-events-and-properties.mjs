@@ -44,7 +44,14 @@ async function eventList(page) {
   const create = page.getByRole("dialog", { name: "New event" });
   await create.getByLabel("Event name").fill("webinar_joined");
   await create.getByLabel("Label (optional)").fill("Joined a webinar");
-  await create.getByLabel("Description (optional)").fill("Sent when someone joins a live webinar.");
+  await create.getByLabel("Description (optional)").fill("Someone joined a live webinar.");
+  for (const [i, key, type] of [[1, "topic", "Text"], [2, "duration_minutes", "Number"], [3, "source", "One of a list"]]) {
+    await create.getByRole("button", { name: "Add property" }).click();
+    await create.getByLabel(`Key of property ${i}`).fill(key);
+    await create.getByLabel(`Type of ${key}`).selectOption({ label: type });
+  }
+  await create.getByLabel("topic is required").check();
+  await create.getByLabel("Allowed values of source").fill("email, whatsapp, website");
   await settle(page);
   await shot(page, AREA, "12-new-event", { clip: create, pad: 0 });
   await create.getByRole("button", { name: "Cancel" }).click();

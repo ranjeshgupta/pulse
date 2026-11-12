@@ -90,3 +90,14 @@
   .ev-stats { grid-template-columns: 1fr; }
   .ev-enum-row { flex-wrap: wrap; }
 }
+
+/* New event dialog: properties */
+.ev-new-props-head { display: flex; align-items: center; gap: 8px; margin: 6px 0 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.ev-new-props-head h4 { margin: 0; flex: 1; font-size: var(--fs-base); }
+.ev-new-props-head .select { width: auto; max-width: 260px; }
+.ev-new-empty { margin: 0 0 4px; }
+.table.ev-new-props td { vertical-align: top; }
+.table.ev-new-props td:nth-child(3) { text-align: center; padding-top: 22px; }
+.table.ev-new-props td:nth-child(4) { padding-top: 18px; }
+.ev-new-props .select { min-width: 140px; }
+.ev-new-values { margin-top: 6px; }

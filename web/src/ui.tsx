@@ -74,12 +74,12 @@ export function LiveNumber({ value }: { value: number }) {
   return <span className={`live-num${changed ? " changed" : ""}`}>{value.toLocaleString("en-IN")}</span>;
 }
 
-export function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   useEscape(onClose);
   return (
     <>
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={wide ? "modal wide" : "modal"} role="dialog" aria-modal="true" aria-label={title}>
         <div className="panel-head"><h3>{title}</h3><button className="btn ghost sm" onClick={onClose}>Close</button></div>
         <div className="panel-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}

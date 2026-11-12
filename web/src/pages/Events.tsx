@@ -7,7 +7,7 @@ import {
 } from "../api";
 import { useMe } from "../auth";
 import {
-  cleanProps, dependsSentence, newEventProblem, exampleProps, fillDays, formatShare, keyFromPath, mergeProperties, MODE_HELP, modeLabel, moveProp,
+  cleanProps, copyProps, dependsSentence, newEventProblem, parseValues, valuesText, exampleProps, fillDays, formatShare, keyFromPath, mergeProperties, MODE_HELP, modeLabel, moveProp,
   pathOf, problemWords, PROP_TYPES, propFromDiscovered, TYPE_NAMES, validateSchema,
 } from "../eventSchemas";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, timeAgo, useToast } from "../ui";
@@ -104,8 +104,9 @@ function ProblemCell({ e }: { e: CatalogEntry }) {
 }
 
 // NewEventModal describes an event your site, app or server will send, before the first one arrives,
-// so segments and campaigns can offer it straight away. It saves an empty schema in Warn mode and
-// opens the event's Schema tab to add its properties.
+// so segments and campaigns can offer it straight away. Its properties can start from a described or
+// suggested event (cart_abandoned, …); allowed values' labels, lists and conditions are edited on the
+// Schema tab, which opens after saving. The schema starts in Warn mode.
 function NewEventModal({ known, onClose }: { known: CatalogEntry[]; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -113,39 +114,109 @@ function NewEventModal({ known, onClose }: { known: CatalogEntry[]; onClose: () 
   const [name, setName] = useState("");
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
+  const [props, setProps] = useState<SchemaProp[]>([]);
+  const described = useQuery({ queryKey: ["event-schemas"], queryFn: () => api.get<{ schemas: EventSchema[] }>("/v1/events/schemas"), staleTime: 60_000 });
+  const suggested = useQuery({ queryKey: ["event-schemas", "suggested"], queryFn: () => api.get<{ schemas: Suggested[] }>("/v1/events/schemas/suggested") });
+  const sources = [
+    ...(described.data?.schemas ?? []).filter((x) => x.props.length > 0),
+    ...(suggested.data?.schemas ?? []).filter((x) => !x.exists && x.props.length > 0),
+  ];
   const trimmed = name.trim();
-  const problem = newEventProblem(trimmed, known);
+  const nameProblem = newEventProblem(trimmed, known);
+  const problems = useMemo(() => validateSchema({ label, description, mode: "warn", props }), [label, description, props]);
+  const setProp = (i: number, patch: Partial<SchemaProp>) => setProps(props.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const copyFrom = (from: string) => {
+    const src = sources.find((x) => x.name === from);
+    if (src) setProps(copyProps(props, src.props));
+  };
   const save = useMutation({
     mutationFn: () => api.put<EventSchema>(`/v1/events/${encodeURIComponent(trimmed)}/schema`, {
-      label: label.trim(), description: description.trim(), mode: "warn", props: [],
+      label: label.trim(), description: description.trim(), mode: "warn", props: cleanProps(props),
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["event-catalog"] });
       qc.invalidateQueries({ queryKey: ["event-schemas"] });
       qc.invalidateQueries({ queryKey: ["event-names"] });
-      toast({ text: `Added ${trimmed}. Now list the details it carries.` });
+      qc.invalidateQueries({ queryKey: ["attributes"] });
+      toast({ text: `Added ${trimmed}` });
       nav(`/events/${encodeURIComponent(trimmed)}`, { state: { tab: "schema" } });
     },
   });
+  const showProblems = props.some((p) => p.key) && problems.length > 0;
   return (
-    <Modal title="New event" onClose={onClose} footer={<>
+    <Modal wide title="New event" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!trimmed || !!problem || save.isPending} onClick={() => save.mutate()}>Add event</button>
+      <button className="btn primary" disabled={!trimmed || !!nameProblem || problems.length > 0 || save.isPending} onClick={() => save.mutate()}>Add event</button>
     </>}>
-      <p className="small muted" style={{ marginTop: 0 }}>
+      <p className="small muted" style={{ marginTop: 0, marginBottom: 16 }}>
         Describe an event before your site, app or server first sends it, so you can build segments and campaigns on it now.
-        Contacts appear under it once events with this name arrive.
       </p>
       <ErrorNote error={save.error} />
-      <Field label="Event name" hint={problem ? <span className="ev-warn">{problem}</span> : <>The exact name your code sends, for example <code>webinar_joined</code>. It can't be changed later.</>}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="webinar_joined" autoFocus spellCheck={false} aria-invalid={!!problem} />
+      <Field label="Event name" hint={nameProblem ? <span className="ev-warn">{nameProblem}</span> : <>The exact name your code sends, for example <code>webinar_joined</code>. It can't be changed later.</>}>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="webinar_joined" autoFocus spellCheck={false} aria-invalid={!!nameProblem} />
       </Field>
-      <Field label="Label (optional)" hint="A friendly name shown in segments and campaigns.">
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Joined a webinar" maxLength={120} />
-      </Field>
-      <Field label="Description (optional)">
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={500} placeholder="Sent when someone joins a live webinar." />
-      </Field>
+      <div className="grid-2">
+        <Field label="Label (optional)" hint="How the event is named in segments, campaigns and reports.">
+          <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Joined a webinar" maxLength={120} />
+        </Field>
+        <Field label="Description (optional)">
+          <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Someone joined a live webinar." maxLength={500} />
+        </Field>
+      </div>
+
+      <div className="ev-new-props-head">
+        <h4>Properties</h4>
+        <select className="select" value="" aria-label="Copy properties from another event" disabled={sources.length === 0} onChange={(e) => copyFrom(e.target.value)}>
+          <option value="">Copy properties from…</option>
+          {sources.map((x) => <option key={x.name} value={x.name}>{x.label || x.name} ({x.props.length})</option>)}
+        </select>
+        <button className="btn sm" disabled={props.length >= 100} onClick={() => setProps([...props, { key: "", type: "string" }])}>Add property</button>
+      </div>
+      {props.length === 0 ? (
+        <p className="small muted ev-new-empty">The details this event carries, such as <code>topic</code> or <code>duration</code>. Optional: you can add them later on the Schema tab.</p>
+      ) : (
+        <table className="table ev-new-props">
+          <thead><tr><th>Key</th><th>Type</th><th>Required</th><th /></tr></thead>
+          <tbody>
+            {props.map((p, i) => {
+              const n = p.key || `property ${i + 1}`;
+              return (
+                <tr key={i}>
+                  <td>
+                    <input className="input" value={p.key} maxLength={64} placeholder="topic" spellCheck={false} aria-label={`Key of property ${i + 1}`}
+                      onChange={(e) => setProp(i, { key: e.target.value })} />
+                    {p.path && p.path !== p.key && <div className="xs muted">from <code>{p.path}</code></div>}
+                    {p.type === "enum" && (
+                      <input className="input ev-new-values" value={valuesText(p.values)} placeholder="Allowed values, separated by commas" aria-label={`Allowed values of ${n}`}
+                        onChange={(e) => setProp(i, { values: parseValues(e.target.value, p.values) })} />
+                    )}
+                  </td>
+                  <td>
+                    <select className="select" value={p.type} aria-label={`Type of ${n}`} onChange={(e) => {
+                      const type = e.target.value as PropType;
+                      setProp(i, { type, values: type === "enum" ? p.values ?? [] : undefined, add_to_list: type === "list" || type === "object" ? undefined : p.add_to_list });
+                    }}>
+                      {PROP_TYPES.map((t) => <option key={t} value={t}>{TYPE_NAMES[t]}</option>)}
+                    </select>
+                  </td>
+                  <td><input type="checkbox" checked={!!p.required} aria-label={`${n} is required`} onChange={(e) => setProp(i, { required: e.target.checked })} /></td>
+                  <td className="num">
+                    <button className="btn ghost sm danger" aria-label={`Remove ${n}`}
+                      onClick={() => setProps(props.filter((_, j) => j !== i).map((x) => (x.depends_on?.prop === p.key ? { ...x, depends_on: null } : x)))}>Remove</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {showProblems && (
+        <div className="alert error" role="alert">
+          <strong>Fix these first:</strong>
+          <ul className="ev-problems-list">{problems.map((x) => <li key={x}>{x}</li>)}</ul>
+        </div>
+      )}
+      {props.length > 0 && <p className="xs muted" style={{ marginBottom: 0 }}>After adding, the Schema tab opens for the rest: labels, personal data, lists on the contact and when a property applies.</p>}
     </Modal>
   );
 }

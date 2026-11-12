@@ -28,6 +28,23 @@ export function newEventProblem(name: string, known: { name: string; schema: boo
   return "";
 }
 
+/** copyProps adds another event's properties to a list, skipping keys it already has. Dependencies on
+ * a property that isn't copied are dropped. */
+export function copyProps(props: SchemaProp[], from: SchemaProp[]): SchemaProp[] {
+  const keys = new Set(props.map((p) => p.key));
+  const added = from.filter((p) => !keys.has(p.key)).map((p) => ({ ...p, values: p.values?.map((v) => ({ ...v })) }));
+  const all = [...props, ...added];
+  const have = new Set(all.map((p) => p.key));
+  return all.map((p) => (p.depends_on && !have.has(p.depends_on.prop) ? { ...p, depends_on: null } : p));
+}
+
+/** valuesText / parseValues: an enum's allowed values as the comma-separated text the New event dialog edits. */
+export const valuesText = (values?: { value: string }[]) => (values ?? []).map((v) => v.value).join(", ");
+export function parseValues(text: string, old?: { value: string; label?: string }[]): { value: string; label?: string }[] {
+  const labels = new Map((old ?? []).map((v) => [v.value, v.label]));
+  return text.split(",").map((v) => v.trim()).filter(Boolean).map((value) => (labels.get(value) ? { value, label: labels.get(value) } : { value }));
+}
+
 /** validPath: a name, a dotted path of up to 4 parts (product.code), or a path through one list (items[].code). */
 export function validPath(p: string): boolean {
   if (p === "" || p.length > 128) return false;

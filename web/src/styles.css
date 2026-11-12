@@ -201,6 +201,7 @@ fieldset:disabled .seg-toggle button { cursor: not-allowed; opacity: 0.7; }
 .drawer-head { padding: 18px 22px; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .drawer-body { padding: 18px 22px; overflow-y: auto; flex: 1; }
 .modal { position: fixed; z-index: 41; top: 12vh; left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 32px)); background: var(--surface); border-radius: var(--r-md); border: 1px solid var(--rule); }
+.modal.wide { width: min(760px, calc(100vw - 32px)); top: 8vh; }
 .modal .panel-body { max-height: 70vh; overflow-y: auto; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--rule); display: flex; justify-content: flex-end; gap: 8px; }
 

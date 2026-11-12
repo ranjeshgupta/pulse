@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SchemaProp } from "./api";
 import {
-  newEventProblem,
+  newEventProblem, copyProps, valuesText, parseValues,
   cleanProps, dependsSentence, exampleProps, fillDays, formatShare, guessType, keyFromPath, mergeProperties, modeLabel, moveProp,
   problemWords, propFromDiscovered, validateSchema, validListField, validPath,
 } from "./eventSchemas";
@@ -176,5 +176,29 @@ describe("newEventProblem", () => {
     expect(newEventProblem("1st_login", known)).toMatch(/Start with a letter/);
     expect(newEventProblem("a".repeat(65), known)).toMatch(/64/);
     expect(newEventProblem("purchase", known)).toMatch(/already described/);
+  });
+});
+
+describe("New event properties", () => {
+  it("copies another event's properties once, keeping their details", () => {
+    const cart: SchemaProp[] = [
+      { key: "price", type: "number" },
+      { key: "payment_method", type: "enum", values: [{ value: "upi", label: "UPI" }, { value: "card" }] },
+      { key: "gateway", type: "string", depends_on: { prop: "payment_method", values: ["card"] } },
+    ];
+    const out = copyProps([{ key: "price", type: "string" }], cart);
+    expect(out.map((p) => [p.key, p.type])).toEqual([["price", "string"], ["payment_method", "enum"], ["gateway", "string"]]);
+    expect(out[2].depends_on?.prop).toBe("payment_method");
+    out[1].values![0].value = "x";
+    expect(cart[1].values![0].value).toBe("upi");
+  });
+  it("drops a dependency on a property that isn't there", () => {
+    const out = copyProps([], [{ key: "gateway", type: "string", depends_on: { prop: "payment_method", values: ["card"] } }]);
+    expect(out[0].depends_on).toBeNull();
+  });
+  it("edits allowed values as text and keeps their labels", () => {
+    const old = [{ value: "upi", label: "UPI" }, { value: "card" }];
+    expect(valuesText(old)).toBe("upi, card");
+    expect(parseValues(" upi ,card,, wallet", old)).toEqual([{ value: "upi", label: "UPI" }, { value: "card" }, { value: "wallet" }]);
   });
 });

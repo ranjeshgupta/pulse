@@ -76,17 +76,24 @@ purchase's product codes also go into the contact's list field **Products** (sec
 To describe an event of your own before your code sends it, for example `webinar_joined`, click
 **New event**:
 
-<img src="img/12-new-event.png" alt="The New event window: Event name webinar_joined, Label Joined a webinar, a description, and the Add event button" width="460">
+<img src="img/12-new-event.png" alt="The New event window: Event name webinar_joined, Label Joined a webinar, a description, and three properties: topic (Text, required), duration_minutes (Number) and source (One of a list: email, whatsapp, website)" width="640">
 
 - **Event name** is the exact name your code will send. It starts with a letter, then letters,
   digits, `_` `.` `:` or `-`, up to 64 characters, with no spaces. It can't be changed later. A name
   that is already described is refused; open it from the list instead.
 - **Label** and **Description** are optional. The label is how segments and campaigns show it.
+- **Properties** are the details the event carries, like the ones the suggested events come with.
+  Click **Add property** for each one and give it a key, a type and whether it's required. For
+  **One of a list**, type the allowed values separated by commas. To start from a ready-made set,
+  pick an event in **Copy properties from…**, for example **Cart abandoned** for the product, price,
+  cart value and payment method; copied properties keep their details, and keys you already have
+  aren't copied twice. Properties are optional: you can add them later.
 
-Click **Add event**. The event opens on its **Schema** tab in **Warn** mode, so you can add its
-properties (section 5). It is listed on the Events page with 0 contacts, and segment and campaign
-event pickers offer it straight away. Once events with this name arrive, the contact count fills in
-and you can click it to see who did it.
+Click **Add event**. The event opens on its **Schema** tab in **Warn** mode, where you can set the
+rest (section 5): labels, personal data, adding values to a list on the contact, and when a property
+applies. It is listed on the Events page with 0 contacts, and segment and campaign event pickers
+offer it straight away. Once events with this name arrive, the contact count fills in and you can
+click it to see who did it.
 
 ## 4. Look at an event
 
