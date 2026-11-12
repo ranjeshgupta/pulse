@@ -178,7 +178,7 @@ export function CustomRequestEditor({ channel, config, setConfig }: { channel: C
 }
 
 type Draft = { provider_id?: number; provider: string; config: Record<string, string>; secrets: Record<string, string> };
-type AuthResult = { ok: boolean; result?: { type: string; token?: string; expires?: string; static: boolean }; error?: string; meaning?: string };
+type AuthResult = { ok: boolean; result?: { type: string; token?: string; expires?: string; static: boolean; server?: string; logged_in?: boolean }; error?: string; meaning?: string };
 type PreviewResult = { method: string; url: string; headers: Record<string, string>; body: string };
 
 async function postRaw<T>(path: string, body: unknown): Promise<T> {
@@ -203,7 +203,8 @@ export function ProviderTools({ draft, canAuth, canPreview }: { draft: Draft; ca
       <ErrorNote error={test.error ?? preview.error} />
       {test.data?.ok && test.data.result && (
         <div className="alert ok" style={{ marginTop: 8 }}>
-          {test.data.result.static ? "Nothing to log in to: the credentials are sent with each request." : <>Logged in. Token <code>{test.data.result.token}</code>{test.data.result.expires ? <>, expires {new Date(test.data.result.expires).toLocaleString()}</> : null}.</>}
+          {test.data.result.server ? <>{test.data.result.logged_in ? "Logged in to" : "Connected to"} <code>{test.data.result.server}</code>. Use <strong>Send test</strong> to check a real message arrives.</>
+            : test.data.result.static ? "Nothing to log in to: the credentials are sent with each request." : <>Logged in. Token <code>{test.data.result.token}</code>{test.data.result.expires ? <>, expires {new Date(test.data.result.expires).toLocaleString()}</> : null}.</>}
         </div>
       )}
       {test.data && !test.data.ok && <div className="alert error" style={{ marginTop: 8 }}><strong>{test.data.meaning}.</strong><br />{test.data.error}</div>}

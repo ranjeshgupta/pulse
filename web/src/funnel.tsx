@@ -38,7 +38,7 @@ export function FunnelPanel({ funnel, channels, title = "Funnel", link }: { funn
               <div className="fn-num">
                 <strong>{s.count == null ? <span title={s.hint} aria-label="Not reported">—</span> : <ContactCount value={s.count} live filters={link?.(s.key) ?? null} />}</strong>
                 <span className="fn-rates">
-                  {s.ofPrevious && <span title="Share of the step before">{s.ofPrevious} <span className="faint">of previous</span></span>}
+                  {s.ofPrevious && <span title={s.ofLabel ? `Share of “${s.ofLabel.slice(3)}”` : "Share of the step before"}>{s.ofPrevious} <span className="faint">{s.ofLabel ?? "of previous"}</span></span>}
                   {s.ofSent && <span title="Share of messages sent">{s.ofSent} <span className="faint">of sent</span></span>}
                 </span>
               </div>

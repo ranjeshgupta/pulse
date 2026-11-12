@@ -140,7 +140,8 @@ For **Gmail (SMTP)** and **Google Workspace (SMTP)**:
 2. **Port**: **587 (STARTTLS, recommended)** or **465 (TLS)**.
 3. **Sign in with**:
    - **An app password (simplest)**: in your Google account, turn on 2-step verification, create an
-     app password (16 characters) and paste it in **App password (app password only)**.
+     app password (16 characters) and paste it in **App password (app password only)**. Click
+     **Test connection** to check that Pulse can log in to Gmail with it.
    - **A Google OAuth client (for IT teams)**: your IT team creates an OAuth client with access to
      Gmail (`https://mail.google.com/`) and gives you the **OAuth client ID (OAuth client only)**,
      **OAuth client secret (OAuth client only)** and **OAuth refresh token (OAuth client only)**. Click

@@ -634,7 +634,10 @@ before it expires (a tenth of its lifetime, at most a minute early) by one insta
 one. A login or token endpoint answering 4xx (other than 429), or an answer without a token where
 the settings say, is a permanent failure (`provider_auth`); 5xx and network errors are retried
 like any send. **Test connection** (`POST /v1/channels/providers/check-auth`) runs the login now and
-shows the token masked with its expiry; it never uses or fills the cache.
+shows the token masked with its expiry; it never uses or fills the cache. For an SMTP provider
+(Gmail with an app password, Google's relay, any SMTP server) it opens a new connection (never a
+pooled one), says EHLO, starts TLS, logs in and quits: `result.server` names the server and
+`result.logged_in` says whether it logged in; a `530`/`534`/`535` reply means the credentials were refused.
 
 Changing any of these settings (or the URLs, the mode, the request template, the receipt mapping)
 needs every secret entered again, and pointing the provider at another host clears the saved

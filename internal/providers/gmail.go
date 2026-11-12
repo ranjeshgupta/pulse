@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -204,10 +205,27 @@ func XOAuth2Response(user, token string) []byte {
 	return []byte("user=" + user + "\x01auth=Bearer " + token + "\x01\x01")
 }
 
-// TestAuth fetches an access token now (XOAUTH2 accounts), for "Test connection".
+// TestAuth is "Test connection": XOAUTH2 accounts fetch an access token now; every other SMTP
+// server is connected to and logged in to (app password, plain login, or none), then left with
+// QUIT. A fresh connection, never one from the pool, so a saved login can't hide a broken one.
 func (s *SMTP) TestAuth(ctx context.Context) (httpauth.TestResult, error) {
 	if x, ok := s.Auth.(*xoauth2); ok {
 		return x.auth.Test(ctx)
 	}
-	return httpauth.TestResult{Type: "smtp", Static: true}, nil
+	p, err := s.acquirePool()
+	if err != nil {
+		return httpauth.TestResult{}, fmt.Errorf("%w: %v", httpauth.ErrConfig, err)
+	}
+	defer p.release()
+	sc, err := p.connect(ctx)
+	if err != nil {
+		var te *textproto.Error
+		if errors.As(err, &te) && (te.Code == 535 || te.Code == 534 || te.Code == 530) { // login refused
+			return httpauth.TestResult{}, fmt.Errorf("%w: %v", httpauth.ErrRejected, err)
+		}
+		return httpauth.TestResult{}, err
+	}
+	_ = sc.c.Quit()
+	_ = sc.c.Close()
+	return httpauth.TestResult{Type: "smtp", Static: true, Server: s.Addr, LoggedIn: s.Auth != nil}, nil
 }

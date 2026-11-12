@@ -65,7 +65,11 @@ export function rates(c: MessageCounts, buyers: number, reported: boolean): Rate
   };
 }
 
-export const rowRates = (r: CampaignDashRow, reports: Record<string, boolean>) => rates(r.counts, r.buyers, deliveryReported(r.channels, reports));
+/** rowReported: deliveries count for a campaign when its providers report them now, or when it has
+ * delivery reports anyway (sent through a provider that did): the funnel shows those too. */
+export const rowReported = (r: CampaignDashRow, reports: Record<string, boolean>) => deliveryReported(r.channels, reports) || r.counts.delivered > 0;
+
+export const rowRates = (r: CampaignDashRow, reports: Record<string, boolean>) => rates(r.counts, r.buyers, rowReported(r, reports));
 
 // ---- sorting ----
 
@@ -134,7 +138,7 @@ export function totals(rows: CampaignDashRow[]): DashTotals {
 }
 
 /** totalsReported: deliveries are reported for every channel of every row (so the overall delivery rate means something). */
-export const totalsReported = (rows: CampaignDashRow[], reports: Record<string, boolean>) => rows.every((r) => deliveryReported(r.channels, reports));
+export const totalsReported = (rows: CampaignDashRow[], reports: Record<string, boolean>) => rows.every((r) => rowReported(r, reports));
 
 // ---- failure reasons ----
 

@@ -28,6 +28,8 @@ export interface FunnelStep {
   count: number | null;
   /** Share of the step before it (the last step with a count). "" for the first step. */
   ofPrevious: string;
+  /** What ofPrevious is a share of, when not the step just above ("" = "previous"). */
+  ofLabel?: string;
   /** Share of sent; "" for steps before sending. */
   ofSent: string;
   hint?: string;
@@ -54,7 +56,10 @@ export function funnelSteps(f: FunnelData, channels?: string[]): FunnelStep[] {
   } else if (f.enrolled != null) {
     raw.push({ key: "enrolled", label: "Enrolled", count: f.enrolled, before: true });
   }
-  raw.push({ key: "targeted", label: "Targeted", count: f.targeted, before: true, hint: "Contacts a message was tried for: sent, skipped or failed." });
+  // Targeted includes contacts skipped for consent or reachability, so it compares with the
+  // audience after exclusions, not with Reachable (which it can exceed).
+  raw.push({ key: "targeted", label: "Targeted", count: f.targeted, before: true, hint: "Contacts a message was tried for: sent, skipped or failed.",
+    parent: f.audience ? "after_exclude" : undefined });
   raw.push({ key: "sent", label: "Sent", count: f.sent });
   const noDelivery = f.delivered === 0 && f.sent > 0;
   raw.push({ key: "delivered", label: "Delivered", count: noDelivery ? null : f.delivered, hint: noDelivery ? DELIVERY_HINT : undefined });
@@ -77,6 +82,7 @@ export function funnelSteps(f: FunnelData, channels?: string[]): FunnelStep[] {
     return {
       key: s.key, label: s.label, count: s.count, hint: s.hint, before: s.before,
       ofPrevious: i === 0 || s.count == null || prev == null ? "" : share(s.count, prev),
+      ofLabel: s.parent && s.parent !== raw[i - 1]?.key ? `of ${(raw.find((x) => x.key === s.parent)?.label ?? "").toLowerCase()}` : undefined,
       ofSent: i > sentIdx && s.count != null ? share(s.count, f.sent) : "",
     };
   });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CampaignDashRow, MessageCounts, ReasonCount } from "./api";
 import {
   barWidth, campaignHref, csvRows, CSV_HEADER, dashQuery, deliveryReported, groupReasons, nextSort, rate, rates, sectionOf, sortRows, totals,
-  totalsReported,
+  rowRates, totalsReported,
 } from "./campaignDash";
 
 const zero: MessageCounts = {
@@ -152,5 +152,14 @@ describe("links and CSV", () => {
     expect(h("Open rate of", rows[2])).toBe("sent");
     expect(h("Click rate", rows[2])).toBe("0%");
     expect(rows[1].length).toBe(CSV_HEADER.length);
+  });
+});
+
+describe("rowRates", () => {
+  it("counts deliveries a campaign has even when today's provider doesn't report them, as the funnel does", () => {
+    const reports = { email: false };
+    expect(rowRates(row(1, "Spring", { sent: 200, delivered: 178 }), reports).delivery).toBeCloseTo(0.89);
+    expect(rowRates(row(2, "Plain SMTP", { sent: 200 }), reports).delivery).toBeNull();
+    expect(totalsReported([row(1, "Spring", { sent: 200, delivered: 178 })], reports)).toBe(true);
   });
 });

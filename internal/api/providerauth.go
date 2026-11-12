@@ -131,6 +131,9 @@ func (s *Server) checkProviderAuth(w http.ResponseWriter, r *http.Request, pr mo
 	res, err := t.TestAuth(ctx)
 	if err != nil {
 		meaning := "the login request failed: retry, or check the URL"
+		if _, mail := p.(*providers.SMTP); mail {
+			meaning = "couldn't connect to the mail server: check the server, port and security settings"
+		}
 		if errors.Is(err, httpauth.ErrRejected) {
 			meaning = "the provider refused these credentials"
 		} else if errors.Is(err, httpauth.ErrConfig) {

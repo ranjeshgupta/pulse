@@ -129,3 +129,16 @@ describe("stepReasonGroups", () => {
     expect(groups[0].total).toBe(5);
   });
 });
+
+describe("funnelSteps targeted", () => {
+  it("compares Targeted with the audience after exclusions, which it can't exceed, not with Reachable", () => {
+    const f: FunnelData = {
+      ...base, audience: { audience: 220, after_exclude: 210, after_consent: 200, reachable: 192, runs: 1, ready: true },
+      targeted: 199, sent: 190, delivered: 178,
+    };
+    const t = funnelSteps(f, ["email"]).find((s) => s.key === "targeted")!;
+    expect(t.ofPrevious).toBe("95%");
+    expect(t.ofLabel).toBe("of after exclusions");
+    expect(funnelSteps(f, ["email"]).find((s) => s.key === "sent")!.ofLabel).toBeUndefined();
+  });
+});

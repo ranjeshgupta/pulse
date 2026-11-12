@@ -182,6 +182,8 @@ you just typed (empty secret fields use the saved ones), and shows the result:
   characters are shown.
 - **Nothing to log in to: the credentials are sent with each request.**: for **Basic**, **Bearer
   token** and **API key**, which have no login step.
+- **Logged in to smtp.example.com:587.**: for an email (SMTP) provider, Pulse connected to the mail
+  server and logged in, then disconnected. **Send test** then checks that a real message arrives.
 - A red box with the reason and the provider's answer: a wrong address, a wrong password, or a token
   that isn't where **Read the token from** says. Passwords never appear in it.
 

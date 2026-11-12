@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -136,5 +137,38 @@ func TestGoogleRelayEHLOAndIPAllowlist(t *testing.T) {
 	}
 	if _, err := New("gworkspace_relay", Deps{}, map[string]string{"from": "a@acme.test", "helo_domain": "acme.test"}, map[string]string{"username": "u"}); err == nil {
 		t.Error("relay auth without password accepted")
+	}
+}
+
+// Test connection on a password login (a Gmail app password, any SMTP relay) really logs in.
+func TestSMTPTestAuthLogsIn(t *testing.T) {
+	cert, roots := testCert(t)
+	f := newFakeSMTP(t)
+	f.user, f.pass = "me@acme.test", "app-pass"
+	f.tls = &tls.Config{Certificates: []tls.Certificate{cert}}
+	f.start(t)
+	adapter := func(pass string) *SMTP {
+		p, err := New("smtp", Deps{}, map[string]string{"host": "mail.test", "port": "587", "from": "me@acme.test"},
+			map[string]string{"username": "me@acme.test", "password": pass})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := p.(*SMTP)
+		s.tlsConfig = &tls.Config{RootCAs: roots}
+		s.dial = dialTo(f)
+		return s
+	}
+	res, err := adapter("app-pass").TestAuth(context.Background())
+	if err != nil || !res.LoggedIn || res.Server != "mail.test:587" {
+		t.Fatalf("good password: %+v, %v", res, err)
+	}
+	f.mu.Lock()
+	n := len(f.authTLS)
+	f.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("server saw %d logins, want 1", n)
+	}
+	if _, err := adapter("wrong").TestAuth(context.Background()); !errors.Is(err, httpauth.ErrRejected) {
+		t.Fatalf("wrong password: err = %v, want ErrRejected", err)
 	}
 }

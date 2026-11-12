@@ -49,7 +49,9 @@ Read it top to bottom:
   in its segments when it started), **After exclusions** (minus the segments it leaves out),
   **After consent** (minus people who opted out), **Reachable** (minus people with no address on
   the channel), then **Targeted**: everyone a message was tried for, whether it was sent, skipped or
-  failed. For a triggered or automation campaign the first step is **Enrolled** instead.
+  failed. Targeted includes people skipped for consent or reachability, so its share is of
+  **After exclusions** (it says **of after exclusions**), not of Reachable. For a triggered or
+  automation campaign the first step is **Enrolled** instead.
 - The coloured steps are **after sending**: **Sent**, **Delivered**, **Opened** (email) or **Read**
   (WhatsApp, RCS), **Clicked**. Under each number: its share of the step before (**of previous**)
   and of messages sent (**of sent**).
@@ -141,7 +143,8 @@ that type of campaign. The rest of the profile is in [tutorial 2](02-contacts.md
 4. The **Campaigns** table has one row per campaign: **Type**, **Channels**, **Sent**, **Delivery %**,
    **Open %**, **Click %**, **Downloads**, **Conversions**, **Revenue**, **Unsubscribes**,
    **Complaints**, **Bounces** and **Failures**. Click a column heading to sort. **—** under
-   Delivery % means the provider doesn't report deliveries. **Export CSV** downloads the table.
+   Delivery % means the provider doesn't report deliveries and the campaign has no delivery reports
+   (a campaign sent earlier through a provider that did report them shows its rate). **Export CSV** downloads the table.
 5. Click the **▸** next to a campaign to see why its messages didn't go out:
 
    ![Spring catalogue's row opened: Hard bounce 7, Opted out 6, Soft bounce 4, Spam complaint 2, Bounced earlier 1](img/15-campaign-row.png)

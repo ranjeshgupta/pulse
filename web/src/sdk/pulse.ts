@@ -101,9 +101,18 @@ function enqueue(ev: Props) {
   push(ev);
 }
 
+// sending: the batch in flight. Batches go one after another so the server gets events in the order
+// they happened: identify() sends at once, and a track() flushed right after it must not overtake it
+// (a trigger event stored before the email it needs).
+let sending: Promise<unknown> = Promise.resolve();
+
 export function flush(beacon = false) {
   if (timer) { clearTimeout(timer); timer = undefined; }
-  while (queue.length) post("/v1/web/events", { events: queue.splice(0, 50) }, beacon);
+  while (queue.length) {
+    const events = queue.splice(0, 50);
+    // A beacon (the page is going away) can't wait for the batch ahead of it.
+    sending = beacon ? post("/v1/web/events", { events }, true) : sending.then(() => post("/v1/web/events", { events }));
+  }
 }
 
 export function track(name: string, props?: Props) {

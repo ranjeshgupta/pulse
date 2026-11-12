@@ -952,6 +952,9 @@ type TestResult struct {
 	Token   string    `json:"token,omitempty"`
 	Expires time.Time `json:"expires,omitempty"`
 	Static  bool      `json:"static"`
+	// Server: a mail server Test connection reached (SMTP), and LoggedIn whether it also logged in.
+	Server   string `json:"server,omitempty"`
+	LoggedIn bool   `json:"logged_in,omitempty"`
 }
 
 // Test runs the login or token request now (never from the cache) and reports the result.

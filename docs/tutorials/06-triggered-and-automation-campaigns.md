@@ -288,7 +288,8 @@ Pulse.identify("meera-test", { email: "meera.iyer@example.com", first_name: "Mee
 Pulse.track("newsletter_signup", { source: "footer" });
 ```
 
-Within seconds the welcome email goes out. On the local development stack every email lands in
+The SDK sends its requests one after another, so the identify (with the email address) always
+reaches Pulse before the sign-up that starts the campaign. Within seconds the welcome email goes out. On the local development stack every email lands in
 Mailpit (`http://localhost:18025`):
 
 ![The welcome email in Mailpit: "Welcome to Acme Retail, Meera", "Hi Meera, Thanks for joining…"](img/06-mailpit.png)
