@@ -455,7 +455,8 @@ func (s *Server) searchContacts(w http.ResponseWriter, r *http.Request, p model.
 	default:
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		if special && after == 0 && !view.Special.bitmap() && !s.allowTenant(ctx, "rlview", tenant, viewsPerMin) {
+		// Every page of a ClickHouse-backed view runs a query, so every page counts (not just the first).
+		if special && !view.Special.bitmap() && !s.allowTenant(ctx, "rlview", tenant, viewsPerMin) {
 			writeErr(w, http.StatusTooManyRequests, errTooMany.Error())
 			return
 		}

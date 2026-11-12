@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -48,14 +49,16 @@ import (
 )
 
 const (
-	viewSetTTL       = time.Minute
-	viewsPerMin      = 120 // per workspace: first pages of views with these filters, and bitmap builds
-	maxSetSegments   = 10
-	maxPeriodDays    = 366
-	viewSampleSize   = 5000
-	viewCapExact     = 50000 // like the estimate's frequency-cap check
-	maxViewSegment   = 500000
-	viewCandidateMax = 5000 // ids per ClickHouse check
+	viewSetTTL         = time.Minute
+	viewsPerMin        = 120 // per workspace: first pages of views with these filters, and bitmap builds
+	maxSetSegments     = 10
+	maxPeriodDays      = 366
+	viewSampleSize     = 5000
+	viewCapExact       = 50000 // like the estimate's frequency-cap check
+	maxViewSegment     = 500000
+	viewSegmentsPerMin = 10   // per workspace: "Create segment from this list" requests
+	viewSegmentRuns    = 2    // per workspace: segments filling in the background at once
+	viewCandidateMax   = 5000 // ids per ClickHouse check
 )
 
 // specialKeys are the M7 filter names (see the package comment above).
@@ -1178,22 +1181,35 @@ func (s *Server) viewSegment(w http.ResponseWriter, r *http.Request, p model.Pri
 	}
 	tenant := p.TenantID
 	ctx := r.Context()
+	if !s.allowTenant(ctx, "rlviewseg", tenant, viewSegmentsPerMin) {
+		writeErr(w, http.StatusTooManyRequests, errTooMany.Error())
+		return
+	}
+	release, ok := s.acquireViewSegmentRun(ctx, tenant)
+	if !ok {
+		writeErr(w, http.StatusTooManyRequests, "other lists are still being saved as segments; try again when they finish")
+		return
+	}
 	pager, count, approx, err := s.viewPager(ctx, tenant, view, true)
 	if err != nil {
+		release()
 		s.viewErr(w, err)
 		return
 	}
 	if count > maxViewSegment {
+		release()
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("this list has %s%d contacts; a static segment can take up to %d. Use a dynamic segment (Save as segment) or narrow the filters.",
 			map[bool]string{true: "about ", false: ""}[approx], count, maxViewSegment))
 		return
 	}
 	id, err := s.audience().CreateList(ctx, tenant, req.Name)
 	if err != nil {
+		release()
 		s.fail(w, err)
 		return
 	}
 	s.bg(func() {
+		defer release()
 		bctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		if err := s.fillViewSegment(bctx, tenant, id, pager); err != nil {
@@ -1248,15 +1264,45 @@ func (s *Server) viewPager(ctx context.Context, tenant int64, view contactView, 
 	}, n, approx, nil
 }
 
+// acquireViewSegmentRun takes one of the workspace's viewSegmentRuns background slots. The
+// counter lives in Redis so every API instance shares it, and expires in case a holder dies.
+func (s *Server) acquireViewSegmentRun(ctx context.Context, tenant int64) (func(), bool) {
+	if s.RDB == nil {
+		return func() {}, true
+	}
+	key := "vsegrun:" + strconv.FormatInt(tenant, 10)
+	n, err := s.RDB.Incr(ctx, key).Result()
+	if err != nil {
+		return func() {}, true
+	}
+	s.RDB.Expire(ctx, key, 11*time.Minute) // fills time out after 10 minutes
+	release := func() { s.RDB.Decr(context.Background(), key) }
+	if n > viewSegmentRuns {
+		release()
+		return nil, false
+	}
+	var once sync.Once
+	return func() { once.Do(release) }, true
+}
+
+// fillViewSegment adds the view's contacts to the segment, stopping at maxViewSegment: the count
+// checked before may be sampled, or the list may have grown since.
 func (s *Server) fillViewSegment(ctx context.Context, tenant, segment int64, page func(context.Context, uint32, int) ([]uint32, error)) error {
 	var after uint32
+	added := 0
 	for {
+		if added >= maxViewSegment {
+			return nil
+		}
 		ids, err := page(ctx, after, 1000)
 		if err != nil {
 			return err
 		}
 		if len(ids) == 0 {
 			return nil
+		}
+		if rest := maxViewSegment - added; len(ids) > rest {
+			ids = ids[:rest]
 		}
 		cs, err := s.loadInOrder(ctx, tenant, ids)
 		if err != nil {
@@ -1273,6 +1319,7 @@ func (s *Server) fillViewSegment(ctx context.Context, tenant, segment int64, pag
 				return err
 			}
 		}
+		added += len(ids)
 		if len(ids) < 1000 {
 			return nil
 		}

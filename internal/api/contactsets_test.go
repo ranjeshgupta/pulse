@@ -349,3 +349,34 @@ func TestOldCampaignListsRedirect(t *testing.T) {
 		}
 	}
 }
+
+// "Create segment from this list" runs at most viewSegmentRuns fills per workspace at once.
+func TestViewSegmentLimits(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	s := New(Deps{RDB: rdb})
+	var held []func()
+	for i := 0; i < viewSegmentRuns; i++ {
+		rel, ok := s.acquireViewSegmentRun(ctx, 7)
+		if !ok {
+			t.Fatalf("slot %d refused", i)
+		}
+		held = append(held, rel)
+	}
+	if _, ok := s.acquireViewSegmentRun(ctx, 7); ok {
+		t.Fatal("a run past the limit was allowed")
+	}
+	if _, ok := s.acquireViewSegmentRun(ctx, 8); !ok {
+		t.Fatal("another workspace was limited")
+	}
+	held[0]()
+	held[0]() // releasing twice frees one slot only
+	if _, ok := s.acquireViewSegmentRun(ctx, 7); !ok {
+		t.Fatal("a released slot wasn't reusable")
+	}
+	if _, ok := s.acquireViewSegmentRun(ctx, 7); ok {
+		t.Fatal("a double release freed two slots")
+	}
+
+}
