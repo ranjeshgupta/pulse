@@ -1604,7 +1604,7 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/revenue/settings` | Change them | settings edit |
 | `POST` | `/v1/revenue/report` | Revenue attribution (`model`: last_touch, first_touch, linear; `window_days`) | reports view |
 | `GET` | `/v1/journeys/{id}/report` | Message outcomes per step and channel, goal and enrollment counts | reports view |
-| `GET` | `/v1/events/names` | Event names seen in the workspace | reports view |
+| `GET` | `/v1/events/names` | Event names seen in the last 90 days, most sent first, then described events not sent yet | reports view |
 | `GET` | `/v1/attributes/{key}/values` | Most common values of an attribute | contacts view |
 | `GET` | `/v1/events/{name}/values` | Most common values of an event property (`?prop=`: a name, `product.code` or `items[].code`; none for personal data) | contacts view |
 | `GET` | `/v1/funnels` | Saved funnels | reports view |

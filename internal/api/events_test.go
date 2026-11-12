@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"pulse/internal/eventschema"
 	"pulse/internal/model"
 	"pulse/internal/segment"
+	"pulse/internal/store/ch"
 	"pulse/internal/store/pg"
 )
 
@@ -237,5 +239,39 @@ func TestNewListFieldNeedsSegmentsAccess(t *testing.T) {
 	both := model.Principal{TenantID: 1, Perms: auth.Perms{auth.AreaContacts: auth.Edit, auth.AreaSegments: auth.Edit}}
 	if err := s.ensureListFields(context.Background(), both, sc); err != nil || len(st.defs) != 1 {
 		t.Errorf("with segments edit: %v %+v", err, st.defs)
+	}
+}
+
+// fakeNames answers the event names query with what ClickHouse has seen, most sent first. The
+// other Analytics methods come from latestEvents.
+type fakeNames struct {
+	latestEvents
+	names []string
+}
+
+func (f fakeNames) MessageReport(context.Context, ch.Scope, string, int) (ch.Report, error) {
+	return ch.Report{}, nil
+}
+func (f fakeNames) FunnelLevels(context.Context, segment.Query, int) ([]uint64, error) { return nil, nil }
+func (f fakeNames) EventNames(context.Context, int64) ([]string, error) {
+	return append([]string(nil), f.names...), nil
+}
+
+func TestEventNamesIncludeDescribedEvents(t *testing.T) {
+	s, _, _ := newSchemaServer(t)
+	s.Analytics = fakeNames{names: []string{"page_view", "purchase"}}
+	h := s.Handler()
+	for _, name := range []string{"webinar_joined", "purchase"} {
+		if w := do(t, h, "PUT", "/v1/events/"+name+"/schema", "key-1", `{"props":[]}`); w.Code != 200 {
+			t.Fatalf("put %s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	w := do(t, h, "GET", "/v1/events/names", "key-1", "")
+	var got struct{ Names []string }
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != 200 {
+		t.Fatalf("names: %d %s", w.Code, w.Body)
+	}
+	if want := []string{"page_view", "purchase", "webinar_joined"}; !slices.Equal(got.Names, want) {
+		t.Fatalf("names = %v, want %v (sent ones first, then described ones not yet sent, no repeats)", got.Names, want)
 	}
 }

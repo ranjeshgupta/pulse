@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SchemaProp } from "./api";
 import {
+  newEventProblem,
   cleanProps, dependsSentence, exampleProps, fillDays, formatShare, guessType, keyFromPath, mergeProperties, modeLabel, moveProp,
   problemWords, propFromDiscovered, validateSchema, validListField, validPath,
 } from "./eventSchemas";
@@ -160,5 +161,20 @@ describe("editor helpers", () => {
       { key: " a ", path: "a", label: " ", type: "string", values: [], add_to_list: "", depends_on: null },
       { key: "e", type: "enum", values: [{ value: " x ", label: "" }], required: true },
     ])).toEqual([{ key: "a", type: "string" }, { key: "e", type: "enum", required: true, values: [{ value: "x" }] }]);
+  });
+});
+
+describe("newEventProblem", () => {
+  const known = [{ name: "purchase", schema: true }, { name: "webinar_joined", schema: false }];
+  it("accepts names the server accepts", () => {
+    expect(newEventProblem("", known)).toBe("");
+    expect(newEventProblem("webinar_joined", known)).toBe("");
+    expect(newEventProblem("app:Opened.v2-x", known)).toBe("");
+  });
+  it("explains bad or taken names", () => {
+    expect(newEventProblem("webinar joined", known)).toMatch(/No spaces/);
+    expect(newEventProblem("1st_login", known)).toMatch(/Start with a letter/);
+    expect(newEventProblem("a".repeat(65), known)).toMatch(/64/);
+    expect(newEventProblem("purchase", known)).toMatch(/already described/);
   });
 });

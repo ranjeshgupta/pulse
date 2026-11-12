@@ -103,6 +103,24 @@ func (s *Server) eventNames(w http.ResponseWriter, r *http.Request, tenant int64
 		s.fail(w, err)
 		return
 	}
+	// Names come most-sent first. Events described before the first one arrives (Events → New
+	// event) follow, so a segment or campaign can be built on them right away.
+	if st, ok := s.eventSchemas(); ok {
+		schemas, err := st.ListEventSchemas(r.Context(), tenant)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		seen := make(map[string]bool, len(names))
+		for _, n := range names {
+			seen[n] = true
+		}
+		for _, sc := range schemas {
+			if !seen[sc.Name] {
+				names = append(names, sc.Name)
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"names": names})
 }
 

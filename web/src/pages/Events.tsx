@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   api, can, type AttributeDef, type CatalogEntry, type DiscoveredProp, type EventSchema, type EventSummary, type PropType,
   type SchemaChecks, type SchemaMode, type SchemaProp,
 } from "../api";
 import { useMe } from "../auth";
 import {
-  cleanProps, dependsSentence, exampleProps, fillDays, formatShare, keyFromPath, mergeProperties, MODE_HELP, modeLabel, moveProp,
+  cleanProps, dependsSentence, newEventProblem, exampleProps, fillDays, formatShare, keyFromPath, mergeProperties, MODE_HELP, modeLabel, moveProp,
   pathOf, problemWords, PROP_TYPES, propFromDiscovered, TYPE_NAMES, validateSchema,
 } from "../eventSchemas";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, timeAgo, useToast } from "../ui";
@@ -37,13 +37,17 @@ export function ModeBadge({ mode, schema = true }: { mode?: SchemaMode; schema?:
 export function EventList() {
   const { canEdit } = useEventPerms();
   const [suggesting, setSuggesting] = useState(false);
+  const [creating, setCreating] = useState(false);
   const q = useQuery({
     queryKey: ["event-catalog"],
     queryFn: () => api.get<{ events: CatalogEntry[]; days: number }>("/v1/events/catalog"),
     refetchInterval: 15_000,
   });
   const events = q.data?.events ?? [];
-  const suggestBtn = canEdit && <button className="btn" onClick={() => setSuggesting(true)}>Add suggested events</button>;
+  const suggestBtn = canEdit && <>
+    <button className="btn" onClick={() => setSuggesting(true)}>Add suggested events</button>
+    <button className="btn primary" onClick={() => setCreating(true)}>New event</button>
+  </>;
   return (
     <div className="page">
       <PageHead
@@ -54,8 +58,8 @@ export function EventList() {
       <ErrorNote error={q.error} />
       <div className="panel">
         {events.length === 0 && !q.isLoading ? (
-          <Empty title="No events yet" action={canEdit && <button className="btn primary" onClick={() => setSuggesting(true)}>Add suggested events</button>}>
-            Events appear here as soon as your site, app or server sends them. You can describe common ones (purchase, sign-up, login, cart) before they arrive.
+          <Empty title="No events yet" action={suggestBtn}>
+            Events appear here as soon as your site, app or server sends them. You can describe one before it arrives: pick common ones (purchase, sign-up, login, cart), or add your own with New event.
           </Empty>
         ) : (
           <div className="table-scroll">
@@ -86,6 +90,7 @@ export function EventList() {
         )}
       </div>
       {suggesting && <SuggestedModal onClose={() => setSuggesting(false)} />}
+      {creating && <NewEventModal known={events} onClose={() => setCreating(false)} />}
     </div>
   );
 }
@@ -96,6 +101,53 @@ function ProblemCell({ e }: { e: CatalogEntry }) {
   if (e.checked === 0) return <span className="muted">No events checked</span>;
   const text = `${e.problems.toLocaleString("en-IN")} of ${e.checked.toLocaleString("en-IN")} events`;
   return e.problems > 0 ? <span className="ev-warn">{text}</span> : <span className="ev-ok">{text}</span>;
+}
+
+// NewEventModal describes an event your site, app or server will send, before the first one arrives,
+// so segments and campaigns can offer it straight away. It saves an empty schema in Warn mode and
+// opens the event's Schema tab to add its properties.
+function NewEventModal({ known, onClose }: { known: CatalogEntry[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const nav = useNavigate();
+  const [name, setName] = useState("");
+  const [label, setLabel] = useState("");
+  const [description, setDescription] = useState("");
+  const trimmed = name.trim();
+  const problem = newEventProblem(trimmed, known);
+  const save = useMutation({
+    mutationFn: () => api.put<EventSchema>(`/v1/events/${encodeURIComponent(trimmed)}/schema`, {
+      label: label.trim(), description: description.trim(), mode: "warn", props: [],
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["event-catalog"] });
+      qc.invalidateQueries({ queryKey: ["event-schemas"] });
+      qc.invalidateQueries({ queryKey: ["event-names"] });
+      toast({ text: `Added ${trimmed}. Now list the details it carries.` });
+      nav(`/events/${encodeURIComponent(trimmed)}`, { state: { tab: "schema" } });
+    },
+  });
+  return (
+    <Modal title="New event" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={!trimmed || !!problem || save.isPending} onClick={() => save.mutate()}>Add event</button>
+    </>}>
+      <p className="small muted" style={{ marginTop: 0 }}>
+        Describe an event before your site, app or server first sends it, so you can build segments and campaigns on it now.
+        Contacts appear under it once events with this name arrive.
+      </p>
+      <ErrorNote error={save.error} />
+      <Field label="Event name" hint={problem ? <span className="ev-warn">{problem}</span> : <>The exact name your code sends, for example <code>webinar_joined</code>. It can't be changed later.</>}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="webinar_joined" autoFocus spellCheck={false} aria-invalid={!!problem} />
+      </Field>
+      <Field label="Label (optional)" hint="A friendly name shown in segments and campaigns.">
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Joined a webinar" maxLength={120} />
+      </Field>
+      <Field label="Description (optional)">
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={500} placeholder="Sent when someone joins a live webinar." />
+      </Field>
+    </Modal>
+  );
 }
 
 // SuggestedModal offers the starter schemas (purchase, sign-up, …); ones already added are shown but can't be picked.
@@ -171,7 +223,9 @@ const draftOf = (s?: EventSchema | null): Draft | null =>
 export function EventDetail() {
   const name = useParams().name ?? "";
   const { canEdit } = useEventPerms();
-  const [tab, setTab] = useState<Tab>("overview");
+  // A new event (New event on the list) opens on its Schema tab.
+  const opened = useLocation().state as { tab?: Tab } | null;
+  const [tab, setTab] = useState<Tab>(opened?.tab ?? "overview");
   const q = useQuery({
     queryKey: ["event-summary", name],
     queryFn: () => api.get<EventSummary>(`/v1/events/${encodeURIComponent(name)}/summary`),

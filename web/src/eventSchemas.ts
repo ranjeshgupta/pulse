@@ -18,6 +18,16 @@ export function validKey(k: string): boolean {
   return KEY_RE.test(k);
 }
 
+const EVENT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$/;
+
+/** newEventProblem: why a name can't start a new event description (the server's event.ValidName), or "" when it can. */
+export function newEventProblem(name: string, known: { name: string; schema: boolean }[]): string {
+  if (!name) return "";
+  if (!EVENT_NAME_RE.test(name)) return "Start with a letter, then use letters, digits, _ . : or -, up to 64 characters. No spaces.";
+  if (known.some((e) => e.name === name && e.schema)) return "This event is already described. Open it from the list to change it.";
+  return "";
+}
+
 /** validPath: a name, a dotted path of up to 4 parts (product.code), or a path through one list (items[].code). */
 export function validPath(p: string): boolean {
   if (p === "" || p.length > 128) return false;

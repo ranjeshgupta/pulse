@@ -40,7 +40,7 @@ A schema has one of three **Checking** modes:
 Go to **Audience → Events**. Every event sent in the last 30 days (today and the 29 whole days before
 it, in UTC) and every described event is listed, busiest first:
 
-![Audience → Events: each event with its volume over 30 days, contacts, last seen, schema mode and problems in the last 7 days, and the Add suggested events button highlighted](img/12-events-list.png)
+![Audience → Events: each event with its volume over 30 days, contacts, last seen, schema mode and problems in the last 7 days, the Add suggested events button highlighted, and New event next to it](img/12-events-list.png)
 
 | Column | What it shows |
 |---|---|
@@ -70,6 +70,23 @@ Tick the ones you want and click **Add N events**. They start in **Warn** mode, 
 refuses an event; edit them afterwards to match what you send. Events already described show
 **added** and can't be ticked (in Acme Retail all six are there already, so click **Cancel**). A
 purchase's product codes also go into the contact's list field **Products** (section 11).
+
+### Your own event
+
+To describe an event of your own before your code sends it, for example `webinar_joined`, click
+**New event**:
+
+<img src="img/12-new-event.png" alt="The New event window: Event name webinar_joined, Label Joined a webinar, a description, and the Add event button" width="460">
+
+- **Event name** is the exact name your code will send. It starts with a letter, then letters,
+  digits, `_` `.` `:` or `-`, up to 64 characters, with no spaces. It can't be changed later. A name
+  that is already described is refused; open it from the list instead.
+- **Label** and **Description** are optional. The label is how segments and campaigns show it.
+
+Click **Add event**. The event opens on its **Schema** tab in **Warn** mode, so you can add its
+properties (section 5). It is listed on the Events page with 0 contacts, and segment and campaign
+event pickers offer it straight away. Once events with this name arrive, the contact count fills in
+and you can click it to see who did it.
 
 ## 4. Look at an event
 

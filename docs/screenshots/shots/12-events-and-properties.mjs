@@ -1,7 +1,7 @@
 // Screenshots for docs/tutorials/12-events-and-properties.md, in the seeded docs workspace
 // (acme-retail), which `make docs-seed` gives the six suggested event schemas and 60 days of
 // e-commerce events with properties (some of them not fitting their schema).
-// Nothing is saved: the suggested-events dialog and the Enforce confirmation are cancelled, the
+// Nothing is saved: the suggested-events and New event dialogs and the Enforce confirmation are cancelled, the
 // segment builder and the journey Start are filled in but never saved.
 import { clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
 
@@ -39,6 +39,16 @@ async function eventList(page) {
   await shot(page, AREA, "12-suggested", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await dialog.waitFor({ state: "detached" });
+
+  await page.getByRole("button", { name: "New event" }).click();
+  const create = page.getByRole("dialog", { name: "New event" });
+  await create.getByLabel("Event name").fill("webinar_joined");
+  await create.getByLabel("Label (optional)").fill("Joined a webinar");
+  await create.getByLabel("Description (optional)").fill("Sent when someone joins a live webinar.");
+  await settle(page);
+  await shot(page, AREA, "12-new-event", { clip: create, pad: 0 });
+  await create.getByRole("button", { name: "Cancel" }).click();
+  await create.waitFor({ state: "detached" });
 }
 
 async function overview(page) {
