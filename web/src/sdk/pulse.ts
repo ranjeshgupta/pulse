@@ -13,6 +13,9 @@ import { pageProps, parseTouch, profileAttrs, touchFromUrl } from "./attribution
 import { parseUserAgent, type UAData } from "./device";
 import { nextSession, parseActivity } from "./session";
 import { fileProblem, formPages, UPLOAD_TYPES, type FormField } from "./forms";
+import { checkToken, problems, promptBlocked, promptHTML, type Diagnosis, type PushPrompt } from "./pushPrompt";
+
+const SDK_VERSION = "6.0";
 
 type Props = Record<string, unknown>;
 interface Config {
@@ -250,17 +253,122 @@ export function registerPushToken(token: string) {
  * Call it from a user gesture (a click), as browsers require. Resolves to true when subscribed.
  */
 export async function enablePush(opts: { serviceWorker?: string } = {}): Promise<boolean> {
-  if (!cfg || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return false;
+  if (!cfg || !pushSupported()) return false;
   if ((await Notification.requestPermission()) !== "granted") return false;
-  const res = await fetch(`${cfg.host}/v1/web/push-config?site_key=${encodeURIComponent(cfg.siteKey)}`).catch(() => undefined);
-  if (!res?.ok) return false;
-  const { vapid_public_key } = (await res.json()) as { vapid_public_key: string };
-  const reg = await navigator.serviceWorker.register(opts.serviceWorker ?? "/pulse-sw.js");
+  return subscribe(opts.serviceWorker);
+}
+
+interface PushConfig { vapid_public_key: string; prompt?: PushPrompt; service_worker?: string }
+let pushCfg: Promise<PushConfig | undefined> | null = null;
+
+/** pushConfig is the workspace's VAPID key, opt-in prompt and service worker path (fetched once per page). */
+function pushConfig(): Promise<PushConfig | undefined> {
+  if (!cfg) return Promise.resolve(undefined);
+  pushCfg ??= fetch(`${cfg.host}/v1/web/push-config?site_key=${encodeURIComponent(cfg.siteKey)}`)
+    .then((r) => (r.ok ? (r.json() as Promise<PushConfig>) : undefined)).catch(() => undefined);
+  return pushCfg;
+}
+
+function pushSupported() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+/** subscribe registers the service worker and this browser's subscription (permission granted). */
+async function subscribe(serviceWorker?: string): Promise<boolean> {
+  const pc = await pushConfig();
+  if (!pc?.vapid_public_key) return false;
+  const { vapid_public_key } = pc;
+  const reg = await navigator.serviceWorker.register(serviceWorker ?? pc.service_worker ?? "/pulse-sw.js");
   await navigator.serviceWorker.ready;
   const key = Uint8Array.from(atob(vapid_public_key.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(vapid_public_key.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
   const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }));
   await registerPushToken(JSON.stringify(sub));
   return true;
+}
+
+// ---------- opt-in prompt and self-check ----------
+
+/** maybePrompt shows the workspace's opt-in prompt when its rules allow (Settings → Web push), and
+ * keeps an already-allowed browser subscribed. */
+async function maybePrompt() {
+  if (!cfg || !pushSupported()) return;
+  const pc = await pushConfig();
+  if (!pc) return;
+  if (Notification.permission === "granted") {
+    if (!store.sget("pulse.psub")) { store.sset("pulse.psub", "1"); void subscribe().catch(() => undefined); }
+    return;
+  }
+  const p = pc.prompt;
+  const pv = Number(store.sget("pulse.pv") || 0);
+  const why = promptBlocked(p, { permission: Notification.permission, dismissedAt: Number(store.get("pulse.ppd")) || null, pageViews: pv, url: location.href }, Date.now());
+  if (why || !p) return;
+  const ready = () => new Promise<void>((done) => {
+    const scrolled = () => {
+      const h = document.documentElement;
+      return !p.scroll_percent || ((h.scrollTop + innerHeight) / Math.max(1, h.scrollHeight)) * 100 >= p.scroll_percent;
+    };
+    if (scrolled()) { done(); return; }
+    const on = () => { if (scrolled()) { removeEventListener("scroll", on); done(); } };
+    addEventListener("scroll", on, { passive: true });
+  });
+  await new Promise((r) => window.setTimeout(r, Math.max(0, p.delay_seconds || 0) * 1000));
+  await ready();
+  if (Notification.permission !== "default" || document.querySelector("[data-pulse-push-prompt]")) return;
+  const host = document.createElement("div");
+  host.setAttribute("data-pulse-push-prompt", "");
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = promptHTML(p);
+  const pop = root.querySelector<HTMLElement>(".pop");
+  root.querySelector(".bell")?.addEventListener("click", () => { if (pop) pop.hidden = !pop.hidden; });
+  root.querySelector(".later")?.addEventListener("click", () => {
+    store.set("pulse.ppd", String(Date.now()));
+    host.remove();
+    track("push_prompt_dismissed", { style: p.style });
+  });
+  root.querySelector(".allow")?.addEventListener("click", async () => {
+    host.remove();
+    track("push_prompt_allowed", { style: p.style });
+    const ok = await enablePush().catch(() => false);
+    track(ok ? "push_subscribed" : "push_permission_refused", { style: p.style });
+  });
+  document.body.appendChild(host);
+  track("push_prompt_shown", { style: p.style });
+}
+
+/**
+ * diagnose checks this page's web push set-up from the browser: https, push support, the
+ * permission, the service worker and whether it loads Pulse's, the subscription and the prompt.
+ * Open your site with ?pulse_check=… (Settings → Web push → Check in my browser) to report it to
+ * Pulse.
+ */
+export async function diagnose(): Promise<Diagnosis> {
+  const pc = await pushConfig();
+  const sw = pc?.service_worker ?? "/pulse-sw.js";
+  const supported = pushSupported();
+  let found = false, pulse = false, subscribed = false;
+  if (supported) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      subscribed = !!(await reg?.pushManager.getSubscription());
+      const r = await fetch(sw, { cache: "no-store" });
+      found = r.ok;
+      pulse = found && (await r.text()).includes("/sdk/pulse-sw.js");
+    } catch { /* reported as not found */ }
+  }
+  const facts = {
+    sdk_version: SDK_VERSION, url: location.href.slice(0, 500), https: location.protocol === "https:" || location.hostname === "localhost",
+    push_supported: supported, permission: "Notification" in window ? Notification.permission : "unsupported", service_worker: sw,
+    worker_found: found, worker_pulse: pulse, subscribed, prompt_enabled: !!pc?.prompt?.enabled, identified: !!store.get("pulse.uid"),
+  };
+  return { ...facts, problems: problems(facts) };
+}
+
+/** selfCheck reports diagnose() when the page was opened from the install check's link. */
+async function selfCheck() {
+  const token = checkToken(location.href);
+  if (!token || !cfg) return;
+  const report = await diagnose();
+  await post("/v1/web/diagnose", { token, report });
 }
 
 // ---------- app inbox ----------
@@ -380,13 +488,21 @@ export async function refresh() {
   const slots = Array.from(document.querySelectorAll<HTMLElement>("[data-pulse-slot]"));
   const res = (await post("/v1/web/decide", {
     external_id: currentId(), user_hash: userHash(), url: location.href, slots: slots.map((s) => s.dataset.pulseSlot),
+    device: deviceProps().device_type,
   })) as { focus: FocusItem[]; content: Record<string, string> } | undefined;
   if (!res) return;
   for (const el of slots) {
     const html = res.content[el.dataset.pulseSlot!];
     if (html !== undefined) el.innerHTML = html; // the workspace's own content
   }
-  res.focus.forEach(arm);
+  // Items come in priority order: one pop-up, one bar and one slide-in at most, the first whose
+  // frequency allows it.
+  const armed = new Set<string>();
+  for (const it of res.focus) {
+    if (armed.has(it.kind) || shown.has(it.id) || !frequencyAllows(it)) continue;
+    armed.add(it.kind);
+    arm(it);
+  }
 }
 
 // ---- forms ----
@@ -556,7 +672,8 @@ export function init(c: Config) {
   captureTouch();
   loadHighEntropy();
   if (cfg.autoPageview) page();
-  const go = () => { mountForms(); void refresh(); };
+  store.sset("pulse.pv", String(Number(store.sget("pulse.pv") || 0) + 1)); // pages this visit (opt-in prompt)
+  const go = () => { mountForms(); void refresh(); void maybePrompt(); void selfCheck(); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go);
   else go();
   addEventListener("pagehide", () => flush(true));

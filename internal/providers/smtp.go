@@ -102,8 +102,12 @@ func (s *SMTP) Send(ctx context.Context, o Outbound) (Result, error) {
 	if s.From != "" {
 		from = s.From
 	}
+	ampPart := o.Rendered.Content.AMP
+	if s.Service == ServicePostmark {
+		ampPart = "" // Postmark doesn't send AMP (SupportsAMP)
+	}
 	msg, err := BuildMessage(Mail{ID: o.MessageID, From: from, To: o.To, Subject: o.Rendered.Subject, HTML: o.Rendered.HTML,
-		Text: o.Rendered.Content.Text, Headers: o.Headers, Attachments: o.Attachments, Date: time.Now(), Ref: o.Ref, Service: s.Service})
+		AMP: ampPart, Text: o.Rendered.Content.Text, Headers: o.Headers, Attachments: o.Attachments, Date: time.Now(), Ref: o.Ref, Service: s.Service})
 	if err != nil {
 		return Result{}, Permanent(err.Error())
 	}
@@ -128,9 +132,12 @@ func (s *SMTP) Send(ctx context.Context, o Outbound) (Result, error) {
 type Mail struct {
 	ID, From, To, Subject string
 	HTML, Text            string
-	Headers               map[string]string // extra headers (List-Unsubscribe)
-	Attachments           []Attachment
-	Date                  time.Time
+	// AMP is the optional text/x-amp-html part, placed between the text and HTML parts (clients
+	// that can't show AMP pick the last part they understand, the HTML).
+	AMP         string
+	Headers     map[string]string // extra headers (List-Unsubscribe)
+	Attachments []Attachment
+	Date        time.Time
 	// Ref is the message reference (X-Pulse-Ref and the Message-ID); Service adds the sending
 	// service's own metadata header with it (RefHeaders).
 	Ref, Service string
@@ -221,7 +228,7 @@ func refOK(ref string) bool {
 
 // BuildMessage produces the RFC 5322 message bytes. Addresses are parsed, so header injection
 // through them is impossible; the subject is Q-encoded. The body is multipart/alternative (text,
-// then HTML) when there is a text part, wrapped in multipart/mixed when there are attachments.
+// then AMP when there is one, then HTML) when there is a text or AMP part, wrapped in multipart/mixed when there are attachments.
 // Text parts are quoted-printable (no line-length limits to break), attachments base64.
 func BuildMessage(m Mail) ([]byte, error) {
 	from, err := mail.ParseAddress(m.From)
@@ -278,7 +285,7 @@ func BuildMessage(m Mail) ([]byte, error) {
 
 	// body writes the message's content (text and HTML) as one entity, created by w.
 	body := func(w func(textproto.MIMEHeader) (io.Writer, error)) error {
-		if m.Text == "" {
+		if m.Text == "" && m.AMP == "" {
 			return textPart(w, "text/html", m.HTML)
 		}
 		alt := multipart.NewWriter(io.Discard)
@@ -288,8 +295,15 @@ func BuildMessage(m Mail) ([]byte, error) {
 		}
 		alt = newWriterWithBoundary(pw, alt.Boundary())
 		create := func(h textproto.MIMEHeader) (io.Writer, error) { return alt.CreatePart(h) }
-		if err := textPart(create, "text/plain", m.Text); err != nil {
-			return err
+		if m.Text != "" {
+			if err := textPart(create, "text/plain", m.Text); err != nil {
+				return err
+			}
+		}
+		if m.AMP != "" {
+			if err := textPart(create, "text/x-amp-html", m.AMP); err != nil {
+				return err
+			}
 		}
 		if err := textPart(create, "text/html", m.HTML); err != nil {
 			return err

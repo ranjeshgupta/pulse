@@ -193,6 +193,9 @@ func (req templateReq) template(tenant int64) model.Template {
 
 func (s *Server) validTemplate(w http.ResponseWriter, r *http.Request, t model.Template) bool {
 	err := channel.Validate(t)
+	if err == nil {
+		err = s.checkTemplateSaveTargets(t)
+	}
 	if t.Name == "" || err != nil {
 		writeErr(w, http.StatusBadRequest, errors.Join(errIf(t.Name == "", "name is required"), err).Error())
 		return false
@@ -228,6 +231,10 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, tenant i
 		return
 	}
 	t := req.template(tenant)
+	if err := s.prepareTemplateAMP(&t); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if !s.validTemplate(w, r, t) {
 		return
 	}
@@ -284,6 +291,10 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request, tenant i
 	t.ID, t.Channel = id, cur.Channel // a template's channel is fixed
 	if req.Hidden == nil {
 		t.Hidden = cur.Hidden
+	}
+	if err := s.prepareTemplateAMP(&t); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if !s.validTemplate(w, r, t) {
 		return

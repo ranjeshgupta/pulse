@@ -18,6 +18,7 @@ type VAPIDStore interface {
 
 func (s *Server) webPushRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/web/push-config", s.webPushConfig)
+	s.webPushM6Routes(mux)
 }
 
 // vapidPublic returns the workspace's VAPID public key, creating the pair if needed.
@@ -50,5 +51,7 @@ func (s *Server) webPushConfig(w http.ResponseWriter, r *http.Request) {
 	// The answer depends on the site key, which may come in a header: never share it between callers.
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.Header().Add("Vary", "X-Pulse-Site-Key")
-	writeJSON(w, http.StatusOK, map[string]any{"vapid_public_key": pub})
+	// M6: the opt-in prompt the SDK shows (no secrets in it) and the service worker path.
+	ps := s.pushSettings(r.Context(), t.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"vapid_public_key": pub, "prompt": ps.Prompt, "service_worker": ps.ServiceWorker})
 }

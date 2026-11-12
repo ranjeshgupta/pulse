@@ -39,7 +39,7 @@ const (
 // MessageKeys are the message.* variables of gateway request templates.
 var MessageKeys = []string{"id", "channel", "to", "from", "platform", "subject", "html", "text", "title", "body",
 	"image_url", "url", "sender_id", "dlt_template_id", "dlt_entity_id", "template_name", "language", "params",
-	"header_image_url", "suggestions", "card", "data", "ref"}
+	"header_image_url", "suggestions", "card", "data", "ref", "amp"}
 
 // CampaignKeys are the campaign.* variables.
 var CampaignKeys = []string{"name", "id", "type", "step", "channel", "template"}

@@ -1,0 +1,41 @@
+/* On-site audiences: ordered content variants, focus item order, overlap counts. */
+
+.ov-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 12px; }
+.ov-card { position: relative; transition: box-shadow 0.12s, opacity 0.12s; }
+.ov-card.dragging { opacity: 0.45; }
+.ov-card.drop-before { box-shadow: 0 -3px 0 0 var(--cobalt); }
+.ov-card.drop-after { box-shadow: 0 3px 0 0 var(--cobalt); }
+.ov-card.shadowed { border-color: #f2c4c9; }
+.ov-card-head { justify-content: flex-start; gap: 10px; padding: 10px 14px; }
+.ov-card-head > .row { margin-left: auto; }
+.ov-handle { cursor: grab; color: var(--faint); font-size: 15px; letter-spacing: -3px; padding: 4px 6px 4px 2px; user-select: none; line-height: 1; }
+.ov-handle:active { cursor: grabbing; }
+.ov-num { display: inline-grid; place-items: center; min-width: 24px; height: 24px; border-radius: 999px; background: var(--cobalt-wash); color: var(--cobalt-dark); font-size: var(--fs-xs); font-weight: 650; font-variant-numeric: tabular-nums; }
+.ov-default .ov-num { background: #eef1f5; color: var(--ink-3); }
+.ov-name { max-width: 320px; height: 32px; }
+.ov-who { margin-bottom: 10px; }
+.ov-rules { margin-bottom: 14px; border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 12px; background: var(--porcelain); }
+.ov-rules > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 560; }
+.ov-rules[open] > summary { margin-bottom: 10px; }
+.ov-devices { display: flex; gap: 18px; flex-wrap: wrap; }
+.ov-cond { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.ov-cond > .input, .ov-cond > .select { flex: 1 1 140px; min-width: 0; }
+
+.ov-overlap { margin-bottom: 28px; }
+.ov-facts { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.ov-pairs { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+
+/* Focus item order (on the On-site list). */
+.ov-order { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 6px; }
+.ov-order li { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--surface); }
+.ov-order li.dragging { opacity: 0.45; }
+.ov-order li.drop-before { box-shadow: 0 -3px 0 0 var(--cobalt); }
+.ov-order li.drop-after { box-shadow: 0 3px 0 0 var(--cobalt); }
+.ov-order .ov-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-kind + .ov-kind { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.ov-kind-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  .ov-card-head { flex-wrap: wrap; }
+  .ov-name { max-width: none; flex: 1 1 160px; }
+}

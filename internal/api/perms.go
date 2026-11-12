@@ -87,6 +87,18 @@ var special = map[string]need{
 	// edit (like saving a provider).
 	"POST /v1/channels/providers/check-auth": {auth.AreaChannels, auth.Edit},
 	"POST /v1/channels/providers/preview":    {auth.AreaChannels, auth.Edit},
+	// M6 AMP: checking and previewing AMP code is like a template preview (saving needs content
+	// edit, the template routes' rule). Overlap counts are counts only, like a segment estimate.
+	"POST /v1/templates/amp/check": {auth.AreaContent, auth.View},
+	"POST /v1/dwc/overlap":         {auth.AreaContent, auth.View},
+	"POST /v1/focus-items/overlap": {auth.AreaContent, auth.View},
+	// M6 web push: the prompt and the install check belong to the web push channel. The check
+	// makes the server fetch an address, so it needs edit like saving the settings.
+	"GET /v1/settings/web-push":              {auth.AreaChannels, auth.View},
+	"PUT /v1/settings/web-push":              {auth.AreaChannels, auth.Edit},
+	"POST /v1/settings/web-push/check":       {auth.AreaChannels, auth.Edit},
+	"POST /v1/settings/web-push/check-token": {auth.AreaChannels, auth.Edit},
+	"GET /v1/settings/web-push/diagnosis":    {auth.AreaChannels, auth.View},
 }
 
 type need struct {

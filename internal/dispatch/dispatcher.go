@@ -25,6 +25,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"pulse/internal/amp"
 	"pulse/internal/assets"
 	"pulse/internal/attr"
 	"pulse/internal/auth"
@@ -278,9 +279,14 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if t.MissingValues == channel.MissingSkip && len(rendered.Missing) > 0 {
 		return d.finish(ctx, sentKey, m, c, "failed", SkippedPrefix+strings.Join(rendered.Missing, ", "))
 	}
+	var ampTok tracking.Token
 	if token != "" {
 		rendered.HTML = d.cfg.Tracking.Instrument(rendered.HTML, token)
 		rendered.Content.Text = d.cfg.Tracking.InstrumentText(rendered.Content.Text, token)
+		ampTok, _ = d.cfg.Tracking.Decode(token)
+	}
+	if m.Channel == channel.Email {
+		rendered.Content.AMP = d.prepareAMP(rendered.Content.AMP, token, ampTok, c.ID, false)
 	}
 	if err := d.shortenLinks(ctx, m, c, &rendered); err != nil {
 		return err
@@ -494,6 +500,7 @@ func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.M
 	if err != nil {
 		return done("failed", err.Error())
 	}
+	rendered.Content.AMP = "" // internal notifications go without the AMP part (no recipient to post back as)
 	if t.MissingValues == channel.MissingSkip && len(rendered.Missing) > 0 {
 		return done("failed", SkippedPrefix+strings.Join(rendered.Missing, ", "))
 	}
@@ -1196,6 +1203,11 @@ func (d *Dispatcher) sendTest(ctx context.Context, sentKey string, m model.Messa
 		d.log("test send failed", m, err)
 		return d.mark(ctx, sentKey, "failed")
 	}
+	if m.Channel == channel.Email {
+		// Answers from a test to a bare address are checked and answered, never recorded.
+		rendered.Content.AMP = d.prepareAMP(rendered.Content.AMP, "", tracking.Token{TenantID: m.TenantID, MessageID: m.ID,
+			Channel: m.Channel, TemplateID: m.TemplateID}, 0, true)
+	}
 	var p providers.Provider
 	if m.Channel == channel.Push && tg.platform == "web" {
 		p, err = d.webPusher(ctx, m.TenantID)
@@ -1217,6 +1229,36 @@ func (d *Dispatcher) sendTest(ctx context.Context, sentKey string, m model.Messa
 		return d.mark(ctx, sentKey, "failed")
 	}
 	return d.mark(ctx, sentKey, "sent")
+}
+
+// prepareAMP finishes a rendered AMP part for one recipient: form and poll placeholders become
+// signed post-back links (tracking.AMPToken), and with tracking on, links are tracked and the
+// open pixel added. Without a server key the forms can't post back, and a part over the size
+// clients show would be dropped by them, so in both cases the AMP part is left out.
+func (d *Dispatcher) prepareAMP(doc, token string, tok tracking.Token, contact uint32, test bool) string {
+	if doc == "" {
+		return ""
+	}
+	if d.cfg.Tracking == nil {
+		if len(amp.Blocks(doc)) > 0 || strings.Contains(doc, amp.ResultsPrefix) {
+			return ""
+		}
+		return doc
+	}
+	exp := d.now().Add(tracking.AMPTTL).Unix()
+	doc = amp.Fill(doc, func(kind, block string) string {
+		return d.cfg.Tracking.AMPURL(d.cfg.Tracking.EncodeAMP(tracking.AMPToken{Token: tok, ContactID: contact, Block: block, Exp: exp, Test: test}), kind)
+	})
+	if token != "" {
+		doc = d.cfg.Tracking.InstrumentAMP(doc, token)
+	}
+	if len(doc) > amp.MaxBytes {
+		if d.cfg.Log != nil {
+			d.cfg.Log.Warn("AMP part left out: larger than 200 KB once personalised", "tenant", tok.TenantID, "message", tok.MessageID)
+		}
+		return ""
+	}
+	return doc
 }
 
 func (d *Dispatcher) log(msg string, m model.Message, err error) {

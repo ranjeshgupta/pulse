@@ -40,6 +40,17 @@ func abandonedProps() []Prop {
 	)
 }
 
+// ampProps are what every AMP email answer carries: the block and the message it came from.
+func ampProps() []Prop {
+	return []Prop{
+		{Key: "block", Label: "Block", Type: TypeString, Required: true, Description: "The poll's or form's name in the email"},
+		{Key: "template_id", Label: "Template", Type: TypeNumber},
+		{Key: "broadcast_id", Label: "Broadcast", Type: TypeNumber},
+		{Key: "journey_id", Label: "Journey", Type: TypeNumber},
+		{Key: "message_id", Label: "Message", Type: TypeString},
+	}
+}
+
 // Suggested returns the starter schemas.
 func Suggested() []Schema {
 	purchase := append(productProps(),
@@ -67,5 +78,10 @@ func Suggested() []Schema {
 		)},
 		{Name: "cart_abandoned", Label: "Cart abandoned", Description: "A cart was left without checking out.", Mode: ModeWarn, Props: abandonedProps()},
 		{Name: "checkout_abandoned", Label: "Checkout abandoned", Description: "A checkout or payment was started and not finished.", Mode: ModeWarn, Props: abandonedProps()},
+		{Name: "amp_poll_answered", Label: "AMP poll answered", Description: "Someone answered a poll inside an AMP email (recorded by Pulse).", Mode: ModeWarn, Props: append(ampProps(),
+			Prop{Key: "question", Label: "Question", Type: TypeString},
+			Prop{Key: "answer", Label: "Answer", Type: TypeString, Required: true},
+		)},
+		{Name: "amp_form_submitted", Label: "AMP form submitted", Description: "Someone sent a form inside an AMP email (recorded by Pulse; one property per field).", Mode: ModeWarn, Props: ampProps()},
 	}
 }

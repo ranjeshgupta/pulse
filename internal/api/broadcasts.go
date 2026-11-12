@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"pulse/internal/amp"
 	"pulse/internal/assets"
 	"pulse/internal/auth"
 	"pulse/internal/broadcast"
@@ -401,6 +402,10 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 		return
 	}
 	t := req.Template.template(tenant)
+	if err := channel.PrepareAMP(&t); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	camp := personalize.Campaign{Type: "test", Name: req.Campaign}
 	if camp.Name == "" {
 		camp.Name = "Preview"
@@ -424,6 +429,11 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 		// The plain-text part as sent (links stay direct; the unsubscribe link is added at send time
 		// when the text doesn't place {{.UnsubscribeURL}}), and the files attached.
 		resp["text"], resp["text_generated"] = out.Content.Text, out.TextGenerated
+		if out.Content.AMP != "" {
+			// The AMP part as personalised, and a script-free look at it (forms can't be sent).
+			resp["amp"] = out.Content.AMP
+			resp["amp_preview"] = amp.PreviewHTML(amp.Fill(out.Content.AMP, func(string, string) string { return "#" }))
+		}
 		files := []map[string]any{}
 		if ids := out.Content.Attachments; len(ids) > 0 {
 			as, err := s.assetStore().AssetsByIDs(r.Context(), tenant, ids)

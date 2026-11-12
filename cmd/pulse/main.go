@@ -300,6 +300,7 @@ func runAPI(ctx context.Context, d *deps) error {
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
 		Schemas: eventschema.NewCache(pgs, d.redis(), d.log), SweepInterval: d.cfg.SweepInterval,
+		DefaultFrom: d.cfg.SMTPFrom,
 	})
 	srv := &http.Server{
 		Addr:              d.cfg.HTTPAddr,

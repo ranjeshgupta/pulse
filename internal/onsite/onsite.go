@@ -7,46 +7,76 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
 	"pulse/internal/model"
 	"pulse/internal/schedule"
+	"pulse/internal/segment"
 )
 
 var slotRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
-// Decision is the answer for one page view.
+// Decision is the answer for one page view. Focus items come in the order the SDK should try them
+// (priority); Variants names the variant each slot shows ("" for the default).
 type Decision struct {
-	Focus   []model.FocusItem `json:"focus"`
-	Content map[string]string `json:"content"`
+	Focus    []model.FocusItem `json:"focus"`
+	Content  map[string]string `json:"content"`
+	Variants map[string]string `json:"variants,omitempty"`
+}
+
+// Visitor is what a decision knows about the person on the page.
+type Visitor struct {
+	PageURL string
+	Device  string // desktop | mobile | tablet ("" unknown: device rules don't match)
+	// IsMember reports segment membership (always false for anonymous visitors).
+	IsMember func(int64) bool
+	// Attrs are the contact's fields, only for a verified identity (nil otherwise: rules with
+	// conditions on contact fields never match).
+	Attrs map[string]any
 }
 
 // Decide picks the eligible focus items and the content for each requested slot.
 // isMember reports whether the visitor is in a segment (always false for anonymous visitors).
 func Decide(items []model.FocusItem, slots []model.DWCSlot, wanted []string, pageURL string, now time.Time, isMember func(int64) bool) Decision {
-	d := Decision{Focus: []model.FocusItem{}, Content: map[string]string{}}
-	any := func(ids []int64) bool {
+	return DecideFor(items, slots, wanted, now, Visitor{PageURL: pageURL, IsMember: isMember})
+}
+
+// Matches reports whether the visitor is in an audience.
+func Matches(a model.OnsiteAudience, v Visitor) bool {
+	in := func(ids []int64) bool {
 		for _, id := range ids {
-			if isMember(id) {
+			if v.IsMember != nil && v.IsMember(id) {
 				return true
 			}
 		}
 		return false
 	}
+	switch {
+	case len(a.SegmentIDs) > 0 && !in(a.SegmentIDs), in(a.ExcludeSegmentIDs):
+		return false
+	case !urlMatches(v.PageURL, a.URLContains), len(a.URLNotContains) > 0 && urlMatches(v.PageURL, a.URLNotContains):
+		return false
+	case len(a.Devices) > 0 && !slices.Contains(a.Devices, v.Device):
+		return false
+	case len(a.Conditions) > 0 && (v.Attrs == nil || !segment.MatchProps(a.Conditions, v.Attrs)):
+		return false
+	}
+	return true
+}
+
+// DecideFor is Decide with everything known about the visitor.
+func DecideFor(items []model.FocusItem, slots []model.DWCSlot, wanted []string, now time.Time, v Visitor) Decision {
+	d := Decision{Focus: []model.FocusItem{}, Content: map[string]string{}, Variants: map[string]string{}}
 	for _, it := range items {
-		t := it.Targeting
-		if it.Status != "active" || !(schedule.Window{Start: it.StartAt, End: it.EndAt}).Active(now) || !urlMatches(pageURL, t.URLContains) {
-			continue
-		}
-		if len(t.SegmentIDs) > 0 && !any(t.SegmentIDs) {
-			continue
-		}
-		if any(t.ExcludeSegmentIDs) {
+		if it.Status != "active" || !(schedule.Window{Start: it.StartAt, End: it.EndAt}).Active(now) || !Matches(it.Targeting.Audience(), v) {
 			continue
 		}
 		d.Focus = append(d.Focus, it)
 	}
+	SortFocus(d.Focus)
 	want := map[string]bool{}
 	for _, w := range wanted {
 		want[w] = true
@@ -55,16 +85,27 @@ func Decide(items []model.FocusItem, slots []model.DWCSlot, wanted []string, pag
 		if s.Status != "active" || !want[s.Slot] || !(schedule.Window{Start: s.StartAt, End: s.EndAt}).Active(now) {
 			continue
 		}
-		html := s.DefaultHTML
-		for _, v := range s.Variants {
-			if isMember(v.SegmentID) {
-				html = v.HTML
+		html, which := s.DefaultHTML, ""
+		for i, vr := range s.Variants {
+			if Matches(vr.Rules(), v) {
+				html, which = vr.HTML, vr.ID
+				if which == "" {
+					which = fmt.Sprintf("%d", i+1)
+				}
 				break
 			}
 		}
 		d.Content[s.Slot] = html
+		if which != "" {
+			d.Variants[s.Slot] = which
+		}
 	}
 	return d
+}
+
+// SortFocus orders focus items by priority (lower first), keeping the given order for ties.
+func SortFocus(items []model.FocusItem) {
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Targeting.Priority < items[j].Targeting.Priority })
 }
 
 // urlMatches checks the page's path and query only: matching the whole URL would let "/shop" match
@@ -102,7 +143,9 @@ func Segments(items []model.FocusItem, slots []model.DWCSlot) []int64 {
 	}
 	for _, s := range slots {
 		for _, v := range s.Variants {
-			add(v.SegmentID)
+			r := v.Rules()
+			add(r.SegmentIDs...)
+			add(r.ExcludeSegmentIDs...)
 		}
 	}
 	return out
@@ -148,8 +191,53 @@ func ValidateFocus(f model.FocusItem) error {
 		return fmt.Errorf("delay trigger needs 1-600 seconds")
 	case !oneOf(t.Frequency, "once", "session", "daily", "always"):
 		return fmt.Errorf("frequency must be once, session, daily or always")
+	case t.Priority < 0 || t.Priority > 10000:
+		return fmt.Errorf("priority must be 0 to 10000")
+	}
+	if err := ValidateAudience("audience", t.Audience()); err != nil {
+		return err
 	}
 	return (schedule.Window{Start: f.StartAt, End: f.EndAt}).Validate()
+}
+
+// Limits of on-site audiences.
+const (
+	MaxVariants    = 20
+	maxAudienceSeg = 20
+	maxURLRules    = 20
+)
+
+var devices = []string{"desktop", "mobile", "tablet"}
+
+// ValidateAudience checks one audience's rules (what says the where is the caller's label).
+func ValidateAudience(what string, a model.OnsiteAudience) error {
+	if len(a.SegmentIDs)+len(a.ExcludeSegmentIDs) > maxAudienceSeg {
+		return fmt.Errorf("%s: at most %d segments", what, maxAudienceSeg)
+	}
+	for _, id := range append(slices.Clone(a.SegmentIDs), a.ExcludeSegmentIDs...) {
+		if id <= 0 {
+			return fmt.Errorf("%s: choose a segment", what)
+		}
+	}
+	for _, id := range a.SegmentIDs {
+		if slices.Contains(a.ExcludeSegmentIDs, id) {
+			return fmt.Errorf("%s: a segment can't be both shown to and left out", what)
+		}
+	}
+	if len(a.URLContains) > maxURLRules || len(a.URLNotContains) > maxURLRules {
+		return fmt.Errorf("%s: at most %d page rules of each kind", what, maxURLRules)
+	}
+	for _, u := range append(slices.Clone(a.URLContains), a.URLNotContains...) {
+		if strings.TrimSpace(u) == "" || len(u) > 300 {
+			return fmt.Errorf("%s: page rules must be 1 to 300 characters", what)
+		}
+	}
+	for _, d := range a.Devices {
+		if !slices.Contains(devices, d) {
+			return fmt.Errorf("%s: device must be desktop, mobile or tablet", what)
+		}
+	}
+	return segment.ValidatePropFilters(what+" contact fields", a.Conditions)
 }
 
 // ValidateDWC checks a content slot before it is saved.
@@ -161,11 +249,29 @@ func ValidateDWC(d model.DWCSlot) error {
 		return fmt.Errorf("name is required")
 	case !oneOf(d.Status, "draft", "active"):
 		return fmt.Errorf("status must be draft or active")
+	case len(d.Variants) > MaxVariants:
+		return fmt.Errorf("at most %d variants", MaxVariants)
 	}
+	ids := map[string]bool{}
 	for i, v := range d.Variants {
-		if v.SegmentID <= 0 {
-			return fmt.Errorf("variant %d needs a segment", i+1)
+		what := fmt.Sprintf("variant %d", i+1)
+		if v.Name != "" {
+			what = fmt.Sprintf("variant %d (%s)", i+1, v.Name)
+		}
+		if v.ID != "" {
+			if !variantIDRe.MatchString(v.ID) || ids[v.ID] {
+				return fmt.Errorf("%s: its id must be unique letters and digits", what)
+			}
+			ids[v.ID] = true
+		}
+		if len(v.Name) > 80 {
+			return fmt.Errorf("%s: the name is longer than 80 characters", what)
+		}
+		if err := ValidateAudience(what, v.Rules()); err != nil {
+			return err
 		}
 	}
 	return (schedule.Window{Start: d.StartAt, End: d.EndAt}).Validate()
 }
+
+var variantIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)

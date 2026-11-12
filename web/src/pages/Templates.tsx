@@ -11,6 +11,7 @@ import { EMAIL_STYLE, unwrapRichText, wrapRichText } from "../richTextHtml";
 import { exampleEvent, fillSample, lintAll, SAMPLE_CONTACT, type Sample } from "../personalize";
 import { EventScopePicker, PersonalizeScopeProvider, TemplatedInput, TemplatedText, useVariables, VarPicker, VarProblems } from "../VarPicker";
 import type { EmailBuilderHandle } from "./EmailBuilder";
+import { AmpSection } from "./AmpEditor";
 
 const EmailBuilder = lazy(() => import("./EmailBuilder"));
 
@@ -264,6 +265,7 @@ export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, sco
               {emailMode !== "html" && <BodyProblems html={t.html} />}
               {replacesLayout(emailMode) && hadBuilder && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the {emailMode === "html" ? "HTML" : "Rich text"} tab replaces the visual layout with this HTML.</p>}
               <AttachmentPicker ids={c.attachments ?? []} onChange={(attachments) => setC({ attachments: attachments.length ? attachments : undefined })} />
+              <AmpSection t={t} setT={setT} />
             </>
           )}
 

@@ -1,11 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type DragEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type DWCSlot, type FocusItem } from "../api";
+import { api, ApiError, type DWCSlot, type FocusItem, type Overlap } from "../api";
 import { useCan } from "../auth";
+import { moveBy, moveVariant } from "../onsiteVariants";
 import { describeWindow } from "../schedule";
-import { Empty, ErrorNote, Modal, PageHead, Status } from "../ui";
+import { Drawer, Empty, ErrorNote, Modal, PageHead, Status, useToast } from "../ui";
 import type { InAppMessage } from "./InApp";
+import { OverlapView } from "./OnSite";
+import "./onsite-variants.css";
 import "./segments.css";
 
 // One place for everything shown inside a website or an app: focus items (pop-ups, banner bars,
@@ -35,6 +38,7 @@ export function OnSiteList() {
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
+  const [ordering, setOrdering] = useState(false);
   const canEdit = useCan("content", "edit");
   const focus = useQuery({ queryKey: ["focus"], queryFn: () => api.get<{ focus_items: FocusItem[] }>("/v1/focus-items") });
   const dwc = useQuery({ queryKey: ["dwc"], queryFn: () => api.get<{ slots: DWCSlot[] }>("/v1/dwc") });
@@ -61,6 +65,7 @@ export function OnSiteList() {
         actions={canEdit && <button className="btn primary" onClick={() => setCreating(true)}>New</button>}
       />
       {creating && <NewOnSiteModal onClose={() => setCreating(false)} />}
+      {ordering && <FocusOrderDrawer items={focus.data?.focus_items ?? []} canEdit={canEdit} onClose={() => setOrdering(false)} />}
       <div className="row" style={{ marginBottom: 14, justifyContent: "space-between" }}>
         <div className="row">
           <div className="seg-toggle" role="group" aria-label="Channel">
@@ -71,7 +76,12 @@ export function OnSiteList() {
             {(Object.keys(KIND_LABEL) as Kind[]).filter((k) => !channel || (channel === "app") === (k === "inapp")).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
           </select>
         </div>
-        <input className="input" style={{ maxWidth: 260 }} placeholder="Find by name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find by name" />
+        <div className="row">
+          {channel !== "app" && (kind === "" || kind === "focus") && (focus.data?.focus_items.length ?? 0) > 1 && (
+            <button className="btn" onClick={() => setOrdering(true)}>Order of pop-ups, bars and slide-ins</button>
+          )}
+          <input className="input" style={{ maxWidth: 260 }} placeholder="Find by name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find by name" />
+        </div>
       </div>
       <ErrorNote error={focus.error ?? dwc.error ?? inapp.error} />
       <div className="panel">
@@ -133,5 +143,118 @@ function NewOnSiteModal({ onClose }: { onClose: () => void }) {
         </>
       )}
     </Modal>
+  );
+}
+
+// ---------- focus item order ----------
+
+type FocusKind = FocusItem["kind"];
+const FOCUS_KINDS: FocusKind[] = ["modal", "bar", "slide"];
+const KIND_PLURAL: Record<FocusKind, string> = { modal: "Pop-ups", bar: "Banner bars", slide: "Slide-ins" };
+
+/** The order the website tries items of one kind in: priority (lower first), then newest first. */
+const byOrder = (a: FocusItem, b: FocusItem) => (a.targeting.priority ?? 0) - (b.targeting.priority ?? 0) || b.id - a.id;
+
+/** FocusOrderDrawer orders focus items within each kind (drag or arrows) and counts their overlap. */
+function FocusOrderDrawer({ items, canEdit, onClose }: { items: FocusItem[]; canEdit: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const initial = () => Object.fromEntries(FOCUS_KINDS.map((k) => [k, items.filter((f) => f.kind === k).sort(byOrder).map((f) => f.id)])) as Record<FocusKind, number[]>;
+  const [order, setOrder] = useState<Record<FocusKind, number[]>>(initial);
+  const [saved, setSaved] = useState<Record<FocusKind, number[]>>(initial);
+  const byId = new Map(items.map((f) => [f.id, f]));
+  const changed = FOCUS_KINDS.filter((k) => order[k].join() !== saved[k].join());
+  const save = useMutation({
+    mutationFn: async () => {
+      for (const k of changed) await api.put("/v1/focus-items/order", { ids: order[k] });
+    },
+    onSuccess: () => {
+      setSaved(order);
+      qc.invalidateQueries({ queryKey: ["focus"] });
+      toast({ text: "Order saved. Visitors see it within seconds." });
+    },
+  });
+  return (
+    <Drawer title="Order of pop-ups, bars and slide-ins" subtitle="Visitors see one pop-up, one bar and one slide-in at a time: the first in this order they can still see." onClose={onClose}>
+      <p className="small muted" style={{ marginBottom: 14 }}>
+        Put the most important item first. If a visitor isn't in its audience, has already seen it as often as it allows, or it's outside its schedule, the next one in the list is shown instead.
+      </p>
+      <p className="xs muted" style={{ marginBottom: 14 }}>New items go to the top of their list until you save an order again.</p>
+      {FOCUS_KINDS.filter((k) => order[k].length > 0).map((k) => (
+        <KindOrder key={k} kind={k} ids={order[k]} byId={byId} canEdit={canEdit} onChange={(ids) => setOrder({ ...order, [k]: ids })} />
+      ))}
+      <ErrorNote error={save.error} />
+      {canEdit && (
+        <div className="row" style={{ marginTop: 18 }}>
+          <button className="btn primary" disabled={!changed.length || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save order"}</button>
+          {changed.length > 0 && <button className="btn ghost" onClick={() => setOrder(saved)}>Undo changes</button>}
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function KindOrder({ kind, ids, byId, canEdit, onChange }: { kind: FocusKind; ids: number[]; byId: Map<number, FocusItem>; canEdit: boolean; onChange: (ids: number[]) => void }) {
+  const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
+  const live = ids.filter((id) => byId.get(id)?.status === "active");
+  const overlap = useMutation({
+    mutationFn: async (liveIds: number[]) => {
+      try {
+        return { o: await api.post<Overlap>("/v1/focus-items/overlap", { ids: liveIds }), key: liveIds.join() };
+      } catch (e) {
+        throw e instanceof ApiError && e.status === 429 ? new Error("Too many counts right now. Try again in a minute.") : e;
+      }
+    },
+  });
+  const over = (i: number) => (e: DragEvent) => {
+    if (!drag) return;
+    e.preventDefault();
+    if (drag.over !== i) setDrag({ ...drag, over: i });
+  };
+  const drop = (i: number) => (e: DragEvent) => {
+    if (!drag) return;
+    e.preventDefault();
+    onChange(moveVariant(ids, drag.from, i));
+    setDrag(null);
+  };
+  return (
+    <section className="ov-kind">
+      <div className="ov-kind-head">
+        <h3>{KIND_PLURAL[kind]}</h3>
+        <button className="btn sm" disabled={live.length === 0 || overlap.isPending} title={live.length ? undefined : "Nothing published"} onClick={() => overlap.mutate(live)}>
+          {overlap.isPending ? "Counting…" : "Check overlap"}
+        </button>
+      </div>
+      <ol className="ov-order" aria-label={`${KIND_PLURAL[kind]} in order`}>
+        {ids.map((id, i) => {
+          const f = byId.get(id);
+          const cls = [drag?.from === i ? "dragging" : "", drag && drag.over === i && drag.from !== i ? (drag.from < i ? "drop-after" : "drop-before") : ""].filter(Boolean).join(" ");
+          return (
+            <li key={id} className={cls} onDragOver={over(i)} onDrop={drop(i)} onDragEnd={() => setDrag(null)}>
+              {canEdit && (
+                <span className="ov-handle" draggable title="Drag to reorder" aria-hidden="true"
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-pulse-focus", String(id)); setDrag({ from: i, over: i }); }}>⋮⋮</span>
+              )}
+              <span className="ov-num">{i + 1}</span>
+              <span className="ov-item-name small"><Link to={onsiteHref("focus", id)}>{f?.name || `Item ${id}`}</Link></span>
+              {f && <Status value={f.status} />}
+              {canEdit && (
+                <span className="row" style={{ gap: 2, flexWrap: "nowrap" }}>
+                  <button type="button" className="btn ghost sm" aria-label={`Move ${f?.name ?? id} up`} disabled={i === 0} onClick={() => onChange(moveBy(ids, i, -1))}>↑</button>
+                  <button type="button" className="btn ghost sm" aria-label={`Move ${f?.name ?? id} down`} disabled={i === ids.length - 1} onClick={() => onChange(moveBy(ids, i, 1))}>↓</button>
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <ErrorNote error={overlap.error} />
+      {overlap.data && (
+        <div style={{ marginTop: 10 }}>
+          <p className="xs muted" style={{ marginBottom: 6 }}>Published {KIND_PLURAL[kind].toLowerCase()} only, in the order above.</p>
+          <OverlapView o={overlap.data.o} noun="item" stale={overlap.data.key !== live.join()} />
+        </div>
+      )}
+    </section>
   );
 }

@@ -104,7 +104,9 @@ func (s *Schema) Normalize() error {
 	if !event.ValidName(s.Name) {
 		return fmt.Errorf("invalid event name %q", s.Name)
 	}
-	if event.PlatformOnly(s.Name) {
+	// AMP answers are recorded by Pulse too, but their properties are the marketer's (poll answers,
+	// form fields), so they may have a schema for segments and journeys.
+	if event.PlatformOnly(s.Name) && s.Name != event.AMPFormSubmitted && s.Name != event.AMPPollAnswered {
 		return fmt.Errorf("%s is recorded by Pulse itself and can't have a schema", s.Name)
 	}
 	switch s.Mode {

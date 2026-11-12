@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"pulse/internal/amp"
 	"pulse/internal/model"
 	"pulse/internal/personalize"
 )
@@ -61,6 +62,11 @@ type Content struct {
 	TrackLinks bool `json:"track_links,omitempty"`
 	// email: asset ids sent as attachments (checked against the workspace's assets when saved)
 	Attachments []int64 `json:"attachments,omitempty"`
+	// email: the optional AMP part (text/x-amp-html), sent between the plain-text and HTML parts by
+	// providers that can (providers.SupportsAMP). AMPBlocks is the visual AMP builder's document
+	// (amp.Doc); when present, the API builds AMP from it on save.
+	AMP       string          `json:"amp,omitempty"`
+	AMPBlocks json.RawMessage `json:"amp_blocks,omitempty"`
 	// whatsapp: a pre-approved template on the WhatsApp Business account
 	TemplateName   string   `json:"template_name,omitempty"`
 	Language       string   `json:"language,omitempty"`
@@ -119,6 +125,9 @@ func Validate(t model.Template) error {
 	if t.Channel != Email && len(c.Attachments) > 0 {
 		return errors.New("only email templates take attachments")
 	}
+	if t.Channel != Email && (c.AMP != "" || len(c.AMPBlocks) > 0) {
+		return errors.New("only email templates have an AMP part")
+	}
 	var missing []string
 	need := func(name, v string) {
 		if strings.TrimSpace(v) == "" {
@@ -131,6 +140,11 @@ func Validate(t model.Template) error {
 		need("html", t.HTML)
 		if len(c.Text) > 200_000 {
 			return errors.New("the plain-text part is longer than 200,000 characters")
+		}
+		if c.AMP != "" {
+			if errs := amp.Errors(amp.Validate(c.AMP)); len(errs) > 0 {
+				return AMPError{Problems: errs}
+			}
 		}
 		if len(c.Attachments) > MaxAttachments {
 			return fmt.Errorf("an email can have at most %d attachments", MaxAttachments)
@@ -181,6 +195,48 @@ func Validate(t model.Template) error {
 	// Every field must parse, so authors find mistakes on save rather than at send time.
 	_, err = Render(t, model.Contact{Attrs: map[string]any{}})
 	return err
+}
+
+// AMPError lists what's wrong with a template's AMP part, with line numbers.
+type AMPError struct{ Problems []amp.Problem }
+
+func (e AMPError) Error() string {
+	parts := make([]string, 0, len(e.Problems))
+	for i, p := range e.Problems {
+		if i == 10 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(e.Problems)-10))
+			break
+		}
+		parts = append(parts, p.String())
+	}
+	return "AMP part: " + strings.Join(parts, "; ")
+}
+
+// PrepareAMP builds the AMP part from the visual builder's blocks, when the template has them
+// (the generated code replaces content.amp). Without blocks it leaves the template as it is.
+func PrepareAMP(t *model.Template) error {
+	if t.Channel != Email || len(t.Content) == 0 {
+		return nil
+	}
+	c, err := ParseContent(t.Content)
+	if err != nil || len(c.AMPBlocks) == 0 {
+		return err
+	}
+	d, err := amp.ParseDoc(c.AMPBlocks)
+	if err != nil || d == nil {
+		return err
+	}
+	out, err := d.Build()
+	if err != nil {
+		return fmt.Errorf("AMP blocks: %w", err)
+	}
+	c.AMP = out
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	t.Content = raw
+	return nil
 }
 
 // MaxAttachments is how many files one email may attach (their total size is capped in assets).
@@ -295,6 +351,16 @@ func RenderWith(t model.Template, contact model.Contact, v Vars) (Rendered, erro
 		c.Card.Title, c.Card.Description = text("card title", c.Card.Title), text("card description", c.Card.Description)
 		c.Card.ImageURL = text("card image", c.Card.ImageURL)
 	}
+	if c.AMP != "" && firstErr == nil {
+		// The client's amp-mustache templates ({{message}}) are cut out first: they aren't ours.
+		src, restore := amp.Protect(c.AMP)
+		h, err := r.HTML("amp", src, d)
+		if err != nil {
+			return out, fmt.Errorf("amp: %w", err)
+		}
+		c.AMP = restore(h)
+	}
+	c.AMPBlocks = nil // the builder's document isn't part of a message
 	c.Title, c.Body = text("title", c.Title), text("body", c.Body)
 	c.ImageURL, c.URL = text("image_url", c.ImageURL), text("url", c.URL)
 	for k, val := range c.Data {

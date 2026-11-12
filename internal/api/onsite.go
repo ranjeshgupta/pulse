@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,9 @@ func (s *Server) onsiteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/dwc/{id}", s.tenant(s.getDWC))
 	mux.HandleFunc("PUT /v1/dwc/{id}", s.tenant(s.saveDWC))
 	mux.HandleFunc("DELETE /v1/dwc/{id}", s.tenant(s.deleteDWC))
+	mux.HandleFunc("POST /v1/dwc/overlap", s.tenant(s.dwcOverlap))
+	mux.HandleFunc("POST /v1/focus-items/overlap", s.tenant(s.focusOverlap))
+	mux.HandleFunc("PUT /v1/focus-items/order", s.tenant(s.focusOrder))
 
 	mux.HandleFunc("OPTIONS /v1/web/decide", s.corsPreflight)
 	mux.HandleFunc("POST /v1/web/decide", s.decide)
@@ -94,6 +98,9 @@ func (s *Server) saveFocus(w http.ResponseWriter, r *http.Request, tenant int64)
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !s.onsiteSegmentsOK(w, r, tenant, append(slices.Clone(f.Targeting.SegmentIDs), f.Targeting.ExcludeSegmentIDs...)) {
+		return
+	}
 	id, err := s.onsite().SaveFocusItem(r.Context(), f)
 	if err != nil {
 		s.fail(w, err)
@@ -135,7 +142,19 @@ func (s *Server) getDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, d)
+	writeJSON(w, http.StatusOK, withShadows(d))
+}
+
+// dwcView is a slot with the variants that can never be shown.
+type dwcView struct {
+	model.DWCSlot
+	Shadowed          []onsite.Shadow `json:"shadowed"`
+	DefaultNeverShown bool            `json:"default_never_shown"`
+}
+
+func withShadows(d model.DWCSlot) dwcView {
+	sh, def := onsite.Shadowed(onsite.SlotAudiences(d.Variants))
+	return dwcView{DWCSlot: d, Shadowed: sh, DefaultNeverShown: def}
 }
 
 func (s *Server) saveDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -164,6 +183,26 @@ func (s *Server) saveDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Pre-M6 variants (one segment) move into their audience; every variant gets a stable id.
+	used := map[string]bool{}
+	for _, v := range d.Variants {
+		used[v.ID] = true
+	}
+	var segs []int64
+	for i := range d.Variants {
+		v := &d.Variants[i]
+		v.Audience, v.SegmentID = v.Rules(), 0
+		for v.ID == "" {
+			if id := newVariantID(); !used[id] {
+				v.ID = id
+			}
+		}
+		used[v.ID] = true
+		segs = append(append(segs, v.Audience.SegmentIDs...), v.Audience.ExcludeSegmentIDs...)
+	}
+	if !s.onsiteSegmentsOK(w, r, tenant, segs) {
+		return
+	}
 	id, err := s.onsite().SaveDWCSlot(r.Context(), d)
 	if err != nil {
 		if errors.Is(err, pg.ErrConflict) {
@@ -174,7 +213,9 @@ func (s *Server) saveDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
 		return
 	}
 	s.forgetOnsite(tenant)
-	writeJSON(w, http.StatusOK, map[string]any{"id": id})
+	d.ID = id
+	v := withShadows(d)
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "variants": d.Variants, "shadowed": v.Shadowed, "default_never_shown": v.DefaultNeverShown})
 }
 
 func (s *Server) deleteDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -260,6 +301,7 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		UserHash   string   `json:"user_hash"`
 		URL        string   `json:"url"`
 		Slots      []string `json:"slots"`
+		Device     string   `json:"device"` // desktop | mobile | tablet, from the SDK
 	}
 	if !decode(w, r, &req) {
 		return
@@ -289,7 +331,11 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	d := onsite.Decide(set.items, set.slots, req.Slots, req.URL, s.now(), func(id int64) bool { return member[id] })
+	v := onsite.Visitor{PageURL: req.URL, Device: req.Device, IsMember: func(id int64) bool { return member[id] }}
+	if known != nil && verified {
+		v.Attrs = known.Attrs // contact-field rules read the contact's data: verified identities only (M2)
+	}
+	d := onsite.DecideFor(set.items, set.slots, req.Slots, s.now(), v)
 	if known != nil {
 		s.journeyOnsite(r.Context(), t.ID, *known, req.URL, req.Slots, verified, &d)
 	}

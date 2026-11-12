@@ -209,7 +209,27 @@ export interface ChannelContent {
   expires_days?: number; category?: string; // inbox
   /** email: asset ids attached to every message (10 at most, 10 MB together). */
   attachments?: number[];
+  /** email: the optional AMP part (built by the server from amp_blocks when those are set). */
+  amp?: string;
+  /** email: the visual AMP builder's document (see ampBuilder.ts). */
+  amp_blocks?: AmpDoc | null;
 }
+
+// ---- M6 AMP email (internal/amp) ----
+export type AmpBlockType = "heading" | "text" | "image" | "button" | "carousel" | "accordion" | "gallery" | "poll" | "form";
+export interface AmpImage { src: string; alt?: string; link?: string; caption?: string; width?: number; height?: number }
+export interface AmpFormField { key: string; label: string; type: "text" | "email" | "number" | "textarea" | "select" | "checkbox"; required?: boolean; options?: string[]; save_to?: string }
+export interface AmpBlock {
+  id: string; type: AmpBlockType; text?: string; url?: string; image?: AmpImage | null; items?: AmpImage[]; height?: number; autoplay?: number;
+  sections?: { title: string; body: string }[]; options?: string[]; fields?: AmpFormField[]; show_results?: boolean; submit_text?: string; success_text?: string;
+}
+export interface AmpDoc { blocks: AmpBlock[]; style: { background?: string; text?: string; accent?: string; font?: "sans" | "serif" } }
+export interface AmpProblem { line: number; message: string; warning?: boolean }
+/** POST /v1/templates/amp/check {amp} or {amp_blocks}. */
+export interface AmpCheck { amp: string; problems: AmpProblem[]; size: number; max_size: number; preview: string; blocks: string[];
+  providers: { name: string; amp: boolean; note?: string }[] }
+/** GET /v1/templates/{id}/amp/results */
+export interface AmpPollResults { polls: Record<string, { question: string; total: number; items: { label: string; count: number; percent: number }[] }> }
 /** missing_values: when a variable has no value and no default, render it empty (default) or skip the contact. */
 export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; missing_values?: "empty" | "skip";
   /** Written inside a one-time campaign: kept out of template lists until saved as reusable. */
@@ -337,9 +357,27 @@ export interface SandboxMessage { id: number; channel: Channel; recipient: strin
 export interface FocusItem {
   id: number; name: string; kind: "modal" | "bar" | "slide"; status: "draft" | "active"; updated_at?: string; start_at?: string; end_at?: string | null;
   content: { title: string; body_html: string; image_url?: string; cta_text?: string; cta_url?: string; background?: string; text_color?: string; button_color?: string; position?: string };
-  targeting: { segment_ids?: number[]; exclude_segment_ids?: number[]; url_contains?: string[]; trigger: string; trigger_value?: number; frequency: string };
+  targeting: { segment_ids?: number[]; exclude_segment_ids?: number[]; url_contains?: string[]; trigger: string; trigger_value?: number; frequency: string;
+    /** M6: more audience rules, and the order among items of one kind (lower first). */
+    url_not_contains?: string[]; devices?: Device[]; conditions?: OnsiteCondition[]; priority?: number };
 }
-export interface DWCSlot { id: number; slot: string; name: string; default_html: string; variants: { segment_id: number; html: string }[]; status: "draft" | "active"; updated_at?: string; start_at?: string; end_at?: string | null }
+// ---- M6 on-site audiences (internal/onsite) ----
+export type Device = "desktop" | "mobile" | "tablet";
+/** A contact-field rule (segment property filter: prop path, op, value). Matches verified visitors only. */
+export interface OnsiteCondition { prop: string; op: string; value?: unknown }
+export interface OnsiteAudience { segment_ids?: number[]; exclude_segment_ids?: number[]; url_contains?: string[]; url_not_contains?: string[]; devices?: Device[]; conditions?: OnsiteCondition[] }
+/** Variants are tried in order; the first whose audience matches is shown, else default_html. segment_id is pre-M6 (folded into audience on save). */
+export interface DWCVariant { id?: string; name?: string; segment_id?: number; audience: OnsiteAudience; html: string }
+export interface DWCShadow { index: number; by: number; note: string }
+export interface DWCSlot { id: number; slot: string; name: string; default_html: string; variants: DWCVariant[]; status: "draft" | "active"; updated_at?: string; start_at?: string; end_at?: string | null;
+  /** GET only: variants that can never be shown, and whether an "everyone" variant hides the default. */
+  shadowed?: DWCShadow[]; default_never_shown?: boolean }
+/** POST /v1/dwc/overlap {slot_id} | {variants}; POST /v1/focus-items/overlap {kind} | {ids}. */
+export interface Overlap {
+  variants: { index: number; matching: number; sees: number; approximate?: boolean }[];
+  pairs: { a: number; b: number; both: number }[]; multi: number; default: number; contacts: number; approximate: boolean; at: string;
+  names: string[]; shadowed: DWCShadow[]; default_never_shown: boolean; cached: boolean;
+}
 
 export type Repeat = "none" | "daily" | "weekly" | "monthly";
 export type ABMetric = "opens" | "clicks" | "manual";

@@ -21,7 +21,7 @@ func scanFocus(row pgx.Row) (model.FocusItem, error) {
 // ListFocusItems lists a workspace's focus items; activeOnly is for the decision API.
 func (s *Store) ListFocusItems(ctx context.Context, tenant int64, activeOnly bool) ([]model.FocusItem, error) {
 	rows, err := s.db.Query(ctx, `SELECT `+focusCols+` FROM focus_items
-		WHERE tenant_id = $1 AND (NOT $2 OR status = 'active') ORDER BY id DESC`, tenant, activeOnly)
+		WHERE tenant_id = $1 AND (NOT $2 OR status = 'active') ORDER BY coalesce((targeting->>'priority')::int, 0), id DESC`, tenant, activeOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -101,5 +101,15 @@ func (s *Store) DeleteDWCSlot(ctx context.Context, tenant, id int64) error {
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}
+	return err
+}
+
+// SetFocusPriorities orders focus items: the i-th id gets priority i+1 (in its targeting). Ids of
+// other workspaces are ignored.
+func (s *Store) SetFocusPriorities(ctx context.Context, tenant int64, ids []int64) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE focus_items f SET targeting = jsonb_set(f.targeting, '{priority}', to_jsonb(o.ord::int)), updated_at = now()
+		FROM unnest($2::bigint[]) WITH ORDINALITY AS o(id, ord)
+		WHERE f.tenant_id = $1 AND f.id = o.id`, tenant, ids)
 	return err
 }

@@ -202,7 +202,7 @@ func MessageVars(o Outbound) map[string]any {
 		"subject": o.Rendered.Subject, "html": o.Rendered.HTML, "text": c.Text, "title": c.Title, "body": c.Body,
 		"image_url": c.ImageURL, "url": c.URL, "sender_id": c.SenderID, "dlt_template_id": c.DLTTemplateID,
 		"dlt_entity_id": c.DLTEntityID, "template_name": c.TemplateName, "language": c.Language,
-		"header_image_url": c.HeaderImageURL, "ref": o.Ref,
+		"header_image_url": c.HeaderImageURL, "ref": o.Ref, "amp": c.AMP,
 	}
 	if o.Channel == channel.WhatsApp || len(c.BodyParams) > 0 {
 		params := make([]any, len(c.BodyParams))

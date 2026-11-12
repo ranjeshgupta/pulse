@@ -37,6 +37,7 @@ import { IntegrationEdit, IntegrationList } from "./pages/Integrations";
 import { ImportPage } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
 import { AutomationSettingsPage } from "./pages/AutomationSettings";
+import { WebPushSettingsPage } from "./pages/WebPush";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
 import { AssetList } from "./pages/Assets";
 import { LandingPageEdit, LandingPageList } from "./pages/LandingPages";
@@ -130,6 +131,7 @@ const router = createBrowserRouter([
           { path: "automation", element: <AutomationSettingsPage /> },
           { path: "channels", element: <Channels /> },
           { path: "test-inbox", element: <TestInbox /> },
+          { path: "web-push", element: <WebPushSettingsPage /> },
           { path: "integrations", element: <IntegrationList /> },
           { path: "integrations/:id", element: <IntegrationEdit /> },
           { path: "webhooks", element: <WebhookList /> },

@@ -30,6 +30,7 @@ import (
 	"pulse/internal/schedule"
 	"pulse/internal/store/pg"
 	"pulse/internal/tracking"
+	"pulse/internal/webcheck"
 )
 
 const (
@@ -113,6 +114,9 @@ type Deps struct {
 	// Schemas holds event schemas, so POST /v1/events can refuse events whose schema is in
 	// enforce mode (nil: nothing is refused).
 	Schemas *eventschema.Cache
+	// DefaultFrom is the server's own sender (PULSE_SMTP_FROM), used when a workspace has no email
+	// provider; its domain is one of every workspace's sending domains (AMP post-backs).
+	DefaultFrom string
 	// SweepInterval is the server's segment sweep interval (PULSE_SWEEP_INTERVAL), the default of
 	// the workspace setting (0: 5 minutes).
 	SweepInterval time.Duration
@@ -123,6 +127,9 @@ type Server struct {
 	now func() time.Time
 	sso *ssoProviders
 	ui  http.Handler
+
+	// siteFetcher fetches customers' sites for the web push install check (nil: webcheck.NewFetcher).
+	siteFetcher *webcheck.Fetcher
 
 	// snsCerts fetches SNS signing certificates (nil: from Amazon; tests set their own).
 	snsCerts bounces.CertFetcher
@@ -190,6 +197,7 @@ func (s *Server) Handler() http.Handler {
 	s.uiRoutes(mux)
 	s.channelRoutes(mux)
 	s.onsiteRoutes(mux)
+	s.ampRoutes(mux)
 	s.broadcastRoutes(mux)
 	s.campaignRoutes(mux)
 	s.trackingRoutes(mux)

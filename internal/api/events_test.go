@@ -146,7 +146,7 @@ func TestSuggestedSchemasAndListField(t *testing.T) {
 	if len(st.defs) != 1 || st.defs[0].Key != "products" || st.defs[0].Type != "list" {
 		t.Errorf("list field: %+v", st.defs)
 	}
-	if w := do(t, h, "POST", "/v1/events/schemas/suggested", "key-1", ""); !strings.Contains(w.Body.String(), `"added":["login","add_to_cart","cart_abandoned","checkout_abandoned"]`) {
+	if w := do(t, h, "POST", "/v1/events/schemas/suggested", "key-1", ""); !strings.Contains(w.Body.String(), `"added":["login","add_to_cart","cart_abandoned","checkout_abandoned","amp_poll_answered","amp_form_submitted"]`) {
 		t.Errorf("add the rest: %s", w.Body)
 	}
 	var out struct {

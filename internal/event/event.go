@@ -67,6 +67,9 @@ const (
 	DWCRequested     = "dwc_requested"      // the decide API served a slot to a known contact: props slot, url
 	EmailReplied     = "email_replied"      // the inbound reply webhook matched a reply: props message_id, ...
 	RCSReplied       = "rcs_replied"        // an inbound RCS message, attributed to the latest RCS message: props message_id, ...
+	// AMP email post-backs (POST /v1/amp/{token}): props block, message ids, and the answers
+	AMPFormSubmitted = "amp_form_submitted" // a form in an AMP email: one prop per field
+	AMPPollAnswered  = "amp_poll_answered"  // a poll in an AMP email: props question, answer
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -75,7 +78,7 @@ func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
 		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged,
-		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied:
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered:
 		return true
 	}
 	return false
@@ -86,7 +89,7 @@ func ServerOnly(name string) bool {
 func PlatformOnly(name string) bool {
 	switch name {
 	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
-		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied:
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered:
 		return true
 	}
 	return false

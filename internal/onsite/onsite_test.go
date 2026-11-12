@@ -107,7 +107,11 @@ func TestValidateFocus(t *testing.T) {
 	if err := ValidateDWC(model.DWCSlot{Slot: "Home Hero", Name: "x", Status: "draft"}); err == nil {
 		t.Error("slot key with spaces accepted")
 	}
-	if err := ValidateDWC(model.DWCSlot{Slot: "home-hero", Name: "x", Status: "active", StartAt: now, Variants: []model.DWCVariant{{HTML: "x"}}}); err == nil {
-		t.Error("variant without segment accepted")
+	// M6: a variant may have no segment (everyone, on some pages or devices); bad rules are refused.
+	for _, a := range []model.OnsiteAudience{{Devices: []string{"watch"}}, {SegmentIDs: []int64{1}, ExcludeSegmentIDs: []int64{1}},
+		{URLContains: []string{" "}}, {Conditions: []model.OnsiteCondition{{Prop: "city", Op: "nope"}}}, {SegmentIDs: []int64{-1}}} {
+		if err := ValidateDWC(model.DWCSlot{Slot: "home-hero", Name: "x", Status: "active", StartAt: now, Variants: []model.DWCVariant{{HTML: "x", Audience: a}}}); err == nil {
+			t.Errorf("audience %+v accepted", a)
+		}
 	}
 }

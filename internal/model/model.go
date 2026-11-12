@@ -3,6 +3,7 @@ package model
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"pulse/internal/auth"
@@ -292,7 +293,36 @@ type FocusTargeting struct {
 	Trigger           string   `json:"trigger"`                       // load | exit_intent | scroll | delay
 	TriggerValue      int      `json:"trigger_value,omitempty"`       // scroll %, delay seconds
 	Frequency         string   `json:"frequency"`                     // once | session | daily | always
+	// M6: more audience rules (see OnsiteAudience) and the order among items of the same kind:
+	// the web SDK shows one pop-up, one bar and one slide-in at a time, the first allowed in order.
+	URLNotContains []string          `json:"url_not_contains,omitempty"`
+	Devices        []string          `json:"devices,omitempty"`
+	Conditions     []OnsiteCondition `json:"conditions,omitempty"`
+	Priority       int               `json:"priority,omitempty"` // lower first; ties: newest first
 }
+
+// Audience returns the item's audience rules.
+func (t FocusTargeting) Audience() OnsiteAudience {
+	return OnsiteAudience{SegmentIDs: t.SegmentIDs, ExcludeSegmentIDs: t.ExcludeSegmentIDs, URLContains: t.URLContains,
+		URLNotContains: t.URLNotContains, Devices: t.Devices, Conditions: t.Conditions}
+}
+
+// OnsiteAudience says who sees a content variant or focus item: members of any SegmentIDs (none:
+// everyone) and of no ExcludeSegmentIDs, on pages whose URL contains any URLContains (none: every
+// page) and none of URLNotContains, on one of Devices (none: any), whose contact fields pass every
+// condition (only for verified identities: conditions read the contact's data).
+type OnsiteAudience struct {
+	SegmentIDs        []int64           `json:"segment_ids,omitempty"`
+	ExcludeSegmentIDs []int64           `json:"exclude_segment_ids,omitempty"`
+	URLContains       []string          `json:"url_contains,omitempty"`
+	URLNotContains    []string          `json:"url_not_contains,omitempty"`
+	Devices           []string          `json:"devices,omitempty"` // desktop | mobile | tablet
+	Conditions        []OnsiteCondition `json:"conditions,omitempty"`
+}
+
+// OnsiteCondition compares one contact field (a path, as segment property filters), with the
+// operators of segment rules.
+type OnsiteCondition = segment.PropFilter
 
 // DWCSlot is a Dynamic Web Content slot: a placeholder on a page filled per visitor.
 type DWCSlot struct {
@@ -308,9 +338,24 @@ type DWCSlot struct {
 	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
+// DWCVariant is one version of a slot's content. Variants are tried in order (their priority);
+// the first whose audience matches is shown, else the slot's default.
 type DWCVariant struct {
-	SegmentID int64  `json:"segment_id"`
-	HTML      string `json:"html"`
+	ID   string `json:"id,omitempty"` // stable within the slot (assigned on save)
+	Name string `json:"name,omitempty"`
+	// SegmentID is the variant's audience before M6 (one segment); folded into Audience on save.
+	SegmentID int64          `json:"segment_id,omitempty"`
+	Audience  OnsiteAudience `json:"audience"`
+	HTML      string         `json:"html"`
+}
+
+// Rules returns the variant's audience, with the pre-M6 segment folded in.
+func (v DWCVariant) Rules() OnsiteAudience {
+	a := v.Audience
+	if v.SegmentID > 0 && !slices.Contains(a.SegmentIDs, v.SegmentID) {
+		a.SegmentIDs = append(slices.Clone(a.SegmentIDs), v.SegmentID)
+	}
+	return a
 }
 
 // Broadcast sends one template to everyone in a segment, once or on a repeat.

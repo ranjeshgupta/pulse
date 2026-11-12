@@ -40,7 +40,7 @@ Gupshup gets SMS, WhatsApp and RCS.
 | 9 | Segment date from–to | ✅ M1: between / since dates on behaviour, "is between" on date fields | M1 ✅ |
 | 10 | Reachable channels | ✅ M3: reachable by channel per segment and per campaign; ✅ M4: the per-contact matrix on the contact page | M3 ✅, M4 ✅ |
 | 11 | Standard variable names | ✅ M2: `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`, `{{links.x}}` with defaults and formats, a picker on every templated field | M2 ✅ |
-| 12 | Web push / personalisation activation | Already | M6 adds a no-code opt-in prompt and install check |
+| 12 | Web push / personalisation activation | Already; ✅ M6: no-code opt-in prompt (bell, bar or pop-up) and an install check (server fetch + browser self-check) | M6 ✅ |
 | 13 | Deliverability per campaign | ✅ M4 (as row 7) | M4 ✅ |
 | 14 | Live segment | Already | |
 | 15 | Exclude in segmentation | Already | M1 ✅ adds a "none of" group |
@@ -55,8 +55,8 @@ Gupshup gets SMS, WhatsApp and RCS.
 | 24 | Tags in segmentation | Already | |
 | 25 | Daily refresh time for segments | ✅ M1: Refresh daily at HH:MM in a time zone | M1 ✅ |
 | 27 | Copy blocks | ✅ M3: copy/paste journey steps and segment groups; duplicate broadcasts, journeys, templates, segments | M3 ✅ |
-| 28 | Web content by audience without overlap | Partial: first match wins, no ordering or overlap view | M6 |
-| 29 | AMP mailers | Missing | M6 |
+| 28 | Web content by audience without overlap | ✅ M6: ordered variants with segment, page, device and contact-field rules, never-shown warnings and an overlap view; focus items ordered, one per kind at a time | M6 ✅ |
+| 29 | AMP mailers | ✅ M6: AMP part with validation, a visual block builder (carousel, accordion, gallery, polls, forms posting back to Pulse), preview and test send | M6 ✅ |
 | 30 | User and product dashboards | ✅ M4: Analytics → Users and Products | M4 ✅ |
 
 (The sheet has no row 26.)
@@ -89,7 +89,7 @@ with screenshots, and committed on its own.
    Gmail / Workspace SMTP (app password or XOAUTH2) and Workspace SMTP relay presets; Gupshup SMS,
    WhatsApp and RCS; Settings → Automation & limits for retention per log type and per event name,
    anonymous visitors, retries, schedules and quotas.
-6. **M6 AMP and on-site.** AMP email part with validation, preview and a visual block builder
+6. **M6 AMP and on-site (done).** AMP email part with validation, preview and a visual block builder
    (carousel, accordion, forms and polls that post back to Pulse), web content variants with rules,
    ordering and an overlap view, a no-code push opt-in prompt and install check.
 
@@ -425,6 +425,106 @@ Built as designed, with these choices:
   per-workspace maintenance interval (a global pass); a no-secret preview of SMTP presets (they have Test connection
   and Send test, not a request preview, since SMTP has no HTTP request).
 
+## M6 as built
+
+Built as designed, with these choices:
+
+- **AMP part storage.** No new template columns: the AMP code is `templates.content.amp` and the builder's document
+  `content.amp_blocks` (`channel.Content`). When blocks are sent, the API builds the code from them on every save
+  (`channel.PrepareAMP` → `amp.Doc.Build`), so the blocks are the source and the generated code is never edited by
+  hand alongside them; "Code" mode in the app turns the blocks into code once and drops them. The template preview,
+  the wizard and duplicates go through the same path.
+- **Validator** (`internal/amp/validate.go`): a rules table over the HTML tokenizer with line numbers — doctype,
+  `<html ⚡4email>` (or `amp4email`), `<meta charset="utf-8">` first in head, the runtime script, the boilerplate,
+  only AMP component scripts from cdn.ampproject.org for the allowed components (accordion, anim, autocomplete,
+  bind, carousel 0.2, date-picker, fit-text, form, image-lightbox, inputmask, lightbox, list, selector, sidebar,
+  timeago, mustache 0.2) and each used component's script present (unused ones are a warning), no other script,
+  no event-handler attributes or `javascript:` URLs, disallowed tags (img, iframe, video, link, svg…), one
+  `<style amp-custom>` in head, no `!important`/`@import`, CSS ≤ 75,000 bytes, `amp-img` sized and https, forms
+  `method="post"` with `action-xhr` (never `action`), document ≤ 200 KB. Errors stop a save (400 "AMP part: line N:
+  …"); warnings don't. Full validation stays Google's job (AMP validator, Gmail sender registration).
+- **Post-back placeholders.** Forms must post to `action-xhr="pulse:submit/<block>"` (amp-list may read
+  `pulse:results/<block>`); any other form target is refused. The dispatcher replaces them per recipient with
+  `https://<public URL>/v1/amp/<token>` (`amp.Fill`), where the token is a sealed `tracking.AMPToken` (workspace,
+  contact id and external id, message, template, journey/broadcast/run/variant, block, expiry 60 days, a test flag),
+  with its own prefix so a tracking token can't be used as one or vice versa. Without a server key the AMP part
+  (if it has forms) is left out; one over 200 KB once personalised is left out too. Internal notifications carry no
+  AMP part.
+- **Personalisation.** The AMP part is rendered by the same html/template renderer as the HTML part (escaped for
+  where each value lands). amp-mustache `<template>`s are cut out before and put back after (`amp.Protect`): their
+  `{{…}}` belong to the email client, so Pulse variables don't work inside them. Click tracking, the unsubscribe
+  footer and an `<amp-img>` open pixel are added like in the HTML part (`tracking.InstrumentAMP`).
+- **MIME and providers.** `multipart/alternative` is text, AMP (`text/x-amp-html`), HTML (also inside
+  `multipart/mixed` with attachments). Pulse has no API email providers: every SMTP relay passes the part as built
+  (SES, SendGrid, SparkPost, Mailgun, Gmail/Workspace and plain relays) except Postmark, which doesn't support AMP —
+  the part is left out there (`providers.SupportsAMP`, shown in the editor per provider). The custom gateway gets it
+  as `content.amp` and `{{message.amp}}`; the sandbox stores it.
+- **Builder blocks:** heading, text, image, button, carousel (`amp-carousel` slides, autoplay), gallery
+  (`amp-carousel` strip), accordion (`amp-accordion`), poll and form (`amp-form` + `amp-mustache` success and
+  error messages); style: page, text and accent colours and font. Form fields: text, email, number, textarea,
+  select, checkbox; each may copy its answer to a contact field (`save_to`), checked on save and again at post time
+  with `eventschema.ListTargetAllowed` (custom fields only; never identity, consent or Pulse's own fields).
+- **Post-back endpoint** `POST /v1/amp/{token}` (public): token opened and expiry checked; CORS per the AMP for Email
+  spec — v2 `AMP-Email-Sender` → `AMP-Email-Allow-Sender`, or v1 `Origin` of a known email client (Gmail, AMP
+  playground, Yahoo, Outlook, Mail.ru) plus `__amp_source_origin` → `Access-Control-Allow-Origin`,
+  `AMP-Access-Control-Allow-Source-Origin`, `Access-Control-Expose-Headers`; the sender's domain must be a domain
+  of the workspace's email providers' From addresses or the server's default sender (`PULSE_SMTP_FROM`), cached a
+  minute. Rate limits: 60 a minute per client IP and workspace, 10 a minute per token. Only the body's form fields
+  of the block the template defines are read (hand-written forms: up to 20 simple field names). Polls: one answer
+  per contact per poll (Redis `SETNX`, 400 days; later answers get "You already answered"), counts in a Redis hash
+  per template and block; `amp_poll_answered` {block, question, answer, message ids}. Forms: `amp_form_submitted`
+  with one property per field and the allowed contact-field updates as the event's attributes; the event id hashes
+  token and values, so a replay records once. Test tokens (bare-address test sends) answer without recording. JSON
+  answers carry `message` (and `items`/`total` for polls) for the AMP templates. `GET /v1/amp/{token}/results` serves
+  `items` for `amp-list`. The two events are platform events (refused on `POST /v1/events`, server-only for
+  browsers) but may have schemas; starter schemas added.
+- **Editor:** `POST /v1/templates/amp/check` (content view) validates code or builds blocks, returns problems with
+  lines, size, a script-free preview (`amp.PreviewHTML`: images, scrolling carousels, `<details>` accordions,
+  forms that can't be sent; shown in a sandboxed iframe) and the providers' AMP support; the template preview
+  returns `amp` / `amp_preview`; `GET /v1/templates/{id}/amp/results` shows poll counts. The app explains Gmail's
+  sender registration and the 60-day link lifetime. Send test includes the AMP part (owner rule: preview and test).
+- **Content variants** (`model.DWCVariant`, still JSON in `dwc_slots.variants`): id (assigned on save), name,
+  audience (`model.OnsiteAudience`: segments in, segments out, page URL contains / doesn't contain, devices,
+  contact-field conditions as segment property filters) and HTML. Array order is the priority; the first match wins,
+  else the default. Pre-M6 `segment_id` variants are folded into the audience on save and read as such before.
+  Contact-field conditions match only verified identities (`verifiedIdentity`, M2 rule); segment rules keep
+  `webIdentityOK` as before. The SDK sends `device` (desktop/mobile/tablet) to `/v1/web/decide`, which now also
+  returns `variants` (slot → variant id).
+- **Never shown** (`onsite.Shadowed`, from rules alone): a variant is shadowed when an earlier one covers it (no or a
+  superset of its segments, a subset of its exclusions, page rules that contain its pages, devices and conditions
+  that include its own); an "everyone" variant hides the rest and the default. Returned by GET and save, mirrored
+  live in the editor.
+- **Overlap view** `POST /v1/dwc/overlap` ({slot_id} or unsaved {variants}) and `POST /v1/focus-items/overlap`
+  ({kind} or {ids}): one Redis pipeline of BITOPs (`onsite.CountOverlap`) — per variant audience (segments or all
+  known contacts, minus exclusions), pair ANDs, who would see each in order, contacts in more than one, the
+  default's share; page, device and field rules aren't counted ("approximate"). Cached a minute per audience set;
+  30 uncached counts a minute per workspace; content view.
+- **Focus items** got the same audience rules and a priority (`targeting.priority`, no column; `PUT
+  /v1/focus-items/order`). The decision returns them in order and the SDK shows one pop-up, one bar and one slide-in
+  per page — the first whose frequency still allows it (an older cached SDK shows all, as before). Never-ordered
+  items (priority 0) sort first until an order is saved.
+- **Web push prompt** (`internal/webcheck`, `tenant_settings.webpush`, migration pg 025; Settings → Web push, channels
+  view to read, channels edit to change): bell, bar or pop-up, texts and colours, delay / scroll / pages-this-visit
+  triggers, ask again after N days (0 = never), pages to show on / hide on, the site address and service-worker path.
+  `/v1/web/push-config` returns the prompt; the SDK shows it only while permission is undecided, then "Allow" opens
+  the browser's prompt (a click) and subscribes; browsers that already allowed are kept subscribed. SDK events
+  `push_prompt_shown`, `push_prompt_allowed`, `push_prompt_dismissed`, `push_subscribed`, `push_permission_refused`.
+- **Install check** `POST /v1/settings/web-push/check` (channels edit, 10 a minute): the server fetches the page and
+  the service worker through `safehttp` wrapped in `safehttp.SameOrigin` (public addresses only, checked per
+  connection; https only; redirects only within the site; 1 MB; 10 s; private addresses and http only with
+  `PULSE_ALLOW_PRIVATE_WEBHOOKS`) and reports HTTPS, page opens, snippet found (and from which host), site key is
+  this workspace's, service worker present and JavaScript, imports Pulse's worker, VAPID keys set. **Browser
+  self-check:** `POST /v1/settings/web-push/check-token` gives a 30-minute `?pulse_check=` link; the SDK on that page
+  runs `Pulse.diagnose()` and posts it to `POST /v1/web/diagnose` (site key must belong to the token's workspace;
+  fields capped); the app polls `GET /v1/settings/web-push/diagnosis`.
+- **Deviations:** "every API provider that supports AMP" — Pulse has no email API adapters (SES, SendGrid and
+  SparkPost are reached over SMTP), so AMP goes through their SMTP relays; the poll results show in the post-back
+  answer and through `amp-list` (the builder uses the answer; hand-written AMP can use the list). Focus items have no
+  per-audience content variants (variants are a content-slot feature); they get ordering, the same rules and the
+  overlap view per kind instead.
+- **Not built:** a real AMP renderer in the app (the preview is an approximation; real behaviour shows in Gmail
+  or the AMP playground); AMP for transactional internal notifications.
+
 ## Docs for the final pass
 
 From M4 on, docs and screenshots are updated in one pass after M6 (owner's decision, 2026-11-11).
@@ -483,6 +583,36 @@ Each milestone adds what it needs here.
 - Screenshots: new `16-*.mjs` (provider form with authentication, custom request, Test connection result, request
   preview; Automation & limits page; What will be deleted dialog); retake the Channels provider form (presets, notes),
   the SMS template editor, Data & privacy, Segments "Daily at" default, and every shot showing the settings menu.
+
+**M6:**
+- README: M6 features (AMP emails with the block builder and post-back events, content variants with ordering and
+  overlap, focus item order, web push prompt and install check); Postmark sends no AMP; `PULSE_SMTP_FROM` is also an
+  AMP sender domain.
+- docs/02-architecture.md: `internal/amp` (validator rules, builder, placeholders, Protect/Fill, preview), AMP
+  MIME order and `providers.SupportsAMP`, `tracking.AMPToken` and `InstrumentAMP`, the `/v1/amp/{token}` post-back
+  (CORS v1/v2, sender domains, rate limits, poll Redis keys `amp:ans:*` / `amp:poll:*`), `onsite.OnsiteAudience`,
+  `DecideFor`, `Shadowed`, `CountOverlap` and keys `ovl:*` / `ovltmp:*`, focus priority, `internal/webcheck` and the
+  fetcher's safety rules, `tenant_settings.webpush` (migration pg 025), diagnose keys `pchk:*` / `pchkr:*`.
+- docs/05-feature-parity.md: AMP email, content variants with rules and overlap, web push opt-in prompt and install
+  check.
+- Developer 03 (API): `POST /v1/templates/amp/check`, `GET /v1/templates/{id}/amp/results`, `content.amp` /
+  `content.amp_blocks` (block schema) and the 400 with lines, preview `amp` / `amp_preview`, `POST /v1/amp/{token}`
+  and `GET /v1/amp/{token}/results` (headers, answers, errors), DWC variant `audience`/`id`/`name` and GET
+  `shadowed`, `POST /v1/dwc/overlap`, `POST /v1/focus-items/overlap`, `PUT /v1/focus-items/order`, focus targeting
+  fields, decide `device` and `variants`, `GET|PUT /v1/settings/web-push`, `/check`, `/check-token`, `/diagnosis`,
+  `POST /v1/web/diagnose`, `push-config` `prompt` / `service_worker`, events `amp_form_submitted` /
+  `amp_poll_answered` and the starter schemas.
+- Developer 06 (webhooks/providers): AMP support per provider, gateway `content.amp` / `{{message.amp}}`.
+- Web SDK guide: `device` in decide, one focus item per kind in order, the opt-in prompt (no code), `Pulse.diagnose()`
+  and `?pulse_check=`, the new `push_prompt_*` events, the service worker path setting.
+- Tutorials: 5 or 6 (email templates: the AMP section — blocks, code mode, problems, preview, providers, Gmail
+  registration, poll results; segments/journeys on `amp_poll_answered`), 8 or the on-site tutorial (variants: rules,
+  order, never-shown warnings, overlap; focus item order), the web push tutorial (Settings → Web push: prompt and
+  install check); a new tutorial 17 "Interactive AMP emails" in the index.
+- Screenshots: new `17-*.mjs` (AMP blocks editor, code mode with problems, preview and providers, poll results;
+  content variants with rules and a never-shown warning; overlap panel; focus item order drawer; Web push settings
+  with prompt preview, install check results and browser check); retake the template editor, the on-site editors and
+  list, and every shot showing the settings menu (new "Web push" item).
 
 ## Risks
 

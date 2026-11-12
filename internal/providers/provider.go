@@ -296,6 +296,25 @@ func ParseRetryAfter(v string, now time.Time) time.Duration {
 	return 0
 }
 
+// SupportsAMP says whether a provider of this kind sends an email's AMP part, and if not, why (for
+// the app). SMTP relays pass the MIME message as built, so the AMP part goes out through Amazon SES,
+// SendGrid, SparkPost, Mailgun and any other relay; Postmark doesn't support AMP. The custom
+// gateway gets the AMP part in its request (content.amp, {{message.amp}}) and decides itself.
+func SupportsAMP(kind string, config map[string]string) (bool, string) {
+	switch {
+	case kind == "smtp":
+		if svc, err := smtpService(config["service"], config["host"]); err == nil && svc == ServicePostmark {
+			return false, "Postmark doesn't send AMP email: the AMP part is left out and the HTML is sent"
+		}
+		return true, ""
+	case kind == "gmail_smtp", kind == "gworkspace_smtp", kind == "gworkspace_relay", strings.HasPrefix(kind, "sandbox_"):
+		return true, ""
+	case strings.HasPrefix(kind, "http_"):
+		return true, "sent to your gateway as content.amp; it must put it in the email"
+	}
+	return false, "this provider can't send AMP: the AMP part is left out"
+}
+
 // ReportsDelivery says whether a provider of this kind tells Pulse a message was delivered:
 // providers with delivery webhooks (Twilio, Meta WhatsApp, Google RBM, the custom gateway, the
 // sandbox through its simulated receipts), and SMTP relays of the sending services whose
