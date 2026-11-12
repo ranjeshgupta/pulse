@@ -139,6 +139,16 @@ func (d *deps) ch(ctx context.Context) (*ch.Store, error) {
 	return d.chs, nil
 }
 
+// sendRates are the configured per-workspace send rates by channel (PULSE_EMAIL_RATE and
+// PULSE_<CHANNEL>_RATE); channels without one keep dispatch.DefaultRates.
+func (d *deps) sendRates() map[string]float64 {
+	rates := map[string]float64{channel.Email: d.cfg.EmailRate}
+	for ch, r := range d.cfg.Rates {
+		rates[ch] = r
+	}
+	return rates
+}
+
 func (d *deps) redis() *redis.Client {
 	if d.rdb == nil {
 		d.rdb = redis.NewClient(&redis.Options{Addr: d.cfg.RedisAddr})
@@ -296,7 +306,7 @@ func runAPI(ctx context.Context, d *deps) error {
 	}
 	server := api.New(api.Deps{
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
-		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log,
+		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log, SendRates: dispatch.EffectiveRates(d.sendRates()),
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
 		Schemas: eventschema.NewCache(pgs, d.redis(), d.log), SweepInterval: d.cfg.SweepInterval,
@@ -498,7 +508,7 @@ func runDispatch(ctx context.Context, d *deps) error {
 	disp := dispatch.New(pgs, d.redis(), prod, dispatch.Config{
 		From:         d.cfg.SMTPFrom,
 		EmailDefault: &providers.SMTP{Addr: d.cfg.SMTPAddr, Service: providers.DetectService(smtpHost(d.cfg.SMTPAddr))},
-		Rates:        map[string]float64{channel.Email: d.cfg.EmailRate},
+		Rates:        d.sendRates(),
 		Box:          box,
 		Providers:    providers.Deps{Sandbox: pgs, AllowPrivate: d.cfg.AllowPrivateWebhooks, Tokens: tokenCache(d.redis(), box)},
 		Tracking:     d.tracking(box),

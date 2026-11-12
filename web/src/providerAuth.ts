@@ -23,7 +23,7 @@ export interface AuthConfig {
 }
 
 export const AUTH_TYPES: { id: AuthType; label: string; hint: string }[] = [
-  { id: "none", label: "None", hint: "No authentication (the standard mode still signs each request)." },
+  { id: "none", label: "None", hint: "Pulse adds no login details to the request." },
   { id: "basic", label: "Basic", hint: "HTTP basic auth with a user and password." },
   { id: "bearer", label: "Bearer token", hint: "A fixed token in the Authorization header." },
   { id: "api_key", label: "API key", hint: "A key in a header or query parameter." },
@@ -99,7 +99,7 @@ export const RECEIPT_STATUSES: ReceiptStatus[] = ["delivered", "read", "failed",
 export function newCustomRequest(channel: string): CustomRequest {
   const body = channel === "email"
     ? '{"to": "{{message.to}}", "subject": "{{message.subject}}", "html": "{{message.html}}"}'
-    : '{"to": "{{message.to}}", "text": "{{message.text}}", "name": "{{contact.first_name | default:\\"there\\"}}"}';
+    : `{"to": "{{message.to}}", "text": "{{message.text}}", "name": "{{contact.first_name | default:'there'}}"}`;
   return { method: "POST", url: "https://", content_type: "application/json", body, success: {}, id_path: "id" };
 }
 
@@ -170,3 +170,31 @@ export function endpointHosts(config: Record<string, string>): string[] {
 export function hostsChanged(before: Record<string, string>, after: Record<string, string>): boolean {
   return endpointHosts(before).join(" ") !== endpointHosts(after).join(" ");
 }
+
+// ---- sending limits ----
+
+type Limits = { rate_per_second?: number; daily_quota?: number; timezone?: string };
+
+/** cleanLimits: the limits as the API takes them (0 is no limit). */
+export function cleanLimits(l: Limits): Required<Limits> {
+  return { rate_per_second: l.rate_per_second || 0, daily_quota: l.daily_quota || 0, timezone: l.timezone ?? "" };
+}
+
+/** sameLimits: whether the form's limits equal the saved ones (empty and 0 are the same). */
+export function sameLimits(a: Limits, b?: Limits): boolean {
+  const x = cleanLimits(a), y = cleanLimits(b ?? {});
+  return x.rate_per_second === y.rate_per_second && x.daily_quota === y.daily_quota && (!x.daily_quota || (x.timezone || "UTC") === (y.timezone || "UTC"));
+}
+
+/** limitsNote explains the server's own per-workspace rate for the channel, and warns when the
+ * provider's rate is above it (the server's rate wins). */
+export function limitsNote(rate: number | undefined, serverRate: number | undefined, channel: string, channelName: string): { text: string; warn: boolean } | null {
+  if (!serverRate) return null;
+  const cap = serverRate.toLocaleString("en-IN");
+  if (rate && rate > serverRate) {
+    return { warn: true, text: `This Pulse server sends at most ${cap} ${channelName} messages a second per workspace, so this provider gets ${cap}, not ${rate.toLocaleString("en-IN")}. Ask whoever runs Pulse to raise it (${rateSetting(channel)}).` };
+  }
+  return { warn: false, text: `This Pulse server also sends at most ${cap} ${channelName} messages a second per workspace (${rateSetting(channel)}), whatever the provider allows.` };
+}
+
+const rateSetting = (channel: string) => `PULSE_${channel.toUpperCase()}_RATE`;

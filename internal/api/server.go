@@ -83,6 +83,9 @@ type Membership interface {
 
 // Deps are the server's collaborators. Box, RDB and PublicURL are needed for web sign-in.
 type Deps struct {
+	// SendRates are the per-workspace send rates by channel (messages per second) the dispatchers
+	// use, shown next to provider limits. Nil in tests: no cap is shown.
+	SendRates   map[string]float64
 	Store       Store
 	Members     Membership
 	Analytics   Analytics // optional: segment previews, timelines, dashboard

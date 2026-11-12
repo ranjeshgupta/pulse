@@ -422,3 +422,29 @@ select.btn-like { font-weight: 560; background-color: var(--cobalt); color: #fff
 .goal-card { display: grid; gap: 4px; text-align: left; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); cursor: pointer; font: inherit; color: var(--text); }
 .goal-card:hover, .goal-card:focus-visible { border-color: var(--cobalt); background: var(--cobalt-wash); }
 .goal-channel { padding: 10px 14px; }
+
+/* Choice cards: two or three options, each with a sentence (provider form). */
+.choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.choice-cards button {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; cursor: pointer;
+  border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--surface); font: inherit; color: var(--text);
+}
+.choice-cards button span { font-size: var(--fs-xs); color: var(--muted); line-height: 1.4; }
+.choice-cards button:hover { border-color: var(--ink-3); }
+.choice-cards button.on { border-color: var(--cobalt); box-shadow: var(--focus); }
+
+/* Provider form: numbered steps of the custom gateway, and the sending limits. */
+.pf-step { border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 4px; margin-bottom: 8px; }
+.pf-step h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: var(--fs-base); }
+.pf-step-n {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--ink); color: #fff; font-size: var(--fs-xs); font-weight: 600;
+}
+.pf-step-hint { margin: -4px 0 10px; }
+.pf-step .fieldset { border: 0; padding: 0; margin: 0; }
+.pf-step .fieldset legend { display: none; }
+.pf-target { display: grid; grid-template-columns: 110px 1fr; gap: 0 12px; }
+.pf-inserts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -6px 0 12px; }
+.pf-more { margin: 0 0 12px; }
+.pf-more summary { cursor: pointer; font-size: var(--fs-sm); color: var(--cobalt); margin-bottom: 8px; }
+.pf-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; }

@@ -106,7 +106,7 @@ func (s *Server) webhookProvider(w http.ResponseWriter, r *http.Request) (provid
 func (s *Server) chStore() ChannelStore { return s.Store.(ChannelStore) }
 
 func (s *Server) catalog(w http.ResponseWriter, _ *http.Request, _ int64) {
-	writeJSON(w, http.StatusOK, map[string]any{"channels": channel.All, "providers": providers.Catalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"channels": channel.All, "providers": providers.Catalog(), "send_rates": s.SendRates})
 }
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request, tenant int64) {

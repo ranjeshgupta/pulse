@@ -252,7 +252,9 @@ type fakeNames struct {
 func (f fakeNames) MessageReport(context.Context, ch.Scope, string, int) (ch.Report, error) {
 	return ch.Report{}, nil
 }
-func (f fakeNames) FunnelLevels(context.Context, segment.Query, int) ([]uint64, error) { return nil, nil }
+func (f fakeNames) FunnelLevels(context.Context, segment.Query, int) ([]uint64, error) {
+	return nil, nil
+}
 func (f fakeNames) EventNames(context.Context, int64) ([]string, error) {
 	return append([]string(nil), f.names...), nil
 }

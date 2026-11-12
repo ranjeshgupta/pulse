@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { api, type Channel, type ProviderField } from "../api";
 import { ErrorNote, Field } from "../ui";
 import {
@@ -124,58 +124,187 @@ export function AuthEditor({ config, setConfig, secrets, setSecret, saved }: {
   );
 }
 
-/** CustomRequestEditor edits config.request (the gateway's custom-request mode). */
-export function CustomRequestEditor({ channel, config, setConfig }: { channel: Channel; config: Record<string, string>; setConfig: Setter }) {
+// ---- the custom HTTP gateway, step by step ----
+
+/** Step: one numbered part of the gateway form. */
+export function Step({ n, title, hint, children }: { n: number; title: string; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="pf-step" aria-label={title}>
+      <h4><span className="pf-step-n">{n}</span>{title}</h4>
+      {hint && <p className="xs muted pf-step-hint">{hint}</p>}
+      {children}
+    </section>
+  );
+}
+
+/** GatewayModeChoice: does the gateway take Pulse's own request, or does Pulse adapt to its API. */
+export function GatewayModeChoice({ mode, onChange }: { mode: string; onChange: (m: "standard" | "custom") => void }) {
+  const custom = mode === "custom";
+  return (
+    <div className="choice-cards" role="radiogroup" aria-label="How Pulse calls your gateway">
+      <button type="button" role="radio" aria-checked={!custom} className={!custom ? "on" : ""} onClick={() => onChange("standard")}>
+        <strong>Your developers build an endpoint for Pulse</strong>
+        <span>Pulse posts each message as JSON in its own format, signed with a secret. Simplest: you only enter the address and the secret.</span>
+      </button>
+      <button type="button" role="radio" aria-checked={custom} className={custom ? "on" : ""} onClick={() => onChange("custom")}>
+        <strong>Connect to a gateway's existing API</strong>
+        <span>Your SMS or messaging service already has an API. You tell Pulse where to send, how to sign in and what to send.</span>
+      </button>
+    </div>
+  );
+}
+
+const useRequest = (channel: Channel, config: Record<string, string>, setConfig: Setter) => {
   const r = parseRequest(config.request, channel);
-  const set = (p: Partial<CustomRequest>) => setConfig("request", serializeRequest({ ...r, ...p }));
+  return [r, (p: Partial<CustomRequest>) => setConfig("request", serializeRequest({ ...r, ...p }))] as const;
+};
+
+/** RequestTarget: the custom request's method and address. */
+export function RequestTarget({ channel, config, setConfig }: { channel: Channel; config: Record<string, string>; setConfig: Setter }) {
+  const [r, set] = useRequest(channel, config, setConfig);
+  return (
+    <div className="pf-target">
+      <Field label="Method">
+        <select className="select" value={r.method} onChange={(e) => set({ method: e.target.value })}>{["POST", "PUT", "PATCH", "GET"].map((m) => <option key={m}>{m}</option>)}</select>
+      </Field>
+      <Field label="Address (URL)" hint="From your gateway's API documentation, e.g. https://api.example.com/v1/sms/send. Changing its host later clears the saved secrets.">
+        <input className="input code" value={r.url} placeholder="https://api.example.com/v1/sms/send" onChange={(e) => set({ url: e.target.value })} />
+      </Field>
+    </div>
+  );
+}
+
+// The placeholders offered as one-click inserts in the body, by channel.
+const INSERTS: Record<string, [string, string][]> = {
+  email: [["message.to", "Email address"], ["message.subject", "Subject"], ["message.html", "HTML"], ["message.text", "Plain text"], ["contact.first_name", "First name"], ["message.id", "Pulse message ID"]],
+  other: [["message.to", "Phone or address"], ["message.text", "Message text"], ["contact.first_name", "First name"], ["message.sender_id", "Sender ID"], ["message.dlt_template_id", "DLT template ID"], ["message.id", "Pulse message ID"]],
+};
+
+/** RequestBody: what Pulse sends (content type, body with one-click placeholders, extra headers). */
+export function RequestBody({ channel, config, setConfig }: { channel: Channel; config: Record<string, string>; setConfig: Setter }) {
+  const [r, set] = useRequest(channel, config, setConfig);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const insert = (v: string) => {
+    const el = area.current;
+    const body = r.body ?? "";
+    const text = `{{${v}}}`;
+    const at = el ? el.selectionStart : body.length;
+    const to = el ? el.selectionEnd : body.length;
+    set({ body: body.slice(0, at) + text + body.slice(to) });
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(at + text.length, at + text.length); });
+  };
+  const headers = r.headers ?? [];
+  return (
+    <>
+      <Field label="Format">
+        <select className="select" value={r.content_type ?? "application/json"} onChange={(e) => set({ content_type: e.target.value })}>
+          {CONTENT_TYPES.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="Body" hint="Copy the example from your gateway's documentation and put placeholders where each message's details go.">
+        <textarea ref={area} className="textarea code" rows={5} value={r.body ?? ""} onChange={(e) => set({ body: e.target.value })} />
+      </Field>
+      <div className="pf-inserts" aria-label="Insert a placeholder">
+        <span className="xs muted">Insert:</span>
+        {(INSERTS[channel] ?? INSERTS.other).map(([v, label]) => (
+          <button type="button" key={v} className="btn sm" title={`{{${v}}}`} onClick={() => insert(v)}>{label}</button>
+        ))}
+      </div>
+      <details className="pf-more">
+        <summary>How placeholders work</summary>
+        <p className="xs muted">
+          <code>{"{{message.x}}"}</code> is the message being sent ({MESSAGE_VARS.slice(0, 8).join(", ")}…), <code>{"{{contact.x}}"}</code> a contact field,
+          {" "}<code>{"{{event.x}}"}</code> the event that triggered it and <code>{"{{campaign.x}}"}</code> the campaign. Pulse escapes each value for the format:
+          in JSON write <code>"text": "{"{{message.text}}"}"</code> with the quotes, and add <code>| json</code> for a list; form values are encoded for you.
+        </p>
+      </details>
+      <details className="pf-more" open={headers.length > 0 || undefined}>
+        <summary>Extra headers{headers.length ? ` (${headers.length})` : " (optional)"}</summary>
+        <HeadersEditor headers={headers} onChange={(h) => set({ headers: h })} hint="Only if the gateway asks for one. Sign-in headers are added by step 2." />
+      </details>
+    </>
+  );
+}
+
+/** RequestResult: when the gateway's answer means "sent", and where its message ID is. */
+export function RequestResult({ channel, config, setConfig }: { channel: Channel; config: Record<string, string>; setConfig: Setter }) {
+  const [r, set] = useRequest(channel, config, setConfig);
+  const min = r.success.status_min ?? 200;
+  const max = r.success.status_max ?? 299;
+  const custom = min !== 200 || max !== 299 || !!r.success.json_path;
+  return (
+    <>
+      <p className="small" style={{ margin: "0 0 10px" }}>
+        Sent when the gateway answers with status <strong>{min}–{max}</strong>
+        {r.success.json_path ? <> and <code>{r.success.json_path}</code> {r.success.json_value ? <>is <code>{r.success.json_value}</code></> : "is present and not false"}</> : null}.
+      </p>
+      <details className="pf-more" open={custom || undefined}>
+        <summary>Change this</summary>
+        <p className="xs muted">Some gateways answer 200 even on failure and put the result in the answer, e.g. <code>{'{"status": "success"}'}</code>: then check that field too.</p>
+        <div className="grid-2">
+          <Field label="Status from"><input className="input" type="number" value={min} onChange={(e) => set({ success: { ...r.success, status_min: Number(e.target.value), status_max: max } })} /></Field>
+          <Field label="to"><input className="input" type="number" value={max} onChange={(e) => set({ success: { ...r.success, status_max: Number(e.target.value), status_min: min } })} /></Field>
+          <Field label="And this field in the answer (optional)" hint="e.g. status or data.result"><input className="input code" value={r.success.json_path ?? ""} onChange={(e) => set({ success: { ...r.success, json_path: e.target.value } })} /></Field>
+          <Field label="Equals (optional)" hint="Empty: present and not false."><input className="input" value={r.success.json_value ?? ""} onChange={(e) => set({ success: { ...r.success, json_value: e.target.value } })} /></Field>
+        </div>
+      </details>
+      <Field label="The gateway's message ID is at (optional)" hint="The field in the answer holding the gateway's own ID for the message, e.g. id or data.message_id. Needed to match delivery reports.">
+        <input className="input code" value={r.id_path ?? ""} placeholder="id" onChange={(e) => set({ id_path: e.target.value })} />
+      </Field>
+    </>
+  );
+}
+
+/** ReceiptMapping: how delivery reports the gateway posts back are read. */
+export function ReceiptMapping({ channel, config, setConfig, webhookURL }: { channel: Channel; config: Record<string, string>; setConfig: Setter; webhookURL?: string }) {
+  const [r, set] = useRequest(channel, config, setConfig);
   const [statusText, setStatusText] = useState<string | null>(null);
   const rc = r.receipt;
   const statuses = parseStatuses(statusText ?? formatStatuses(rc?.statuses));
   return (
-    <fieldset className="fieldset">
-      <legend>Request</legend>
-      <p className="xs muted" style={{ marginBottom: 10 }}>
-        Templates take {"{{contact.x}}"}, {"{{event.x}}"}, {"{{campaign.x}}"} and {"{{message.x}}"} ({MESSAGE_VARS.slice(0, 8).join(", ")}…). In a JSON body every value is
-        JSON-escaped (write <code>"text": "{"{{message.text}}"}"</code>; use <code>| json</code> for lists); form and query values are percent-encoded. The URL's host is fixed.
-      </p>
-      <div className="row" style={{ flexWrap: "nowrap", alignItems: "flex-end" }}>
-        <Field label="Method"><select className="select" value={r.method} onChange={(e) => set({ method: e.target.value })}>{["POST", "PUT", "PATCH", "GET"].map((m) => <option key={m}>{m}</option>)}</select></Field>
-        <div style={{ flex: 1 }}><Field label="URL" hint="Changing its host clears the saved secrets."><input className="input code" value={r.url} onChange={(e) => set({ url: e.target.value })} /></Field></div>
-      </div>
-      <HeadersEditor headers={r.headers ?? []} onChange={(headers) => set({ headers })} />
-      <Field label="Content type"><select className="select" value={r.content_type ?? "application/json"} onChange={(e) => set({ content_type: e.target.value })}>
-        {["application/json", "application/x-www-form-urlencoded", "text/plain", "application/xml"].map((c) => <option key={c}>{c}</option>)}</select></Field>
-      <Field label="Body"><textarea className="textarea code" rows={5} value={r.body ?? ""} onChange={(e) => set({ body: e.target.value })} /></Field>
-      <h4 className="small" style={{ margin: "8px 0" }}>Success and message ID</h4>
-      <div className="grid-2">
-        <Field label="Success status from"><input className="input" type="number" value={r.success.status_min ?? 200} onChange={(e) => set({ success: { ...r.success, status_min: Number(e.target.value), status_max: r.success.status_max ?? 299 } })} /></Field>
-        <Field label="to"><input className="input" type="number" value={r.success.status_max ?? 299} onChange={(e) => set({ success: { ...r.success, status_max: Number(e.target.value), status_min: r.success.status_min ?? 200 } })} /></Field>
-        <Field label="And the answer's JSON path (optional)" hint="e.g. status"><input className="input code" value={r.success.json_path ?? ""} onChange={(e) => set({ success: { ...r.success, json_path: e.target.value } })} /></Field>
-        <Field label="Equals (optional)" hint="Empty: present and not false."><input className="input" value={r.success.json_value ?? ""} onChange={(e) => set({ success: { ...r.success, json_value: e.target.value } })} /></Field>
-        <Field label="Provider message ID at (JSON path)" hint="Matches delivery receipts to the message."><input className="input code" value={r.id_path ?? ""} onChange={(e) => set({ id_path: e.target.value })} /></Field>
-      </div>
-      <label className="check"><input type="checkbox" checked={!!rc} onChange={(e) => set({ receipt: e.target.checked ? { id_path: "id", status_path: "status", statuses: { delivered: "delivered", read: "read", failed: "failed" }, verify: "query", verify_name: "token" } : undefined })} />The provider posts delivery receipts to this provider's webhook URL</label>
+    <>
+      <label className="check">
+        <input type="checkbox" checked={!!rc} onChange={(e) => set({ receipt: e.target.checked ? { id_path: "id", status_path: "status", statuses: { delivered: "delivered", read: "read", failed: "failed" }, verify: "query", verify_name: "token" } : undefined })} />
+        The gateway sends delivery reports
+      </label>
       {rc && (
-        <div className="grid-2">
-          <Field label="List of receipts at (optional)" hint="When one post carries several."><input className="input code" value={rc.items_path ?? ""} onChange={(e) => set({ receipt: { ...rc, items_path: e.target.value } })} /></Field>
-          <Field label="Message ID at"><input className="input code" value={rc.id_path} onChange={(e) => set({ receipt: { ...rc, id_path: e.target.value } })} /></Field>
-          <Field label="Status at"><input className="input code" value={rc.status_path} onChange={(e) => set({ receipt: { ...rc, status_path: e.target.value } })} /></Field>
-          <Field label="Failure reason at (optional)"><input className="input code" value={rc.reason_path ?? ""} onChange={(e) => set({ receipt: { ...rc, reason_path: e.target.value } })} /></Field>
-          <Field label="Error code at (optional)"><input className="input code" value={rc.code_path ?? ""} onChange={(e) => set({ receipt: { ...rc, code_path: e.target.value } })} /></Field>
-          <Field label="Status values" hint={`One per line: provider value = ${RECEIPT_STATUSES.join(" | ")}. Others are ignored.${statuses.errors.length ? " Not understood: " + statuses.errors.join("; ") : ""}`}>
-            <textarea className="textarea code" rows={4} value={statusText ?? formatStatuses(rc.statuses)}
+        <>
+          <p className="xs muted" style={{ marginTop: -6 }}>
+            Give the gateway {webhookURL ? <code>{webhookURL}</code> : "this provider's delivery-report address (shown after saving)"} with the receipt token added as below. Pulse reads each report like this:
+          </p>
+          <div className="grid-2">
+            <Field label="Message ID at"><input className="input code" value={rc.id_path} onChange={(e) => set({ receipt: { ...rc, id_path: e.target.value } })} /></Field>
+            <Field label="Status at"><input className="input code" value={rc.status_path} onChange={(e) => set({ receipt: { ...rc, status_path: e.target.value } })} /></Field>
+          </div>
+          <Field label="Status values" hint={`One per line: the gateway's word = ${RECEIPT_STATUSES.join(" | ")}. Others are ignored.${statuses.errors.length ? " Not understood: " + statuses.errors.join("; ") : ""}`}>
+            <textarea className="textarea code" rows={3} value={statusText ?? formatStatuses(rc.statuses)}
               onChange={(e) => { setStatusText(e.target.value); set({ receipt: { ...rc, statuses: parseStatuses(e.target.value).statuses } }); }} />
           </Field>
-          <Field label="Receipts prove themselves with" hint="The receipt token (a secret below). Receipts without it are refused.">
-            <select className="select" value={rc.verify} onChange={(e) => set({ receipt: { ...rc, verify: e.target.value as "header" | "query" | "hmac" } })}>
-              <option value="query">The token in a query parameter</option><option value="header">The token in a header</option><option value="hmac">An HMAC-SHA256 of the body in a header</option></select>
-          </Field>
-          <Field label={rc.verify === "query" ? "Parameter name" : "Header name"}><input className="input" value={rc.verify_name} onChange={(e) => set({ receipt: { ...rc, verify_name: e.target.value } })} /></Field>
-        </div>
+          <div className="grid-2">
+            <Field label="Reports prove they're genuine with" hint="The receipt token below. Reports without it are refused.">
+              <select className="select" value={rc.verify} onChange={(e) => set({ receipt: { ...rc, verify: e.target.value as "header" | "query" | "hmac" } })}>
+                <option value="query">The token in the address (?token=…)</option><option value="header">The token in a header</option><option value="hmac">An HMAC-SHA256 of the body in a header</option></select>
+            </Field>
+            <Field label={rc.verify === "query" ? "Parameter name" : "Header name"}><input className="input" value={rc.verify_name} onChange={(e) => set({ receipt: { ...rc, verify_name: e.target.value } })} /></Field>
+          </div>
+          <details className="pf-more" open={!!(rc.items_path || rc.reason_path || rc.code_path) || undefined}>
+            <summary>More fields (optional)</summary>
+            <div className="grid-2">
+              <Field label="List of reports at" hint="When one post carries several."><input className="input code" value={rc.items_path ?? ""} onChange={(e) => set({ receipt: { ...rc, items_path: e.target.value } })} /></Field>
+              <Field label="Failure reason at"><input className="input code" value={rc.reason_path ?? ""} onChange={(e) => set({ receipt: { ...rc, reason_path: e.target.value } })} /></Field>
+              <Field label="Error code at"><input className="input code" value={rc.code_path ?? ""} onChange={(e) => set({ receipt: { ...rc, code_path: e.target.value } })} /></Field>
+            </div>
+          </details>
+        </>
       )}
-    </fieldset>
+    </>
   );
 }
+
+const CONTENT_TYPES: [string, string][] = [
+  ["application/json", "JSON (application/json)"], ["application/x-www-form-urlencoded", "Form fields (application/x-www-form-urlencoded)"],
+  ["text/plain", "Plain text"], ["application/xml", "XML"],
+];
 
 type Draft = { provider_id?: number; provider: string; config: Record<string, string>; secrets: Record<string, string> };
 type AuthResult = { ok: boolean; result?: { type: string; token?: string; expires?: string; static: boolean; server?: string; logged_in?: boolean }; error?: string; meaning?: string };

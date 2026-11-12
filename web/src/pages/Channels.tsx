@@ -5,19 +5,20 @@ import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { BounceMailboxPanel } from "./BounceMailbox";
-import { AuthEditor, ConfigField, CustomRequestEditor, ProviderTools } from "./ProviderSettings";
-import { hostsChanged } from "../providerAuth";
+import { AuthEditor, ConfigField, GatewayModeChoice, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
+import { cleanLimits, hostsChanged, limitsNote, sameLimits } from "../providerAuth";
 
 export function Channels() {
   const admin = useIsAdmin();
   const canLimit = useCan("channels", "edit");
   const canTest = useCan("content", "edit");
   const [limiting, setLimiting] = useState<Provider | null>(null);
-  const cat = useQuery({ queryKey: ["catalog"], queryFn: () => api.get<{ providers: ProviderKind[] }>("/v1/channels/catalog") });
+  const cat = useQuery({ queryKey: ["catalog"], queryFn: () => api.get<{ providers: ProviderKind[]; send_rates?: Record<string, number> }>("/v1/channels/catalog") });
   const list = useQuery({ queryKey: ["providers"], queryFn: () => api.get<{ providers: Provider[] }>("/v1/channels/providers") });
   const [editing, setEditing] = useState<{ channel: Channel; provider?: Provider } | null>(null);
   const [testing, setTesting] = useState<Provider | null>(null);
   const kinds = cat.data?.providers ?? [];
+  const sendRates = cat.data?.send_rates ?? {};
   const providers = list.data?.providers ?? [];
 
   return (
@@ -34,7 +35,7 @@ export function Channels() {
             </div>
             {mine.length === 0 ? (
               <div className="panel-body small muted">
-                {ch === "email" ? "Using the server's SMTP relay. Add a provider to send through your own." : `No provider yet, so ${CHANNEL_NAMES[ch]} messages in campaigns fail with "no provider configured".`}
+                {ch === "email" ? `Using the server's SMTP relay${sendRates.email ? `, at most ${sendRates.email.toLocaleString("en-IN")} emails a second` : ""}. Add a provider to send through your own.` : `No provider yet, so ${CHANNEL_NAMES[ch]} messages in campaigns fail with "no provider configured".`}
               </div>
             ) : (
               <div className="table-scroll"><table className="table">
@@ -68,8 +69,8 @@ export function Channels() {
       {admin && <BouncesPanel />}
       {admin && <BounceMailboxPanel />}
       {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
-      {limiting && <LimitsForm provider={limiting} onClose={() => setLimiting(null)} />}
-      {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} onClose={() => setEditing(null)} />}
+      {limiting && <LimitsForm provider={limiting} sendRate={sendRates[limiting.channel]} onClose={() => setLimiting(null)} />}
+      {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} sendRate={sendRates[editing.channel]} onClose={() => setEditing(null)} />}
     </div>
   );
 }
@@ -80,7 +81,7 @@ export function orderKinds<T extends { id: string }>(kinds: T[]): T[] {
   return [...kinds].sort((a, b) => rank(a) - rank(b));
 }
 
-function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel; provider?: Provider; kinds: ProviderKind[]; onClose: () => void }) {
+function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel: Channel; provider?: Provider; kinds: ProviderKind[]; sendRate?: number; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   // M7: the usual choices first (SMTP and presets, the services), then the custom gateway, then
@@ -92,17 +93,23 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
   const [config, setConfig] = useState<Record<string, string>>(provider?.config ?? {});
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [isDefault, setDefault] = useState(provider?.is_default ?? true);
+  const [limits, setLimits] = useState<ProviderLimits>(() => startLimits(provider, kind));
   const setKey = (k: string, v: string) => setConfig((c) => ({ ...c, [k]: v }));
-  const custom = config.mode === "custom";
+  const gateway = !!kind?.custom_request;
+  const custom = gateway && config.mode === "custom";
   // The gateway's address and signing secret are needed for its standard request (the custom
   // request has its own address and no signature), so they aren't "optional" there.
-  const requiredNow = (f: ProviderField): ProviderField => (kind?.custom_request && !custom && (f.key === "url" || f.key === "signing_secret") ? { ...f, required: true } : f);
+  const requiredNow = (f: ProviderField): ProviderField => (gateway && !custom && (f.key === "url" || f.key === "signing_secret") ? { ...f, required: true } : f);
   const moved = !!provider && hostsChanged(provider.config, config);
+  const limitsChanged = !sameLimits(limits, provider?.limits);
 
   const save = useMutation({
-    mutationFn: () => {
-      const body = { channel, provider: kindId, name: name || kind?.name, config, secrets, is_default: isDefault };
-      return provider ? api.put(`/v1/channels/providers/${provider.id}`, body) : api.post("/v1/channels/providers", body);
+    mutationFn: async () => {
+      const lim = cleanLimits(limits);
+      const body = { channel, provider: kindId, name: name || kind?.name, config, secrets, is_default: isDefault, ...(provider ? {} : { limits: lim }) };
+      if (!provider) return api.post("/v1/channels/providers", body);
+      await api.put(`/v1/channels/providers/${provider.id}`, body);
+      if (limitsChanged) await api.put(`/v1/channels/providers/${provider.id}/limits`, lim);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: "Provider saved. New sends use it within 30 seconds." }); onClose(); },
   });
@@ -111,46 +118,133 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); onClose(); },
   });
 
+  const secretField = (f: ProviderField) => (
+    <Field key={f.key} label={f.label + (requiredNow(f).required ? "" : " (optional)")} hint={<>{f.hint && <>{f.hint} </>}{provider?.has_secrets && !moved ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}</>}>
+      {f.key.includes("json")
+        ? <textarea className="textarea code" value={secrets[f.key] ?? ""} placeholder={f.placeholder ?? "Paste the service account JSON"} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />
+        : <input className="input" type="password" autoComplete="off" value={secrets[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />}
+    </Field>
+  );
+  const secretOf = (key: string) => kind?.secrets?.find((f) => f.key === key);
+  const auth = kind?.auth && <AuthEditor config={config} setConfig={setKey} secrets={secrets} setSecret={(k, v) => setSecrets({ ...secrets, [k]: v })} saved={!!provider?.has_secrets && !moved} />;
+  const movedNote = provider && moved && <div className="alert info" style={{ marginBottom: 12 }}>An endpoint's host changed: the saved secrets will be cleared, so enter every secret again.</div>;
+  const tools = kind && <ProviderTools draft={{ provider_id: provider?.id, provider: kind.id, config, secrets }} canAuth={!!kind.auth || kind.id.endsWith("_smtp")} canPreview={!!kind.auth || kind.id.startsWith("gupshup_")} />;
+  const urlField = kind?.config?.find((f) => f.key === "url");
+
   return (
-    <Modal title={provider ? `Edit ${provider.name}` : `Add ${CHANNEL_NAMES[channel]} provider`} onClose={onClose}
+    <Modal wide title={provider ? `Edit ${provider.name}` : `Add ${CHANNEL_NAMES[channel]} provider`} onClose={onClose}
       footer={<>
         {provider && <button className="btn danger" style={{ marginRight: "auto" }} onClick={() => confirm("Remove this provider?") && remove.mutate()}>Remove</button>}
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save provider</button>
       </>}>
       <ErrorNote error={save.error ?? remove.error} />
-      {!provider && (
-        <Field label="Provider">
-          <select className="select" value={kindId} onChange={(e) => { setKindId(e.target.value); setConfig({}); setSecrets({}); }}>
-            {kinds.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
-          </select>
-        </Field>
-      )}
-      {kind && <p className="small muted" style={{ marginBottom: 14 }}>{kind.description}</p>}
+      <div className="grid-2">
+        {!provider && (
+          <Field label="Provider">
+            <select className="select" value={kindId} onChange={(e) => {
+              const k = kinds.find((x) => x.id === e.target.value);
+              setKindId(e.target.value); setConfig({}); setSecrets({}); setLimits(startLimits(undefined, k));
+            }}>
+              {kinds.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Name in Pulse"><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
+      </div>
+      {kind && !gateway && <p className="small muted" style={{ marginBottom: 14 }}>{kind.description}</p>}
       {kind?.notes && <div className="alert info" style={{ marginBottom: 14 }}>{kind.notes}</div>}
-      {kind?.default_limits && !provider && (
-        <p className="xs muted" style={{ marginBottom: 14 }}>
-          Starts with a daily quota of {kind.default_limits.daily_quota?.toLocaleString() ?? "none"}
-          {kind.default_limits.rate_per_second ? ` and ${kind.default_limits.rate_per_second} messages a second` : ""}; change it under Limits.
-        </p>
+
+      {gateway ? (
+        <>
+          <GatewayModeChoice mode={config.mode ?? "standard"} onChange={(m) => setKey("mode", m)} />
+          {!custom ? (
+            <>
+              <Step n={1} title="Your endpoint" hint={<>Pulse posts each message to this address as JSON and signs it with the secret, so your endpoint knows it's genuine. <strong>Preview request</strong> below shows exactly what arrives; the developer guide documents the format.</>}>
+                {urlField && <ConfigField f={requiredNow(urlField)} value={config.url ?? ""} onChange={(v) => setKey("url", v)} />}
+                {secretOf("signing_secret") && secretField(requiredNow(secretOf("signing_secret")!))}
+                {movedNote}
+              </Step>
+              <Step n={2} title="Sign-in (optional)" hint="Only if your endpoint also asks for a login, a token or an API key. Most don't: the signature is enough.">
+                {auth}
+              </Step>
+              <Step n={3} title="Check it" hint="Preview request shows the request Pulse would send. Save, then use Send test for a real message.">{tools}</Step>
+            </>
+          ) : (
+            <>
+              <Step n={1} title="Where to send" hint="The gateway's send-message address, from its API documentation.">
+                <RequestTarget channel={channel} config={config} setConfig={setKey} />
+                {movedNote}
+              </Step>
+              <Step n={2} title="How Pulse signs in" hint="As the gateway's documentation says: most use an API key or a token. Pulse adds it to every request.">
+                {auth}
+              </Step>
+              <Step n={3} title="What to send">
+                <RequestBody channel={channel} config={config} setConfig={setKey} />
+              </Step>
+              <Step n={4} title="How Pulse knows it was sent">
+                <RequestResult channel={channel} config={config} setConfig={setKey} />
+              </Step>
+              <Step n={5} title="Delivery reports (optional)">
+                <ReceiptMapping channel={channel} config={config} setConfig={setKey} webhookURL={provider?.webhook_url} />
+                {config.request && parseRequestReceipt(config.request) && secretOf("receipt_token") && secretField({ ...secretOf("receipt_token")!, hint: "The gateway adds it to every delivery report, as set above." })}
+              </Step>
+              <Step n={6} title="Check it" hint="Test connection signs in with the details above; Preview request shows the request Pulse would send. Save, then use Send test for a real message.">{tools}</Step>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          {kind?.config?.map((f) => <ConfigField key={f.key} f={requiredNow(f)} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />)}
+          {auth}
+          {movedNote}
+          {kind?.secrets?.map(secretField)}
+        </>
       )}
-      <Field label="Name in Pulse"><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
-      {kind?.config.filter((f) => !(custom && f.key === "url")).map((f) => (
-        <ConfigField key={f.key} f={requiredNow(f)} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />
-      ))}
-      {kind?.custom_request && custom && <CustomRequestEditor channel={channel} config={config} setConfig={setKey} />}
-      {kind?.auth && <AuthEditor config={config} setConfig={setKey} secrets={secrets} setSecret={(k, v) => setSecrets({ ...secrets, [k]: v })} saved={!!provider?.has_secrets && !moved} />}
-      {provider && moved && <div className="alert info" style={{ marginBottom: 12 }}>An endpoint's host changed: the saved secrets will be cleared, so enter every secret again.</div>}
-      {kind?.secrets.filter((f) => !(custom && f.key === "signing_secret") && !(!custom && f.key === "receipt_token" && kind.custom_request)).map((f) => (
-        <Field key={f.key} label={f.label + (requiredNow(f).required ? "" : " (optional)")} hint={<>{f.hint && <>{f.hint} </>}{provider?.has_secrets && !moved ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}</>}>
-          {f.key.includes("json")
-            ? <textarea className="textarea code" value={secrets[f.key] ?? ""} placeholder={f.placeholder ?? "Paste the service account JSON"} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />
-            : <input className="input" type="password" autoComplete="off" value={secrets[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />}
-        </Field>
-      ))}
-      {kind && <ProviderTools draft={{ provider_id: provider?.id, provider: kind.id, config, secrets }} canAuth={!!kind.auth || kind.id.endsWith("_smtp")} canPreview={!!kind.auth || kind.id.startsWith("gupshup_")} />}
+      {!gateway && tools}
+
+      <section className="pf-step" aria-label="Sending limits">
+        <h4>Sending limits</h4>
+        <LimitsFields limits={limits} onChange={setLimits} channel={channel} sendRate={sendRate} />
+      </section>
       <label className="check"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />Use for all {CHANNEL_NAMES[channel]} messages</label>
     </Modal>
+  );
+}
+
+/** parseRequestReceipt: whether the custom request maps delivery reports (they need the receipt token). */
+function parseRequestReceipt(raw: string): boolean {
+  try { return !!(JSON.parse(raw) as { receipt?: unknown }).receipt; } catch { return false; }
+}
+
+/** startLimits: a provider's saved limits, or a new one's preset (Gmail's daily quota…). */
+function startLimits(provider?: Provider, kind?: ProviderKind): ProviderLimits {
+  return { timezone: "Asia/Kolkata", ...(provider ? provider.limits : kind?.default_limits) };
+}
+
+/** LimitsFields: messages per second, daily quota and its day, with the server's cap for the channel. */
+function LimitsFields({ limits: l, onChange, channel, sendRate }: { limits: ProviderLimits; onChange: (l: ProviderLimits) => void; channel: Channel; sendRate?: number }) {
+  const note = limitsNote(l.rate_per_second, sendRate, channel, CHANNEL_NAMES[channel]);
+  return (
+    <>
+      <p className="xs muted pf-step-hint">The most your provider's account allows, so Pulse never goes over it: e.g. 300 a second for an Amazon SES account allowed 300. Shared by every Pulse server. Empty means no limit.</p>
+      <div className="pf-limits">
+        <Field label="Messages per second">
+          <input className="input" type="number" min={0} max={10000} step="any" value={l.rate_per_second ?? ""} placeholder="No limit"
+            onChange={(e) => onChange({ ...l, rate_per_second: e.target.value ? Number(e.target.value) : undefined })} />
+        </Field>
+        <Field label="Messages per day" hint="Over it, messages wait for the next day.">
+          <input className="input" type="number" min={0} value={l.daily_quota ?? ""} placeholder="No limit"
+            onChange={(e) => onChange({ ...l, daily_quota: e.target.value ? Math.trunc(Number(e.target.value)) : undefined })} />
+        </Field>
+        <Field label="A day starts at midnight in">
+          <select className="select" value={l.timezone || "UTC"} onChange={(e) => onChange({ ...l, timezone: e.target.value })}>
+            {[...new Set([...(l.timezone ? [l.timezone] : []), ...LIMIT_ZONES])].map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </Field>
+      </div>
+      {note && <div className={`alert ${note.warn ? "warn" : "info"}`} style={{ marginBottom: 12 }}>{note.text}</div>}
+    </>
   );
 }
 
@@ -617,32 +711,19 @@ function LimitsSummary({ p }: { p: Provider }) {
   );
 }
 
-/** LimitsForm sets a provider's messages per second and daily quota. */
-function LimitsForm({ provider, onClose }: { provider: Provider; onClose: () => void }) {
+/** LimitsForm changes a provider's sending limits on their own (channels edit, without editing the provider). */
+function LimitsForm({ provider, sendRate, onClose }: { provider: Provider; sendRate?: number; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [l, setL] = useState<ProviderLimits>({ timezone: "Asia/Kolkata", ...provider.limits });
   const save = useMutation({
-    mutationFn: () => api.put(`/v1/channels/providers/${provider.id}/limits`, { rate_per_second: l.rate_per_second || 0, daily_quota: l.daily_quota || 0, timezone: l.timezone ?? "" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: "Sending limits saved. Every dispatcher follows them within 30 seconds." }); onClose(); },
+    mutationFn: () => api.put(`/v1/channels/providers/${provider.id}/limits`, cleanLimits(l)),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: "Sending limits saved. Every Pulse server follows them within 30 seconds." }); onClose(); },
   });
   return (
     <Modal title={`Sending limits: ${provider.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save limits</button></>}>
       <ErrorNote error={save.error} />
-      <p className="small muted" style={{ marginTop: 0 }}>Shared by every Pulse server, on top of the workspace's own rate for the channel. Leave empty (or 0) for no limit.</p>
-      <div className="grid-2">
-        <Field label="Messages per second" hint="The provider's throughput, e.g. 10 for a small SMS account.">
-          <input className="input" type="number" min={0} max={10000} step="any" value={l.rate_per_second ?? ""} onChange={(e) => setL({ ...l, rate_per_second: e.target.value ? Number(e.target.value) : undefined })} />
-        </Field>
-        <Field label="Daily quota" hint="Messages a day. Over it, messages wait for the next day, or are dropped at their send deadline.">
-          <input className="input" type="number" min={0} value={l.daily_quota ?? ""} onChange={(e) => setL({ ...l, daily_quota: e.target.value ? Math.trunc(Number(e.target.value)) : undefined })} />
-        </Field>
-        <Field label="The day starts at midnight in">
-          <select className="select" value={l.timezone || "UTC"} onChange={(e) => setL({ ...l, timezone: e.target.value })}>
-            {[...new Set([...(l.timezone ? [l.timezone] : []), ...LIMIT_ZONES])].map((z) => <option key={z} value={z}>{z}</option>)}
-          </select>
-        </Field>
-      </div>
+      <LimitsFields limits={l} onChange={setL} channel={provider.channel} sendRate={sendRate} />
       <p className="xs muted">Sent today: {(provider.usage_today ?? 0).toLocaleString("en-IN")}.</p>
     </Modal>
   );

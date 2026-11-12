@@ -138,3 +138,11 @@ func TestServiceAccountTokens(t *testing.T) {
 		t.Fatalf("rejected key: %s (%v)", c, err)
 	}
 }
+
+func TestCatalogListsAreNeverNull(t *testing.T) {
+	for _, k := range Catalog() {
+		if k.Config == nil || k.Secrets == nil {
+			t.Errorf("%s: config or secrets is nil (sent as null)", k.ID)
+		}
+	}
+}

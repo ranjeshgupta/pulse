@@ -58,6 +58,21 @@ var DefaultRates = map[string]float64{
 	channel.Email: 200, channel.SMS: 100, channel.WhatsApp: 80, channel.RCS: 50, channel.Push: 500, channel.Inbox: 2000,
 }
 
+// EffectiveRates are the per-workspace send rates by channel: DefaultRates with the configured
+// ones (PULSE_<CHANNEL>_RATE) on top.
+func EffectiveRates(configured map[string]float64) map[string]float64 {
+	rates := make(map[string]float64, len(DefaultRates))
+	for ch, r := range DefaultRates {
+		rates[ch] = r
+	}
+	for ch, r := range configured {
+		if r > 0 {
+			rates[ch] = r
+		}
+	}
+	return rates
+}
+
 var e164 = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
 
 type Store interface {
@@ -125,13 +140,7 @@ type cached[T any] struct {
 }
 
 func New(store Store, rdb redis.Cmdable, pub kafka.Publisher, cfg Config) *Dispatcher {
-	rates := map[string]float64{}
-	for ch, r := range DefaultRates {
-		rates[ch] = r
-	}
-	for ch, r := range cfg.Rates {
-		rates[ch] = r
-	}
+	rates := EffectiveRates(cfg.Rates)
 	d := &Dispatcher{cfg: cfg, store: store, rdb: rdb, limiters: map[string]*Limiter{}, pub: pub, now: time.Now,
 		templates: map[[2]int64]cached[model.Template]{}, senders: map[string]cached[providers.Provider]{}, vias: map[string]cached[sendVia]{},
 		rules: map[int64]cached[delivery.Rules]{}, files: map[[2]int64]cached[attachment]{}}

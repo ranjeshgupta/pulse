@@ -26,9 +26,12 @@ type Config struct {
 	AdminToken    string
 	SweepInterval time.Duration
 	EmailRate     float64 // per tenant, messages per second
-	PublicURL     string  // where browsers reach Pulse (SSO redirects, Secure cookies)
-	SecretKey     string  // 64 hex chars: encrypts stored secrets and SSO state
-	AllowSignup   bool
+	// Rates are the other channels' per-tenant send rates (messages per second) set by
+	// PULSE_<CHANNEL>_RATE; a channel without one keeps the dispatcher's default.
+	Rates       map[string]float64
+	PublicURL   string // where browsers reach Pulse (SSO redirects, Secure cookies)
+	SecretKey   string // 64 hex chars: encrypts stored secrets and SSO state
+	AllowSignup bool
 	// AllowPrivateWebhooks lets every outbound call Pulse makes to a URL a workspace entered reach
 	// private addresses: journey and outbound webhooks, channel providers and the custom gateway,
 	// integrations (CRM, Shopify, ad platforms) and the IMAP bounce mailbox. Local development only.
@@ -68,6 +71,7 @@ func Load() (Config, error) {
 		AdminToken:           env("PULSE_ADMIN_TOKEN", ""),
 		SweepInterval:        r.duration("PULSE_SWEEP_INTERVAL", 5*time.Minute),
 		EmailRate:            r.rate("PULSE_EMAIL_RATE", 200),
+		Rates:                map[string]float64{},
 		PublicURL:            env("PULSE_PUBLIC_URL", "http://localhost:7080"),
 		SecretKey:            env("PULSE_SECRET_KEY", ""),
 		AllowSignup:          r.boolean("PULSE_ALLOW_SIGNUP", true),
@@ -78,6 +82,11 @@ func Load() (Config, error) {
 		PagesURL:             env("PULSE_PAGES_URL", ""),
 		MaintenanceInterval:  r.duration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
 		AudienceReconcile:    r.duration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
+	}
+	for _, ch := range RateChannels {
+		if os.Getenv(rateEnv(ch)) != "" {
+			c.Rates[ch] = r.rate(rateEnv(ch), 0)
+		}
 	}
 	return c, errors.Join(r.errs...)
 }
@@ -90,6 +99,12 @@ func env(k, def string) string {
 }
 
 // reader parses typed settings and collects every bad value, so one startup reports them all.
+// RateChannels are the channels besides email whose per-tenant rate PULSE_<CHANNEL>_RATE sets
+// (channel names as in internal/channel).
+var RateChannels = []string{"sms", "whatsapp", "rcs", "push", "inbox"}
+
+func rateEnv(ch string) string { return "PULSE_" + strings.ToUpper(ch) + "_RATE" }
+
 type reader struct{ errs []error }
 
 func (r *reader) fail(k, v, want string) {

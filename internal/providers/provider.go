@@ -188,6 +188,13 @@ func register(k Kind) { kinds[k.ID] = k }
 func Catalog() []Kind {
 	out := make([]Kind, 0, len(kinds))
 	for _, k := range kinds {
+		// Lists, never null, so the provider form can always read them.
+		if k.Config == nil {
+			k.Config = []Field{}
+		}
+		if k.Secrets == nil {
+			k.Secrets = []Field{}
+		}
 		out = append(out, k)
 	}
 	order := map[string]int{}

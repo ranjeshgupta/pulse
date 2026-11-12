@@ -202,6 +202,23 @@ func (c Config) SecretKeys() []string {
 	return nil
 }
 
+// secretLabel names a secret as the provider form labels it.
+func secretLabel(k string) string {
+	switch k {
+	case "auth_username":
+		return "sign-in user"
+	case "auth_password":
+		return "sign-in password"
+	case "auth_token":
+		return "token"
+	case "auth_api_key":
+		return "API key"
+	case "auth_client_secret":
+		return "client secret"
+	}
+	return fmt.Sprintf("secret %q", k)
+}
+
 var secretRe = regexp.MustCompile(`\{\{\s*secrets\.([A-Za-z0-9_\-]+)\s*\}\}`)
 var tokenRe = regexp.MustCompile(`\{\{\s*token\s*\}\}`)
 var headerName = regexp.MustCompile("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$")
@@ -304,7 +321,7 @@ func (c Config) Validate(secrets map[string]string, checkSecrets, allowHTTP bool
 	if checkSecrets {
 		for _, k := range c.SecretKeys() {
 			if secrets[k] == "" {
-				return fmt.Errorf("the secret %s is required", k)
+				return fmt.Errorf("enter the %s", secretLabel(k))
 			}
 		}
 	}

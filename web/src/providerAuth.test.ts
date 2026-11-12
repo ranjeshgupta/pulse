@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authSecretFields, endpointHosts, formatStatuses, hostsChanged, newLogin, parseAuth, parseRequest, parseStatuses, secretsUsed, serializeAuth, serializeRequest } from "./providerAuth";
+import { authSecretFields, endpointHosts, formatStatuses, hostsChanged, newLogin, parseAuth, parseRequest, parseStatuses, secretsUsed, serializeAuth, serializeRequest, cleanLimits, limitsNote, sameLimits } from "./providerAuth";
 
 describe("auth config", () => {
   it("round-trips and drops fields the type doesn't use", () => {
@@ -45,5 +45,25 @@ describe("endpoint hosts", () => {
     expect(hostsChanged(cfg, { ...cfg, url: "https://gw.example.com/other" })).toBe(false);
     expect(hostsChanged(cfg, { ...cfg, url: "https://elsewhere.example.com/a" })).toBe(true);
     expect(hostsChanged({ host: "smtp.a.com" }, { host: "smtp.b.com" })).toBe(true);
+  });
+});
+
+describe("sending limits", () => {
+  it("sends empty limits as 0 and compares them with the saved ones", () => {
+    expect(cleanLimits({})).toEqual({ rate_per_second: 0, daily_quota: 0, timezone: "" });
+    expect(sameLimits({ rate_per_second: 300, timezone: "Asia/Kolkata" }, { rate_per_second: 300 })).toBe(true);
+    expect(sameLimits({ rate_per_second: 300 }, { rate_per_second: 200 })).toBe(false);
+    expect(sameLimits({ daily_quota: 10, timezone: "Asia/Kolkata" }, { daily_quota: 10, timezone: "UTC" })).toBe(false);
+    expect(sameLimits({}, undefined)).toBe(true);
+  });
+  it("explains the server's rate and warns when the provider's is higher", () => {
+    expect(limitsNote(300, undefined, "email", "Email")).toBeNull();
+    const over = limitsNote(300, 200, "email", "Email")!;
+    expect(over.warn).toBe(true);
+    expect(over.text).toContain("gets 200, not 300");
+    expect(over.text).toContain("PULSE_EMAIL_RATE");
+    const under = limitsNote(50, 100, "sms", "SMS")!;
+    expect(under.warn).toBe(false);
+    expect(under.text).toContain("PULSE_SMS_RATE");
   });
 });
