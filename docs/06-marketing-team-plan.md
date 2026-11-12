@@ -406,8 +406,8 @@ Built as designed, with these choices:
   Workspaces that existed without a settings row keep their audit log forever (migration 024 writes
   `audit_days: 0` for them: the old cleanup never read them); new workspaces get the 365 days the app always showed.
 - **Hard-coded automatic behaviour found:** made configurable — everything listed above. Deliberately fixed (most listed on
-  the page under "Fixed by the platform"): per-channel workspace send rates (`dispatch.DefaultRates`,
-  `PULSE_EMAIL_RATE`: shared server capacity), "already sent" de-duplication 7 days and receipt matching 3 days,
+  the page under "Fixed by the platform"): per-channel workspace send rates (`dispatch.DefaultRates`;
+  since then set per server by `PULSE_EMAIL_RATE` and `PULSE_<CHANNEL>_RATE`: shared server capacity), "already sent" de-duplication 7 days and receipt matching 3 days,
   frequency-cap counters 32 days, held-message release every 5 s, purge of deleted inbox messages after 7 days, journey
   effects 30 days (idempotency), SMS short links 30 days, attachment links 7 days, live feed 50 events/s and 4 KB of
   properties, outbound webhook retries (30 s … 6 h; a candidate for later), segment claim expiry 10 min, cache lifetimes

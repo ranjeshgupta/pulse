@@ -1093,10 +1093,20 @@ For raw data, ClickHouse holds every event (table `events`); see
 
 ## Channels and providers
 
-A provider connects a channel to a sending service. `GET /v1/channels/catalog` lists every provider
-type with its fields (`config` and `secrets`, each with `label`, `hint`, `options` and, for options
-shown in words, `option_labels`, e.g. `{"app_password": "An app password (simplest)"}`). Adding,
-changing and removing providers needs channels edit **and** settings edit.
+A provider connects a channel to a sending service. `GET /v1/channels/catalog` lists the channels,
+every provider type with its fields (`config` and `secrets`, always lists, each with `label`, `hint`,
+`options` and, for options shown in words, `option_labels`, e.g. `{"app_password": "An app password
+(simplest)"}`), and `send_rates`: the server's own per-workspace send rate for each channel, in
+messages per second (`PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`… in the
+[configuration](02-configuration.md#workers)). A provider's own `rate_per_second` never makes a
+workspace send faster than that. Adding, changing and removing providers needs channels edit **and**
+settings edit.
+
+```bash
+curl -s $PULSE/v1/channels/catalog -H "Authorization: Bearer $KEY"
+# {"channels":["email","sms","whatsapp","rcs","push","inbox"],"providers":[{"id":"smtp","channel":"email",…},…],
+#  "send_rates":{"email":200,"sms":100,"whatsapp":80,"rcs":50,"push":500,"inbox":2000}}
+```
 
 ```bash
 curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
@@ -1560,7 +1570,7 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/settings/bounces/signing` | Save the email services' webhook keys (SendGrid, Mailgun, basic auth); never returned | settings edit |
 | `POST` | `/v1/sandbox/bounce` | Simulate a bounce or complaint (`email`, `type`) | content edit |
 | `POST` | `/v1/channels/providers/{id}/test` | Send a fixed test message through one provider | channels edit + settings edit |
-| `GET` | `/v1/channels/catalog` | Channels and every provider type with its settings fields | channels view |
+| `GET` | `/v1/channels/catalog` | Channels, every provider type with its settings fields, and the server's send rate per channel (`send_rates`) | channels view |
 | `GET` | `/v1/channels/providers` | Configured providers (secrets never returned) with their webhook URLs, `limits` and `usage_today` | channels view |
 | `PUT` | `/v1/channels/providers/{id}/limits` | Sending limits: `rate_per_second`, `daily_quota`, `timezone` (0 or empty: none) | channels edit |
 | `POST` | `/v1/channels/providers` | Add a provider (`channel`, `provider`, `name`, `config`, `secrets`, `is_default`) | channels edit + settings edit |

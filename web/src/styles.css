@@ -195,6 +195,7 @@ fieldset:disabled .seg-toggle button { cursor: not-allowed; opacity: 0.7; }
 .alert.error { background: var(--danger-wash); border-color: #f2c4c9; color: var(--danger); }
 .alert.info { background: var(--cobalt-wash); border-color: #cbd5f8; color: var(--cobalt-dark); }
 .alert.ok { background: var(--ok-wash); border-color: #bfe3cf; color: var(--ok); }
+.alert.warn { background: #fdf6e3; border-color: #f0dca6; color: #8a5c00; }
 
 .drawer-backdrop, .modal-backdrop { position: fixed; inset: 0; background: rgba(21, 34, 56, 0.35); z-index: 40; }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--surface); z-index: 41; display: flex; flex-direction: column; border-left: 1px solid var(--rule); }

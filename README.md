@@ -377,7 +377,8 @@ number, duration or switch that doesn't parse stops start-up with an error namin
 | `PULSE_ALLOW_SIGNUP` | `true` | Anyone may create a workspace at `/signup`; `false` turns signup off |
 | `PULSE_PUBLIC_URL` | `http://localhost:7080` | Where browsers reach Pulse: SSO redirects, Secure cookies, tracking, unsubscribe and webhook URLs |
 | `PULSE_SWEEP_INTERVAL` | `5m` | How often segments with event windows or relative dates are re-checked (a workspace may set its own under Settings → Automation & limits) |
-| `PULSE_EMAIL_RATE` | `200` | Emails per second per workspace, fractions allowed (other channels have fixed rates, see the architecture doc) |
+| `PULSE_EMAIL_RATE` | `200` | Emails per second per workspace, fractions allowed. A provider's own rate never goes above it |
+| `PULSE_SMS_RATE`, `PULSE_WHATSAPP_RATE`, `PULSE_RCS_RATE`, `PULSE_PUSH_RATE`, `PULSE_INBOX_RATE` | `100`, `80`, `50`, `500`, `2000` | The same per-workspace send rate (messages per second) for SMS, WhatsApp, RCS, push and the app inbox |
 | `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links, webhook secrets and download links (form-gated assets, attachment links for the custom gateway need it) |
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |

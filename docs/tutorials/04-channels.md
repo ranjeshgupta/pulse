@@ -19,7 +19,7 @@ messages: an SMTP server, an SMS gateway, WhatsApp. There is one panel per chann
 **SMS**, **WhatsApp**, **RCS** and **Push**, then **App inbox**, **Test contacts**, **Delivery
 rules**, **Bounces and complaints** and **Bounce mailbox (IMAP)**.
 
-![Settings → Channels: the page's explanation, the Email panel (using the server's SMTP relay) with Add provider highlighted, and SMS and WhatsApp each with a Sandbox provider marked Default](img/04-channels.png)
+![Settings → Channels: the page's explanation, the Email panel (using the server's SMTP relay, at most 200 emails a second) with Add provider highlighted, and SMS and WhatsApp each with a Sandbox provider marked Default](img/04-channels.png)
 
 Each provider row shows:
 
@@ -33,8 +33,8 @@ Each provider row shows:
 
 What happens when a channel has no provider:
 
-- **Email** says *Using the server's SMTP relay*: Pulse sends through the mail server its operator set
-  up (`PULSE_SMTP_ADDR`). On the local Docker stack that is Mailpit, so every email lands at
+- **Email** says *Using the server's SMTP relay, at most 200 emails a second*: Pulse sends through the
+  mail server its operator set up (`PULSE_SMTP_ADDR`), at the speed they set (step 9). On the local Docker stack that is Mailpit, so every email lands at
   `http://localhost:18025`. Add a provider to send through your own.
 - **SMS, WhatsApp, RCS, Push**: messages on that channel in campaigns fail with *no provider
   configured*.
@@ -48,12 +48,16 @@ What happens when a channel has no provider:
 1. In the channel's panel, click **Add provider**.
 2. Pick a **Provider** (the choices are in the table below). The line under it says what it does, and
    some providers show a blue note with what to set up at the provider.
-3. **Name in Pulse**: how it is listed, e.g. `Amazon SES (Mumbai)`. Empty means the provider's name.
+3. **Name in Pulse** (next to it): how it is listed, e.g. `Amazon SES (Mumbai)`. Empty means the
+   provider's name.
 4. Fill in its settings. Fields marked *(optional)* can stay empty. Secret fields (passwords, tokens,
    keys) are **stored encrypted and never shown again**.
-5. **Use for all <channel> messages** (ticked by default) makes it the channel's default. Untick it to
+5. **Sending limits**, at the end of the form: how fast and how much your account at the provider may
+   send. Leave them empty if it has no limits; [step 9](#9-sending-limits-and-daily-quotas) explains
+   them.
+6. **Use for all <channel> messages** (ticked by default) makes it the channel's default. Untick it to
    save it as a standby.
-6. Click **Save provider**. You see *Provider saved. New sends use it within 30 seconds.*
+7. Click **Save provider**. You see *Provider saved. New sends use it within 30 seconds.*
 
 The provider and channel can't be changed after saving. To switch provider, add the new one as the
 default (or edit the old one and **Remove** it).
@@ -71,9 +75,9 @@ The list offers the usual services first, then **Custom HTTP gateway**, then **S
 The real connections are tested against recordings of those services' APIs, not against live
 accounts; the Gupshup ones say so on the form. Try your first send with a test number.
 
-Some providers start with **sending limits** (step 9): the form says so, e.g. *Starts with a daily
-quota of 500 and 1 messages a second; change it under Limits.* Others start with the workspace's
-default limits for the channel, set on **Settings → Automation & limits** (tutorial 11), or none.
+Some providers come with their **Sending limits** already filled in, e.g. Gmail with 1 message a
+second and 500 a day. Others start with the workspace's default limits for the channel, set on
+**Settings → Automation & limits** (tutorial 11), or none. Change them in the form before saving.
 
 **Editing a provider later.** Leave a secret field empty to keep its saved value; type in a field to
 replace just that secret. To protect saved passwords, Pulse asks for **every secret again** when you
@@ -100,7 +104,7 @@ own mail server.
 | **Sending service (for delivery reports) (optional)** | Empty works it out from the host: `sendgrid`, `mailgun`, `postmark`, `ses`, `sparkpost`, or `other`. Pulse marks each email in the way that service expects, so its delivery reports, bounces and complaints are matched to the campaign that sent the email |
 | **Username (optional)**, **Password (optional)** | The relay's SMTP credentials (for SES, the SMTP user, not your AWS keys) |
 
-<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP with host, port 587 and a From address filled in, the optional connection settings and Sending service" width="420">
+<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP and the name Amazon SES (Mumbai) side by side, host, port 587 and a From address filled in, the optional connection settings, Sending service and login, then Sending limits left empty with the note that the server sends at most 200 email messages a second per workspace" width="420">
 
 Two optional fields tune how Pulse talks to the relay. Each Pulse server keeps a pool of open
 connections to it (TLS stays on: STARTTLS whenever the server offers it, and implicit TLS on port
@@ -131,7 +135,7 @@ For small volumes from a Google account:
 Google limits how many people an account may email a day, and Pulse sets that as the provider's
 daily quota. Bulk mail belongs on the Workspace relay or a sending service (SES, SendGrid, Postmark).
 
-<img src="img/04-add-gmail.png" alt="Add Email provider: Gmail (SMTP) with the note about Google's daily limit, Starts with a daily quota of 500 and 1 messages a second, the Google account, From address, Port 587 (STARTTLS, recommended) and Sign in with An app password (simplest)" width="420">
+<img src="img/04-add-gmail.png" alt="Add Email provider: Gmail (SMTP) with the note about Google's daily limit, the Google account, From address, Port 587 (STARTTLS, recommended), Sign in with An app password (simplest), Test connection, and Sending limits already set to 1 message per second and 500 per day" width="420">
 
 For **Gmail (SMTP)** and **Google Workspace (SMTP)**:
 
@@ -164,7 +168,7 @@ None of the three report deliveries to Pulse (like any plain SMTP relay).
 | **Twilio** | **Account SID**, **Auth token**; then either a **From number** or a **Messaging Service SID**; optionally **Delivery report URL**: paste this provider's own Pulse webhook URL (you get it after saving, so edit the provider once more) |
 | **MSG91** (India, DLT) | **Flow template ID** (the flow's text must be exactly `##message##`: Pulse puts the whole SMS there), **Sender ID (DLT header)**, **Auth key** |
 
-<img src="img/04-add-msg91.png" alt="Add SMS provider: MSG91 with a flow template ID and sender ID ACMEIN, saved as standby" width="420">
+<img src="img/04-add-msg91.png" alt="Add SMS provider: MSG91 with a flow template ID and sender ID ACMEIN, empty Sending limits, and Use for all SMS messages unticked, so it is saved as standby" width="420">
 
 A template's own **Sender ID** (tutorial 5) overrides the provider's.
 
@@ -186,7 +190,7 @@ Delivery URL (Settings → Advanced Account Settings), as a POST.
 
 Gupshup's addresses and fields come from its public documentation and were tested against
 recordings only: confirm them with your Gupshup account manager before the first real campaign. Set
-the provider's **Limits** to the speed Gupshup confirms for your account.
+the provider's **Sending limits** to the speed Gupshup confirms for your account.
 
 ### WhatsApp: Meta WhatsApp Cloud API
 
@@ -198,7 +202,7 @@ the provider's **Limits** to the speed Gupshup confirms for your account.
 | **App secret (verifies delivery webhooks) (optional)** | Your Meta app's settings. With it, Pulse checks that receipts really come from Meta |
 | **Webhook verify token (optional)** | Any string you choose; enter the same one in Meta's webhook settings |
 
-<img src="img/04-add-whatsapp.png" alt="Add WhatsApp provider: Meta WhatsApp Cloud API with phone number ID and business account ID filled in, secret fields empty" width="420">
+<img src="img/04-add-whatsapp.png" alt="Add WhatsApp provider: Meta WhatsApp Cloud API with phone number ID and business account ID filled in, secret fields empty, and empty Sending limits" width="420">
 
 In Meta's webhook settings, use this provider's **Delivery reports** URL as the callback URL. WhatsApp
 only delivers business-started messages from templates Meta has approved; tutorial 5 shows how a
@@ -217,7 +221,7 @@ settings → Service accounts → Generate new private key; paste the whole file
 Android, iOS (through FCM tokens, not direct APNs) and web apps that use Firebase. Your app registers
 its device tokens with the Pulse mobile SDKs.
 
-<img src="img/04-add-fcm.png" alt="Add Push provider: Firebase Cloud Messaging with a project ID and an empty service account key box" width="420">
+<img src="img/04-add-fcm.png" alt="Add Push provider: Firebase Cloud Messaging with a project ID, an empty service account key box, and empty Sending limits" width="420">
 
 ### Web push: no provider needed
 
@@ -229,16 +233,17 @@ site are on **Settings → Web push** ([step 11](#11-web-push-ask-visitors-and-c
 ### Any other gateway: Custom HTTP gateway
 
 For a provider Pulse has no ready-made connection for, pick **Custom HTTP gateway** on any channel.
-**How Pulse calls your gateway** has two choices:
+Then click one of two cards:
 
-- **My own request (method, address, headers, body)**: you describe the provider's own API (the
-  request, how Pulse logs in, how its delivery reports look), without any code.
-  [Tutorial 16](16-connecting-any-provider.md) walks through it, with **Test connection** and
-  **Preview request**.
-- **Pulse's standard request (signed JSON)**: Pulse posts each message as JSON to the **Endpoint URL**
-  and signs it with the **Signing secret (we sign each request with it)**. Use it when your developers
-  build a small gateway for Pulse; the developer docs describe the format. The **Authentication**
-  box adds a sign-in on top if the gateway needs one.
+- **Connect to a gateway's existing API**: your SMS or messaging company already has an API. You tell
+  Pulse, in numbered steps, where to send, how to sign in, what to send, how it knows a message was
+  sent and how delivery reports come back, without any code.
+  [Tutorial 16](16-connecting-any-provider.md) walks through it.
+- **Your developers build an endpoint for Pulse** (the default): Pulse posts each message as JSON in
+  its own format to **1 Your endpoint**: the **Endpoint URL**, signed with the **Signing secret (we
+  sign each request with it)**. **2 Sign-in (optional)** adds a login if the endpoint asks for one;
+  most don't. **3 Check it** has **Preview request** to see what Pulse would send. The developer
+  docs describe the format.
 
 ### Sandbox (test inbox)
 
@@ -421,20 +426,43 @@ reaching anyone. The tabs filter by channel; the list refreshes every 2 seconds.
 ## 9. Sending limits and daily quotas
 
 Providers have limits: an SMS route may take 20 messages a second and 5,000 a day. Tell Pulse, and
-every Pulse server keeps to them together.
+every Pulse server keeps to them together. You set them in two places, with the same fields:
 
-1. Click **Limits** on the provider's row (you need edit access to channels).
-2. Fill in **Messages per second** and **Daily quota**, and the time zone whose midnight starts a new
-   day. Leave a field empty for no limit.
+- in the **Sending limits** part at the end of the **Add provider** or **Edit** form;
+- with **Limits** on the provider's row (you need edit access to channels), to change only the limits.
 
-   <img src="img/04-limits.png" alt="Sending limits for the SMS Sandbox: 20 messages per second, a daily quota of 5000, the day starting at midnight in Asia/Kolkata" width="460">
-3. Click **Save limits**. Dispatchers pick them up within 30 seconds.
+The fields:
+
+| Field | What to enter |
+|---|---|
+| **Messages per second** | The most your account at the provider may send in a second. Empty: no limit |
+| **Messages per day** | The most it may send in a day. Empty: no limit |
+| **A day starts at midnight in** | The time zone whose midnight starts a new day for **Messages per day** |
+
+**Example: an Amazon SES account allowed 300 emails a second.** Add the email provider with
+**SMTP** (step 2), and under **Sending limits** type `300` in **Messages per second**. Leave **Messages
+per day** empty, or enter your SES daily quota. Then click **Save provider**.
+
+Under the fields, a note shows the **server's own speed** for the channel. Whoever runs Pulse sets,
+for each channel, the most messages a second any one workspace may send (200 emails a second unless
+they changed it), and that speed wins: with 300 on a server that allows 200, Pulse sends 200 a
+second, and the note turns into a warning:
+
+![Sending limits with 300 messages per second and a yellow warning: This Pulse server sends at most 200 email messages a second per workspace, so this provider gets 200, not 300. Ask whoever runs Pulse to raise it (PULSE_EMAIL_RATE)](img/04-add-limits.png)
+
+If your account really allows more, ask whoever runs Pulse to raise the setting the note names
+(`PULSE_EMAIL_RATE` for email, `PULSE_SMS_RATE` for SMS, and so on).
+
+To change only the limits later, click **Limits** on the provider's row, change the fields and click
+**Save limits**. Every Pulse server follows them within 30 seconds.
+
+<img src="img/04-limits.png" alt="Sending limits for the SMS Sandbox: 20 messages per second, 5000 messages per day, the day starting at midnight in Asia/Kolkata, the note that the server also sends at most 100 SMS messages a second per workspace (PULSE_SMS_RATE), and Sent today" width="460">
 
 The provider's row then shows its limits and how many messages it has sent today:
 
-![The SMS panel: Sandbox, 20/s, 0 of 5,000 today with a bar](img/04-limits-usage.png)
+![The SMS panel: Sandbox, Default, 20/s and the messages sent today out of 5,000 with a bar, the delivery reports address, and the Limits, Send test and Edit buttons](img/04-limits-usage.png)
 
-- The rate is on top of the workspace's own rate for the channel; whichever is slower applies.
+- The provider's rate is on top of the server's rate for the channel; whichever is slower applies.
 - When the day's quota is used up, further messages **wait for the next day** (they show as *held*,
   `<channel>_deferred`, like quiet hours) and go out after midnight in the quota's time zone. A
   message whose **send deadline** (tutorials 6, 7 and 14) comes first is dropped instead, recorded as

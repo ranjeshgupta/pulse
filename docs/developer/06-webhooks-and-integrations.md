@@ -421,17 +421,22 @@ else create one named by the email.
 
 When Pulse has no adapter for your provider (a regional SMS aggregator, an in-house notification
 service), add a **Custom HTTP gateway** provider to any channel (email, SMS, WhatsApp, RCS, push).
-It works in two modes, chosen by **How Pulse calls your gateway** (`config.mode`):
+It works in two modes (`config.mode`), chosen in the form with two cards:
 
-- **Pulse's standard request (signed JSON)** (`standard`, the default): Pulse POSTs each rendered
-  message to your endpoint in the format below, signed, and your service delivers it.
-- **My own request (method, address, headers, body)** (`custom`): you design the request, so Pulse
-  can call a provider's existing API directly ([custom request mode](#custom-request-mode)).
+- **Your developers build an endpoint for Pulse** (`standard`, the default): Pulse POSTs each
+  rendered message to your endpoint in the format below, signed, and your service delivers it. The
+  form asks for **1 Your endpoint** (the **Endpoint URL**, `config.url`, and the **Signing secret**),
+  **2 Sign-in (optional)** and **3 Check it** (Test connection, Preview request).
+- **Connect to a gateway's existing API** (`custom`): you design the request, so Pulse can call a
+  provider's existing API directly ([custom request mode](#custom-request-mode)). The form's steps are
+  **1 Where to send**, **2 How Pulse signs in**, **3 What to send**, **4 How Pulse knows it was sent**,
+  **5 Delivery reports (optional)** and **6 Check it**.
 
 Both modes can add [custom authentication](#custom-authentication) (basic, bearer, API key, OAuth2
-or a login flow).
+or a login flow). Like every provider form, it ends with **Sending limits** (`limits`: messages per
+second, per day and the day's time zone; see the [API guide](03-api.md#channels-and-providers)).
 
-![Settings, Channels, Add SMS provider: Custom HTTP gateway selected, Name in Pulse, How Pulse calls your gateway set to Pulse's standard request (signed JSON), Endpoint URL https://sms-gateway.example.com/pulse, Authentication type None, a masked signing secret, the Test connection and Preview request buttons, and Use for all SMS messages](img/dev-06-gateway.png)
+![Settings, Channels, Add SMS provider: Custom HTTP gateway named Our SMS gateway, the card Your developers build an endpoint for Pulse chosen, step 1 Your endpoint with the Endpoint URL https://sms-gateway.example.com/pulse and a masked signing secret, step 2 Sign-in (optional) with type None, step 3 Check it with Test connection and Preview request, then Sending limits left empty with the note about PULSE_SMS_RATE, and Use for all SMS messages unticked](img/dev-06-gateway.png)
 
 ```bash
 curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
@@ -529,7 +534,10 @@ Pulse answers 200 when accepted, 401 for a bad signature, 400 for a body it can'
 ### Custom request mode
 
 In custom mode the provider's `config.request` (JSON) describes the request; the app's form writes
-it for you.
+it for you (steps 1, 3, 4 and 5 of the form; step 3's **Insert:** buttons add the common
+`{{message.x}}` and `{{contact.first_name}}` placeholders at the cursor). A new form starts with the
+body `{"to": "{{message.to}}", "text": "{{message.text}}", "name": "{{contact.first_name | default:'there'}}"}`
+(email: `to`, `subject`, `html`).
 
 ```json
 {

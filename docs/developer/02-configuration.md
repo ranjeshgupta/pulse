@@ -18,8 +18,9 @@ reference you look things up in.
   can't set a variable to an empty string to blank out a default.
 - **Booleans**: `true`, `1`, `yes` or `on` turn a switch on; `false`, `0`, `no` or `off` turn it off
   (any case).
-- **Numbers**: `PULSE_KAFKA_PARTITIONS` is a whole number greater than 0; `PULSE_EMAIL_RATE` is a
-  number greater than 0 and may have a fraction (`12.5` emails a second).
+- **Numbers**: `PULSE_KAFKA_PARTITIONS` is a whole number greater than 0; the send rates
+  (`PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`, `PULSE_WHATSAPP_RATE`, `PULSE_RCS_RATE`, `PULSE_PUSH_RATE`,
+  `PULSE_INBOX_RATE`) are numbers greater than 0 and may have a fraction (`12.5` messages a second).
 - **Durations** use Go's syntax: `90s`, `5m`, `1h30m`, `24h`, and must be greater than 0.
 
 A value that doesn't parse stops the process at start-up, before it connects to anything, with exit
@@ -74,7 +75,12 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 |---|---|---|---|---|
 | `PULSE_SMTP_ADDR` | `localhost:11025` | `dispatch` | SMTP relay (`host:port`) for workspaces that haven't added an email provider of their own. The dev default is Mailpit | Always in production (`smtp.example.com:587`) |
 | `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | `dispatch`, `api` | Default sender for that relay. Its domain is also accepted as a sender of AMP email post-backs (`/v1/amp/…`), like the From domains of the workspaces' email providers | Always in production |
-| `PULSE_EMAIL_RATE` | `200` | `dispatch` | Emails per second **per workspace** (a Redis token bucket). Fractions are allowed (`0.5` is one every 2 seconds) | Your relay or provider allows more or less. The other channels have fixed rates, see [Limits](#limits-fixed-in-the-code) |
+| `PULSE_EMAIL_RATE` | `200` | `dispatch`, `api` | Emails per second **per workspace** (a Redis token bucket). Fractions are allowed (`0.5` is one every 2 seconds). It caps every workspace's email, whatever its providers' own **Messages per second** say; Settings → Channels shows it under each provider's sending limits, and warns when a provider's rate is higher | Your relay or providers allow more (or less) than 200 a second per workspace |
+| `PULSE_SMS_RATE` | `100` | `dispatch`, `api` | The same for SMS: messages per second per workspace | As for `PULSE_EMAIL_RATE` |
+| `PULSE_WHATSAPP_RATE` | `80` | `dispatch`, `api` | The same for WhatsApp | As for `PULSE_EMAIL_RATE` |
+| `PULSE_RCS_RATE` | `50` | `dispatch`, `api` | The same for RCS | As for `PULSE_EMAIL_RATE` |
+| `PULSE_PUSH_RATE` | `500` | `dispatch`, `api` | The same for push (mobile and web push) | As for `PULSE_EMAIL_RATE` |
+| `PULSE_INBOX_RATE` | `2000` | `dispatch`, `api` | The same for app inbox messages | Rarely: the inbox has no outside provider |
 | `PULSE_SWEEP_INTERVAL` | `5m` | `segments`, `api` | How often segments with event windows ("within the last N days") or relative dates are re-checked in ClickHouse, so membership decays without new events. The default for workspaces that leave **Re-check time-window segments every** (Settings → Automation & limits) at 0 | Shorter for fresher "within N days" segments, longer to take load off ClickHouse |
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | `journeys` | How often the maintenance pass runs. Each pass runs the daily retention cleanup of the workspaces whose hour it is (each workspace once a day, in UTC hour `workspace id % 24`, by its Settings → Automation & limits) | Rarely; keep it at an hour or less so no workspace's hour is skipped |
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | `integrations` | How often each ad audience sync (Facebook Custom Audiences, Google Ads Customer Match) re-checks its whole segment. Entries and exits stream in between | You want drift corrected sooner, or fewer API calls to the ad platforms |
@@ -162,7 +168,6 @@ Not configurable today; listed so you know what to expect.
 | Sign-in attempts | 10 per workspace and email in 15 minutes (successful ones count too) | `internal/api/auth.go` |
 | Session lifetime | 14 days (`pulse_session` cookie) | `internal/api/server.go` |
 | API key cache | Each `api` instance caches a key's workspace for up to 1 minute, so a replaced key keeps working for up to a minute | `authCacheTTL` |
-| Send rates per workspace | email `PULSE_EMAIL_RATE` (200/s), SMS 100/s, WhatsApp 80/s, RCS 50/s, push 500/s, app inbox 2,000/s | `DefaultRates` in `internal/dispatch/dispatcher.go` |
 | Outbound webhook retries | 30 s, 2 min, 10 min, 1 h, 6 h after the first attempt (about 7 hours), then given up | `Backoff` in `internal/webhooks/webhooks.go` |
 | Message retries (provider network error, timeout, 429, 5xx) | By default 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h (at least the provider's `Retry-After`, capped at 1 h), then `<channel>_failed`. Per workspace in Settings → Automation & limits (1-20 tries, longest wait 1 minute to a day) | `BaseBackoff` in `internal/automation/plan.go` |
 | Contacts list page | `limit` 1-200 (default 50) | `internal/api/contactview.go` |

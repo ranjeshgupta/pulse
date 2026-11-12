@@ -62,6 +62,8 @@ describe("sending limits", () => {
     expect(over.warn).toBe(true);
     expect(over.text).toContain("gets 200, not 300");
     expect(over.text).toContain("PULSE_EMAIL_RATE");
+    expect(over.text).toContain("200 email messages");
+    expect(limitsNote(1, 80, "whatsapp", "WhatsApp")!.text).toContain("80 WhatsApp messages");
     const under = limitsNote(50, 100, "sms", "SMS")!;
     expect(under.warn).toBe(false);
     expect(under.text).toContain("PULSE_SMS_RATE");

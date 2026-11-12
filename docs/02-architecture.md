@@ -318,8 +318,12 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   tags instead of replacing them. `POST /v1/contacts/import` (synchronous, 200 MB) stays for API clients.
 
 ## Dispatch
-- Per-tenant, per-channel token bucket in Redis (messages/second: email 200, set by `PULSE_EMAIL_RATE`; SMS 100, WhatsApp 80,
-  RCS 50, push 500, inbox 2,000), plus per-provider limits and send deadlines (see "Campaigns (M3)").
+- Per-tenant, per-channel token bucket in Redis (messages/second, defaults in `dispatch.DefaultRates`: email 200, SMS 100,
+  WhatsApp 80, RCS 50, push 500, inbox 2,000; set per server by `PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`,
+  `PULSE_WHATSAPP_RATE`, `PULSE_RCS_RATE`, `PULSE_PUSH_RATE`, `PULSE_INBOX_RATE`, merged by `dispatch.EffectiveRates`),
+  plus per-provider limits and send deadlines (see "Campaigns (M3)"). The API returns the effective rates as
+  `send_rates` in `GET /v1/channels/catalog`, so the provider form can show the cap and warn when a provider's own
+  rate is higher (the slower of the two applies).
 - **SMS bounces.** A provider error for the number itself (`providers.BadNumber`: Twilio 21211/21214/21612/21614, or
   an unreachable recipient, e.g. the sandbox's unreachable suffix) or a failed receipt marked unreachable (Twilio
   30003/30005/30006) records `sms_failed {bounce: true}` with `attrs.sms_bounced = true`; later SMS are

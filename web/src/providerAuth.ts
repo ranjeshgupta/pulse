@@ -190,6 +190,8 @@ export function sameLimits(a: Limits, b?: Limits): boolean {
  * provider's rate is above it (the server's rate wins). */
 export function limitsNote(rate: number | undefined, serverRate: number | undefined, channel: string, channelName: string): { text: string; warn: boolean } | null {
   if (!serverRate) return null;
+  // "200 email messages", but "100 SMS messages" and "80 WhatsApp messages".
+  if (/^[A-Z][a-z ]+$/.test(channelName)) channelName = channelName.toLowerCase();
   const cap = serverRate.toLocaleString("en-IN");
   if (rate && rate > serverRate) {
     return { warn: true, text: `This Pulse server sends at most ${cap} ${channelName} messages a second per workspace, so this provider gets ${cap}, not ${rate.toLocaleString("en-IN")}. Ask whoever runs Pulse to raise it (${rateSetting(channel)}).` };

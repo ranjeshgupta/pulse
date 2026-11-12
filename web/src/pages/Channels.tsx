@@ -106,7 +106,9 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
   const save = useMutation({
     mutationFn: async () => {
       const lim = cleanLimits(limits);
-      const body = { channel, provider: kindId, name: name || kind?.name, config, secrets, is_default: isDefault, ...(provider ? {} : { limits: lim }) };
+      // A new provider with no limits typed in gets the workspace's defaults for the channel (the server's choice).
+      const typed = lim.rate_per_second > 0 || lim.daily_quota > 0;
+      const body = { channel, provider: kindId, name: name || kind?.name, config, secrets, is_default: isDefault, ...(provider || !typed ? {} : { limits: lim }) };
       if (!provider) return api.post("/v1/channels/providers", body);
       await api.put(`/v1/channels/providers/${provider.id}`, body);
       if (limitsChanged) await api.put(`/v1/channels/providers/${provider.id}/limits`, lim);
@@ -187,7 +189,7 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
               </Step>
               <Step n={5} title="Delivery reports (optional)">
                 <ReceiptMapping channel={channel} config={config} setConfig={setKey} webhookURL={provider?.webhook_url} />
-                {config.request && parseRequestReceipt(config.request) && secretOf("receipt_token") && secretField({ ...secretOf("receipt_token")!, hint: "The gateway adds it to every delivery report, as set above." })}
+                {config.request && parseRequestReceipt(config.request) && secretOf("receipt_token") && secretField({ ...secretOf("receipt_token")!, required: true, hint: "The gateway adds it to every delivery report, as set above. Reports without it are refused." })}
               </Step>
               <Step n={6} title="Check it" hint="Test connection signs in with the details above; Preview request shows the request Pulse would send. Save, then use Send test for a real message.">{tools}</Step>
             </>
@@ -227,7 +229,7 @@ function LimitsFields({ limits: l, onChange, channel, sendRate }: { limits: Prov
   const note = limitsNote(l.rate_per_second, sendRate, channel, CHANNEL_NAMES[channel]);
   return (
     <>
-      <p className="xs muted pf-step-hint">The most your provider's account allows, so Pulse never goes over it: e.g. 300 a second for an Amazon SES account allowed 300. Shared by every Pulse server. Empty means no limit.</p>
+      <p className="xs muted pf-step-hint">The most your provider's account allows, so Pulse never goes over it: e.g. 300 a second for an Amazon SES account allowed 300. Shared by every Pulse server. Empty means no limit (for a new provider, the workspace's default limits for the channel, if set).</p>
       <div className="pf-limits">
         <Field label="Messages per second">
           <input className="input" type="number" min={0} max={10000} step="any" value={l.rate_per_second ?? ""} placeholder="No limit"

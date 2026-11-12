@@ -40,9 +40,10 @@ export default async function (browser) {
     await api(context, "DELETE", `/v1/settings/webhooks/${hookId}`);
     hookId = 0;
 
-    // 3. The custom HTTP gateway provider form (SMS), placeholders only, cancelled.
+    // 3. The custom HTTP gateway provider form (SMS) in its standard mode ("Your developers build an
+    // endpoint for Pulse", the default), placeholders only, cancelled.
     // Tall enough that the whole form shows without scrolling inside the dialog.
-    await page.setViewportSize({ width: 1440, height: 1500 });
+    await page.setViewportSize({ width: 1440, height: 1800 });
     await go(page, "/settings/channels");
     const sms = page.locator("section.panel").nth(1);
     await sms.getByRole("button", { name: "Add provider" }).click();

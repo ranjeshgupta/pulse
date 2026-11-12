@@ -1,8 +1,10 @@
-// Screenshots for docs/tutorials/16-connecting-any-provider.md: the Custom HTTP gateway in "my own
-// request" mode with a login request, Test connection and Preview request. The form is filled in
-// and cancelled, never saved. Test connection logs in to a pretend SMS company's API that runs in a
-// container on the compose network (docs/screenshots/mock-provider.py; start it first, see there).
-// Without it the Test connection picture shows the error instead, and the script says so.
+// Screenshots for docs/tutorials/16-connecting-any-provider.md: the Custom HTTP gateway set to
+// "Connect to a gateway's existing API", step by step (where to send, a login request, the body,
+// how Pulse knows it was sent, delivery reports), then Test connection and Preview request. The form
+// is filled in and cancelled, never saved. Test connection logs in to a pretend SMS company's API
+// that runs in a container on the compose network (docs/screenshots/mock-provider.py; start it
+// first, see there). Without it the Test connection picture shows the error instead, and the script
+// says so.
 import { clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
 
 const AREA = "tutorials";
@@ -16,44 +18,33 @@ const BODY = `{
 
 export default async function (browser) {
   const { context, page } = await session(browser);
+  // Tall enough that the dialog's body (70% of the window) holds every step without scrolling.
   await page.setViewportSize({ width: 1440, height: 4000 });
   await go(page, "/settings/channels");
   const sms = page.locator("section.panel").nth(1);
   await sms.getByRole("button", { name: "Add provider" }).click();
   const dialog = page.getByRole("dialog", { name: "Add SMS provider" });
   await dialog.waitFor();
+  const step = (name) => dialog.getByRole("region", { name, exact: true });
 
-  // Choose the gateway and "My own request".
+  // Choose the gateway and "Connect to a gateway's existing API".
   await dialog.getByRole("combobox").first().selectOption("http_sms");
   await dialog.getByLabel("Name in Pulse").fill("SMSCo");
-  const mode = dialog.getByLabel(/^How Pulse calls your gateway/);
-  await mode.selectOption("custom");
+  const existing = dialog.getByRole("radio", { name: /Connect to a gateway's existing API/ });
+  await existing.click();
   await settle(page);
-  await highlight(mode);
-  await shot(page, AREA, "16-mode", { clip: dialog.locator(".panel-body > label.field:nth-of-type(-n+3), .panel-body > p.small"), pad: 12 });
+  await highlight(existing);
+  await shot(page, AREA, "16-mode", { clip: dialog.locator(".panel-body > .grid-2, .panel-body > .choice-cards"), pad: 12 });
   await clearHighlights(page);
 
-  // The request.
-  const request = dialog.locator("fieldset", { has: page.locator("legend", { hasText: "Request" }) });
-  await request.getByLabel(/^URL/).fill(`${API}/v1/messages`);
-  await request.getByLabel(/^Body/).fill(BODY);
-  await request.getByLabel("And the answer's JSON path (optional)").fill("status");
-  await request.getByLabel("Equals (optional)").fill("queued");
-  await request.getByLabel("Provider message ID at (JSON path)").fill("message_id");
+  // 1 Where to send.
+  const where = step("Where to send");
+  await where.getByLabel(/^Address \(URL\)/).fill(`${API}/v1/messages`);
   await settle(page);
-  await shot(page, AREA, "16-request", { clip: request, pad: 8 });
+  await shot(page, AREA, "16-where", { clip: where, pad: 8 });
 
-  // Delivery receipts.
-  await request.getByLabel(/The provider posts delivery receipts/).check();
-  await request.getByLabel(/^Message\ ID\ at/).fill("message_id");
-  await request.getByLabel(/^Status\ at/).fill("state");
-  await request.getByLabel("Failure reason at (optional)").fill("error");
-  await request.getByLabel("Status values").fill("DELIVRD = delivered\nUNDELIV = undeliverable\nFAILED = failed");
-  await settle(page);
-  await shot(page, AREA, "16-receipts", { clip: request.locator("label.check").or(request.locator(".grid-2").last()), pad: 8 });
-
-  // Authentication: a login request.
-  const auth = dialog.locator("fieldset", { has: page.locator("legend", { hasText: "Authentication" }) });
+  // 2 How Pulse signs in: a login request.
+  const auth = step("How Pulse signs in");
   await auth.getByLabel(/^Type/).selectOption("login");
   await auth.getByLabel(/^Login URL/).fill(`${API}/v1/login`);
   await auth.getByLabel(/^JSON\ path/).fill("data.access_token");
@@ -63,8 +54,35 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "16-auth", { clip: auth, pad: 8 });
 
-  // Test connection: logs in now and shows the token, masked.
-  const tools = dialog.locator(".provider-tools");
+  // 3 What to send.
+  const what = step("What to send");
+  await what.getByLabel(/^Body/).fill(BODY);
+  await settle(page);
+  await shot(page, AREA, "16-request", { clip: what, pad: 8 });
+
+  // 4 How Pulse knows it was sent, with "Change this" open.
+  const result = step("How Pulse knows it was sent");
+  await result.getByText("Change this").click();
+  await result.getByLabel(/^And this field in the answer/).fill("status");
+  await result.getByLabel(/^Equals/).fill("queued");
+  await result.getByLabel(/^The gateway's message ID is at/).fill("message_id");
+  await settle(page);
+  await shot(page, AREA, "16-result", { clip: result, pad: 8 });
+
+  // 5 Delivery reports, and the receipt token that appears with them.
+  const reports = step("Delivery reports (optional)");
+  await reports.getByLabel("The gateway sends delivery reports").check();
+  await reports.getByLabel(/^Message ID at/).fill("message_id");
+  await reports.getByLabel(/^Status at/).fill("state");
+  await reports.getByLabel(/^Status values/).fill("DELIVRD = delivered\nUNDELIV = undeliverable\nFAILED = failed");
+  await reports.getByText("More fields (optional)").click();
+  await reports.getByLabel(/^Failure reason at/).fill("error");
+  await reports.getByLabel(/^Receipt token/).fill("a-long-random-receipt-token");
+  await settle(page);
+  await shot(page, AREA, "16-receipts", { clip: reports, pad: 8 });
+
+  // 6 Check it. Test connection logs in now and shows the token, masked.
+  const tools = step("Check it").locator(".provider-tools");
   await tools.getByRole("button", { name: "Test connection" }).click();
   await tools.locator(".alert").first().waitFor();
   if (await tools.locator(".alert.error").count()) console.log(`  Test connection failed (is the mock running? see mock-provider.py): ${await tools.locator(".alert.error").innerText()}`);
@@ -78,14 +96,6 @@ export default async function (browser) {
   await tools.locator("pre").waitFor();
   await settle(page);
   await shot(page, AREA, "16-preview", { clip: tools.locator("pre"), pad: 8 });
-
-  // The secrets at the end of the form, and the default checkbox.
-  await dialog.getByLabel("Receipt token (optional)").fill("a-long-random-receipt-token");
-  await settle(page);
-  await shot(page, AREA, "16-receipt-token", {
-    clip: dialog.locator(".panel-body > label.field").filter({ hasText: "Receipt token" }),
-    pad: 8,
-  });
 
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await context.close();

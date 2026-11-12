@@ -37,9 +37,14 @@ export default async function (browser) {
   await dialog.getByLabel("Host").fill("email-smtp.ap-south-1.amazonaws.com");
   await dialog.getByLabel(/^Port/).fill("587");
   await dialog.getByLabel("From address").fill("Acme Retail <hello@acme-retail.example.com>");
-  await page.setViewportSize({ width: 1440, height: 1300 });
+  await page.setViewportSize({ width: 1440, height: 1700 });
   await settle(page);
   await shot(page, AREA, "04-add-smtp", { clip: dialog, pad: 0 });
+  // Its Sending limits: an SES account allowed 300 a second, above the server's 200 for email.
+  const limitsPart = dialog.getByRole("region", { name: "Sending limits" });
+  await limitsPart.getByLabel("Messages per second").fill("300");
+  await settle(page);
+  await shot(page, AREA, "04-add-limits", { clip: limitsPart, pad: 8 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -50,7 +55,7 @@ export default async function (browser) {
   await dialog.getByLabel("Name in Pulse").fill("Gmail (Asha)");
   await dialog.getByLabel(/^Google account/).fill("asha.acme.retail@gmail.example.com");
   await dialog.getByLabel(/^From address/).fill("Asha at Acme <asha.acme.retail@gmail.example.com>");
-  await page.setViewportSize({ width: 1440, height: 1900 });
+  await page.setViewportSize({ width: 1440, height: 2300 });
   await settle(page);
   await shot(page, AREA, "04-add-gmail", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -65,9 +70,11 @@ export default async function (browser) {
   await dialog.getByLabel(/^Flow template ID/).fill("64f1c2e5d6a7b8c9d0e1f2a3");
   await dialog.getByLabel(/^Sender ID/).fill("ACMEIN");
   await dialog.getByLabel("Use for all SMS messages").uncheck();
+  await page.setViewportSize({ width: 1440, height: 1300 });
   await settle(page);
   await shot(page, AREA, "04-add-msg91", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   const waPanel = page.locator("section.panel").nth(2);
   await waPanel.getByRole("button", { name: "Add provider" }).click();
@@ -76,7 +83,7 @@ export default async function (browser) {
   await dialog.getByLabel("Name in Pulse").fill("WhatsApp (Acme Retail)");
   await dialog.getByLabel(/^Phone number ID/).fill("106540352242922");
   await dialog.getByLabel(/^WhatsApp Business account ID/).fill("102290129340398");
-  await page.setViewportSize({ width: 1440, height: 1300 });
+  await page.setViewportSize({ width: 1440, height: 1500 });
   await settle(page);
   await shot(page, AREA, "04-add-whatsapp", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -89,7 +96,7 @@ export default async function (browser) {
   await dialog.getByRole("combobox").first().selectOption("fcm");
   await dialog.getByLabel("Name in Pulse").fill("Firebase (Acme app)");
   await dialog.getByLabel(/^Firebase project ID/).fill("acme-retail-app");
-  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.setViewportSize({ width: 1440, height: 1300 });
   await settle(page);
   await shot(page, AREA, "04-add-fcm", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -156,6 +163,7 @@ export default async function (browser) {
   await shot(page, AREA, "04-simulators", { clip: page.locator(".grid-2").last(), pad: 8 });
 
   // 10. Sending limits and today's usage (M3): the SMS sandbox has 20/s and 5,000 a day (docs seed).
+  // The Limits dialog shows the same fields as the provider form's Sending limits, with the server's rate.
   await go(page, "/settings/channels");
   const sms = page.locator("section.panel").nth(1);
   await shot(page, AREA, "04-limits-usage", { clip: sms, pad: 8 });

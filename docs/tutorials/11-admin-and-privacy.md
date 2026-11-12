@@ -160,10 +160,12 @@ when nothing is old enough yet. The rows are deleted at your workspace's next da
 **Default limits of new providers** sets, per channel (**Email**, **SMS**, **WhatsApp**, **RCS**,
 **Push**), the messages per second, the daily quota and its time zone that a provider added from now
 on starts with, unless its kind has its own (Gmail's daily quota, for one). Existing providers keep
-theirs: change them with **Limits** on the Channels page ([tutorial 4](04-channels.md#9-sending-limits-and-daily-quotas)).
+theirs: change them with **Limits** on the Channels page, or under **Sending limits** when you edit
+the provider ([tutorial 4](04-channels.md#9-sending-limits-and-daily-quotas)).
 
 **Fixed by the platform** lists what is the same for every workspace on the server, because it
-protects shared capacity or correct sending: the workspace's sending speed per channel, a message
+protects shared capacity or correct sending: the workspace's sending speed per channel (set by
+whoever runs the server), a message
 never being sent twice (sends remembered for 7 days), held messages released every few seconds,
 deleted inbox messages purged after 7 days, SMS short links working for 30 days, the live feed's 50
 events a second, and webhook retries.
