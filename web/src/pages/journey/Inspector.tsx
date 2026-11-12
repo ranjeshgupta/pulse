@@ -553,11 +553,11 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
         <span className="insp-icon"><JIcon name="play" size={18} /></span>
         <div><h3 tabIndex={-1} id="inspector-title">Start</h3><p className="xs faint">{describeWindow(win.start_at, win.end_at)}</p></div>
       </div>
-      <Field label="Start this journey when a contact">
+      <Field label="Start this campaign for a contact when they" hint={t.type === "segment_entered" ? "This makes it an Automation campaign." : "This makes it a Triggered campaign."}>
         <select className="select" value={t.type} onChange={(e) => setT({ type: e.target.value as JourneyGraph["trigger"]["type"] })}>
-          <option value="segment_entered">enters a segment</option>
-          <option value="event">does an event</option>
-          <option value="form_submitted">submits a form</option>
+          <option value="segment_entered">join a segment</option>
+          <option value="event">do something (an event)</option>
+          <option value="form_submitted">submit a form</option>
         </select>
       </Field>
       {t.type === "segment_entered" ? (
@@ -568,8 +568,8 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
               {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </Field>
-          <label className="check"><input type="checkbox" checked={!!t.include_backfill} onChange={(e) => setT({ include_backfill: e.target.checked })} />Also enroll contacts added when the segment is rebuilt</label>
-          <p className="xs muted">Off: only people who newly match from now on enter. On: rebuilding a segment can enroll many contacts at once.</p>
+          <label className="check"><input type="checkbox" checked={!!t.include_backfill} onChange={(e) => setT({ include_backfill: e.target.checked })} />Also start it for contacts added when the segment is rebuilt</label>
+          <p className="xs muted">Off: only people who newly join the segment from now on start. On: when Pulse rebuilds the segment (after you edit its filters, or its daily refresh), everyone added starts too, which can be many people at once.</p>
           {!!t.segment_id && <ReachByChannel segmentId={t.segment_id} channels={journeyChannels(graph)} title="Members it can reach now" />}
         </>
       ) : t.type === "form_submitted" ? (

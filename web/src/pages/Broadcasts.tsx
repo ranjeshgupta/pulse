@@ -12,44 +12,14 @@ import { SegmentPicker } from "./InApp";
 import { money } from "../insights";
 import { CountsTable, DailyBars, metricsFor, ReportFigures, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { FunnelPanel, ReasonsPanel } from "../funnel";
+import { FUNNEL_OUTCOME, outcomeFilters } from "../contactLinks";
+import { ContactCount } from "../ContactCount";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
-import { ChannelLabel, Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
+import { ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
 
 const REPEAT_LABEL: Record<Repeat, string> = { none: "Once", daily: "Every day", weekly: "Every week", monthly: "Every month" };
 
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "");
-
-export function BroadcastList() {
-  const q = useQuery({ queryKey: ["broadcasts"], queryFn: () => api.get<{ broadcasts: Broadcast[] }>("/v1/broadcasts"), refetchInterval: 5000 });
-  const segs = useQuery({ queryKey: ["segments"], queryFn: () => api.get<{ segments: Segment[] }>("/v1/segments") });
-  const segName = new Map(segs.data?.segments.map((s) => [s.id, s.name]));
-  const bs = q.data?.broadcasts ?? [];
-  return (
-    <div className="page">
-      <PageHead title="Broadcasts" intro={<>Send one message to everyone in a segment, once or on a repeat. Journeys react to each contact; broadcasts go out on a schedule. They are the one-time campaigns of <Link to="/campaigns?tab=one_time">Campaigns</Link>, where the step-by-step wizard writes the message for you.</>} actions={<><Link className="btn" to="/campaigns/new/email">One-time campaign wizard</Link><Link className="btn primary" to="/broadcasts/new">New broadcast</Link></>} />
-      <ErrorNote error={q.error} />
-      <div className="panel">
-        {bs.length === 0 && !q.isLoading ? (
-          <Empty title="No broadcasts yet" action={<Link className="btn primary" to="/broadcasts/new">Create a broadcast</Link>}>A Friday newsletter to all subscribers, or a festive WhatsApp offer to "Pro plan".</Empty>
-        ) : (
-          <table className="table">
-            <thead><tr><th>Name</th><th>Channel</th><th>To</th><th>Repeats</th><th>Next send</th><th>Status</th></tr></thead>
-            <tbody>{bs.map((b) => (
-              <tr key={b.id}>
-                <td><Link to={`/broadcasts/${b.id}`}>{b.name}</Link></td>
-                <td><ChannelLabel channel={b.channel} /></td>
-                <td>{segName.get(b.segment_id) ?? `Segment ${b.segment_id}`}</td>
-                <td>{REPEAT_LABEL[b.repeat]}</td>
-                <td className="muted">{b.status === "scheduled" ? fmt(b.next_run_at) : ""}</td>
-                <td><Status value={b.status} /></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /** browserZone is the time zone this browser is in (the zone a local-time broadcast's time is chosen in). */
 export function browserZone(): string {
@@ -200,7 +170,7 @@ export function BroadcastEdit() {
   const testing = status === "testing";
   const live = status === "scheduled" || status === "running" || testing;
   const days = b.conversion_days || 3;
-  const problem = !b.name ? "Name the broadcast." : !b.segment_id ? "Choose who receives it."
+  const problem = !b.name ? "Name the campaign." : !b.segment_id ? "Choose who receives it."
     : b.ab ? abProblem(b.ab, b.channel)
     : !b.template_id ? "Choose a template." : null;
   const deadlineIssue = deadlineProblem(b.deadline);
@@ -223,24 +193,27 @@ export function BroadcastEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/broadcasts">Broadcasts</Link>}
-        title={isNew ? "New broadcast" : b.name}
+        back={<Link className="back" to="/campaigns?tab=one_time">Campaigns · One-time</Link>}
+        title={isNew ? "New one-time campaign" : b.name}
+        intro="Every setting of a one-time campaign, including A/B tests and a conversion goal, with its results below. For a guided set-up, use New campaign or Edit step by step."
         actions={<>
           {!isNew && <Status value={status} />}
-          {!isNew && !live && <button className="btn danger" onClick={() => confirm("Delete this broadcast?") && remove.mutate()}>Delete</button>}
+          {!isNew && !live && <button className="btn danger" onClick={() => confirm("Delete this campaign? This can't be undone.") && remove.mutate()}>Delete</button>}
           {!isNew && <DuplicateButton path={`/v1/broadcasts/${id}/duplicate`} open={(nid) => `/broadcasts/${nid}`} invalidate={["broadcasts", "campaigns"]} />}
-          {!isNew && !live && <Link className="btn" to={`/campaigns/one-time/${id}`}>Open in the wizard</Link>}
-          {live ? <button className="btn" onClick={() => confirm(testing ? "Cancel this broadcast? The winner won't be sent to the rest of the audience." : "Cancel all future sends of this broadcast?") && cancel.mutate()}>Cancel broadcast</button> : (
+          {!isNew && !live && <Link className="btn" to={`/campaigns/one-time/${id}`} title="The guided set-up: audience, message, schedule, review">Edit step by step</Link>}
+          {live ? <button className="btn" onClick={() => confirm(testing ? "Cancel this campaign? The winner won't be sent to the rest of the audience." : "Cancel all future sends of this campaign?") && cancel.mutate()}>Cancel campaign</button> : (
             <>
               <button className="btn" disabled={saveDraft.isPending} onClick={() => saveDraft.mutate()}>Save draft</button>
-              <button className="btn primary" disabled={!!fullProblem || schedule.isPending} title={fullProblem ?? undefined} onClick={() => schedule.mutate()}>Schedule</button>
+              <button className="btn primary" disabled={!!fullProblem || schedule.isPending} title={fullProblem ?? undefined}
+                onClick={() => (status === "completed" || status === "cancelled" ? confirm(status === "completed" ? "This campaign already went out. Schedule it again? Everyone in its audience then gets it again at the time set below." : "Schedule this cancelled campaign again?") : true) && schedule.mutate()}>
+                {status === "completed" ? "Send again" : "Schedule"}</button>
             </>
           )}
         </>}
       />
       <div style={{ whiteSpace: "pre-line" }}><ErrorNote error={save.error ?? schedule.error ?? cancel.error ?? remove.error} /></div>
-      {live && !testing && <div className="alert info">This broadcast is scheduled{saved?.next_run_at ? `; next send ${fmt(saved.next_run_at)}` : ""}. Cancel it to make changes.</div>}
-      {testing && <div className="alert info">The A/B test has gone out and is waiting for its winner. You can't edit the broadcast now, only cancel it.</div>}
+      {live && !testing && <div className="alert info">This campaign is scheduled{saved?.next_run_at ? `; next send ${fmt(saved.next_run_at)}` : ""}. Cancel it to make changes.</div>}
+      {testing && <div className="alert info">The A/B test has gone out and is waiting for its winner. You can't edit the campaign now, only cancel it.</div>}
       <fieldset disabled={live} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="grid-2">
           <Field label="Name"><input className="input" value={b.name} onChange={(e) => set({ name: e.target.value })} placeholder="Diwali offer, WhatsApp" /></Field>
@@ -328,7 +301,7 @@ export function BroadcastEdit() {
           <h3>Sends</h3>
           {runs.length === 0 ? <p className="muted small" style={{ marginTop: 8 }}>{describeWindow(b.start_at, b.end_at) || "Not sent yet."}</p> : (
             <div className="panel" style={{ marginTop: 10 }}>
-              <SendsTable runs={runs} abWinner={!!abWinner} ab={runs.some((r) => r.test_recipients > 0 || !!r.winner) || !!saved?.ab} />
+              <SendsTable broadcastId={Number(id)} runs={runs} abWinner={!!abWinner} ab={runs.some((r) => r.test_recipients > 0 || !!r.winner) || !!saved?.ab} />
             </div>
           )}
         </section>
@@ -339,7 +312,7 @@ export function BroadcastEdit() {
   );
 }
 
-function SendsTable({ runs, ab, abWinner }: { runs: BroadcastRun[]; ab: boolean; abWinner: boolean }) {
+function SendsTable({ broadcastId, runs, ab, abWinner }: { broadcastId: number; runs: BroadcastRun[]; ab: boolean; abWinner: boolean }) {
   const winnerCell = (r: BroadcastRun) => {
     if (r.winner && r.winner_sent_at) return <>{r.winner} to <LiveNumber value={r.winner_recipients} /></>;
     if (r.winner) return <span className="muted">Sending {r.winner}…</span>;
@@ -359,7 +332,7 @@ function SendsTable({ runs, ab, abWinner }: { runs: BroadcastRun[]; ab: boolean;
           <td>{fmt(r.scheduled_at)}</td>
           <td className="muted">{r.finished_at ? timeAgo(r.finished_at) : "sending…"}</td>
           {ab && <><td className="num"><LiveNumber value={r.test_recipients || r.recipients} /></td><td>{winnerCell(r)}</td></>}
-          <td className="num"><LiveNumber value={r.recipients + (r.winner_recipients || 0)} /></td>
+          <td className="num"><ContactCount live value={r.recipients + (r.winner_recipients || 0)} filters={outcomeFilters("broadcast", broadcastId, "targeted", { run: runKey(r.scheduled_at) })} /></td>
         </tr>
       ))}</tbody>
     </table>
@@ -387,6 +360,10 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
 
   const r = report.data;
   const ab = bc.ab;
+  // M7: every count opens the contacts behind it (this send only when one is chosen).
+  const bid = Number(id);
+  const outcome = (o: string, runKey = run) => outcomeFilters("broadcast", bid, o, { run: runKey || undefined });
+  const funnelLink = (k: string) => (k.startsWith("skipped_") ? outcome(k) : FUNNEL_OUTCOME[k] ? outcome(FUNNEL_OUTCOME[k]) : null);
   const winnerStep = !!ab && ab.test_percent < 100;
   const rest = ab ? Math.max(0, 100 - ab.test_percent) : 0;
   const newestFirst = [...runs].sort((x, y) => y.scheduled_at.localeCompare(x.scheduled_at));
@@ -431,7 +408,7 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
 
   const runRows: CountsRow[] = Object.entries(r?.by_run ?? {})
     .sort(([a], [b]) => Number(b) - Number(a))
-    .map(([k, counts]) => ({ key: k, lead: [fmt(new Date(Number(k) * 1000).toISOString())], counts, onClick: () => setRun(k) }));
+    .map(([k, counts]) => ({ key: k, lead: [fmt(new Date(Number(k) * 1000).toISOString())], counts, onClick: () => setRun(k), link: (o) => outcome(o, k) }));
   const channelRows: CountsRow[] = Object.entries(r?.by_channel ?? {}).map(([c, counts]) => ({
     key: c, lead: [<span key="c" className={`chan chan-${c}`}>{CHANNEL_NAMES[c as Channel] ?? c}</span>], counts,
   }));
@@ -450,7 +427,7 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
       <ErrorNote error={report.error ?? pick.error} />
       {r && (
         <>
-          <ReportFigures totals={r.totals} keys={keys} />
+          <ReportFigures totals={r.totals} keys={keys} link={(k) => outcome(k)} />
           {r.revenue && (
             <div className="figures" style={{ marginTop: 0, marginBottom: 18 }}>
               <div><strong>{money(r.revenue.revenue, r.revenue.currency)}</strong><span>revenue from recipients <small>({r.revenue.event} within {r.revenue.days} days of their send)</small></span></div>
@@ -465,8 +442,8 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
           <p className="xs muted" style={{ margin: "0 0 18px" }}>
             Each contact counts once. Rates are out of messages sent.{bc.conversion_event ? ` Converted means they did ${bc.conversion_event} within ${bc.conversion_days || 3} days of their send.` : ""}
           </p>
-          {r.funnel && <div style={{ marginBottom: 24 }}><FunnelPanel funnel={r.funnel} channels={channels} /></div>}
-          <div style={{ marginBottom: 24 }}><ReasonsPanel reasons={r.reasons} /></div>
+          {r.funnel && <div style={{ marginBottom: 24 }}><FunnelPanel funnel={r.funnel} channels={channels} link={funnelLink} /></div>}
+          <div style={{ marginBottom: 24 }}><ReasonsPanel reasons={r.reasons} link={(kind, code) => outcomeFilters("broadcast", bid, kind, { run: run || undefined, reason: code })} /></div>
           {variantRows.length > 0 && (
             <div style={{ marginBottom: 24 }}>
               <ReportPanel title="Variants" aside={winnerStep && ab?.metric !== "manual" ? <span className="xs muted">Winner by {METRIC_TEXT[ab!.metric]}</span> : undefined}>
@@ -491,7 +468,7 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
           )}
           <div className="report-cols" style={{ marginTop: 0 }}>
             {(bc.channel === "email" || r.links.length > 0) && <TopLinks links={r.links} />}
-            <DailyBars daily={r.daily} />
+            <DailyBars daily={r.daily} link={(kind, day) => [...outcome(kind), ["period", day]]} />
           </div>
         </>
       )}

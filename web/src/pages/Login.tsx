@@ -25,7 +25,7 @@ function AuthLayout({ children }: { children: React.ReactNode }) {
       </section>
       <aside className="auth-side" aria-hidden>
         <PulseTrace values={HEARTBEAT} />
-        <blockquote>Contacts move into segments and journeys the moment they act, not on the next cron run.</blockquote>
+        <blockquote>Contacts move into segments and campaigns the moment they act, not hours later.</blockquote>
       </aside>
     </div>
   );

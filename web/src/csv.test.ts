@@ -32,6 +32,6 @@ describe("report export rows", () => {
     const s = spec({ metric: { type: "sum", key: "amount" }, group_by: { type: "day" } });
     expect(reportRows(s, { rows: [{ group: "2026-11-03T00:00:00Z", value: 10.456 }], labels: {} })).toEqual([["Day", "Sum of amount"], ["2026-11-03", 10.46]]);
     const c = spec({ source: "messages", group_by: { type: "campaign" } });
-    expect(reportRows(c, { rows: [{ group: "journey|4", value: 3 }], labels: { "journey|4": "=Welcome" } })).toEqual([["Broadcast or journey", "Type", "Messages"], ["=Welcome", "Journey", 3]]);
+    expect(reportRows(c, { rows: [{ group: "journey|4", value: 3 }], labels: { "journey|4": "=Welcome" } })).toEqual([["Campaign", "Type", "Messages"], ["=Welcome", "Journey", 3]]);
   });
 });

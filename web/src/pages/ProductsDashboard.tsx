@@ -14,6 +14,12 @@ import {
 import { ErrorNote, Field, PageHead, useToast } from "../ui";
 import { compact, labelIndexes, longDay, niceMax, rangeDays, retryUnlessLimited, shortDay, ticks, updatedAt } from "../usersDash";
 import "./dashboards.css";
+import { ContactCount } from "../ContactCount";
+import { productFilters } from "../contactLinks";
+
+/** pf: the contacts behind a products number (M7), with the page's events and period. */
+const pf = (d: ProductsAnswer, what: "viewed" | "carted" | "bought" | "abandoned", item: { code?: string; category?: string }) =>
+  productFilters(what, d.events, item, d.from.slice(0, 10), d.to.slice(0, 10));
 
 export function ProductsDashboard() {
   const [range, setRange] = useState<Range>(() => defaultRange(30));
@@ -112,12 +118,12 @@ function Report({ d }: { d: ProductsAnswer }) {
     <>
       <div className="figures dash-figures">
         <div><strong>{count(t.views)}</strong><span>product views</span></div>
-        <div><strong>{count(t.viewers)}</strong><span>viewers</span></div>
-        <div title={`${count(t.carts)} add-to-cart events`}><strong>{count(t.carters)}</strong><span>added to cart</span></div>
-        <div><strong>{count(t.buyers)}</strong><span>buyers</span></div>
+        <div><strong><ContactCount value={t.viewers} filters={pf(d, "viewed", {})} /></strong><span>viewers</span></div>
+        <div title={`${count(t.carts)} add-to-cart events`}><strong><ContactCount value={t.carters} filters={pf(d, "carted", {})} /></strong><span>added to cart</span></div>
+        <div><strong><ContactCount value={t.buyers} filters={pf(d, "bought", {})} /></strong><span>buyers</span></div>
         <div><strong>{count(t.purchases)}</strong><span>purchases</span></div>
         <div><strong>{money(t.revenue, cur)}</strong><span>revenue</span></div>
-        <div title="Added a product to their cart but didn't buy it in the range"><strong>{count(t.abandoned)}</strong><span>abandoned carts</span></div>
+        <div title="Added a product to their cart but didn't buy it in the range"><strong><ContactCount value={t.abandoned} filters={pf(d, "abandoned", {})} /></strong><span>abandoned carts</span></div>
         <div title="Buyers ÷ viewers"><strong>{conv === null ? "–" : pct(conv)}</strong><span>view → buy</span></div>
       </div>
       <p className="xs faint dash-period">
@@ -131,7 +137,7 @@ function Report({ d }: { d: ProductsAnswer }) {
 
       <DailyPanel days={fillDays(d.report.days, d.from, d.to)} currency={cur} />
       <ProductsTable d={d} />
-      <CategoriesTable rows={d.report.categories} currency={cur} />
+      <CategoriesTable rows={d.report.categories} currency={cur} d={d} />
     </>
   );
 }
@@ -233,12 +239,12 @@ function ProductsTable({ d }: { d: ProductsAnswer }) {
                 <tr key={r.code}>
                   <th scope="row" className="dash-code"><code>{r.code}</code></th>
                   <td className={r.category ? "" : "muted"}>{r.category || "–"}</td>
-                  <td className="num" title={`${count(r.viewers)} people viewed`}>{count(r.views)} <small className="faint">({count(r.viewers)})</small></td>
-                  <td className="num" title={`${count(r.carts)} add-to-cart events`}>{count(r.carters)}</td>
+                  <td className="num" title={`${count(r.viewers)} people viewed`}>{count(r.views)} <small className="faint">(<ContactCount value={r.viewers} filters={pf(d, "viewed", { code: r.code })} />)</small></td>
+                  <td className="num" title={`${count(r.carts)} add-to-cart events`}><ContactCount value={r.carters} filters={pf(d, "carted", { code: r.code })} /></td>
                   <td className="num">{count(r.purchases)}</td>
-                  <td className="num">{count(r.buyers)}</td>
+                  <td className="num"><ContactCount value={r.buyers} filters={pf(d, "bought", { code: r.code })} /></td>
                   <td className="num">{money(r.revenue, cur)}</td>
-                  <td className="num">{count(r.abandoned)}</td>
+                  <td className="num"><ContactCount value={r.abandoned} filters={pf(d, "abandoned", { code: r.code })} /></td>
                   <td className="num">{conv === null ? "–" : pct(conv)}</td>
                   {canSegment && (
                     <td className="dash-action">
@@ -262,7 +268,7 @@ function ProductsTable({ d }: { d: ProductsAnswer }) {
   );
 }
 
-function CategoriesTable({ rows, currency }: { rows: ProductRow[]; currency: string }) {
+function CategoriesTable({ rows, currency, d }: { rows: ProductRow[]; currency: string; d: ProductsAnswer }) {
   if (rows.length === 0) return null;
   return (
     <section className="panel section">
@@ -287,12 +293,12 @@ function CategoriesTable({ rows, currency }: { rows: ProductRow[]; currency: str
               <tr key={r.code}>
                 <th scope="row" className={r.code ? "" : "muted"}>{r.code || "(none)"}</th>
                 <td className="num">{count(r.views)}</td>
-                <td className="num">{count(r.viewers)}</td>
-                <td className="num">{count(r.carters)}</td>
+                <td className="num"><ContactCount value={r.viewers} filters={pf(d, "viewed", { category: r.code })} /></td>
+                <td className="num"><ContactCount value={r.carters} filters={pf(d, "carted", { category: r.code })} /></td>
                 <td className="num">{count(r.purchases)}</td>
-                <td className="num">{count(r.buyers)}</td>
+                <td className="num"><ContactCount value={r.buyers} filters={pf(d, "bought", { category: r.code })} /></td>
                 <td className="num">{money(r.revenue, currency)}</td>
-                <td className="num">{count(r.abandoned)}</td>
+                <td className="num"><ContactCount value={r.abandoned} filters={pf(d, "abandoned", { category: r.code })} /></td>
                 <td className="num">{conv === null ? "–" : pct(conv)}</td>
               </tr>
             );

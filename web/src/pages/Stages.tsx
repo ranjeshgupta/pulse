@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Stage } from "../api";
 import { describeThreshold, moveItem } from "../accounts";
-import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, useToast } from "../ui";
+import { Empty, ErrorNote, Field, Modal, PageHead, useToast } from "../ui";
 import "./stages.css";
+import { ContactCount } from "../ContactCount";
 
 /** The workspace's lifecycle stages, in order, with how many contacts are in each. */
 export function useStages(poll = 0) {
@@ -39,7 +40,7 @@ export function Stages() {
     <div className="page">
       <PageHead
         title="Stages"
-        intro="The lifecycle a contact moves through, from first touch to customer. Each contact is in one stage. Move them by hand, with a journey's “Change contact's stage” step, through the API, or automatically when their points reach a stage's threshold. Segments can select contacts by stage."
+        intro="The lifecycle a contact moves through, from first touch to customer. Each contact is in one stage. Move them by hand, with a campaign's “Change contact's stage” step, through the API, or automatically when their points reach a stage's threshold. Segments can select contacts by stage."
         actions={<button className="btn primary" onClick={() => setEditing("new")}>New stage</button>}
       />
       <ErrorNote error={q.error ?? reorder.error ?? remove.error} />
@@ -64,7 +65,7 @@ export function Stages() {
                     {s.description && <div className="xs muted">{s.description}</div>}
                   </td>
                   <td className="small">{describeThreshold(s.min_points)}</td>
-                  <td className="num"><LiveNumber value={s.contacts} /></td>
+                  <td className="num"><ContactCount live value={s.contacts} filters={[["stage", s.name]]} /></td>
                   <td className="num">
                     <button className="btn ghost sm" onClick={() => setEditing(s)}>Edit</button>
                     <button className="btn ghost sm danger" onClick={() => confirm(`Remove the stage ${s.name}? Its ${s.contacts} contacts keep "${s.name}" as their stage until they move.`) && remove.mutate(s)}>Remove</button>
@@ -113,7 +114,7 @@ function StageModal({ stage, onClose, onSaved }: { stage?: Stage; onClose: () =>
       <Field label="Description (optional)">
         <input className="input" value={description} maxLength={500} onChange={(e) => setDescription(e.target.value)} placeholder="Engaged enough for sales to call" />
       </Field>
-      <Field label="Move contacts here at (points, optional)" hint="Leave empty to set this stage only by hand, journeys or the API.">
+      <Field label="Move contacts here at (points, optional)" hint="Leave empty to set this stage only by hand, from campaigns or through the API.">
         <input className="input" style={{ maxWidth: 160 }} inputMode="numeric" value={threshold} onChange={(e) => setThreshold(e.target.value)} placeholder="50" />
       </Field>
       {!thresholdOK && <p className="small" style={{ color: "var(--danger)" }}>Enter a whole number of points from 0.</p>}

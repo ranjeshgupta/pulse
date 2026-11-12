@@ -90,7 +90,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
                 {groups.map(([g, items]) => (
                   <div key={g} className="vp-group" role="group" aria-labelledby={`${id}-${g}`}>
                     <div className="vp-group-name" id={`${id}-${g}`}>{GROUP_NAMES[g]}</div>
-                    {g === "event" && !vars.eventName && <p className="vp-note">Properties of the event that starts the journey. Choose the event above the editor to list them; broadcasts leave them empty.</p>}
+                    {g === "event" && !vars.eventName && <p className="vp-note">Properties of the event that starts the journey. Choose the event above the editor to list them; one-time campaigns leave them empty.</p>}
                     {g === "event" && vars.eventName && !vars.schema && <p className="vp-note">“{vars.eventName}” has no schema yet: type the property, e.g. {"{{event.product_name}}"}.</p>}
                     {items.filter(match).map((v) => (
                       <button type="button" key={v.var} className="vp-item" onClick={() => setPick(v)}>
@@ -193,7 +193,7 @@ export function EventScopePicker({ value, onChange }: { value: string; onChange:
     <label className="vp-scope">
       <span className="xs muted">Trigger event for {"{{event.…}}"}</span>
       <select className="select inline" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Trigger event for event variables">
-        <option value="">None (broadcasts)</option>
+        <option value="">None (one-time campaigns)</option>
         {v.schemas.map((s) => <option key={s.name} value={s.name}>{s.label || s.name}</option>)}
         {value && !v.schemas.some((s) => s.name === value) && <option value={value}>{value}</option>}
       </select>

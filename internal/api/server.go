@@ -230,10 +230,20 @@ func (s *Server) Handler() http.Handler {
 	s.contactPageRoutes(mux)
 
 	if s.ui != nil {
+		// M7: the separate Journeys and Broadcasts lists became one Campaigns list. Old
+		// addresses redirect (the app does the same for links followed inside it); a
+		// campaign's own page (/journeys/7, /broadcasts/4) is unchanged.
+		for from, to := range OldCampaignLists {
+			mux.Handle("GET "+from, http.RedirectHandler(to, http.StatusMovedPermanently))
+		}
 		mux.Handle("/", s.ui)
 	}
 	return bodyLimit(securityHeaders(s.splitPages(mux)))
 }
+
+// OldCampaignLists are the list addresses from before M7's campaign navigation and where they
+// went (web/src/campaigns.ts OLD_CAMPAIGN_LISTS says the same).
+var OldCampaignLists = map[string]string{"/journeys": "/campaigns", "/broadcasts": "/campaigns?tab=one_time"}
 
 // publicBase is where public pages live: PagesURL, or PublicURL when there's no separate origin.
 func (s *Server) publicBase() string {

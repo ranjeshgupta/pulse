@@ -35,7 +35,7 @@ export function TemplateList() {
     <div className="page">
       <PageHead
         title="Message templates"
-        intro="The content of every email, SMS, WhatsApp, RCS, push and app inbox message that journeys and broadcasts send. Each template belongs to one channel. (Website and in-app messages are made under On-site & in-app; landing pages under Landing pages.)"
+        intro="Reusable content for the email, SMS, WhatsApp, RCS, push and app inbox messages your campaigns send. Each template belongs to one channel. (Website and app pop-ups are made under Website & app messages; landing pages under Landing pages.)"
         actions={<Link className="btn primary" to={`/templates/new?channel=${channel || "email"}`}>New {channel ? CHANNEL_NAMES[channel] : "email"} template</Link>}
       />
       <div className="tabs" role="tablist">

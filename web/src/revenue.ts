@@ -36,7 +36,7 @@ export function windowProblem(n: number): string | null {
 
 // ---- credits ----
 
-export const KIND_LABELS: Record<Credit["kind"], string> = { broadcast: "Broadcast", journey: "Journey", utm: "UTM" };
+export const KIND_LABELS: Record<Credit["kind"], string> = { broadcast: "One-time campaign", journey: "Journey", utm: "UTM campaign" };
 
 /** creditLabel names a credit: the message name ("Broadcast 12" without one) or the UTM campaign. */
 export function creditLabel(c: Credit): string {

@@ -38,6 +38,12 @@ func TestRoutePermissions(t *testing.T) {
 		{"GET /v1/contacts/{external_id}/data", auth.Perms{auth.AreaContacts: auth.View}, false},
 		{"GET /v1/contacts/{external_id}/data", auth.Perms{auth.AreaContacts: auth.Edit}, true},
 		{"POST /v1/something-new", editor, false}, // unlisted: settings edit
+		// M7: a static segment from a contact list view needs segments edit (contacts view and
+		// each filter's need are checked in the handler).
+		{"POST /v1/contacts/view-segment", viewer, false},
+		{"POST /v1/contacts/view-segment", editor, true},
+		{"POST /v1/contacts/view-segment", auth.Perms{auth.AreaContacts: auth.Edit}, false},
+		{"GET /v1/contacts", auth.Perms{auth.AreaReports: auth.View}, false}, // a reports user clicking a number needs contacts view
 		{"GET /v1/inapp/check", auth.Perms{auth.AreaContent: auth.Publish}, false},
 		{"GET /v1/inapp/check", viewer, true},
 		{"POST /v1/cohorts/run", viewer, true},

@@ -16,8 +16,16 @@ export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = 
   { key: "name", hint: "name contains", example: "name:asha" },
 ];
 
+/** Filters that other pages put in links (M7: the contacts behind a number). They aren't offered
+ * while typing, but they show as chips and can be removed like any other. */
+export const LINK_KEYS = ["in", "not_in", "subscribed", "reachable", "under_cap", "journey", "at", "journey_status", "campaign", "run",
+  "step", "outcome", "reason", "event", "no_event", "product", "category", "active", "utm", "amp_poll", "answer", "form", "period"];
+
 /** list: is the old name of segment: (static segments used to be called lists). */
-const KEYS = new Set<string>([...FILTER_KEYS.map((k) => k.key), "list"]);
+const KEYS = new Set<string>([...FILTER_KEYS.map((k) => k.key), "list", ...LINK_KEYS]);
+
+/** isLinkFilter reports whether a chip is one of the LINK_KEYS (a list that can't be a dynamic segment). */
+export const isLinkFilter = (chip: string) => LINK_KEYS.includes(chip.slice(0, Math.max(chip.indexOf(":"), 0)).toLowerCase());
 
 export const IS_OPTIONS: { value: string; label: string }[] = [
   { value: "anonymous", label: "Anonymous visitors (no known ID or email yet)" },
@@ -47,13 +55,13 @@ export function tokenize(q: string): string[] {
 }
 
 /** parseFilter returns the key and value of a key:value word with a known key, else null. */
-export function parseFilter(token: string): { key: FilterKey; value: string } | null {
+export function parseFilter(token: string): { key: FilterKey | string; value: string } | null {
   const i = token.indexOf(":");
   if (i < 0) return null;
   const key = token.slice(0, i).toLowerCase();
   const value = token.slice(i + 1).trim();
   if (!KEYS.has(key) || !value) return null;
-  return { key: key as FilterKey, value };
+  return { key, value };
 }
 
 export const quoteValue = (v: string) => (/\s/.test(v) ? `"${v.replace(/"/g, "")}"` : v);
@@ -87,7 +95,7 @@ export function takeChip(input: string, force = false): { chip: string; rest: st
   const quotes = (input.match(/"/g) ?? []).length;
   if (quotes % 2 === 1) return null; // still typing a quoted value
   if (!force && !/\s$/.test(input)) return null;
-  const m = input.trimEnd().match(/(^|\s)((?:[a-zA-Z]+):(?:"[^"]*"|\S+))$/);
+  const m = input.trimEnd().match(/(^|\s)((?:[a-zA-Z_]+):(?:"[^"]*"|\S+))$/);
   if (!m) return null;
   const word = tokenize(m[2])[0] ?? "";
   const f = parseFilter(word);

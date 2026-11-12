@@ -70,3 +70,33 @@ func (s *Store) ContactCount(ctx context.Context, tenant int64, where string, ar
 	err = s.conn.QueryRow(ctx, "SELECT uniq(id) FROM contacts WHERE "+cond, all...).Scan(&approx)
 	return max(approx, n), true, err
 }
+
+// ContactFilter returns which of ids match the view (where and text), newest first. The Contacts
+// list uses it when a view starts from a Redis bitmap (segments, reachability, a journey) and also
+// has rule filters, report filters or text: the bitmap gives candidates, ClickHouse checks them.
+func (s *Store) ContactFilter(ctx context.Context, tenant int64, where string, args []any, text string, ids []uint32) ([]uint32, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	cond, all := viewWhere(tenant, where, args, text)
+	lo, hi := ids[0], ids[0]
+	for _, id := range ids {
+		lo, hi = min(lo, id), max(hi, id)
+	}
+	// The range lets ClickHouse skip granules by the sort key; has() then checks each row.
+	all = append(all, lo, hi, ids)
+	rows, err := s.conn.Query(ctx, "SELECT id FROM contacts FINAL WHERE "+cond+" AND id >= ? AND id <= ? AND has(?, id) ORDER BY id DESC", all...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uint32
+	for rows.Next() {
+		var id uint32
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

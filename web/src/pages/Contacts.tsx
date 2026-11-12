@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Rule, type Segment, type User } from "../api";
 import { contactCompany, isAccountAttr } from "../accounts";
 import { useCan } from "../auth";
-import { currentWord, freeText, joinQuery, splitQuery, suggest, takeChip, type Suggestion } from "../contactFilters";
+import { currentWord, freeText, isLinkFilter, joinQuery, splitQuery, suggest, takeChip, type Suggestion } from "../contactFilters";
 import { Drawer, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { useCompanyOptions } from "./Companies";
 import { ContactInbox } from "./InApp";
@@ -13,7 +13,7 @@ import { useAttributes, useSegments } from "./segmentData";
 import { CustomFields, SegmentWhy } from "./ContactFields";
 import "./contacts.css";
 
-type ViewPage = { contacts: Contact[]; next: string; filters?: { token: string; label: string }[]; rule?: Rule; text?: string; count?: number; approximate?: boolean };
+type ViewPage = { contacts: Contact[]; next: string; filters?: { token: string; label: string }[]; rule?: Rule; text?: string; count?: number; approximate?: boolean; note?: string };
 
 /** Columns the list can show; External ID is always first. Attribute definitions are offered too. */
 const BUILTIN_COLUMNS: { key: string; label: string }[] = [
@@ -95,6 +95,10 @@ export default function Contacts() {
   const colLabel = (k: string) => columnChoices.find((c) => c.key === k)?.label ?? k;
   const [choosing, setChoosing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [snapshot, setSnapshot] = useState(false);
+  // Lists opened from a number elsewhere (a funnel step, a journey step…) can't be a dynamic
+  // segment's rule; they can become a static segment of who is in them now.
+  const linkList = chips.some(isLinkFilter);
   const canExport = useCan("contacts", "edit");
   const canSave = useCan("segments", "edit");
   const filtered = !!debounced;
@@ -121,15 +125,21 @@ export default function Contacts() {
           {list.isFetching && !list.isFetchingNextPage ? "Searching…" : filtered ? countText : ""}
         </span>
         <div className="row">
-          {filtered && canSave && (
-            <button className="btn sm" disabled={!first?.rule || !!first?.text} title={first?.text ? "Free text can't be saved; use email: or name: instead" : !first?.rule ? "Add a filter first" : undefined}
+          {filtered && canSave && !linkList && (
+            <button className="btn sm" disabled={!first?.rule || !!first?.text} title={first?.text ? "Free text can't be saved; use email: or name: instead" : !first?.rule ? "Add a filter first" : "A segment with these filters: contacts join and leave it as they match"}
               onClick={() => setSaving(true)}>Save as segment</button>
+          )}
+          {filtered && canSave && linkList && (
+            <button className="btn sm" disabled={!first || (first.count ?? 0) === 0} title="A static segment of the contacts in this list now"
+              onClick={() => setSnapshot(true)}>Create segment from this list</button>
           )}
           <button className="btn sm" onClick={() => setChoosing(true)} aria-haspopup="dialog">Columns</button>
           {canExport && <a className="btn sm" href={exportHref} download>Export CSV</a>}
         </div>
       </div>
       {choosing && <ColumnChooser columns={columns} choices={columnChoices} onChange={setColumns} onClose={() => setChoosing(false)} />}
+      {first?.note && filtered && <p className="xs muted cv-note">{first.note}</p>}
+      {snapshot && first && <SnapshotSegmentModal q={debounced} count={first.count ?? 0} approximate={!!first.approximate} labels={first.filters?.map((f) => f.label) ?? []} onClose={() => setSnapshot(false)} />}
       {saving && first?.rule && <SaveSegmentModal rule={first.rule} labels={first.filters?.map((f) => f.label) ?? []} onClose={() => setSaving(false)} />}
       <ErrorNote error={list.error} />
       <div className="panel">
@@ -275,6 +285,32 @@ function SaveSegmentModal({ rule, labels, onClose }: { rule: Rule; labels: strin
     </>}>
       <p className="small muted" style={{ marginBottom: 12 }}>
         Creates a dynamic segment with these filters. Contacts then join and leave it on their own as they start or stop matching.
+      </p>
+      <Field label="Name"><input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <ul className="small">{labels.map((l) => <li key={l}>{l}</li>)}</ul>
+      <ErrorNote error={save.error} />
+    </Modal>
+  );
+}
+
+/** SnapshotSegmentModal makes a static segment of the contacts in a list now. */
+function SnapshotSegmentModal({ q, count, approximate, labels, onClose }: { q: string; count: number; approximate: boolean; labels: string[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const toast = useToast();
+  const [name, setName] = useState(labels.join(", ").slice(0, 80));
+  const save = useMutation({
+    mutationFn: () => api.post<{ id: number; contacts: number }>("/v1/contacts/view-segment", { q, name: name.trim() }),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: `Static segment created. Adding ${r.contacts.toLocaleString("en-IN")} contacts now.` }); nav(`/segments/${r.id}`); },
+  });
+  return (
+    <Modal title="Create segment from this list" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Create static segment</button>
+    </>}>
+      <p className="small muted" style={{ marginBottom: 12 }}>
+        Makes a static segment of the {approximate ? "about " : ""}{count.toLocaleString("en-IN")} contacts in this list now, for example to send them a follow-up.
+        It doesn't change afterwards: contacts who match later aren't added. Up to 500,000 contacts.
       </p>
       <Field label="Name"><input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
       <ul className="small">{labels.map((l) => <li key={l}>{l}</li>)}</ul>

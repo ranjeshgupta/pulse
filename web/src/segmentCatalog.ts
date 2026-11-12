@@ -62,7 +62,7 @@ const FIXED: Omit<CatalogItem, "icon">[] = [
   { id: "email_read_specific", group: "messages", label: "Read a specific email", hint: "Opened the email of a template", make: () => ev("email_opened", 30, pick("template_id")), keywords: "open opened" },
   { id: "email_read_any", group: "messages", label: "Read any email", hint: "Opened at least one email in the last N days", make: () => ev("email_opened"), keywords: "open opened" },
   { id: "email_read_times", group: "messages", label: "Read any email X number of times", hint: "Opened emails at least N times", make: () => ev("email_opened", 30, [], "gte", 3), keywords: "open count" },
-  { id: "email_opened_campaign", group: "messages", label: "Opened an email from a campaign", hint: "A broadcast you sent", make: () => ev("email_opened", 30, pick("broadcast_id")) },
+  { id: "email_opened_campaign", group: "messages", label: "Opened an email from a campaign", hint: "A one-time campaign you sent", make: () => ev("email_opened", 30, pick("broadcast_id")) },
   { id: "email_opened_journey", group: "messages", label: "Opened an email from a journey", hint: "Any email the journey sent", make: () => ev("email_opened", 30, pick("journey_id")) },
   { id: "email_not_opened", group: "messages", label: "Didn't open an email from a campaign", hint: "Good for resending", make: () => ev("email_opened", 30, pick("broadcast_id"), "none") },
   { id: "email_clicked_any", group: "messages", label: "Clicked any link from any email", hint: "In the last N days", make: () => ev("email_clicked"), keywords: "click" },
@@ -75,7 +75,7 @@ const FIXED: Omit<CatalogItem, "icon">[] = [
   { id: "email_sent_any", group: "messages", label: "Sent any email", hint: "Was sent at least one email", make: () => ev("email_sent") },
   { id: "email_sent_specific", group: "messages", label: "Was sent a specific email", hint: "The email of a template", make: () => ev("email_sent", 30, pick("template_id")) },
   { id: "push_sent_any", group: "messages", label: "Has been sent any push notification", hint: "Mobile or web push", make: () => ev("push_sent") },
-  { id: "sms_delivered", group: "messages", label: "Received an SMS", hint: "Delivered, from a campaign or a journey", make: () => ev("sms_delivered", 30, pick("broadcast_id")) },
+  { id: "sms_delivered", group: "messages", label: "Received an SMS", hint: "Delivered, from any campaign", make: () => ev("sms_delivered", 30, pick("broadcast_id")) },
   { id: "whatsapp_read", group: "messages", label: "Read a WhatsApp message", hint: "From a campaign or a journey", make: () => ev("whatsapp_read", 30, pick("broadcast_id")) },
   { id: "inbox_opened", group: "messages", label: "Opened an app inbox message", hint: "In the app's inbox", make: () => ev("inbox_opened") },
   // Web

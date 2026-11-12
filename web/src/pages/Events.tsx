@@ -12,6 +12,8 @@ import {
 } from "../eventSchemas";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, timeAgo, useToast } from "../ui";
 import "./events.css";
+import { ContactCount } from "../ContactCount";
+import { addDays, period, todayUTC } from "../contactLinks";
 
 type Suggested = EventSchema & { exists: boolean };
 type Draft = Pick<EventSchema, "label" | "description" | "mode" | "props">;
@@ -46,7 +48,7 @@ export function EventList() {
     <div className="page">
       <PageHead
         title="Events"
-        intro="The events your website, apps and servers send, with their properties. Describe an event with a schema to say which properties it carries: segments and journeys then offer typed filters for them, and events that don't fit are caught and shown here."
+        intro="The events your website, apps and servers send, with their properties. Describe an event with a schema (a list of the details it carries) so segments and campaigns can offer typed filters for them, and events that don't fit are caught and shown here."
         actions={suggestBtn}
       />
       <ErrorNote error={q.error} />
@@ -68,7 +70,7 @@ export function EventList() {
                     </td>
                     <td className="num">
                       <LiveNumber value={e.count} />
-                      <div className="xs muted">{e.contacts.toLocaleString("en-IN")} contacts</div>
+                      <div className="xs muted"><ContactCount value={e.contacts} filters={[["event", e.name], period(addDays(todayUTC(), -29), todayUTC())]} /> contacts</div>
                     </td>
                     <td className="small">{e.last_seen ? timeAgo(e.last_seen) : <span className="faint">not in 30 days</span>}</td>
                     <td>
@@ -400,7 +402,7 @@ function SchemaPanel({ name, saved, draft, dirty, canEdit, discovered, onChange,
         <div className="panel-head"><h3>About this event</h3></div>
         <div className="panel-body">
           <div className="grid-2">
-            <Field label="Label" hint="How the event is named in segments, journeys and reports.">
+            <Field label="Label" hint="How the event is named in segments, campaigns and reports.">
               <input className="input" value={draft.label} maxLength={120} onChange={(e) => set({ label: e.target.value })} placeholder="Purchase" />
             </Field>
             <Field label="Description">

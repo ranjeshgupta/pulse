@@ -34,7 +34,7 @@ type Option<T> = { type: T; label: string; needsKey?: boolean; keyHint?: string 
 
 export const SOURCES: { type: ReportSource; label: string; hint: string }[] = [
   { type: "events", label: "Events", hint: "Events your contacts did, e.g. purchase." },
-  { type: "messages", label: "Messages", hint: "What happened to broadcast and journey messages. Test sends aren't counted." },
+  { type: "messages", label: "Messages", hint: "What happened to campaign messages. Test sends aren't counted." },
   { type: "contacts", label: "Contacts", hint: "Contact profiles and their attributes." },
 ];
 
@@ -74,7 +74,7 @@ export const GROUPS: Record<ReportSource, Option<ReportGroup>[]> = {
     { type: "none", label: "Nothing (one total)" },
     { type: "kind", label: "Outcome" },
     { type: "channel", label: "Channel" },
-    { type: "campaign", label: "Broadcast or journey" },
+    { type: "campaign", label: "Campaign" },
     ...TIME,
   ],
   contacts: [
@@ -248,7 +248,7 @@ export function describe(s: ReportSpec): string {
   } else if (s.source === "messages") {
     what = s.metric.type === "unique_contacts" ? "Contacts messaged" : "Messages";
     if (s.kinds?.length) what += ` ${list(s.kinds.map((k) => KIND_NAMES[k]?.toLowerCase() ?? k))}`;
-    if (s.message_source) what += ` from ${s.message_source}s`;
+    if (s.message_source) what += s.message_source === "broadcast" ? " from one-time campaigns" : " from journeys";
     if (s.channels?.length) what += ` via ${list(s.channels.map((c) => CHANNEL_NAMES[c] ?? c))}`;
   } else {
     what = { count: "Contacts", unique_contacts: "Contacts", sum: `Sum of ${key}`, avg: `Average ${key}` }[s.metric.type];
@@ -257,7 +257,7 @@ export function describe(s: ReportSpec): string {
   const g = s.group_by;
   const by: Partial<Record<ReportGroup, string>> = {
     event: "by event", prop: `by ${g.key || "?"}`, attr: `by ${g.key || "?"}`, kind: "by outcome", channel: "by channel",
-    campaign: "by broadcast or journey", day: "per day", week: "per week", month: "per month",
+    campaign: "by campaign", day: "per day", week: "per week", month: "per month",
   };
   if (g.type === "none") return `${what} · total`;
   return `${what}, ${by[g.type]} · ${s.chart}`;
@@ -275,7 +275,7 @@ export const PRESETS: { id: string; name: string; hint: string; spec: ReportSpec
     spec: { source: "events", metric: { type: "count" }, group_by: { type: "day" }, events: ["purchase"], chart: "line", range_days: 30 },
   },
   {
-    id: "email-outcomes", name: "Email outcomes by broadcast", hint: "Email messages of each broadcast",
+    id: "email-outcomes", name: "Email outcomes by campaign", hint: "Email messages of each one-time campaign",
     spec: { source: "messages", metric: { type: "count" }, group_by: { type: "campaign" }, message_source: "broadcast", channels: ["email"], chart: "bars", range_days: 30 },
   },
   {
@@ -317,8 +317,8 @@ export function shortTimeLabel(group: string, g: ReportGroup): string {
   return g === "month" ? `${mon} ${m[1].slice(2)}` : `${Number(m[3])} ${mon}`;
 }
 
-/** campaignKind is "Broadcast" or "Journey" for a campaign group ("broadcast|12"). */
-export const campaignKind = (group: string) => (group.startsWith("journey|") ? "Journey" : group.startsWith("broadcast|") ? "Broadcast" : "");
+/** campaignKind is "One-time" or "Journey" for a campaign group ("broadcast|12"). */
+export const campaignKind = (group: string) => (group.startsWith("journey|") ? "Journey" : group.startsWith("broadcast|") ? "One-time" : "");
 
 /** formatValue: whole counts for count metrics, up to 2 decimals for sums and averages. */
 export function formatValue(v: number, metric: ReportMetric): string {

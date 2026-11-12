@@ -55,6 +55,8 @@ type contactView struct {
 	Rule    *segment.Rule
 	Text    string
 	Filters []viewFilter
+	// Special holds the M7 filters (contactsets.go): sets and outcomes behind the app's numbers.
+	Special *viewSpecial
 }
 
 // viewLookup resolves names in filters. Each is called at most once, and only when needed.
@@ -62,6 +64,7 @@ type viewLookup struct {
 	Segments func() ([]model.Segment, error)
 	Users    func() ([]model.User, error)
 	Me       int64 // the signed-in user (0 for an API key)
+	Special  specialLookup
 }
 
 // optoutKeys are the consent flags is:unsubscribed looks at.
@@ -109,7 +112,7 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 	for _, tok := range viewTokens(q) {
 		key, val, ok := strings.Cut(tok, ":")
 		key = strings.ToLower(key)
-		if !ok || !viewKeys[key] {
+		if !ok || (!viewKeys[key] && !specialKeys[key]) {
 			text = append(text, tok)
 			continue
 		}
@@ -117,8 +120,19 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 		if val == "" {
 			return v, fmt.Errorf("%s: needs a value, like %s", key, viewExample[key])
 		}
-		if len(rules) == maxViewFilters {
+		if len(v.Filters) == maxViewFilters {
 			return v, fmt.Errorf("use at most %d filters", maxViewFilters)
+		}
+		if specialKeys[key] {
+			if v.Special == nil {
+				v.Special = &viewSpecial{}
+			}
+			label, err := parseSpecial(v.Special, key, val, lk)
+			if err != nil {
+				return v, err
+			}
+			v.Filters = append(v.Filters, viewFilter{Token: key + ":" + quoteIfSpace(val), Label: label})
+			continue
 		}
 		var r segment.Rule
 		var label string
@@ -187,6 +201,12 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 			return v, err
 		}
 		v.Rule = &root
+	}
+	if v.Special != nil {
+		var err error
+		if v.Filters, err = finishSpecial(v.Special, lk, v.Filters); err != nil {
+			return v, err
+		}
 	}
 	v.Text = strings.Join(text, " ")
 	if utf8.RuneCountInString(v.Text) > 200 {
@@ -366,13 +386,43 @@ func (s *Server) parseViewRequest(r *http.Request, p model.Principal) (contactVi
 	if p.Perms.Allows(auth.AreaSettings, auth.View) { // the same access GET /v1/users needs
 		lk.Users = func() ([]model.User, error) { return s.Store.ListUsers(r.Context(), p.TenantID) }
 	}
+	lk.Special = s.specialLookup(r.Context(), p)
 	return parseContactView(r.URL.Query().Get("q"), lk)
 }
 
+// specialLookup resolves the names in M7 filters for the caller's workspace.
+func (s *Server) specialLookup(ctx context.Context, p model.Principal) specialLookup {
+	tenant := p.TenantID
+	sl := specialLookup{Allowed: func(f string) bool { return viewFilterAllowed(p.Perms, f) }, Today: s.now()}
+	if bs, ok := s.Store.(BroadcastStore); ok {
+		sl.Broadcast = func(id int64) (string, error) {
+			b, err := bs.GetBroadcast(ctx, tenant, id)
+			return b.Name, err
+		}
+	}
+	if us, ok := s.Store.(UIStore); ok {
+		sl.Journey = func(id int64) (model.Journey, error) { return us.GetJourney(ctx, tenant, id) }
+		sl.Journeys = func() ([]model.Journey, error) { return us.ListJourneys(ctx, tenant) }
+		sl.Template = func(id int64) (string, error) {
+			t, err := us.Template(ctx, tenant, id)
+			return t.Name, err
+		}
+	}
+	if fs, ok := s.Store.(FormStore); ok {
+		sl.Form = func(id int64) (string, error) {
+			f, err := fs.GetForm(ctx, tenant, id)
+			return f.Name, err
+		}
+	}
+	return sl
+}
+
 // searchContacts: GET /v1/contacts?q=&after=&limit=. Without filters or text it pages through
-// Postgres by id; otherwise ClickHouse finds the ids. The first page of a view carries its count
-// (exact up to 10,000, approximate above), the parsed filters and, with filters, the equivalent
-// segment rule.
+// Postgres by id; a view with set filters (M7: in:, reachable:, journey:…) pages through their
+// Redis bitmap; otherwise ClickHouse finds the ids. The first page of a view carries its count
+// (exact up to 10,000, approximate above, BITCOUNT for plain set views), the parsed filters, a
+// note on why the count may differ from where it was opened, and with rule filters only, the
+// equivalent segment rule.
 func (s *Server) searchContacts(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	tenant := p.TenantID
 	q := r.URL.Query()
@@ -386,46 +436,75 @@ func (s *Server) searchContacts(w http.ResponseWriter, r *http.Request, p model.
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	special := view.Special != nil && view.Special.any()
 	out := map[string]any{"filters": view.Filters, "text": view.Text}
-	if view.Rule != nil {
+	if view.Rule != nil && !special {
 		out["rule"] = view.Rule
 	}
+	if special {
+		out["note"] = viewNote(view.Special)
+	}
 	var cs []model.Contact
-	if view.Rule == nil && view.Text == "" {
+	switch {
+	case view.Rule == nil && view.Text == "" && !special:
 		cs, err = s.uiStore().ListContacts(r.Context(), tenant, uint32(after), limit)
 		if err != nil {
 			s.fail(w, err)
 			return
 		}
-	} else {
-		cv, ok := s.Analytics.(ContactViewer)
-		if !ok {
-			writeErr(w, http.StatusServiceUnavailable, "analytics unavailable")
+	default:
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		if special && after == 0 && !view.Special.bitmap() && !s.allowTenant(ctx, "rlview", tenant, viewsPerMin) {
+			writeErr(w, http.StatusTooManyRequests, errTooMany.Error())
 			return
 		}
-		where, args, err := s.viewWhere(view, tenant)
+		where, args, err := s.viewWhereAll(view, tenant)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		defer cancel()
-		ids, err := cv.ContactPage(ctx, tenant, where, args, view.Text, uint32(after), limit)
-		if err != nil {
-			s.fail(w, err)
-			return
+		var ids []uint32
+		if special && view.Special.bitmap() {
+			sv, err := s.buildSetView(ctx, tenant, view, where, args)
+			if err != nil {
+				s.viewErr(w, err)
+				return
+			}
+			if ids, err = bitmapIDs(ctx, s.RDB, sv.key, uint32(after), limit, sv.keep); err != nil {
+				s.fail(w, err)
+				return
+			}
+			if after == 0 {
+				n, approx, err := s.countSetView(ctx, sv)
+				if err != nil {
+					s.fail(w, err)
+					return
+				}
+				out["count"], out["approximate"] = n, approx
+			}
+		} else {
+			cv, ok := s.Analytics.(ContactViewer)
+			if !ok {
+				writeErr(w, http.StatusServiceUnavailable, "analytics unavailable")
+				return
+			}
+			if ids, err = cv.ContactPage(ctx, tenant, where, args, view.Text, uint32(after), limit); err != nil {
+				s.fail(w, err)
+				return
+			}
+			if after == 0 {
+				n, approx, err := cv.ContactCount(ctx, tenant, where, args, view.Text, viewCountCap)
+				if err != nil {
+					s.fail(w, err)
+					return
+				}
+				out["count"], out["approximate"] = n, approx
+			}
 		}
 		if cs, err = s.loadInOrder(ctx, tenant, ids); err != nil {
 			s.fail(w, err)
 			return
-		}
-		if after == 0 {
-			n, approx, err := cv.ContactCount(ctx, tenant, where, args, view.Text, viewCountCap)
-			if err != nil {
-				s.fail(w, err)
-				return
-			}
-			out["count"], out["approximate"] = n, approx
 		}
 		if len(ids) == limit {
 			out["next"] = strconv.FormatUint(uint64(ids[len(ids)-1]), 10)
@@ -436,7 +515,7 @@ func (s *Server) searchContacts(w http.ResponseWriter, r *http.Request, p model.
 	}
 	if _, set := out["next"]; !set {
 		out["next"] = ""
-		if view.Rule == nil && view.Text == "" && len(cs) == limit {
+		if view.Rule == nil && view.Text == "" && !special && len(cs) == limit {
 			out["next"] = strconv.FormatUint(uint64(cs[len(cs)-1].ID), 10)
 		}
 	}
@@ -506,18 +585,15 @@ func (s *Server) exportContacts(w http.ResponseWriter, r *http.Request, p model.
 		}
 		sort.Strings(keys)
 	}
-	filtered := view.Rule != nil || view.Text != ""
-	var cv ContactViewer
-	var where string
-	var args []any
+	filtered := view.Rule != nil || view.Text != "" || (view.Special != nil && view.Special.any())
+	var page func(ctx context.Context, after uint32, limit int) ([]uint32, error)
 	if filtered {
-		var ok bool
-		if cv, ok = s.Analytics.(ContactViewer); !ok {
-			writeErr(w, http.StatusServiceUnavailable, "analytics unavailable")
+		if view.Special != nil && view.Special.any() && !s.allowTenant(r.Context(), "rlview", tenant, viewsPerMin) {
+			writeErr(w, http.StatusTooManyRequests, errTooMany.Error())
 			return
 		}
-		if where, args, err = s.viewWhere(view, tenant); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+		if page, _, _, err = s.viewPager(r.Context(), tenant, view, false); err != nil {
+			s.viewErr(w, err)
 			return
 		}
 	}
@@ -529,13 +605,13 @@ func (s *Server) exportContacts(w http.ResponseWriter, r *http.Request, p model.
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.csv"`, name, s.now().Format("2006-01-02")))
 	cw := csv.NewWriter(w)
 	_ = cw.Write(append([]string{"external_id", "email", "created_at", "updated_at"}, keys...))
-	const page = 1000
+	const pageSize = 1000
 	var after uint32
 	for {
 		var cs []model.Contact
 		var more bool
 		if filtered {
-			ids, err := cv.ContactPage(r.Context(), tenant, where, args, view.Text, after, page)
+			ids, err := page(r.Context(), after, pageSize)
 			if err == nil {
 				cs, err = s.loadInOrder(r.Context(), tenant, ids)
 			}
@@ -543,17 +619,17 @@ func (s *Server) exportContacts(w http.ResponseWriter, r *http.Request, p model.
 				s.Log.Error("export", "err", err) // headers are sent: the file ends early
 				return
 			}
-			more = len(ids) == page
+			more = len(ids) == pageSize
 			if more {
 				after = ids[len(ids)-1]
 			}
 		} else {
-			cs, err = s.uiStore().ListContacts(r.Context(), tenant, after, page)
+			cs, err = s.uiStore().ListContacts(r.Context(), tenant, after, pageSize)
 			if err != nil {
 				s.Log.Error("export", "err", err)
 				return
 			}
-			more = len(cs) == page
+			more = len(cs) == pageSize
 			if more {
 				after = cs[len(cs)-1].ID
 			}

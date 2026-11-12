@@ -19,7 +19,7 @@ export function ConfigField({ f, value, onChange }: { f: ProviderField; value: s
     <Field label={label} hint={f.hint}>
       {f.options ? (
         <select className="select" value={value || f.default || f.options[0]} onChange={(e) => onChange(e.target.value)}>
-          {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          {f.options.map((o) => <option key={o} value={o}>{f.option_labels?.[o] ?? o}</option>)}
         </select>
       ) : (
         <input className="input" value={value} placeholder={f.placeholder ?? f.default} onChange={(e) => onChange(e.target.value)} />

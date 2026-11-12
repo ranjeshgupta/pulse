@@ -133,7 +133,7 @@ function SampleEventFields({ name, setName, contact, json, setJson }: { name: st
   const names = schemas.data?.schemas.map((x) => x.name) ?? [];
   return (
     <div className="sample-event">
-      <Field label="Trigger event" hint={!name ? "No event: {{event.…}} renders empty or its default, as in a broadcast." : sample.data?.source === "latest" ? `The contact's latest ${name} (${new Date(sample.data.at!).toLocaleString()}), personal properties left out.` : sample.data?.source === "schema" ? `No ${name} for this contact: an example from the event's schema.` : sample.data?.source === "none" ? `No ${name} for this contact and no schema: type the properties.` : undefined}>
+      <Field label="Trigger event" hint={!name ? "No event: {{event.…}} renders empty or its default, as in a one-time campaign." : sample.data?.source === "latest" ? `The contact's latest ${name} (${new Date(sample.data.at!).toLocaleString()}), personal properties left out.` : sample.data?.source === "schema" ? `No ${name} for this contact: an example from the event's schema.` : sample.data?.source === "none" ? `No ${name} for this contact and no schema: type the properties.` : undefined}>
         <select className="select" value={name} onChange={(e) => setName(e.target.value)}>
           <option value="">None</option>
           {[...new Set([...names, ...(name ? [name] : [])])].map((n) => <option key={n} value={n}>{n}</option>)}

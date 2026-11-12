@@ -186,8 +186,8 @@ export function overlapRows(o: Overlap, fallbackNames: string[] = []): OverlapRo
 }
 
 /** overlapPairs lists the pairs of variants that share contacts, most shared first. */
-export function overlapPairs(o: Overlap, fallbackNames: string[] = []): { a: string; b: string; both: number }[] {
+export function overlapPairs(o: Overlap, fallbackNames: string[] = []): { a: string; b: string; both: number; ai: number; bi: number }[] {
   const label = (i: number) => variantLabel(i, o.names?.[i] || fallbackNames[i]);
   return (o.pairs ?? []).filter((p) => p.both > 0).sort((x, y) => y.both - x.both || x.a - y.a || x.b - y.b)
-    .map((p) => ({ a: label(p.a), b: label(p.b), both: p.both }));
+    .map((p) => ({ a: label(p.a), b: label(p.b), both: p.both, ai: p.a, bi: p.b }));
 }

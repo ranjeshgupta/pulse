@@ -61,6 +61,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/journeys/{id}", s.tenant(s.deleteJourney))
 
 	mux.HandleFunc("GET /v1/contacts", s.authed(s.searchContacts))
+	mux.HandleFunc("POST /v1/contacts/view-segment", s.authed(s.viewSegment))
 	mux.HandleFunc("GET /v1/contacts/{external_id}/events", s.tenant(s.contactEvents))
 	mux.HandleFunc("GET /v1/stats/overview", s.tenant(s.overview))
 }

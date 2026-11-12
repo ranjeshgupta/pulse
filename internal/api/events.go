@@ -155,7 +155,9 @@ func (s *Server) catalogRows(ctx context.Context, tenant int64) ([]ch.CatalogRow
 			}
 		}
 	}
-	rows, err := cat.EventCatalog(ctx, tenant, s.now().AddDate(0, 0, -catalogDays))
+	// Whole UTC days, today included, so "last 30 days" is the same window the contact list's
+	// period: filter opens from a count (M7).
+	rows, err := cat.EventCatalog(ctx, tenant, s.now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -(catalogDays-1)))
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider, useParams } from "react-router-dom";
 import { ApiError } from "./api";
 import { RequireAuth } from "./auth";
-import { BroadcastEdit, BroadcastList } from "./pages/Broadcasts";
+import { BroadcastEdit } from "./pages/Broadcasts";
 import { Channels, TestInbox } from "./pages/Channels";
 import { CampaignHub, OneTimeWizard } from "./pages/Campaigns";
 import { FormEdit, FormList } from "./pages/Forms";
@@ -22,7 +22,7 @@ import { CompanyDetail, CompanyList } from "./pages/Companies";
 import { Duplicates } from "./pages/Duplicates";
 import { Stages } from "./pages/Stages";
 import Dashboard from "./pages/Dashboard";
-import { JourneyEdit, JourneyList } from "./pages/Journeys";
+import { JourneyEdit } from "./pages/Journeys";
 import { Login, Signup } from "./pages/Login";
 import { DWCEdit, FocusEdit } from "./pages/OnSite";
 import { InAppEdit } from "./pages/InApp";
@@ -44,6 +44,7 @@ import { LandingPageEdit, LandingPageList } from "./pages/LandingPages";
 import Shell from "./Shell";
 import { SettingsHome, SettingsLayout } from "./SettingsLayout";
 import "./styles.css";
+import { OLD_CAMPAIGN_LISTS } from "./campaigns";
 import { ToastProvider } from "./ui";
 
 // Only server and network failures are worth retrying; a 404 or 403 shows its message right away.
@@ -86,10 +87,12 @@ const router = createBrowserRouter([
       { path: "segments/:id", element: <Keyed><SegmentEdit /></Keyed> },
       { path: "events", element: <EventList /> },
       { path: "events/:name", element: <EventDetail /> },
-      { path: "journeys", element: <JourneyList /> },
+      // M7: one Campaigns list; the old Journeys and Broadcasts lists open it (OLD_CAMPAIGN_LISTS).
+      { path: "journeys", element: <Navigate to={OLD_CAMPAIGN_LISTS["/journeys"]} replace /> },
       { path: "journeys/:id", element: <Keyed><JourneyEdit /></Keyed> },
-      { path: "broadcasts", element: <BroadcastList /> },
+      { path: "broadcasts", element: <Navigate to={OLD_CAMPAIGN_LISTS["/broadcasts"]} replace /> },
       { path: "campaigns", element: <CampaignHub /> },
+      { path: "campaigns/new", element: <Navigate to="/campaigns?new=1" replace /> },
       { path: "campaigns/new/:channel", element: <Keyed><OneTimeWizard /></Keyed> },
       { path: "campaigns/one-time/:id", element: <Keyed><OneTimeWizard /></Keyed> },
       { path: "broadcasts/:id", element: <Keyed><BroadcastEdit /></Keyed> },

@@ -46,7 +46,11 @@ const STATUS_TONE: Record<string, string> = {
   draft: "", paused: "warn", building: "warn", new: "warn", waiting: "info",
   scheduled: "info", running: "warn", testing: "info", failed: "bad", cancelled: "",
 };
-const STATUS_TEXT: Record<string, string> = { new: "Queued", building: "Building", ready: "Live", testing: "A/B testing" };
+// M7: one word per state everywhere (badges, filters): live things say Live, finished ones Finished.
+export const STATUS_TEXT: Record<string, string> = {
+  new: "Queued", building: "Building", ready: "Live", testing: "A/B test: waiting for winner", active: "Live", running: "Sending",
+  completed: "Finished", draft: "Draft", scheduled: "Scheduled", paused: "Paused", cancelled: "Cancelled", archived: "Archived",
+};
 
 export function Status({ value }: { value: string }) {
   return <span className={`badge ${STATUS_TONE[value] ?? ""}`}>{STATUS_TEXT[value] ?? value[0].toUpperCase() + value.slice(1)}</span>;

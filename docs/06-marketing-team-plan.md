@@ -93,7 +93,7 @@ with screenshots, and committed on its own.
    (carousel, accordion, forms and polls that post back to Pulse), web content variants with rules,
    ordering and an overlap view, a no-code push opt-in prompt and install check.
 
-7. **M7 Clarity review** (owner's request, 2026-11-11; after M6, before the final docs pass). Every
+7. **M7 Clarity review (done)** (owner's request, 2026-11-11; after M6, before the final docs pass). Every
    contact count anywhere (segments, audience estimate steps, reach by channel, funnels, journey
    steps, dashboards, reports, product buyers) opens the contact list filtered to exactly those
    contacts. One clear campaign navigation instead of "All campaigns" next to separate Journeys and
@@ -525,6 +525,81 @@ Built as designed, with these choices:
 - **Not built:** a real AMP renderer in the app (the preview is an approximation; real behaviour shows in Gmail
   or the AMP playground); AMP for transactional internal notifications.
 
+## M7 as built
+
+Built as designed, with these choices:
+
+- **Contact lists behind numbers.** The Contacts search box gained filters that name the sets the app counts
+  elsewhere (`internal/api/contactsets.go`), shown as removable chips in words ("Campaign “Spring catalogue”",
+  "Opened", "Not in segment “VIPs”", "Reachable by email"): `in:` (any of the listed segments; several `in:` chips
+  intersect), `not_in:`, `subscribed:<channel>`, `reachable:<channel>`, `under_cap:<channel>`, `journey:` with
+  `at:<step>` and `journey_status:in_progress|completed|converted|exited|active|waiting`, `campaign:broadcast/<id>` or
+  `campaign:journey/<id>` with `run:`, `step:`, `outcome:` (targeted, sent, delivered, opened, read, clicked,
+  downloaded, bounced, hard/soft_bounced, complained, failed, failed_all, unsubscribed, fallback, skipped and
+  skipped_<group>) and `reason:<code>` (with a reason, `outcome:` is the raw kind, like the reasons table),
+  `event:` / `no_event:` with `product:` / `category:`, `active:any|web|android|ios|other|new|returning` with `utm:`,
+  `amp_poll:<template>/<block>` with `answer:`, `form:<id>`, and `period:<from>..<to>` (UTC days, both included).
+  Wrong combinations are refused with the reason (`at:` needs `journey:`…).
+- **Two engines.** Set filters run in Redis on the bitmaps the numbers come from (segment bitmaps, the M3 reach
+  bitmaps; a journey's enrollments are read from Postgres, streamed into a bitmap): one `BITOP` pipeline per view,
+  the result cached a minute under `cvset:{tenant}:{hash}`, paged newest contact first by `GETRANGE` chunks (8 KB
+  growing to 1 MB, so a 100M-contact bitmap is at most ~15 round trips per page), counted by `BITCOUNT`. Outcome,
+  event, activity, poll and form filters are ClickHouse subqueries over `message_events` / `events` /
+  `first_active`, each with `tenant_id = ?`, added to the existing view condition. A view with both checks the
+  bitmap's candidates in ClickHouse 5,000 at a time (`ContactFilter`, `has(?, id)` within the id range); its count
+  is exact up to 10,000 candidates (50,000 for the frequency cap alone, like the estimate) and sampled above
+  ("about"). Bitmap builds and first pages of these views are limited to 120 a minute per workspace (`rlview`).
+- **Equal counts.** Every linked number equals its list on seeded data (checked by the e2e test and in the browser
+  on every page): estimate steps, reach by channel, segment sizes, the broadcast/journey funnels, reasons, per-step
+  messages, journey "here now" and in-progress, product viewers / carters / buyers / abandoned, Users dashboard
+  numbers, company and stage counts, event contacts, form contacts, AMP poll answers, on-site overlap. Where it can
+  differ the list says why (`note`): reports count contacts merged or deleted since (the Users dashboard keeps
+  counting deleted contacts, M4); a journey's numbers count entries, the list people. Deviation: the Campaign
+  performance totals add up each campaign's contacts (a person in two campaigns counts twice), so they aren't one
+  list and stay plain with a tooltip; each campaign's numbers and the cross-campaign reasons link. The Events page's
+  "Last 30 days" became 30 whole UTC days so its contact count matches its list.
+- **Not linked (no list of people exists):** journey canvas "Entered", Yes/No and split path counts (Redis counters
+  of passes, not of people; tooltip says so); the broadcast's "audience at send time" (a snapshot); the segment
+  builder's live preview of an unsaved rule (save, then "In segment now" links); funnel and cohort reports (computed
+  per run over a chosen range); assets' downloaders, landing page visitors, in-app "seen by", imports' rows,
+  duplicate groups (listed on the page itself), messages-per-channel totals (messages, not people).
+- **Permissions** (`viewFilterNeeds` in `perms.go`): a list needs contacts view, plus for `campaign:broadcast`
+  broadcasts or reports view, `campaign:journey` and `journey:` journeys or reports view, outcomes across every
+  campaign reports view, `amp_poll:` and `form:` content or reports view. The app shows a number the role can't open
+  unlinked with a tooltip saying which access is missing (`contactLinks.ts`, the same rules).
+- **Create segment from this list.** Lists built from these filters can't be a dynamic segment's rule, so the
+  Contacts page offers "Create segment from this list" instead of "Save as segment": `POST /v1/contacts/view-segment`
+  {q, name} (segments edit, plus contacts view and each filter's need; audited) makes a static segment and adds the
+  list's contacts now (up to 500,000) through `list_joined` events in the background, from a 15-minute copy of the
+  view's bitmap. Rule-only lists keep "Save as segment" (dynamic). Segments' "View contacts" now opens `in:<id>` so
+  the list has exactly the segment's size.
+- **Campaign navigation.** One sidebar entry, **Campaigns** (highlighted on campaign editors too); the Journeys and
+  Broadcasts entries are gone. Three types everywhere, named by when they send: **One-time** ("one message to
+  everyone in your chosen segments, sent once or repeated"), **Triggered** ("starts for each person when they do
+  something") and **Automation** ("starts for each person when they join a segment"); triggered and automation
+  campaigns are "built as journeys: a flow of messages, waits and checks". "Broadcast" no longer appears in the app
+  (one-time campaign); "journey" stays only as the name of the step builder. **New campaign** asks what the
+  marketer wants to do (send a message to a segment → channel → the wizard; react when someone does something →
+  the builder with an event trigger; follow up when someone joins a segment → the builder with a segment trigger;
+  `/journeys/new?start=event|form|segment`). The hub took over the journey list's columns and actions (in progress,
+  duplicate, archive / restore / delete) and links its numbers. `/journeys` and `/broadcasts` redirect (301 from the
+  server, and in the app) to `/campaigns` and `/campaigns?tab=one_time`; `/campaigns/new` opens the chooser;
+  `/journeys/:id` and `/broadcasts/:id` are unchanged. The one-time editor is "All settings and results"; the
+  wizard is "Edit step by step"; each links to the other. Roles name the areas "One-time campaigns" and "Triggered &
+  automation campaigns". "On-site & in-app" is "Website & app messages".
+- **Clarity fixes from the review** (the full list is in the M7 report): one word per state everywhere (Live,
+  Finished, Sending, Draft, Scheduled, Paused, Cancelled, Archived; the hub's status filter uses the same words); a
+  finished one-time campaign offers "Send again" with a confirmation instead of "Schedule"; provider forms list the
+  usual services first (not the custom gateway), show option labels in words ("An app password", "Pulse's standard
+  request (signed JSON)"), and no longer call required gateway fields optional; the Channels page explains what a
+  provider is and no longer overflows at 1280 px; the AMP block list no longer runs under the preview; settings
+  jargon reworded (segment sweep → "Re-check time-window segments every", reachability rebuild → "Recount who can
+  be reached", the GeoIP note); numbers got time ranges (Overview messages: 14 days) and units.
+- Tests: Go `contactsets_test.go` (parsing, labels, every filter's SQL placeholders and tenant scoping, permissions,
+  bitmap paging, estimate-step equality with `reach.Count`, sampling, old-address redirects), perms rows;
+  vitest `contactLinks.test.ts` (link building, chips round trip, who may open a list, goals, redirects, nav
+  highlighting); e2e `test/e2e/m7_test.go`.
+
 ## Docs for the final pass
 
 From M4 on, docs and screenshots are updated in one pass after M6 (owner's decision, 2026-11-11).
@@ -614,6 +689,33 @@ Each milestone adds what it needs here.
   with prompt preview, install check results and browser check); retake the template editor, the on-site editors and
   list, and every shot showing the settings menu (new "Web push" item).
 
+**M7:**
+- Navigation changed (one Campaigns entry, "Website & app messages", campaign types renamed), so **every
+  screenshot showing the sidebar must be retaken** (in practice most of them), plus every shot of the Campaigns hub,
+  the old Journeys / Broadcasts lists (gone: retake as the hub with the type tab), the journey and one-time editors
+  (headers, back links, "Edit step by step" / "All settings and results"), the New campaign chooser (new), status
+  badges (Active → Live, Completed → Finished), report funnels and estimate steps (numbers are now links), the
+  Contacts page with link chips and "Create segment from this list" (new), the provider form (option labels,
+  order), Channels, Automation & limits, the AMP editor, Roles.
+- README: M7 features (contacts behind every number, one campaign model); the Journeys/Broadcasts → Campaigns
+  wording everywhere.
+- docs/02-architecture.md: `internal/api/contactsets.go` (set and outcome filters, the two engines, `cvset:*` keys
+  and `rlview` limit, `ContactFilter`, view-segment snapshots `cvset:*:snap`), `JourneyContacts`, the server-side
+  redirects of `/journeys` and `/broadcasts`, provider `option_labels`, the Events catalog's whole-day window.
+- docs/05-feature-parity.md: drill-down from every report number to its contacts; campaign types.
+- Developer 03 (API): the new `GET /v1/contacts?q=` filters (each key, values, combinations, errors, `note`,
+  permissions), `POST /v1/contacts/view-segment`, the export taking the same filters, provider field
+  `option_labels`.
+- Tutorials: 1 (getting started: navigation, New campaign chooser), 2 (contacts: the new filters and chips, lists
+  opened from numbers, Create segment from this list), 3 (segments: View contacts / sizes as links), 4 (channels:
+  provider wording), 6 and 7 (journeys → triggered and automation campaigns; canvas numbers that open lists), 14
+  (Campaigns hub and one-time campaigns: types, chooser, two editors, redirects), 15 (dashboards: drill-down,
+  which totals aren't linked and why), 16 and 17 (provider form labels, AMP editor), and any tutorial text saying
+  "Journeys", "Broadcasts", "On-site & in-app", "Active" or "Completed".
+- Screenshot scripts: every `*.mjs` that clicks the "Journeys" or "Broadcasts" sidebar entries or "New journey" /
+  "New broadcast" / "New one-time campaign…" must go through Campaigns → New campaign; selectors for status badge
+  text change.
+
 ## Risks
 
 - Gmail shows AMP only for senders Google has registered (SPF, DKIM, DMARC); that is outside Pulse.
@@ -623,3 +725,6 @@ Each milestone adds what it needs here.
   mocks. RCS formats (send body, delivery reports, inbound) are inferred from RBM, not documented by Gupshup.
 - At 100M contacts, audience estimates (Redis bitmap operations) are cached and rate-limited, and
   per-event-name retention runs as daily batched ClickHouse deletes.
+- M7 lists from report numbers run ClickHouse subqueries over `message_events` / `events`; a very broad one (every
+  campaign's sends over a year) on a huge workspace can take seconds. They are limited per workspace and time out
+  after 15 s; sparse bitmap views read up to ~12.5 MB of bitmap per page in the worst case.

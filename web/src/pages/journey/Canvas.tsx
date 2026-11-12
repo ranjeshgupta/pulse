@@ -5,7 +5,9 @@ import { describeWhere } from "../../segmentRules";
 import {
   BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, Handle, Position, type EdgeProps, type NodeProps,
 } from "@xyflow/react";
-import { createContext, useContext } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { ContactCount } from "../../ContactCount";
+import { outcomeFilters, type ContactFilter } from "../../contactLinks";
 import { CHANNEL_NAMES, type Channel, type JourneyGraph, type MessageCounts, type StepStats } from "../../api";
 import { itemForNode } from "../../journeyCatalog";
 import {
@@ -23,6 +25,8 @@ export type CanvasCtxValue = {
   showStats: boolean; steps?: Record<string, StepStats>; messages?: Record<string, MessageCounts>;
   onAdd: (at: InsertAt, opener: HTMLElement) => void;
   triggerText: string;
+  /** The saved journey's id (0 for a new one): numbers then open their contacts. */
+  journeyId?: number;
 };
 export const CanvasCtx = createContext<CanvasCtxValue>({
   graph: emptyGraph(), names: {}, numbers: {}, locked: false, counts: {}, showStats: false, onAdd: () => {}, triggerText: "",
@@ -87,23 +91,30 @@ function StatsRow({ id }: { id: string }) {
   if (!n) return null;
   const st = c.steps?.[id] ?? {};
   const here = c.counts[id] ?? 0;
-  const parts: string[] = [`Entered ${(st.entered ?? 0).toLocaleString("en-IN")}`];
-  if (here || shapeOf(n.type) === "decision" || n.type.startsWith("wait")) parts.push(`${n.type === "exit" ? "Finished" : "Here now"} ${here.toLocaleString("en-IN")}`);
-  const lines = [parts.join(" · ")];
+  const fmt = (v?: number) => (v ?? 0).toLocaleString("en-IN");
+  // M7: who is at the step now, and who got its message, open as contact lists. Passes through
+  // a step (entered, yes / no, paths) are counted, not kept per contact, so they have no list.
+  const passes = "Times contacts passed this step. Pulse counts passes but doesn't keep who, so there is no list behind this number.";
+  const jf = (more: ContactFilter[]): ContactFilter[] | null => (c.journeyId ? [["journey", c.journeyId], ...more] : null);
+  const mf = (o: string): ContactFilter[] | null => (c.journeyId ? outcomeFilters("journey", c.journeyId, o, { step: id }) : null);
+  const lines: ReactNode[] = [];
+  lines.push(<><span title={passes}>Entered {fmt(st.entered)}</span>
+    {(here || shapeOf(n.type) === "decision" || n.type.startsWith("wait")) && <> · {n.type === "exit" ? "Finished" : "Here now"} <ContactCount value={here} filters={jf([["at", id]])} /></>}</>);
   const shape = shapeOf(n.type);
-  if (shape === "decision" || shape === "condition") lines.push(`Yes ${(st.yes ?? 0).toLocaleString("en-IN")} · No ${(st.no ?? 0).toLocaleString("en-IN")}`);
-  if (shape === "split") lines.push((n.variants ?? []).map((_, i) => `${pathName(n, i)} ${(st[`v${i}`] ?? 0).toLocaleString("en-IN")}`).join(" · "));
+  if (shape === "decision" || shape === "condition") lines.push(<span title={passes}>Yes {fmt(st.yes)} · No {fmt(st.no)}</span>);
+  if (shape === "split") lines.push(<span title={passes}>{(n.variants ?? []).map((_, i) => `${pathName(n, i)} ${fmt(st[`v${i}`])}`).join(" · ")}</span>);
   if (n.type === "send_message") {
     const chosen = Object.entries(st).filter(([k]) => k.startsWith("ch:")).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
-    if (chosen.length) lines.push(chosen.map(([k, v]) => `${k === "ch:none" ? "None" : CHANNEL_NAMES[k.slice(3) as Channel] ?? k.slice(3)} ${(v ?? 0).toLocaleString("en-IN")}`).join(" · "));
+    if (chosen.length) lines.push(<span title={passes}>{chosen.map(([k, v]) => `${k === "ch:none" ? "None" : CHANNEL_NAMES[k.slice(3) as Channel] ?? k.slice(3)} ${fmt(v)}`).join(" · ")}</span>);
   }
   const m = c.messages?.[id];
   const ch = nodeChannel(n.type);
   if (m && (ch || n.type === "send_message")) {
     const tracked = ch === "email" || ch === "inbox" || n.type === "send_message";
-    lines.push(`Sent ${m.sent.toLocaleString("en-IN")} · ${tracked ? `Opened ${m.opened.toLocaleString("en-IN")}` : ch === "whatsapp" || ch === "rcs" ? `Read ${m.read.toLocaleString("en-IN")}` : `Delivered ${m.delivered.toLocaleString("en-IN")}`}`);
+    const [k, label] = tracked ? ["opened", "Opened"] : ch === "whatsapp" || ch === "rcs" ? ["read", "Read"] : ["delivered", "Delivered"];
+    lines.push(<>Sent <ContactCount value={m.sent} filters={mf("sent")} /> · {label} <ContactCount value={m[k as "opened"]} filters={mf(k)} /></>);
   }
-  return <div className="jnode-stat">{lines.map((l) => <div key={l}>{l}</div>)}</div>;
+  return <div className="jnode-stat nodrag">{lines.map((l, i) => <div key={i}>{l}</div>)}</div>;
 }
 
 export function PulseNode({ data, selected }: NodeProps) {

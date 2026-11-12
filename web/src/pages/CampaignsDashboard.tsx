@@ -9,6 +9,8 @@ import {
 import { csvFileName, downloadCsv, toCsv } from "../csv";
 import { count, daysAgo, defaultRange, money, RangePicker, rangeProblem, useDebounced, ymd, type Range } from "../insights";
 import { ChannelLabel, Empty, ErrorNote, PageHead } from "../ui";
+import { ContactCount } from "../ContactCount";
+import { outcomeFilters, period, type ContactFilter } from "../contactLinks";
 import "./campaign-dash.css";
 
 const NOT_REPORTED = "Not reported by this provider";
@@ -47,7 +49,7 @@ export function CampaignsDashboard() {
     <div className="page">
       <PageHead
         title="Campaign performance"
-        intro="Compare every broadcast and journey that sent messages in a period: delivery, engagement, revenue and why messages didn't go out."
+        intro="Compare every campaign that sent messages in a period: delivery, engagement, revenue and why messages didn't go out. Click a number to see those contacts."
       />
 
       <section className="panel cdash-controls">
@@ -89,6 +91,10 @@ export function CampaignsDashboard() {
 }
 
 function Body({ data: d, sort, setSort, stale, filtered }: { data: Dash; sort: Sort; setSort: (s: Sort) => void; stale: boolean; filtered: boolean }) {
+  // M7: each campaign's numbers open the contacts behind them, for this period. The totals add up
+  // each campaign's contacts (someone in two campaigns counts twice), so they aren't one list of
+  // people and stay plain; the reasons below are people across campaigns and do open.
+  const p = period(d.from.slice(0, 10), d.to.slice(0, 10));
   const reports = useMemo(() => d.delivery_reports ?? {}, [d]);
   const rows = useMemo(() => sortRows(d.campaigns ?? [], sort, reports), [d, sort, reports]);
   const t = useMemo(() => totals(rows), [rows]);
@@ -100,7 +106,7 @@ function Body({ data: d, sort, setSort, stale, filtered }: { data: Dash; sort: S
           <Empty title={filtered ? "No campaigns match these filters" : "No campaign messages in this period"}>
             {filtered
               ? "Try another type, channel or tag, or clear the search."
-              : "Campaigns show up here once a broadcast or journey has sent messages in the date range. Try a longer range."}
+              : "Campaigns show up here once they have sent messages in the date range. Try a longer range."}
           </Empty>
         </section>
       </div>
@@ -113,16 +119,16 @@ function Body({ data: d, sort, setSort, stale, filtered }: { data: Dash; sort: S
 
   return (
     <div className={`cdash-body${stale ? " stale" : ""}`} aria-busy={stale}>
-      <div className="figures cdash-figures">
-        <div><strong>{count(t.counts.sent)}</strong><span>sent <small>{count(t.campaigns)} {t.campaigns === 1 ? "campaign" : "campaigns"}</small></span></div>
+      <div className="figures cdash-figures" title="Totals add up each campaign's contacts. Open a campaign's number in the table to see its contacts.">
+        <div><strong><ContactCount value={t.counts.sent} filters={null} /></strong><span>sent <small>{count(t.campaigns)} {t.campaigns === 1 ? "campaign" : "campaigns"}</small></span></div>
         <div title={reported ? undefined : "Some providers in these campaigns don't report deliveries."}>
-          <strong>{count(t.counts.delivered)}</strong><span>delivered <small>{reported ? rate(tr.delivery) : "partly reported"}</small></span>
+          <strong><ContactCount value={t.counts.delivered} filters={null} /></strong><span>delivered <small>{reported ? rate(tr.delivery) : "partly reported"}</small></span>
         </div>
-        <div><strong>{count(t.counts.opened)}</strong><span>opened <small>{rate(tr.open)}</small></span></div>
-        <div><strong>{count(t.counts.clicked)}</strong><span>clicked <small>{rate(tr.click)}</small></span></div>
+        <div><strong><ContactCount value={t.counts.opened} filters={null} /></strong><span>opened <small>{rate(tr.open)}</small></span></div>
+        <div><strong><ContactCount value={t.counts.clicked} filters={null} /></strong><span>clicked <small>{rate(tr.click)}</small></span></div>
         <div><strong>{money(t.revenue, d.currency)}</strong><span>revenue <small>{count(t.buyers)} {t.buyers === 1 ? "buyer" : "buyers"}</small></span></div>
-        <div><strong>{count(t.counts.complained)}</strong><span>complaints <small>{rate(tr.complaint)}</small></span></div>
-        <div title="Messages that failed when sent; skips and bounces are in the reasons below"><strong>{count(t.counts.failed)}</strong><span>failures <small>{rate(t.counts.sent ? t.counts.failed / t.counts.sent : null)}</small></span></div>
+        <div><strong><ContactCount value={t.counts.complained} filters={null} /></strong><span>complaints <small>{rate(tr.complaint)}</small></span></div>
+        <div title="Messages that failed when sent; skips and bounces are in the reasons below"><strong><ContactCount value={t.counts.failed} filters={null} /></strong><span>failures <small>{rate(t.counts.sent ? t.counts.failed / t.counts.sent : null)}</small></span></div>
       </div>
       <p className="xs faint cdash-period">
         {fmtDate(d.from)} to {fmtDate(d.to)} · counts are unique contacts per campaign · revenue is <code>{d.revenue_event || "purchase"}</code> events
@@ -155,12 +161,12 @@ function Body({ data: d, sort, setSort, stale, filtered }: { data: Dash; sort: S
                 <SortHead k="failed" label="Failures" sort={sort} setSort={setSort} num title="Failed when sent (skipped contacts are in the reasons)" />
               </tr>
             </thead>
-            <tbody>{rows.map((r) => <CampaignRow key={`${r.kind}${r.id}`} r={r} reports={reports} currency={d.currency} />)}</tbody>
+            <tbody>{rows.map((r) => <CampaignRow key={`${r.kind}${r.id}`} r={r} reports={reports} currency={d.currency} p={p} />)}</tbody>
           </table>
         </div>
       </section>
 
-      <ReasonsPanel reasons={d.reasons ?? []} />
+      <ReasonsPanel reasons={d.reasons ?? []} p={p} />
     </div>
   );
 }
@@ -182,7 +188,8 @@ function SortHead({ k, label, sort, setSort, num, title }: { k: SortKey; label: 
   );
 }
 
-function CampaignRow({ r, reports, currency }: { r: CampaignDashRow; reports: Record<string, boolean>; currency: string }) {
+function CampaignRow({ r, reports, currency, p }: { r: CampaignDashRow; reports: Record<string, boolean>; currency: string; p: ContactFilter }) {
+  const of = (o: string, reason?: string): ContactFilter[] => [...outcomeFilters(r.kind as "broadcast" | "journey", r.id, o, { reason }), p];
   const [open, setOpen] = useState(false);
   const x = rowRates(r, reports);
   const c = r.counts;
@@ -205,19 +212,19 @@ function CampaignRow({ r, reports, currency }: { r: CampaignDashRow; reports: Re
         </th>
         <td className="small">{categoryLabel(r.category)}</td>
         <td><div className="row cdash-chans">{r.channels.length ? r.channels.map((ch) => <ChannelLabel key={ch} channel={ch as Channel} />) : <span className="muted small">–</span>}</div></td>
-        <td className="num">{count(c.sent)}</td>
+        <td className="num"><ContactCount value={c.sent} filters={of("sent")} /></td>
         <td className="num">
           {x.deliveryReported ? rate(x.delivery) : <span className="muted" title={NOT_REPORTED} aria-label={NOT_REPORTED}>—</span>}
         </td>
         <td className="num" title={`Of ${x.openOf}`}>{rate(x.open)}</td>
         <td className="num">{rate(x.click)}</td>
-        <td className="num">{count(c.downloaded)}</td>
+        <td className="num"><ContactCount value={c.downloaded} filters={of("downloaded")} /></td>
         <td className="num" title={`${rate(x.conversion)} of sent`}>{count(r.buyers)}</td>
         <td className="num">{money(r.revenue, currency)}</td>
-        <td className="num">{count(c.unsubscribed)}</td>
-        <td className="num">{count(c.complained)}</td>
-        <td className="num">{count(c.bounced)}</td>
-        <td className="num">{count(c.failed)}</td>
+        <td className="num"><ContactCount value={c.unsubscribed} filters={of("unsubscribed")} /></td>
+        <td className="num"><ContactCount value={c.complained} filters={of("complained")} /></td>
+        <td className="num"><ContactCount value={c.bounced} filters={of("bounced")} /></td>
+        <td className="num"><ContactCount value={c.failed} filters={of("failed_all")} /></td>
       </tr>
       {open && (
         <tr className="cdash-detail" id={detailId}>
@@ -232,7 +239,7 @@ function CampaignRow({ r, reports, currency }: { r: CampaignDashRow; reports: Re
                   <tr key={`${z.kind}-${z.code}`}>
                     <td>{reasonLabel(z)}{z.group && <span className="xs muted"> · {GROUP_LABELS[z.group]}</span>}</td>
                     <td><span className={`badge cdash-kind kind-${z.kind}`}>{KIND_LABELS[z.kind] ?? z.kind}</span></td>
-                    <td className="num">{count(z.contacts)}</td>
+                    <td className="num"><ContactCount value={z.contacts} filters={of(z.kind, z.code)} /></td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -244,7 +251,7 @@ function CampaignRow({ r, reports, currency }: { r: CampaignDashRow; reports: Re
   );
 }
 
-function ReasonsPanel({ reasons }: { reasons: Dash["reasons"] }) {
+function ReasonsPanel({ reasons, p }: { reasons: Dash["reasons"]; p: ContactFilter }) {
   const { groups, max } = groupReasons(reasons);
   return (
     <section className="panel section">
@@ -265,7 +272,7 @@ function ReasonsPanel({ reasons }: { reasons: Dash["reasons"] }) {
                       <span className="xs muted"> {z.group ? GROUP_LABELS[z.group] : KIND_LABELS[z.kind] ?? z.kind}</span>
                     </span>
                     <span className="bar-track cdash-bar" aria-hidden="true"><span className="bar-fill" style={{ width: `${barWidth(z.contacts, max)}%` }} /></span>
-                    <span className="num">{count(z.contacts)}</span>
+                    <span className="num"><ContactCount value={z.contacts} filters={[["outcome", z.kind], ["reason", z.code], p]} /></span>
                   </li>
                 ))}
               </ul>

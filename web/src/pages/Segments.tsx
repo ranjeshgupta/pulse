@@ -7,6 +7,7 @@ import { dailySegmentDefault } from "../automation";
 import { useCan } from "../auth";
 import { describe, newGroup, problems, rootFromRule, toRule, type Group } from "../segmentRules";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, timeAgo, useToast } from "../ui";
+import { ContactCount } from "../ContactCount";
 import { GroupEditor } from "./SegmentBuilder";
 import { StaticSegmentDetail } from "./StaticSegment";
 import { useRefObjects, useSegmentNames, useSegments } from "./segmentData";
@@ -24,7 +25,8 @@ export function SegmentType({ kind }: { kind: Segment["kind"] }) {
 }
 
 /** The Contacts list filtered to one segment. */
-export const viewContactsHref = (id: number) => `/contacts?q=${encodeURIComponent(`segment:${id}`)}`;
+// M7: in: reads the same bitmap the segment's size comes from, so the list has exactly that many contacts.
+export const viewContactsHref = (id: number) => `/contacts?q=${encodeURIComponent(`in:${id}`)}`;
 
 export function SegmentList() {
   // Sizes come straight from the live bitmaps; polling shows contacts moving in and out.
@@ -77,7 +79,7 @@ export function SegmentList() {
                       {s.kind === "static" ? "Added by hand, import, a journey step or the API" : describe(s.rule, names, refs)}
                       {s.refresh?.mode === "daily" && <div className="xs">Refreshed daily at {s.refresh.at} ({s.refresh.tz})</div>}
                     </td>
-                    <td className="num"><LiveNumber value={s.size} /></td>
+                    <td className="num"><ContactCount live value={s.size} filters={[["in", s.id]]} /></td>
                     <td>{s.kind === "static" ? <Status value="ready" /> : <Status value={s.status} />}</td>
                     <td className="num"><Link className="btn sm" to={viewContactsHref(s.id)}>View contacts</Link></td>
                   </tr>
@@ -206,12 +208,12 @@ function DynamicSegmentEdit() {
             {/* Never show 0 for "not counted yet": until a count for this exact rule arrives, show the
                 previous count dimmed, or an ellipsis on first load. */}
             <div className="preview-count" style={{ opacity: debounced !== ruleKey || preview.isFetching ? 0.45 : 1 }} aria-busy={debounced !== ruleKey || preview.isFetching}>
-              {!rule ? "–" : preview.data ? <LiveNumber value={preview.data.count} /> : "…"}
+              {!rule ? "–" : preview.data ? <span title="A count of the rule as it is now in the editor. To list the contacts, save the segment and open “In segment now”."><LiveNumber value={preview.data.count} /></span> : "…"}
             </div>
             <p className="xs muted" style={{ marginTop: 4 }}>contacts, counted from all recorded events</p>
             {!isNew && existing.data && (
               <dl className="kv" style={{ marginTop: 18 }}>
-                <dt>In segment now</dt><dd><LiveNumber value={existing.data.size} /></dd>
+                <dt>In segment now</dt><dd><ContactCount live value={existing.data.size} filters={[["in", existing.data.id]]} /></dd>
                 <dt>State</dt><dd><Status value={existing.data.status} /></dd>
                 <dt>Last rebuilt</dt><dd>{timeAgo(existing.data.built_at)}</dd>
                 {existing.data.refresh?.mode === "daily" && existing.data.next_refresh_at && (

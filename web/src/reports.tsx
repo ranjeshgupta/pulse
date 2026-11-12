@@ -3,6 +3,15 @@
 import { useState, type ReactNode } from "react";
 import type { MessageCounts, MessageReport } from "./api";
 import { LiveNumber } from "./ui";
+import { ContactCount } from "./ContactCount";
+import type { ContactFilter } from "./contactLinks";
+
+/** The contact list behind a count (an outcome kind), or null when it has none. */
+export type CountLink = (k: CountKey) => ContactFilter[] | null;
+
+/** Outcome kinds a contact list can show (see outcome: in internal/api/contactsets.go). */
+const LISTABLE = new Set<CountKey>(["sent", "delivered", "opened", "clicked", "read", "unsubscribed", "bounced", "complained", "downloaded", "fallback"]);
+export const listable = (k: CountKey) => LISTABLE.has(k);
 import "./reports.css";
 
 export type CountKey = keyof MessageCounts;
@@ -46,31 +55,32 @@ export function metricsFor(channels: string[], opts: { conversion?: boolean; det
 }
 
 /** Figures is the row of headline numbers: counts for sent and delivered, rates for outcomes. */
-export function ReportFigures({ totals, keys }: { totals: MessageCounts; keys: CountKey[] }) {
+export function ReportFigures({ totals, keys, link }: { totals: MessageCounts; keys: CountKey[]; link?: CountLink }) {
   return (
     <div className="figures report-figures">
       {keys.map((k) => RATE_KEYS.has(k) ? (
         <div key={k}>
           <strong>{pct(totals[k], totals.sent)}</strong>
-          <span>{COUNT_LABELS[k].toLowerCase()} <small><LiveNumber value={totals[k]} /></small></span>
+          <span>{COUNT_LABELS[k].toLowerCase()} <small><ContactCount value={totals[k]} live filters={listable(k) ? link?.(k) ?? null : null} /></small></span>
         </div>
       ) : (
-        <div key={k}><strong><LiveNumber value={totals[k]} /></strong><span>{COUNT_LABELS[k].toLowerCase()}</span></div>
+        <div key={k}><strong><ContactCount value={totals[k]} live filters={listable(k) ? link?.(k) ?? null : null} /></strong><span>{COUNT_LABELS[k].toLowerCase()}</span></div>
       ))}
     </div>
   );
 }
 
 /** CountCell shows a count, or for outcome columns its rate with the count underneath. */
-export function CountCell({ counts, k }: { counts: MessageCounts; k: CountKey }) {
+export function CountCell({ counts, k, link }: { counts: MessageCounts; k: CountKey; link?: CountLink }) {
+  const f = listable(k) ? link?.(k) ?? null : null;
   const n = counts[k] ?? 0;
   if (RATE_KEYS.has(k)) {
-    return <span className="report-rate"><span>{pct(n, counts.sent)}</span><small>{n ? <LiveNumber value={n} /> : "0"}</small></span>;
+    return <span className="report-rate"><span>{pct(n, counts.sent)}</span><small>{n ? <ContactCount value={n} live filters={f} /> : "0"}</small></span>;
   }
-  return n ? <LiveNumber value={n} /> : <span className="faint">0</span>;
+  return n ? <ContactCount value={n} live filters={f} /> : <span className="faint">0</span>;
 }
 
-export interface CountsRow { key: string; lead: ReactNode[]; counts?: MessageCounts; trail?: ReactNode[]; highlight?: boolean; onClick?: () => void }
+export interface CountsRow { key: string; lead: ReactNode[]; counts?: MessageCounts; trail?: ReactNode[]; highlight?: boolean; onClick?: () => void; link?: CountLink }
 
 /** CountsTable lays out one row of counts per thing (variant, step, channel, send). */
 export function CountsTable({ lead, rows, keys, trail = [] }: { lead: string[]; rows: CountsRow[]; keys: CountKey[]; trail?: string[] }) {
@@ -85,7 +95,7 @@ export function CountsTable({ lead, rows, keys, trail = [] }: { lead: string[]; 
         <tbody>{rows.map((r) => (
           <tr key={r.key} className={[r.highlight ? "report-winner" : "", r.onClick ? "clickable" : ""].join(" ").trim() || undefined} onClick={r.onClick}>
             {r.lead.map((c, i) => <td key={`l${i}`}>{c}</td>)}
-            {keys.map((k) => <td key={k} className="num"><CountCell counts={r.counts ?? EMPTY_COUNTS} k={k} /></td>)}
+            {keys.map((k) => <td key={k} className="num"><CountCell counts={r.counts ?? EMPTY_COUNTS} k={k} link={r.link} /></td>)}
             {trail.map((_, i) => <td key={`t${i}`}>{r.trail?.[i]}</td>)}
           </tr>
         ))}</tbody>
@@ -129,7 +139,7 @@ type Kind = MessageReport["daily"][number]["kind"];
 const KIND_LABELS: Record<Kind, string> = { sent: "Sent", opened: "Opened", clicked: "Clicked" };
 
 /** DailyBars shows one bar per day for sent, opened or clicked. */
-export function DailyBars({ daily }: { daily: MessageReport["daily"] }) {
+export function DailyBars({ daily, link }: { daily: MessageReport["daily"]; link?: (kind: string, day: string) => ContactFilter[] | null }) {
   const kinds = (Object.keys(KIND_LABELS) as Kind[]).filter((k) => daily.some((d) => d.kind === k && d.count > 0));
   const [pick, setPick] = useState<Kind>("sent");
   const kind = kinds.includes(pick) ? pick : kinds[0] ?? "sent";
@@ -153,7 +163,7 @@ export function DailyBars({ daily }: { daily: MessageReport["daily"] }) {
             <div className="bar-row" key={day}>
               <span>{new Date(`${day}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
               <div className="bar-track"><div className={`bar-fill kind-${kind}`} style={{ width: `${(n / max) * 100}%` }} /></div>
-              <span className="num"><LiveNumber value={n} /></span>
+              <span className="num"><ContactCount value={n} live filters={link?.(kind, day) ?? null} /></span>
             </div>
           ))}
         </div>

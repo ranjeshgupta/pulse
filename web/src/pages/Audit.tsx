@@ -13,29 +13,29 @@ const ACTIONS: Record<string, string> = {
   "POST /v1/segments": "Created a segment",
   "PUT /v1/segments/{id}": "Changed a segment",
   "DELETE /v1/segments/{id}": "Deleted a segment",
-  "POST /v1/lists": "Created a list",
-  "PUT /v1/lists/{id}": "Changed a list",
-  "POST /v1/lists/{id}/members": "Changed a list's members",
-  "POST /v1/journeys": "Created a journey",
-  "PUT /v1/journeys/{id}": "Changed a journey",
-  "DELETE /v1/journeys/{id}": "Deleted a journey",
-  "POST /v1/journeys/{id}/{action}": "Activated, paused or archived a journey",
-  "POST /v1/journeys/{id}/archive": "Archived a journey",
-  "POST /v1/journeys/{id}/unarchive": "Restored a journey from the archive",
-  "POST /v1/journeys/{id}/activate": "Activated a journey",
-  "POST /v1/journeys/{id}/pause": "Paused a journey",
-  "POST /v1/broadcasts": "Created a broadcast",
-  "PUT /v1/broadcasts/{id}": "Changed a broadcast",
-  "DELETE /v1/broadcasts/{id}": "Deleted a broadcast",
-  "POST /v1/broadcasts/{id}/schedule": "Scheduled a broadcast",
-  "POST /v1/broadcasts/{id}/cancel": "Cancelled a broadcast",
+  "POST /v1/lists": "Created a static segment",
+  "PUT /v1/lists/{id}": "Changed a static segment",
+  "POST /v1/lists/{id}/members": "Changed a static segment's members",
+  "POST /v1/journeys": "Created a triggered or automation campaign",
+  "PUT /v1/journeys/{id}": "Changed a triggered or automation campaign",
+  "DELETE /v1/journeys/{id}": "Deleted a triggered or automation campaign",
+  "POST /v1/journeys/{id}/{action}": "Put live, paused or archived a campaign",
+  "POST /v1/journeys/{id}/archive": "Archived a campaign",
+  "POST /v1/journeys/{id}/unarchive": "Restored a campaign from the archive",
+  "POST /v1/journeys/{id}/activate": "Put a campaign live",
+  "POST /v1/journeys/{id}/pause": "Paused a campaign",
+  "POST /v1/broadcasts": "Created a one-time campaign",
+  "PUT /v1/broadcasts/{id}": "Changed a one-time campaign",
+  "DELETE /v1/broadcasts/{id}": "Deleted a one-time campaign",
+  "POST /v1/broadcasts/{id}/schedule": "Scheduled a one-time campaign",
+  "POST /v1/broadcasts/{id}/cancel": "Cancelled a one-time campaign",
   "POST /v1/broadcasts/{id}/runs/{run}/winner": "Picked an A/B winner",
   "POST /v1/templates": "Created a template",
   "PUT /v1/templates/{id}": "Changed a template",
   "DELETE /v1/templates/{id}": "Deleted a template",
-  "POST /v1/focus-items": "Created a focus item",
-  "PUT /v1/focus-items/{id}": "Changed a focus item",
-  "DELETE /v1/focus-items/{id}": "Deleted a focus item",
+  "POST /v1/focus-items": "Created a pop-up, bar or slide-in",
+  "PUT /v1/focus-items/{id}": "Changed a pop-up, bar or slide-in",
+  "DELETE /v1/focus-items/{id}": "Deleted a pop-up, bar or slide-in",
   "POST /v1/dwc": "Created web content",
   "PUT /v1/dwc/{id}": "Changed web content",
   "DELETE /v1/dwc/{id}": "Deleted web content",
@@ -80,13 +80,28 @@ const ACTIONS: Record<string, string> = {
 };
 
 /** actionLabel turns "POST /v1/segments" into "Created a segment"; unknown actions stay as they are. */
-function actionLabel(action: string): string {
-  return ACTIONS[action] ?? action;
+// M7: requests without their own words still read as a sentence ("Changed: automation settings");
+// the exact request shows when a row is opened.
+const VERBS: Record<string, string> = { POST: "Created or ran", PUT: "Changed", PATCH: "Changed", DELETE: "Deleted", GET: "Downloaded" };
+const NOUNS: Record<string, string> = {
+  dwc: "web content", "focus-items": "pop-ups, bars and slide-ins", journeys: "campaign", broadcasts: "one-time campaign", segments: "segment",
+  templates: "template", contacts: "contacts", settings: "settings", channels: "channels", integrations: "integration", "landing-pages": "landing page",
+  assets: "asset", forms: "form", inapp: "in-app message", "test-contacts": "test contacts", cohorts: "cohort report", reports: "report",
+  revenue: "revenue settings", stages: "stages", companies: "company", lists: "static segment", "journey-steps": "campaign steps",
+};
+export function actionLabel(action: string): string {
+  if (ACTIONS[action]) return ACTIONS[action];
+  const [method, path] = action.split(" ");
+  const parts = (path ?? "").replace(/^\/v1\//, "").split("/").filter((x) => x && !x.startsWith("{"));
+  if (!VERBS[method] || parts.length === 0) return action;
+  const noun = NOUNS[parts[0]] ?? parts[0].replace(/-/g, " ");
+  const rest = parts.slice(1).map((x) => x.replace(/-/g, " ")).join(" ");
+  return `${VERBS[method]}: ${noun}${rest ? ` (${rest})` : ""}`;
 }
 
 // Where an object type's items open in the app.
 const OBJECT_PATH: Record<string, string> = {
-  segments: "/segments", lists: "/segments", journeys: "/journeys", broadcasts: "/broadcasts", templates: "/templates",
+  segments: "/segments", lists: "/segments", journeys: "/journeys", broadcasts: "/broadcasts", templates: "/templates", // campaign pages
   "focus-items": "/on-site/focus", dwc: "/on-site/content", forms: "/forms", funnels: "/funnels",
 };
 
@@ -94,8 +109,8 @@ const OBJECT_TYPES: { value: string; label: string }[] = [
   { value: "auth", label: "Sign-ins" },
   { value: "segments", label: "Segments" },
   { value: "lists", label: "Static segments" },
-  { value: "journeys", label: "Journeys" },
-  { value: "broadcasts", label: "Broadcasts" },
+  { value: "journeys", label: "Triggered & automation campaigns" },
+  { value: "broadcasts", label: "One-time campaigns" },
   { value: "templates", label: "Templates" },
   { value: "focus-items", label: "Focus items" },
   { value: "dwc", label: "Web content" },

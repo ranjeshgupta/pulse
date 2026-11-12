@@ -50,7 +50,7 @@ function Icon({ d }: { d: React.ReactNode }) {
   );
 }
 
-type NavItem = { to: string; label: string; icon: React.ReactNode; need?: [Area, Exclude<Level, "none">]; orNeed?: [Area, Exclude<Level, "none">] };
+type NavItem = { to: string; label: string; icon: React.ReactNode; need?: [Area, Exclude<Level, "none">]; orNeed?: [Area, Exclude<Level, "none">]; also?: string[] };
 
 // Each item shows only when the user's role reaches `need`. Groups follow the usual marketing-tool
 // layout: who (Audience), what you send and show (Campaigns), what it's built from (Content), how
@@ -69,10 +69,10 @@ const NAV: { title?: string; items: NavItem[] }[] = [
   {
     title: "Campaigns",
     items: [
-      { to: "/campaigns", label: "All campaigns", icon: I.send, need: ["broadcasts", "view"], orNeed: ["journeys", "view"] },
-      { to: "/journeys", label: "Journeys", icon: I.flow, need: ["journeys", "view"] },
-      { to: "/broadcasts", label: "Broadcasts", icon: I.megaphone, need: ["broadcasts", "view"] },
-      { to: "/on-site", label: "On-site & in-app", icon: I.window, need: ["content", "view"] },
+      // M7: one entry for every campaign (one-time, triggered, automation); their editors live
+      // under /broadcasts/:id and /journeys/:id and keep this entry highlighted.
+      { to: "/campaigns", label: "Campaigns", icon: I.send, need: ["broadcasts", "view"], orNeed: ["journeys", "view"], also: ["/journeys", "/broadcasts"] },
+      { to: "/on-site", label: "Website & app messages", icon: I.window, need: ["content", "view"] },
     ],
   },
   {
@@ -98,6 +98,11 @@ const NAV: { title?: string; items: NavItem[] }[] = [
     ],
   },
 ];
+
+/** navActive: an item is also active on the pages listed in its also (e.g. a campaign's editor). */
+export function navActive(it: { also?: string[] }, path: string): boolean {
+  return (it.also ?? []).some((p) => path === p || path.startsWith(`${p}/`));
+}
 
 export function Logo() {
   return (
@@ -133,7 +138,7 @@ export default function Shell() {
             <div className="nav-group nav" key={g.title ?? i}>
               {g.title && <div className="nav-group-title">{g.title}</div>}
               {g.items.map((it) => (
-                <NavLink key={it.to} to={it.to} end={it.to === "/"}>
+                <NavLink key={it.to} to={it.to} end={it.to === "/"} className={({ isActive }) => (isActive || navActive(it, loc.pathname) ? "active" : "")}>
                   <Icon d={it.icon} />
                   {it.label}
                 </NavLink>

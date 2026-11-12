@@ -10,7 +10,7 @@ const credit = (c: Partial<Credit>): Credit => ({ kind: "broadcast", revenue: 0,
 describe("revenue credits", () => {
   it("names messages, falling back to kind and id", () => {
     expect(creditLabel(credit({ id: 12, name: "Diwali sale" }))).toBe("Diwali sale");
-    expect(creditLabel(credit({ id: 12 }))).toBe("Broadcast 12");
+    expect(creditLabel(credit({ id: 12 }))).toBe("One-time campaign 12");
     expect(creditLabel(credit({ kind: "journey", id: 3, name: "  " }))).toBe("Journey 3");
   });
 

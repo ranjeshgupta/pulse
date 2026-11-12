@@ -40,7 +40,7 @@ export function DataPrivacy() {
             <input type="checkbox" checked={cur.tracking.geoip} onChange={(e) => setD({ ...cur, tracking: { ...cur.tracking, geoip: e.target.checked } })} />
             <span>Locate visitors by IP address: country, state, city and time zone (geo_country, geo_region, geo_city, geo_timezone). Quiet hours use the time zone when a contact has none.</span>
           </label>
-          {!q.data?.geoip_available && <p className="xs muted">The server has no MaxMind database yet (PULSE_GEOIP_DB), so nothing is located until one is added.</p>}
+          {!q.data?.geoip_available && <p className="xs muted">Locating by IP isn't set up on this server yet (it needs a free MaxMind location database), so nothing is located until your server administrator adds one (PULSE_GEOIP_DB).</p>}
         </div></section>
         <section className="panel section"><div className="panel-head"><h3>Keep data for</h3></div><div className="panel-body small">
           How long events, anonymous visitors, the audit log and other logs are kept is set on <Link to="/settings/automation">Automation &amp; limits</Link>,

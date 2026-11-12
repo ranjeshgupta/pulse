@@ -307,9 +307,9 @@ function MessageFilters({ draft, onChange }: { draft: Draft; onChange: (d: Draft
     <>
       <Field label="From">
         <select className="select" value={draft.message_source} onChange={(e) => onChange({ ...draft, message_source: e.target.value as MessageSource })}>
-          <option value="">Broadcasts and journeys</option>
-          <option value="broadcast">Broadcasts</option>
-          <option value="journey">Journeys</option>
+          <option value="">Every campaign</option>
+          <option value="broadcast">One-time campaigns</option>
+          <option value="journey">Triggered and automation campaigns (journeys)</option>
         </select>
       </Field>
       <fieldset className="rb-fieldset">

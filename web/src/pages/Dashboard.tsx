@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, CHANNEL_NAMES, type Channel, type Overview } from "../api";
 import { PulseTrace } from "../PulseTrace";
 import { ErrorNote, LiveNumber, PageHead } from "../ui";
+import { ContactCount } from "../ContactCount";
 
 const MESSAGE_LABELS: Record<string, string> = { sent: "Sent", delivered: "Delivered", opened: "Opened", clicked: "Clicked", failed: "Failed", suppressed: "Opted out", fallback: "To SMS" };
 
@@ -51,9 +52,9 @@ export default function Dashboard() {
       </section>
 
       <div className="figures">
-        <div><strong><LiveNumber value={o?.counts.contacts ?? 0} /></strong><span>contacts</span></div>
+        <div><strong><ContactCount live value={o?.counts.contacts ?? 0} filters={[]} /></strong><span>contacts</span></div>
         <div><strong><LiveNumber value={o?.counts.segments ?? 0} /></strong><span>segments</span></div>
-        <div><strong><LiveNumber value={o?.counts.active_journeys ?? 0} /></strong><span>journeys running</span></div>
+        <div><strong><LiveNumber value={o?.counts.active_journeys ?? 0} /></strong><span title="Triggered and automation campaigns that are live">campaigns running</span></div>
         <div><strong><LiveNumber value={o?.counts.templates ?? 0} /></strong><span>templates</span></div>
       </div>
 
@@ -78,9 +79,9 @@ export default function Dashboard() {
         </section>
 
         <section className="panel">
-          <div className="panel-head"><h3>Messages</h3><Link className="small" to="/settings/test-inbox">Test inbox</Link></div>
+          <div className="panel-head"><h3>Messages <span className="xs muted">14 days</span></h3><Link className="small" to="/settings/test-inbox">Test inbox</Link></div>
           {Object.keys(byChannel).length === 0 ? (
-            <div className="panel-body"><p className="muted small">Nothing sent yet. Messages go out from <Link to="/journeys">journeys</Link> or a test send on a template.</p></div>
+            <div className="panel-body"><p className="muted small">Nothing sent yet. Messages go out from <Link to="/campaigns">campaigns</Link> or a test send on a template.</p></div>
           ) : (
             <div className="table-scroll"><table className="table">
               <thead><tr><th>Channel</th>{Object.keys(MESSAGE_LABELS).map((k) => <th key={k} className="num">{MESSAGE_LABELS[k]}</th>)}</tr></thead>

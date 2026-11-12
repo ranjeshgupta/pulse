@@ -99,6 +99,37 @@ var special = map[string]need{
 	"POST /v1/settings/web-push/check":       {auth.AreaChannels, auth.Edit},
 	"POST /v1/settings/web-push/check-token": {auth.AreaChannels, auth.Edit},
 	"GET /v1/settings/web-push/diagnosis":    {auth.AreaChannels, auth.View},
+	// M7: "Create segment from this list" makes a static segment of a Contacts list view. It
+	// creates a segment, so segments edit; the handler also needs contacts view (the route's
+	// own area) and whatever each of the view's filters needs (viewFilterNeeds).
+	"POST /v1/contacts/view-segment": {auth.AreaSegments, auth.Edit},
+}
+
+// viewFilterNeeds: Contacts list filters (GET /v1/contacts?q=, the export and view-segment) that
+// list the people behind another area's numbers. On top of contacts view (the list's own need),
+// the caller needs any one of these: the area the number came from, or reports view (reports
+// and dashboards show the same numbers). Filters not listed need contacts view only.
+var viewFilterNeeds = map[string][]need{
+	"campaign:broadcast": {{auth.AreaBroadcasts, auth.View}, {auth.AreaReports, auth.View}},
+	"campaign:journey":   {{auth.AreaJourneys, auth.View}, {auth.AreaReports, auth.View}},
+	"campaign:any":       {{auth.AreaReports, auth.View}}, // workspace-wide outcomes (Campaign performance)
+	"journey":            {{auth.AreaJourneys, auth.View}, {auth.AreaReports, auth.View}},
+	"amp_poll":           {{auth.AreaContent, auth.View}, {auth.AreaReports, auth.View}},
+	"form":               {{auth.AreaContent, auth.View}, {auth.AreaReports, auth.View}},
+}
+
+// viewFilterAllowed reports whether perms may use a contact-list filter (see viewFilterNeeds).
+func viewFilterAllowed(perms auth.Perms, filter string) bool {
+	needs, ok := viewFilterNeeds[filter]
+	if !ok {
+		return true
+	}
+	for _, n := range needs {
+		if perms.Allows(n.area, n.level) {
+			return true
+		}
+	}
+	return false
 }
 
 type need struct {

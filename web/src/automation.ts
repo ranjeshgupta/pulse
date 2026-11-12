@@ -118,7 +118,7 @@ export function validate(s: AutomationSettings, limits: Record<string, Automatio
     ["retention.live_feed_size", r.live_feed_size, "Live feed size"],
     ["retries.attempts", s.retries.attempts, "Tries"],
     ["retries.max_backoff_seconds", s.retries.max_backoff_seconds, "Longest wait"],
-    ["schedules.sweep_minutes", s.schedules.sweep_minutes, "Sweep interval"],
+    ["schedules.sweep_minutes", s.schedules.sweep_minutes, "Re-check of time-window segments"],
     ["schedules.reach_rebuild_hour", s.schedules.reach_rebuild_hour, "Rebuild hour"],
     ["messages.inbox_expiry_days", s.messages.inbox_expiry_days, "Inbox expiry"],
   ];

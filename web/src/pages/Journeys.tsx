@@ -5,7 +5,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, type Channel, type Journey, type JourneyGraph, type JourneyReport, type Segment, type SplitReport, type Template } from "../api";
 import { useCan } from "../auth";
 import { money } from "../insights";
@@ -13,13 +13,15 @@ import { JOURNEY_CATALOG, catalogItem, reasonAt, searchItems, type CatalogCtx, t
 import {
   addStep, connect, defaultInsertPoint, deleteStep, disconnect, emptyGraph, groupOf, insertStep, issues as graphIssues, overlapping, moveNode, nodeChannel,
   removeBranch, share, STEP_GROUPS, stepLabel, stepNumbers, tidy, toFlow, TRIGGER_ID, wouldCycle, type EdgeData, type FlowData, type InsertAt,
-  listActions, visibleJourneys, type ListAction,
 } from "../journeyGraph";
 import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { FunnelPanel, StepReasons } from "../funnel";
-import { describeWindow, nowISO, scheduleProblem } from "../schedule";
-import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
+import { FUNNEL_OUTCOME, outcomeFilters, type ContactFilter } from "../contactLinks";
+import { ContactCount } from "../ContactCount";
+import { nowISO, scheduleProblem } from "../schedule";
+import { ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
 import { DuplicateButton, TagEditor } from "../campaignUI";
+import { campaignTypeOf, CATEGORIES, startTrigger } from "../campaigns";
 import { copySteps, parseClipboard, pasteSteps, type StepClipboard } from "../journeyClipboard";
 import { CanvasCtx, edgeTypes, nodeTypes, triggerText, whereText, type CanvasCtxValue } from "./journey/Canvas";
 import { usePickers } from "./journey/data";
@@ -28,93 +30,6 @@ import { JIcon } from "./journey/icons";
 import { Inspector, METRIC_WORDS, SplitDecisionNote } from "./journey/Inspector";
 import { StepChooser } from "./journey/StepChooser";
 import "./journeys.css";
-
-export function JourneyList() {
-  const q = useQuery({ queryKey: ["journeys"], queryFn: () => api.get<{ journeys: Journey[] }>("/v1/journeys"), refetchInterval: 4000 });
-  const qc = useQueryClient();
-  const toast = useToast();
-  const canEdit = useCan("journeys", "edit");
-  const canPublish = useCan("journeys", "publish");
-  const [showArchived, setShowArchived] = useState(false);
-  const all = q.data?.journeys ?? [];
-  const archivedCount = all.filter((j) => j.archived_at).length;
-  const js = visibleJourneys(all, showArchived);
-  const act = useMutation({
-    mutationFn: ({ j, action }: { j: Journey; action: ListAction }) => action === "delete"
-      ? api.del(`/v1/journeys/${j.id}`) : api.post(`/v1/journeys/${j.id}/${action === "archive" ? "archive" : "unarchive"}`),
-    onSuccess: (_, { j, action }) => {
-      qc.invalidateQueries({ queryKey: ["journeys"] });
-      qc.invalidateQueries({ queryKey: ["journey", String(j.id)] });
-      toast({ text: action === "delete" ? `Deleted ${j.name}` : action === "archive" ? `Archived ${j.name}` : `Restored ${j.name}` });
-    },
-  });
-  const nav = useNavigate();
-  const dup = useMutation({
-    mutationFn: (j: Journey) => api.post<{ id: number }>(`/v1/journeys/${j.id}/duplicate`),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["journeys"] }); toast({ text: "Copy created as a draft" }); nav(`/journeys/${r.id}`); },
-  });
-  const run = (j: Journey, action: ListAction) => {
-    const ask = action === "delete" ? `Delete "${j.name}"? This can't be undone.`
-      : action === "archive" ? `Archive "${j.name}"? It's hidden from this list; its history and reports are kept, and you can restore it.` : null;
-    if (!ask || confirm(ask)) act.mutate({ j, action });
-  };
-  const sum = (f: (st: Record<string, number>) => number) => js.reduce((a, j) => a + f(j.stats?.status ?? {}), 0);
-  const entered = (st: Record<string, number>) => Object.values(st).reduce((a, b) => a + b, 0);
-  const inProgress = (st: Record<string, number>) => (st.active ?? 0) + (st.waiting ?? 0);
-  return (
-    <div className="page">
-      <PageHead
-        title="Journeys"
-        intro="A journey starts when a contact enters a segment or does something, then waits, checks and sends across channels."
-        actions={<Link className="btn primary" to="/journeys/new">New journey</Link>}
-      />
-      <ErrorNote error={q.error ?? act.error ?? dup.error} />
-      {archivedCount > 0 && (
-        <label className="check" style={{ marginBottom: 12 }}>
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived ({archivedCount})
-        </label>
-      )}
-      <div className="panel">
-        {js.length === 0 && !q.isLoading && !archivedCount ? (
-          <Empty title="No journeys yet" action={<Link className="btn primary" to="/journeys/new">Build a journey</Link>}>
-            For example: when someone enters "Abandoned cart", wait an hour, then send a WhatsApp reminder with an SMS fallback.
-          </Empty>
-        ) : (
-          <table className="table">
-            <thead><tr><th>Name</th><th>Status</th><th>Schedule</th><th className="num">Steps</th><th className="num">Entered</th><th className="num">In progress</th><th className="num">Completed</th><th aria-label="Actions" /></tr></thead>
-            <tbody>
-              {js.map((j) => {
-                const st = j.stats?.status ?? {};
-                return (
-                  <tr key={j.id}>
-                    <td><Link to={`/journeys/${j.id}`}>{j.name}</Link>{(j.tags?.length ?? 0) > 0 && <div className="row" style={{ gap: 4, marginTop: 4 }}>{j.tags!.map((t) => <Link key={t} className="tag-chip tag-link" to={`/campaigns?tag=${encodeURIComponent(t)}`}>{t}</Link>)}</div>}</td>
-                    <td><Status value={j.status} />{j.archived_at && <> <span className="badge">Archived</span></>}</td>
-                    <td className="muted small">{describeWindow(j.start_at, j.end_at)}</td>
-                    <td className="num">{Object.keys(j.graph?.nodes ?? {}).length}</td>
-                    <td className="num"><LiveNumber value={entered(st)} /></td>
-                    <td className="num"><LiveNumber value={inProgress(st)} /></td>
-                    <td className="num"><LiveNumber value={st.completed ?? 0} /></td>
-                    <td className="row-actions">
-                      {canEdit && <button className="btn ghost sm" disabled={dup.isPending} onClick={() => dup.mutate(j)}>Duplicate</button>}
-                      {listActions(j).map((a) => (a === "delete" ? canEdit : canPublish) && (
-                        <button key={a} className={`btn ghost sm${a === "delete" ? " danger" : ""}`} disabled={act.isPending} onClick={() => run(j, a)}>
-                          {a === "delete" ? "Delete" : a === "archive" ? "Archive" : "Restore"}
-                        </button>
-                      ))}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            {js.length > 1 && (
-              <tfoot><tr><th colSpan={4}>{showArchived ? "All journeys" : "All journeys shown"}</th><td className="num"><LiveNumber value={sum(entered)} /></td><td className="num"><LiveNumber value={sum(inProgress)} /></td><td className="num"><LiveNumber value={sum((st) => st.completed ?? 0)} /></td><td /></tr></tfoot>
-            )}
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export function JourneyEdit() {
   return <ReactFlowProvider><JourneyEditor /></ReactFlowProvider>;
@@ -130,6 +45,8 @@ const isEditable = (el: EventTarget | null) =>
 function JourneyEditor() {
   const { id } = useParams();
   const isNew = id === "new";
+  // M7: "New campaign" opens this with ?start=event|form|segment, the trigger the marketer chose.
+  const [search] = useSearchParams();
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
@@ -141,8 +58,8 @@ function JourneyEditor() {
   const segs = useQuery({ queryKey: ["segments"], queryFn: () => api.get<{ segments: Segment[] }>("/v1/segments") });
   const tpls = useQuery({ queryKey: ["templates", ""], queryFn: () => api.get<{ templates: Template[] }>("/v1/templates") });
 
-  const [name, setName] = useState("Untitled journey");
-  const [hist, setHist] = useState<History<JourneyGraph>>(() => startHistory(emptyGraph()));
+  const [name, setName] = useState("Untitled campaign");
+  const [hist, setHist] = useState<History<JourneyGraph>>(() => startHistory(isNew ? { ...emptyGraph(), trigger: { type: startTrigger(search.get("start")) } } : emptyGraph()));
   const graph = hist.present;
   const [win, setWin] = useState<{ start_at?: string; end_at?: string }>({ start_at: nowISO() });
   const [selected, setSelected] = useState<string | null>(TRIGGER_ID);
@@ -331,7 +248,7 @@ function JourneyEditor() {
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["journeys"] });
       qc.invalidateQueries({ queryKey: ["journey", String(r.id)] });
-      toast({ text: "Journey saved" });
+      toast({ text: "Saved" });
       if (isNew) nav(`/journeys/${r.id}`, { replace: true });
     },
   });
@@ -340,7 +257,7 @@ function JourneyEditor() {
     onSuccess: (_, action) => {
       qc.invalidateQueries({ queryKey: ["journey", id] });
       qc.invalidateQueries({ queryKey: ["journeys"] });
-      toast({ text: action === "activate" ? "Journey is live. New matches enter it immediately." : action === "pause" ? "Journey paused" : "Journey restored from the archive" });
+      toast({ text: action === "activate" ? "Campaign is live. People who match start it right away." : action === "pause" ? "Campaign paused" : "Campaign restored from the archive" });
     },
   });
 
@@ -349,6 +266,7 @@ function JourneyEditor() {
     counts: report.data?.enrollments.node ?? stats.data?.node ?? {},
     showStats: statsOn, steps: report.data?.steps, messages: report.data?.messages.by_node,
     onAdd: openChooser, triggerText: triggerText(graph, pickers.names.segments ?? {}, pickers.names.forms ?? {}),
+    journeyId: isNew ? 0 : Number(id),
   };
   const templateMap = useMemo(() => new Map((tpls.data?.templates ?? []).map((t) => [t.id, t])), [tpls.data]);
 
@@ -361,8 +279,9 @@ function JourneyEditor() {
   return (
     <div className="page" style={{ maxWidth: "none" }}>
       <PageHead
-        back={<Link className="back" to="/journeys">Journeys</Link>}
-        title={<input className="input" style={{ fontSize: "var(--fs-xl)", fontWeight: 650, border: 0, padding: 0, background: "transparent" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="Journey name" disabled={locked} />}
+        back={<Link className="back" to={`/campaigns?tab=${campaignTypeOf(graph.trigger)}`}>Campaigns · {CATEGORIES.find((c) => c.key === campaignTypeOf(graph.trigger))?.label}</Link>}
+        title={<input className="input" style={{ fontSize: "var(--fs-xl)", fontWeight: 650, border: 0, padding: 0, background: "transparent" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="Campaign name" disabled={locked} />}
+        intro={`${CATEGORIES.find((c) => c.key === campaignTypeOf(graph.trigger))?.hint} Change what starts it in the Start step.`}
         actions={<>
           {!isNew && <Status value={status} />}
           {!isNew && <DuplicateButton path={`/v1/journeys/${id}/duplicate`} open={(nid) => `/journeys/${nid}`} invalidate={["journeys", "campaigns"]} />}
@@ -374,8 +293,8 @@ function JourneyEditor() {
       />
       <ErrorNote error={save.error ?? setStatus.error ?? existing.error} />
       {!isNew && <JourneyTags id={id!} tags={existing.data?.tags ?? []} />}
-      {archived && <div className="alert info">This journey is archived: it's hidden from the journey list and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
-      {locked && <div className="alert info">This journey is live, so its steps are locked. Pause it to make changes; contacts already inside wait where they are.</div>}
+      {archived && <div className="alert info">This campaign is archived: it's hidden from Campaigns (choose the Archived status to see it) and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
+      {locked && <div className="alert info">This campaign is live, so its steps are locked. Pause it to make changes; people already in it wait where they are.</div>}
       {!isNew && (
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={view === "canvas"} onClick={() => setView("canvas")}>Steps</button>
@@ -488,7 +407,7 @@ function Palette({ q, setQ, locked, graph, at, atText, ctx, onAdd }: {
             <section className={`palette-group c-${grp.group}`} key={grp.group} aria-label={`${grp.label} steps`}>
               <h5 title={grp.hint}>{grp.label}</h5>
               {items.map((it) => {
-                const why = locked ? "The journey is live." : reasonAt(it, graph, at, ctx);
+                const why = locked ? "The campaign is live: pause it to change steps." : reasonAt(it, graph, at, ctx);
                 const hardOff = locked;
                 return (
                   <button
@@ -518,6 +437,11 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
   const q = useQuery({ queryKey: ["journey-report", id], queryFn: () => api.get<JourneyReport>(`/v1/journeys/${id}/report`), refetchInterval: 5000 });
   const r = q.data;
   const st = r?.enrollments.status ?? {};
+  // M7: every count opens the contacts behind it.
+  const jid = Number(id);
+  const enrolled = (status?: string): ContactFilter[] => (status ? [["journey", jid], ["journey_status", status]] : [["journey", jid]]);
+  const outcome = (o: string, step?: string) => outcomeFilters("journey", jid, o, { step });
+  const funnelLink = (k: string) => (k === "enrolled" ? enrolled() : k.startsWith("skipped_") ? outcome(k) : FUNNEL_OUTCOME[k] ? outcome(FUNNEL_OUTCOME[k]) : null);
   const entered = Object.values(st).reduce((a, b) => a + b, 0);
   const m = r?.messages;
   const graphChannels = Object.values(graph.nodes).map((n) => nodeChannel(n.type)).filter((c): c is Channel => !!c);
@@ -537,6 +461,7 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
       ],
       counts,
       onClick: n ? () => onStep(sid) : undefined,
+      link: (o: string) => outcome(o, sid),
     };
   }).sort((a, b) => (b.counts?.sent ?? 0) - (a.counts?.sent ?? 0));
   const channelRows: CountsRow[] = Object.entries(m?.by_channel ?? {}).map(([c, counts]) => ({
@@ -547,11 +472,11 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
     <div>
       <ErrorNote error={q.error} />
       <div className="figures" style={{ margin: "4px 2px 22px" }}>
-        <div><strong><LiveNumber value={entered} /></strong><span>entered</span></div>
-        <div><strong><LiveNumber value={(st.active ?? 0) + (st.waiting ?? 0)} /></strong><span>in progress</span></div>
-        <div><strong><LiveNumber value={st.completed ?? 0} /></strong><span>completed</span></div>
-        {(graph.goal || (st.converted ?? 0) > 0) && <div><strong><LiveNumber value={st.converted ?? 0} /></strong><span>reached the goal</span></div>}
-        {(st.exited ?? 0) > 0 && <div><strong><LiveNumber value={st.exited ?? 0} /></strong><span>left early</span></div>}
+        <div><strong><ContactCount live value={entered} filters={enrolled()} /></strong><span>entered</span></div>
+        <div><strong><ContactCount live value={(st.active ?? 0) + (st.waiting ?? 0)} filters={enrolled("in_progress")} /></strong><span>in progress</span></div>
+        <div><strong><ContactCount live value={st.completed ?? 0} filters={enrolled("completed")} /></strong><span>completed</span></div>
+        {(graph.goal || (st.converted ?? 0) > 0) && <div><strong><ContactCount live value={st.converted ?? 0} filters={enrolled("converted")} /></strong><span>reached the goal</span></div>}
+        {(st.exited ?? 0) > 0 && <div><strong><ContactCount live value={st.exited ?? 0} filters={enrolled("exited")} /></strong><span>left early</span></div>}
       </div>
       {m?.revenue && (
         <div className="figures" style={{ margin: "-8px 2px 22px" }}>
@@ -569,9 +494,9 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
       ))}
       {m && (
         <>
-          {m.funnel && <div style={{ marginBottom: 24 }}><FunnelPanel funnel={{ ...m.funnel, audience: undefined, enrolled: m.funnel.enrolled ?? entered }} channels={channels} /></div>}
+          {m.funnel && <div style={{ marginBottom: 24 }}><FunnelPanel funnel={{ ...m.funnel, audience: undefined, enrolled: m.funnel.enrolled ?? entered }} channels={channels} link={funnelLink} /></div>}
           <div style={{ marginBottom: 24 }}>
-            <StepReasons byNode={m.reasons_by_node} order={numbers} onStep={onStep} canOpen={(sid: string) => !!graph.nodes[sid]} label={(sid: string) => {
+            <StepReasons link={(kind, code, step) => outcomeFilters("journey", jid, kind, { step, reason: code })} byNode={m.reasons_by_node} order={numbers} onStep={onStep} canOpen={(sid: string) => !!graph.nodes[sid]} label={(sid: string) => {
               const n = graph.nodes[sid];
               if (!n) return <span className="muted">Removed step</span>;
               const ch = nodeChannel(n.type);
@@ -594,7 +519,7 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
           )}
           <div className="report-cols" style={{ marginTop: 0 }}>
             {(channels.includes("email") || m.links.length > 0) && <TopLinks links={m.links} />}
-            <DailyBars daily={m.daily} />
+            <DailyBars daily={m.daily} link={(kind, day) => [...outcome(kind), ["period", day]]} />
           </div>
         </>
       )}

@@ -3,11 +3,41 @@
 
 import type { CampaignCategory, Channel, Deadline, Estimate } from "./api";
 
-export const CATEGORIES: { key: CampaignCategory; label: string; hint: string }[] = [
-  { key: "one_time", label: "One-time", hint: "Broadcasts: one message to a segment, once or on a repeat." },
-  { key: "trigger", label: "Trigger based", hint: "Journeys started by an event or a form." },
-  { key: "automation", label: "Automation", hint: "Journeys contacts enter when they join a segment." },
+// M7: one campaign model for marketers. A campaign is one of three types, named by when it sends;
+// "broadcast" and "journey" are how they're built (one message vs a flow of steps), not more
+// kinds of campaign. The labels and hints below are what the app shows everywhere.
+export const CATEGORIES: { key: CampaignCategory; label: string; hint: string; builtAs: string }[] = [
+  { key: "one_time", label: "One-time", hint: "One message to everyone in your chosen segments, sent once or repeated daily, weekly or monthly.", builtAs: "One message" },
+  { key: "trigger", label: "Triggered", hint: "Starts for each person when they do something, like buying, signing up, abandoning a cart or submitting a form.", builtAs: "A journey of steps" },
+  { key: "automation", label: "Automation", hint: "Starts for each person when they join a segment, then follows up step by step.", builtAs: "A journey of steps" },
 ];
+
+/** What a marketer can start from "New campaign": the goal in words, then where it goes. */
+export type CampaignGoal = { key: CampaignCategory; title: string; text: string; examples: string };
+export const CAMPAIGN_GOALS: CampaignGoal[] = [
+  { key: "one_time", title: "Send a message to a segment", text: "Once at a time you choose, or repeated daily, weekly or monthly.", examples: "A newsletter, a sale announcement, a festive offer." },
+  { key: "trigger", title: "React when someone does something", text: "Each person starts when they do an action you choose; add waits, checks and more messages.", examples: "Abandoned cart reminder, welcome after sign-up, thank-you after a form." },
+  { key: "automation", title: "Follow up when someone joins a segment", text: "Each person starts as they enter the segment; add waits, checks and more messages.", examples: "Win back inactive customers, nurture new leads, onboard a VIP." },
+];
+
+/** newCampaignHref is where "New campaign" goes for a goal (and a channel, for one-time). */
+export function newCampaignHref(goal: CampaignCategory, channel = "email"): string {
+  if (goal === "one_time") return `/campaigns/new/${channel}`;
+  return `/journeys/new?start=${goal === "trigger" ? "event" : "segment"}`;
+}
+
+/** startTrigger is the trigger a new journey starts with (from ?start=). */
+export function startTrigger(start: string | null): "event" | "segment_entered" | "form_submitted" {
+  return start === "event" ? "event" : start === "form" ? "form_submitted" : "segment_entered";
+}
+
+/** campaignTypeOf names a journey's campaign type from its trigger, for the editor's header. */
+export function campaignTypeOf(trigger: { type: string } | undefined): CampaignCategory {
+  return trigger?.type === "segment_entered" || !trigger ? "automation" : "trigger";
+}
+
+/** Addresses from before M7's campaign navigation: the separate Journeys and Broadcasts lists. */
+export const OLD_CAMPAIGN_LISTS: Record<string, string> = { "/journeys": "/campaigns", "/broadcasts": "/campaigns?tab=one_time" };
 
 export const MAX_TAGS = 20;
 export const MAX_TAG_LENGTH = 40;

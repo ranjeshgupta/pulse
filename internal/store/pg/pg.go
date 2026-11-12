@@ -837,3 +837,33 @@ func (s *Store) ContactJourneys(ctx context.Context, tenant int64, contact uint3
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[ContactJourney])
 }
+
+// JourneyContacts calls fn with the contact of every enrollment of a journey (contacts who entered
+// more than once come more than once), optionally only those at node and/or with one of the
+// statuses (M7: the contact list behind a journey's numbers). Rows stream, so a journey with
+// millions of enrollments isn't held in memory.
+func (s *Store) JourneyContacts(ctx context.Context, tenant, journey int64, node string, statuses []string, fn func(uint32)) error {
+	q := `SELECT contact_id FROM journey_enrollments WHERE tenant_id = $1 AND journey_id = $2`
+	args := []any{tenant, journey}
+	if node != "" {
+		args = append(args, node)
+		q += fmt.Sprintf(" AND node = $%d", len(args))
+	}
+	if len(statuses) > 0 {
+		args = append(args, statuses)
+		q += fmt.Sprintf(" AND status = ANY($%d)", len(args))
+	}
+	rows, err := s.db.Query(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		fn(uint32(id))
+	}
+	return rows.Err()
+}

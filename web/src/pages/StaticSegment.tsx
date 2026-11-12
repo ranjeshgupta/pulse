@@ -6,7 +6,8 @@ import { useCan } from "../auth";
 import { describe, segmentRefs } from "../segmentRules";
 import { SegmentType, viewContactsHref } from "./Segments";
 import { useSegments } from "./segmentData";
-import { ErrorNote, Field, LiveNumber, PageHead, useToast } from "../ui";
+import { ErrorNote, Field, PageHead, useToast } from "../ui";
+import { ContactCount } from "../ContactCount";
 
 // Static segments (the API calls them lists) hold exactly the contacts put in them: by hand, by CSV
 // import, by a journey step or the API, until they're removed. Dynamic segments can include or
@@ -78,7 +79,7 @@ export function StaticSegmentDetail() {
         <aside className="panel" style={{ position: "sticky", top: 20 }}>
           <div className="panel-body">
             <p className="small muted">In this segment now</p>
-            <div className="preview-count">{list ? <LiveNumber value={list.size} /> : "…"}</div>
+            <div className="preview-count">{list ? <ContactCount live value={list.size} filters={[["in", list.id]]} /> : "…"}</div>
             <h3 style={{ margin: "18px 0 8px" }}>Used by</h3>
             {usedBy.length === 0 ? <p className="small muted">No dynamic segment uses this one yet. In the segment builder, add the filter “Segment membership”.</p> : (
               <ul className="small">{usedBy.map((s) => <li key={s.id}><Link to={`/segments/${s.id}`}>{s.name}</Link> <div className="xs muted">{describe(s.rule, names)}</div></li>)}</ul>

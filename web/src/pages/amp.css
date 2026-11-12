@@ -5,7 +5,9 @@
 
 .amp-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 1100px) { .amp-layout { grid-template-columns: 1fr; } }
-.amp-side { position: sticky; top: 12px; }
+.amp-side { position: sticky; top: 12px; min-width: 0; }
+/* Grid items default to their content's width: let the editor column shrink so block rows keep their buttons in view. */
+.amp-edit, .amp-blocks, .amp-block-list, .amp-card { min-width: 0; }
 
 /* ---------- look ---------- */
 .amp-style { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 10px 12px; margin-bottom: 12px; background: var(--porcelain); border-radius: var(--r-md); }
@@ -13,7 +15,7 @@
 .amp-color input[type="color"] { width: 30px; height: 26px; padding: 0; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: none; cursor: pointer; }
 
 /* ---------- block cards ---------- */
-.amp-block-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.amp-block-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .amp-card { border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--surface); }
 .amp-card.open { border-color: var(--rule-strong); box-shadow: 0 2px 10px rgba(21, 34, 56, 0.06); }
 .amp-card.has-problems { border-left: 3px solid var(--danger); }

@@ -25,7 +25,7 @@ export function Team() {
   });
   return (
     <div className="page">
-      <PageHead title="Team" intro="Admins manage settings, sign-in and providers. Editors build segments, journeys and content. Viewers look but don't change anything. Make your own roles under Roles." actions={admin && <button className="btn primary" onClick={() => setAdding(true)}>Add teammate</button>} />
+      <PageHead title="Team" intro="Admins manage settings, sign-in and providers. Editors build segments, campaigns and content. Viewers look but don't change anything. Make your own roles under Roles." actions={admin && <button className="btn primary" onClick={() => setAdding(true)}>Add teammate</button>} />
       <ErrorNote error={q.error ?? remove.error ?? setRole.error} />
       <div className="panel">
         <table className="table">
@@ -356,7 +356,7 @@ export function Scoring() {
     <div className="page">
       <PageHead
         title="Scoring"
-        intro="Each time a contact does one of these events, their points change. Points are a profile attribute, so segments, journey checks and exports can use them. Journeys can also add points with a step."
+        intro="Each time a contact does one of these events, their points change. Points are a contact field, so segments, campaign checks and exports can use them. Campaigns can also add points with a step."
       />
       <ErrorNote error={q.error ?? save.error ?? remove.error} />
       <section className="panel section">

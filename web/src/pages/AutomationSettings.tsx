@@ -153,14 +153,14 @@ export function AutomationSettingsPage() {
         </Panel>
 
         <Panel title="Schedules">
-          <Row label="Segment sweep" def={`server default (${server.sweep_minutes} min)`} help="How often segments with time windows (“in the last 7 days”) are re-checked, so contacts whose events grew too old leave. Members join and leave on events at once either way.">
+          <Row label="Re-check time-window segments every" def={`server default (${server.sweep_minutes} min)`} help="How often segments with time windows (“in the last 7 days”) are re-checked, so contacts whose events grew too old leave. Members join and leave on events at once either way.">
             <div className="row">
-              <input className="input inline num-input" type="number" min={0} max={1440} aria-label="Sweep every minutes" value={cur.schedules.sweep_minutes}
+              <input className="input inline num-input" type="number" min={0} max={1440} aria-label="Re-check every (minutes)" value={cur.schedules.sweep_minutes}
                 onChange={(e) => set((s) => ({ ...s, schedules: { ...s.schedules, sweep_minutes: Math.trunc(Number(e.target.value) || 0) } }))} />
               <span className="xs muted">minutes; 0 = the server's {server.sweep_minutes} min</span>
             </div>
           </Row>
-          <Row label="Reachability rebuild" def="a day after the last one" help="Reachable counts (who has an email, a phone, push devices, consent) follow every change; once a day they are also rebuilt from scratch.">
+          <Row label="Recount who can be reached" def="a day after the last one" help="Reachable counts (who has an email, a phone, push devices, consent) follow every change; once a day they are also rebuilt from scratch.">
             <select className="select inline" aria-label="Rebuild hour" value={cur.schedules.reach_rebuild_hour}
               onChange={(e) => set((s) => ({ ...s, schedules: { ...s.schedules, reach_rebuild_hour: Number(e.target.value) } }))}>
               <option value={-1}>A day after the last rebuild</option>

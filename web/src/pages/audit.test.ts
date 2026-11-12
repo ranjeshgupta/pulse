@@ -10,3 +10,14 @@ describe("auditExportParams", () => {
     expect(auditExportParams({ userId: "", objectType: "", from: "", to: "", format: "csv" })).toBe("format=csv");
   });
 });
+
+describe("audit action words (M7)", () => {
+  it("names known actions and turns other requests into a sentence", async () => {
+    const { actionLabel } = await import("./Audit");
+    expect(actionLabel("POST /v1/broadcasts/{id}/schedule")).toBe("Scheduled a one-time campaign");
+    expect(actionLabel("PUT /v1/settings/automation")).toBe("Changed: settings (automation)");
+    expect(actionLabel("POST /v1/dwc/overlap")).toBe("Created or ran: web content (overlap)");
+    expect(actionLabel("sign-in")).toBe("Signed in");
+    expect(actionLabel("weird")).toBe("weird");
+  });
+});

@@ -162,7 +162,7 @@ describe("overlap table", () => {
   });
 
   it("lists only pairs that share contacts, most first", () => {
-    expect(overlapPairs(o)).toEqual([{ a: "1. VIP", b: "Variant 2", both: 30 }, { a: "1. VIP", b: "3. Mobile", both: 10 }]);
+    expect(overlapPairs(o)).toEqual([{ a: "1. VIP", b: "Variant 2", both: 30, ai: 0, bi: 1 }, { a: "1. VIP", b: "3. Mobile", both: 10, ai: 0, bi: 2 }]);
   });
 
   it("copes with missing lists", () => {
@@ -187,7 +187,7 @@ describe("on-site editors render", () => {
       variants: [{ index: 0, matching: 5, sees: 5 }, { index: 1, matching: 3, sees: 1, approximate: true }], pairs: [{ a: 0, b: 1, both: 2 }],
       multi: 2, default: 7, contacts: 13, approximate: true, at: new Date().toISOString(), names: ["VIP", ""], shadowed: [], default_never_shown: false, cached: true,
     };
-    const html = renderToString(h(MemoryRouter, null, h(OverlapView, { o })));
+    const html = renderToString(h(QueryClientProvider, { client: new QueryClient() }, h(MemoryRouter, null, h(OverlapView, { o }))));
     expect(html).toContain("1. VIP");
     expect(html).toContain("they see the first one in the order");
     expect(html).toContain("Approximate");

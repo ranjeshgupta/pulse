@@ -44,8 +44,8 @@ const AREA_ORDER: Area[] = ["contacts", "segments", "journeys", "broadcasts", "c
 export const AREA_INFO: Record<Area, { name: string; about: string }> = {
   contacts: { name: "Contacts", about: "Profiles, events, tags, imports and exports." },
   segments: { name: "Segments", about: "Segments (dynamic and static), contact fields, scoring and stages." },
-  journeys: { name: "Journeys", about: "Build journeys. Publish lets you activate and pause them." },
-  broadcasts: { name: "Broadcasts", about: "Build broadcasts. Publish lets you schedule, cancel and pick A/B winners." },
+  journeys: { name: "Triggered & automation campaigns", about: "Build campaigns that run as journeys of steps. Publish lets you put them live and pause them." },
+  broadcasts: { name: "One-time campaigns", about: "Build one-time campaigns. Publish lets you schedule and cancel them and pick A/B winners." },
   content: { name: "Content", about: "Templates, focus items, web content, forms and test sends." },
   reports: { name: "Reports", about: "Overview, reports and funnels." },
   channels: { name: "Channels", about: "Providers and the test inbox." },
@@ -121,7 +121,7 @@ export function Roles() {
           </table>
         </div>
       </section>
-      <p className="xs muted" style={{ marginTop: 8 }}>Each level includes the ones before it. Publish only adds something for journeys and broadcasts; elsewhere it's the same as edit.</p>
+      <p className="xs muted" style={{ marginTop: 8 }}>Each level includes the ones before it. Publish only adds something for campaigns (putting them live); elsewhere it's the same as edit.</p>
 
       <div className="section"><ErrorNote error={remove.error} /></div>
       <section className="panel">
@@ -215,7 +215,7 @@ function RoleEditor({ role, roles, readOnly, onClose }: { role: CustomRole; role
           );
         })}
       </div>
-      <p className="xs muted" style={{ margin: "8px 0 18px" }}>Publish only exists for journeys and broadcasts. Elsewhere, edit already includes everything.</p>
+      <p className="xs muted" style={{ margin: "8px 0 18px" }}>Publish only exists for campaigns. Elsewhere, edit already includes everything.</p>
       {!readOnly && (
         <div className="row">
           <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>{isNew ? "Create role" : "Save role"}</button>

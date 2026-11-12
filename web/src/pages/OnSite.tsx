@@ -11,6 +11,8 @@ import { RichText } from "../RichText";
 import { nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import "./onsite-variants.css";
+import { ContactCount } from "../ContactCount";
+import { audienceFilters, overlapPairFilters, overlapSeesFilters, type SegmentAudience } from "../contactLinks";
 
 const KIND_LABEL = { modal: "Pop-up", bar: "Banner bar", slide: "Slide-in" };
 const TRIGGER_LABEL: Record<string, string> = { load: "As the page loads", exit_intent: "When they're about to leave", scroll: "After scrolling", delay: "After a delay" };
@@ -315,9 +317,14 @@ const overlapError = (e: unknown) => (e instanceof ApiError && e.status === 429 
 const n = (x: number) => x.toLocaleString("en-IN");
 
 /** OverlapView shows how an ordered set of audiences splits your known contacts. */
-export function OverlapView({ o, fallbackNames = [], noun = "variant", stale }: { o: Overlap; fallbackNames?: string[]; noun?: "variant" | "item"; stale?: boolean }) {
+export function OverlapView({ o, fallbackNames = [], noun = "variant", stale, audiences }: {
+  o: Overlap; fallbackNames?: string[]; noun?: "variant" | "item"; stale?: boolean;
+  /** The audiences counted, in order (M7: numbers then open their contacts; not while stale). */
+  audiences?: SegmentAudience[];
+}) {
   const rows = overlapRows(o, fallbackNames);
   const pairs = overlapPairs(o, fallbackNames);
+  const auds = stale ? undefined : audiences;
   return (
     <div className="ov-result">
       {stale && <div className="alert info">You've changed the {noun}s since this count. Check again to update it.</div>}
@@ -329,11 +336,11 @@ export function OverlapView({ o, fallbackNames = [], noun = "variant", stale }: 
               <tr key={r.index}>
                 <td>{r.label}{r.approximate && <span className="faint" title="Page, device and contact-field rules aren't counted"> *</span>}
                   {r.hidden && <span className="badge warn" style={{ marginLeft: 6 }}>Never shown</span>}</td>
-                <td className="num">{n(r.matching)}</td>
-                <td className="num">{n(r.sees)}</td>
+                <td className="num"><ContactCount value={r.matching} filters={auds?.[r.index] ? audienceFilters(auds[r.index]) : null} /></td>
+                <td className="num"><ContactCount value={r.sees} filters={auds?.[r.index] ? overlapSeesFilters(auds, r.index) : null} /></td>
               </tr>
             ))}
-            {noun === "variant" && <tr><td className="muted">Everyone else (default content)</td><td className="num muted">–</td><td className="num">{o.default_never_shown ? 0 : n(o.default)}</td></tr>}
+            {noun === "variant" && <tr><td className="muted">Everyone else (default content)</td><td className="num muted">–</td><td className="num">{o.default_never_shown ? 0 : <ContactCount value={o.default} filters={auds ? overlapSeesFilters([...auds, {}], auds.length) : null} />}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -346,7 +353,7 @@ export function OverlapView({ o, fallbackNames = [], noun = "variant", stale }: 
         <>
           <p className="small" style={{ margin: "12px 0 6px" }}><strong>Shared contacts</strong></p>
           <ul className="ov-pairs small">
-            {pairs.map((p) => <li key={`${p.a}|${p.b}`}><span>{p.a}</span> and <span>{p.b}</span>: <strong>{n(p.both)}</strong></li>)}
+            {pairs.map((p) => <li key={`${p.a}|${p.b}`}><span>{p.a}</span> and <span>{p.b}</span>: <strong><ContactCount value={p.both} filters={auds?.[p.ai] && auds[p.bi] ? overlapPairFilters(auds[p.ai], auds[p.bi]) : null} /></strong></li>)}
           </ul>
         </>
       )}
@@ -559,7 +566,7 @@ export function DWCEdit() {
             <p className="small muted">{d.variants.length === 0 ? "Add a variant to see who would see it." : "See how many of your contacts match each variant, how many match more than one, and who ends up with the default — before you publish."}</p>
           )}
           <ErrorNote error={overlap.error} />
-          {overlap.data && <OverlapView o={overlap.data.o} fallbackNames={d.variants.map((v) => v.name ?? "")} stale={overlap.data.rev !== rev} />}
+          {overlap.data && <OverlapView o={overlap.data.o} fallbackNames={d.variants.map((v) => v.name ?? "")} stale={overlap.data.rev !== rev} audiences={d.variants.map((v) => v.audience ?? {})} />}
         </div>
       </section>
 

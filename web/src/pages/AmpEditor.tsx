@@ -15,6 +15,7 @@ import { insertAt } from "../personalize";
 import { ErrorNote, Field, useToast } from "../ui";
 import { TemplatedInput, TemplatedText, VarPicker } from "../VarPicker";
 import "./amp.css";
+import { ContactCount } from "../ContactCount";
 
 type View = "blocks" | "code";
 const GMAIL_NOTE = "Gmail shows AMP emails only from senders Google has registered (your domain needs SPF, DKIM and DMARC, then a registration with Google). Everyone else sees the normal email.";
@@ -181,7 +182,7 @@ function CheckPanel({ check, loading, error, view, pending, onLine }: {
       <Providers list={check?.providers} />
       <div className="amp-notes">
         <p>{GMAIL_NOTE}</p>
-        <p>{FORMS_NOTE} Answers are recorded as the events <code>amp_poll_answered</code> and <code>amp_form_submitted</code>, which you can use in segments and journeys.</p>
+        <p>{FORMS_NOTE} Answers are recorded as the events <code>amp_poll_answered</code> and <code>amp_form_submitted</code>, which you can use in segments and campaigns.</p>
         <p>"Send a test" includes the AMP version.</p>
       </div>
     </div>
@@ -238,14 +239,14 @@ function PollResults({ templateId }: { templateId: number }) {
       {q.data && polls.length === 0 && <p className="xs muted">Results show here for the saved version's polls.</p>}
       {polls.map(([id, p]) => (
         <div key={id} className="amp-result">
-          <p className="small"><strong>{p.question}</strong> <span className="xs muted">({id}, {p.total.toLocaleString("en-IN")} {p.total === 1 ? "vote" : "votes"})</span></p>
+          <p className="small"><strong>{p.question}</strong> <span className="xs muted">({id}, <ContactCount value={p.total} filters={[["amp_poll", `${templateId}/${id}`]]} /> {p.total === 1 ? "vote" : "votes"})</span></p>
           <table className="table">
             <thead><tr><th>Answer</th><th style={{ textAlign: "right" }}>Votes</th><th style={{ width: "40%" }}>Share</th></tr></thead>
             <tbody>
               {p.items.map((it) => (
                 <tr key={it.label}>
                   <td>{it.label}</td>
-                  <td style={{ textAlign: "right" }}>{it.count.toLocaleString("en-IN")}</td>
+                  <td style={{ textAlign: "right" }}><ContactCount value={it.count} filters={[["amp_poll", `${templateId}/${id}`], ["answer", it.label]]} /></td>
                   <td><div className="amp-share"><div style={{ width: `${it.percent}%` }} /></div><span className="xs muted">{it.percent}%</span></td>
                 </tr>
               ))}
@@ -454,7 +455,7 @@ function BlockForm({ b, set }: { b: AmpBlock; set: (p: Partial<AmpBlock>) => voi
           </div>
           <label className="check"><input type="checkbox" checked={!!b.show_results} onChange={(e) => set({ show_results: e.target.checked || undefined })} />Show everyone's results after voting</label>
           <SubmitTexts b={b} set={set} submit="Vote" success="Thanks for voting!" />
-          <p className="xs muted">Each vote is recorded as the event <code>amp_poll_answered</code> (with the answer), so you can build segments and journeys on it.</p>
+          <p className="xs muted">Each vote is recorded as the event <code>amp_poll_answered</code> (with the answer), so you can build segments and campaigns on it.</p>
         </>
       );
     }
@@ -464,7 +465,7 @@ function BlockForm({ b, set }: { b: AmpBlock; set: (p: Partial<AmpBlock>) => voi
           <Field label="Title (optional)"><TemplatedInput label="Form title" value={b.text ?? ""} onChange={(text) => set({ text })} /></Field>
           <FormFields fields={b.fields ?? []} onChange={(fields) => set({ fields })} />
           <SubmitTexts b={b} set={set} submit="Send" success="Thanks! We got your answer." />
-          <p className="xs muted">Each answer is recorded as the event <code>amp_form_submitted</code> with the fields' saved names, so you can build segments and journeys on it.</p>
+          <p className="xs muted">Each answer is recorded as the event <code>amp_form_submitted</code> with the fields' saved names, so you can build segments and campaigns on it.</p>
         </>
       );
   }

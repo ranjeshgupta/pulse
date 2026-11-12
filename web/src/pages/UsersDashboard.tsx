@@ -11,6 +11,8 @@ import {
   sourceLabel, sourceOptions, ticks, usersCsvName, usersCsvRows, usersPath, type BreakdownRow, type Platform,
 } from "../usersDash";
 import "./dashboards.css";
+import { ContactCount } from "../ContactCount";
+import { activeFilters, addDays, type ContactFilter } from "../contactLinks";
 
 type Line = "dau" | "wau" | "mau";
 const LINES: { key: Line; label: string; title: string }[] = [
@@ -83,25 +85,28 @@ export function UsersDashboard() {
         <p className="muted small dash-wait">{path ? (q.error ? "" : "Counting active users…") : "Fix the dates above to see users."}</p>
       ) : (
         <div className={`dash-body${stale ? " stale" : ""}`} aria-busy={stale}>
-          <Report d={d} filtered={platform !== "" || source !== null} />
+          <Report d={d} filtered={platform !== "" || source !== null} platform={platform} source={source} />
         </div>
       )}
     </div>
   );
 }
 
-function Report({ d, filtered }: { d: UsersAnswer; filtered: boolean }) {
+function Report({ d, filtered, platform, source }: { d: UsersAnswer; filtered: boolean; platform: string; source: string | null }) {
   const r = d.report;
+  // M7: the people behind each number. DAU / WAU / MAU are the 1 / 7 / 30 days ending on the last day.
+  const to = d.to.slice(0, 10);
+  const act = (from: string, kind = "any", p = platform, src = source) => activeFilters(kind, from, to, p, src);
   return (
     <>
       <div className="figures dash-figures">
-        <div title="Active on the last day of the range"><strong>{count(r.dau)}</strong><span>DAU</span></div>
-        <div title="Active in the 7 days ending on the last day"><strong>{count(r.wau)}</strong><span>WAU</span></div>
-        <div title="Active in the 30 days ending on the last day"><strong>{count(r.mau)}</strong><span>MAU</span></div>
+        <div title="Active on the last day of the range"><strong><ContactCount value={r.dau} filters={act(to)} /></strong><span>DAU</span></div>
+        <div title="Active in the 7 days ending on the last day"><strong><ContactCount value={r.wau} filters={act(addDays(to, -6))} /></strong><span>WAU</span></div>
+        <div title="Active in the 30 days ending on the last day"><strong><ContactCount value={r.mau} filters={act(addDays(to, -29))} /></strong><span>MAU</span></div>
         <div title="Average DAU over the last 30 days ÷ MAU"><strong>{pct(r.stickiness)}</strong><span>stickiness</span></div>
-        <div><strong>{count(r.active)}</strong><span>active in range</span></div>
-        {!filtered && <div title="First active in the range"><strong>{count(r.new)}</strong><span>new</span></div>}
-        {!filtered && <div title="Active in the range and seen before it"><strong>{count(r.returning)}</strong><span>returning</span></div>}
+        <div><strong><ContactCount value={r.active} filters={act(d.from.slice(0, 10))} /></strong><span>active in range</span></div>
+        {!filtered && <div title="First active in the range"><strong><ContactCount value={r.new} filters={act(d.from.slice(0, 10), "new")} /></strong><span>new</span></div>}
+        {!filtered && <div title="Active in the range and seen before it"><strong><ContactCount value={r.returning} filters={act(d.from.slice(0, 10), "returning")} /></strong><span>returning</span></div>}
       </div>
       <p className="xs faint dash-period">
         {longDay(d.from)} to {longDay(d.to)} (UTC days) · Updated {updatedAt(d.computed_at)}
@@ -122,8 +127,8 @@ function Report({ d, filtered }: { d: UsersAnswer; filtered: boolean }) {
       )}
 
       <div className="dash-grid section">
-        <BreakdownPanel title="By platform" first="Platform" rows={breakdown(r.by_platform, r.active, platformLabel)} />
-        <BreakdownPanel title="By UTM source" first="Source" rows={breakdown(r.by_source, r.active, sourceLabel)} />
+        <BreakdownPanel title="By platform" first="Platform" rows={breakdown(r.by_platform, r.active, platformLabel)} link={(k) => act(d.from.slice(0, 10), "any", k)} />
+        <BreakdownPanel title="By UTM source" first="Source" rows={breakdown(r.by_source, r.active, sourceLabel)} link={(k) => act(d.from.slice(0, 10), "any", platform, k)} />
       </div>
       <p className="xs muted dash-note">
         Counts people active in the range. Someone who used several platforms, or came from several sources, counts once in each, so shares can add up to more than 100%.
@@ -260,7 +265,7 @@ function XAxis({ days }: { days: { day: string }[] }) {
 
 // ---- tables ----
 
-function BreakdownPanel({ title, first, rows }: { title: string; first: string; rows: BreakdownRow[] }) {
+function BreakdownPanel({ title, first, rows, link }: { title: string; first: string; rows: BreakdownRow[]; link: (key: string) => ContactFilter[] }) {
   return (
     <section className="panel">
       <div className="panel-head"><h3>{title}</h3></div>
@@ -278,7 +283,7 @@ function BreakdownPanel({ title, first, rows }: { title: string; first: string; 
             <tbody>{rows.map((r) => (
               <tr key={r.key}>
                 <th scope="row" className={r.key === "" ? "muted" : ""}>{r.label}</th>
-                <td className="num">{count(r.count)}</td>
+                <td className="num"><ContactCount value={r.count} filters={link(r.key)} /></td>
                 <td><ShareBar value={r.share} /></td>
               </tr>
             ))}</tbody>

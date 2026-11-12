@@ -101,7 +101,7 @@ suite("describe", () => {
   it("sums up specs in a line", () => {
     expect(describe(PRESETS[0].spec)).toBe("Sum of amount of purchase, by sku · bars");
     expect(describe(PRESETS[1].spec)).toBe("Count of purchase, per day · line");
-    expect(describe(PRESETS[2].spec)).toBe("Messages from broadcasts via Email, by broadcast or journey · bars");
+    expect(describe(PRESETS[2].spec)).toBe("Messages from one-time campaigns via Email, by campaign · bars");
     expect(describe(PRESETS[3].spec)).toBe("Contacts, by geo_country · bars");
     expect(describe({ source: "contacts", metric: { type: "avg", key: "points" }, group_by: { type: "none" }, chart: "table", where: [{ prop: "plan", op: "eq", value: "pro" }] }))
       .toBe("Average points (1 filter) · total");

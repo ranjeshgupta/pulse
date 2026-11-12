@@ -37,7 +37,7 @@ export function Revenue() {
     <div className="page">
       <PageHead
         title="Revenue"
-        intro="See how much your purchases bring in, and which broadcasts, journeys and UTM campaigns led to them."
+        intro="See how much your purchases bring in, and which campaigns and UTM campaigns (from your ads and links) led to them."
       />
 
       <section className="panel revenue-controls">
@@ -124,12 +124,12 @@ function Report({ report: r, ready, stale }: { report?: RevenueReport; ready: bo
       </p>
 
       <CreditTable
-        title="Broadcasts and journeys"
+        title="Campaigns"
         hint={`A touch is the contact opening or clicking one of their messages in the ${days(r.window_days)} before the purchase.`}
-        empty="No purchases in this period came after the buyer opened or clicked a broadcast or journey message within the window."
+        empty="No purchases in this period came after the buyer opened or clicked a campaign message within the window."
         attribution={r.messages}
         report={r}
-        lead={["Broadcast or journey"]}
+        lead={["Campaign"]}
         cells={(c) => [
           <>
             {creditLink(c) ? <Link to={creditLink(c)!}>{creditLabel(c)}</Link> : creditLabel(c)}

@@ -5,6 +5,7 @@ import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Form, type FormField, 
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast, useCopy } from "../ui";
 import { DEFAULT_FILE_MB, formPages, layoutProblems, MAX_FILE_MB, UPLOAD_KINDS, uploadOf } from "./formPages";
 import "./forms.css";
+import { ContactCount } from "../ContactCount";
 
 const TYPE_LABEL: Record<FormFieldType, string> = {
   text: "Short text", email: "Email", tel: "Phone", number: "Number", textarea: "Long text",
@@ -602,7 +603,7 @@ function Submissions({ id }: { id: string }) {
       <div className="figures" style={{ marginTop: 0 }}>
         <div><strong><LiveNumber value={st?.total ?? 0} /></strong><span>in total</span></div>
         <div><strong><LiveNumber value={st?.last_30_days ?? 0} /></strong><span>last 30 days</span></div>
-        <div><strong><LiveNumber value={st?.contacts ?? 0} /></strong><span>unique contacts</span></div>
+        <div><strong><ContactCount live value={st?.contacts ?? 0} filters={[["form", id]]} /></strong><span>unique contacts</span></div>
       </div>
       {st && st.total === 0 ? (
         <p className="muted small" style={{ marginTop: 14 }}>No submissions yet. They show up here within seconds.</p>

@@ -147,7 +147,7 @@ describe("links and CSV", () => {
     expect(h("Open rate", rows[1])).toBe("50%");
     expect(h("Conversion rate", rows[1])).toBe("5.0%");
     expect(h("Tags", rows[1])).toBe("a | b");
-    expect(h("Type", rows[2])).toBe("Trigger based");
+    expect(h("Type", rows[2])).toBe("Triggered");
     expect(h("Delivery rate", rows[2])).toBe("not reported");
     expect(h("Open rate of", rows[2])).toBe("sent");
     expect(h("Click rate", rows[2])).toBe("0%");

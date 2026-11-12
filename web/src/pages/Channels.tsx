@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type SandboxMessage } from "../api";
+import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type ProviderField, type SandboxMessage } from "../api";
 import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
@@ -22,7 +22,7 @@ export function Channels() {
 
   return (
     <div className="page">
-      <PageHead title="Channels" intro="Where each channel's messages go out. Every channel uses its default provider; use the sandbox to try journeys without sending anything real." />
+      <PageHead title="Channels" intro="Where each channel's messages go out. A provider is the service that delivers the messages (an SMTP server, an SMS gateway, WhatsApp…). Each channel sends through its default provider; the sandbox provider sends nothing real and shows messages in the Test inbox." />
       <ErrorNote error={cat.error ?? list.error} />
       {PROVIDER_CHANNELS.map((ch) => {
         const mine = providers.filter((p) => p.channel === ch);
@@ -34,16 +34,16 @@ export function Channels() {
             </div>
             {mine.length === 0 ? (
               <div className="panel-body small muted">
-                {ch === "email" ? "Using the server's SMTP relay. Add a provider to send through your own." : `No provider yet, so ${CHANNEL_NAMES[ch]} steps in journeys fail with "no provider configured".`}
+                {ch === "email" ? "Using the server's SMTP relay. Add a provider to send through your own." : `No provider yet, so ${CHANNEL_NAMES[ch]} messages in campaigns fail with "no provider configured".`}
               </div>
             ) : (
-              <table className="table">
+              <div className="table-scroll"><table className="table">
                 <tbody>{mine.map((p) => (
                   <tr key={p.id}>
                     <td style={{ width: "24%" }}><strong>{p.name}</strong><div className="xs muted">{kinds.find((k) => k.id === p.provider)?.name ?? p.provider}</div></td>
                     <td>{p.is_default ? <span className="badge ok">Default</span> : <span className="badge">Standby</span>}</td>
                     <td className="small" style={{ minWidth: 210 }}><LimitsSummary p={p} /></td>
-                    <td className="xs muted">{p.webhook_url && <>Delivery reports: <code>{p.webhook_url}</code></>}</td>
+                    <td className="xs muted" style={{ overflowWrap: "anywhere", minWidth: 180 }}>{p.webhook_url && <>Delivery reports (give this address to the provider): <code>{p.webhook_url}</code></>}</td>
                     <td className="num"><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       {canLimit && <button className="btn sm" onClick={() => setLimiting(p)}>Limits</button>}
                       {admin && <button className="btn sm" onClick={() => setTesting(p)}>Send test</button>}
@@ -51,7 +51,7 @@ export function Channels() {
                     </div></td>
                   </tr>
                 ))}</tbody>
-              </table>
+              </table></div>
             )}
           </section>
         );
@@ -74,9 +74,18 @@ export function Channels() {
   );
 }
 
+/** orderKinds lists provider kinds as the form offers them: services first, the custom gateway, then the sandbox. */
+export function orderKinds<T extends { id: string }>(kinds: T[]): T[] {
+  const rank = (k: T) => (k.id.startsWith("sandbox") ? 2 : k.id.startsWith("http_") ? 1 : 0);
+  return [...kinds].sort((a, b) => rank(a) - rank(b));
+}
+
 function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel; provider?: Provider; kinds: ProviderKind[]; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
+  // M7: the usual choices first (SMTP and presets, the services), then the custom gateway, then
+  // the sandbox; a new provider starts on the first of them, not the most technical one.
+  kinds = orderKinds(kinds);
   const [kindId, setKindId] = useState(provider?.provider ?? kinds.find((k) => !k.id.startsWith("sandbox"))?.id ?? kinds[0]?.id);
   const kind = kinds.find((k) => k.id === kindId);
   const [name, setName] = useState(provider?.name ?? "");
@@ -85,6 +94,9 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
   const [isDefault, setDefault] = useState(provider?.is_default ?? true);
   const setKey = (k: string, v: string) => setConfig((c) => ({ ...c, [k]: v }));
   const custom = config.mode === "custom";
+  // The gateway's address and signing secret are needed for its standard request (the custom
+  // request has its own address and no signature), so they aren't "optional" there.
+  const requiredNow = (f: ProviderField): ProviderField => (kind?.custom_request && !custom && (f.key === "url" || f.key === "signing_secret") ? { ...f, required: true } : f);
   const moved = !!provider && hostsChanged(provider.config, config);
 
   const save = useMutation({
@@ -124,13 +136,13 @@ function ProviderForm({ channel, provider, kinds, onClose }: { channel: Channel;
       )}
       <Field label="Name in Pulse"><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
       {kind?.config.filter((f) => !(custom && f.key === "url")).map((f) => (
-        <ConfigField key={f.key} f={f} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />
+        <ConfigField key={f.key} f={requiredNow(f)} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />
       ))}
       {kind?.custom_request && custom && <CustomRequestEditor channel={channel} config={config} setConfig={setKey} />}
       {kind?.auth && <AuthEditor config={config} setConfig={setKey} secrets={secrets} setSecret={(k, v) => setSecrets({ ...secrets, [k]: v })} saved={!!provider?.has_secrets && !moved} />}
       {provider && moved && <div className="alert info" style={{ marginBottom: 12 }}>An endpoint's host changed: the saved secrets will be cleared, so enter every secret again.</div>}
       {kind?.secrets.filter((f) => !(custom && f.key === "signing_secret") && !(!custom && f.key === "receipt_token" && kind.custom_request)).map((f) => (
-        <Field key={f.key} label={f.label + (f.required ? "" : " (optional)")} hint={<>{f.hint && <>{f.hint} </>}{provider?.has_secrets && !moved ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}</>}>
+        <Field key={f.key} label={f.label + (requiredNow(f).required ? "" : " (optional)")} hint={<>{f.hint && <>{f.hint} </>}{provider?.has_secrets && !moved ? "Stored encrypted. Leave empty to keep the saved value." : "Stored encrypted; never shown again."}</>}>
           {f.key.includes("json")
             ? <textarea className="textarea code" value={secrets[f.key] ?? ""} placeholder={f.placeholder ?? "Paste the service account JSON"} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />
             : <input className="input" type="password" autoComplete="off" value={secrets[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setSecrets({ ...secrets, [f.key]: e.target.value })} />}
@@ -222,7 +234,7 @@ function DeliveryRulesPanel({ admin }: { admin: boolean }) {
           <Field label="Reply tracking address" hint="e.g. replies@inbound.example.com — point this domain's MX at your email provider's inbound parse, and its webhook at the Reply webhook URL shown under Bounces">
             <input className="input" type="email" value={rules.reply_to ?? ""} placeholder="replies@inbound.example.com" onChange={(e) => edit({ reply_to: e.target.value.trim() || undefined })} />
           </Field>
-          <p className="xs muted" style={{ marginTop: -6, marginBottom: 14 }}>Journey emails use it as their Reply-To, so a "Replies to email" decision can see who answered.</p>
+          <p className="xs muted" style={{ marginTop: -6, marginBottom: 14 }}>Emails from triggered and automation campaigns use it as their Reply-To, so a "Replies to email" decision can see who answered.</p>
           {admin && <button className="btn primary" disabled={!r || save.isPending} onClick={() => save.mutate()}>Save delivery rules</button>}
         </fieldset>
       </div>
@@ -312,7 +324,7 @@ function BouncesPanel() {
         )}
         {q.data?.reply_url && (
           <>
-            <p className="small muted" style={{ marginBottom: 8 }}>Reply webhook URL: point your email provider's inbound parse here so replies to journey emails are recorded (set the reply tracking address under Delivery rules).</p>
+            <p className="small muted" style={{ marginBottom: 8 }}>Reply webhook URL: point your email provider's inbound parse here so replies to campaign emails are recorded (set the reply tracking address under Delivery rules).</p>
             <div className="row" style={{ marginBottom: 16, flexWrap: "nowrap" }}>
               <code style={{ background: "var(--porcelain)", border: "1px solid var(--rule)", borderRadius: "var(--r-sm)", padding: "6px 10px", wordBreak: "break-all", flex: 1 }}>{q.data.reply_url}</code>
               <button className="btn sm" onClick={() => copy(q.data!.reply_url!)}>Copy</button>

@@ -3,8 +3,9 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Company, type Contact } from "../api";
 import { attrsFromRows, companyProblems, rowsFromAttrs, type AttrRow } from "../accounts";
-import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import "./companies.css";
+import { ContactCount } from "../ContactCount";
 
 /** Companies for pickers (segment builder, contact drawer): the first 200 by name. */
 export function useCompanyOptions() {
@@ -57,7 +58,7 @@ export function CompanyList() {
                   <td><Link to={`/companies/${c.id}`}>{c.name}</Link></td>
                   <td>{c.domain || <span className="faint">none</span>}</td>
                   <td className="muted small company-attr-summary">{Object.entries(c.attrs).map(([k, v]) => `${k}: ${String(v)}`).join(", ")}</td>
-                  <td className="num"><LiveNumber value={c.members} /></td>
+                  <td className="num"><ContactCount live value={c.members} filters={[["company", c.id]]} /></td>
                   <td className="muted">{timeAgo(c.updated_at)}</td>
                 </tr>
               ))}
@@ -159,7 +160,7 @@ export function CompanyDetail() {
           <aside className="panel" style={{ position: "sticky", top: 20 }}>
             <div className="panel-body">
               <p className="small muted">Contacts at this company</p>
-              <div className="preview-count">{company ? <LiveNumber value={company.members} /> : "…"}</div>
+              <div className="preview-count">{company ? <ContactCount live value={company.members} filters={[["company", company.id]]} /> : "…"}</div>
               <p className="xs muted" style={{ marginTop: 10 }}>Segment on it with the “Company” filter, or on its fields with “Company name” and “Other company field”.</p>
             </div>
           </aside>

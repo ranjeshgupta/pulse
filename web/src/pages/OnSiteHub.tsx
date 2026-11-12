@@ -60,7 +60,7 @@ export function OnSiteList() {
   return (
     <div className="page">
       <PageHead
-        title="On-site & in-app"
+        title="Website & app messages"
         intro="Messages shown inside your website (pop-ups, banner bars, slide-ins and dynamic content) and your mobile apps (in-app messages), targeted by segment, page or app event."
         actions={canEdit && <button className="btn primary" onClick={() => setCreating(true)}>New</button>}
       />
@@ -92,7 +92,7 @@ export function OnSiteList() {
         ) : (
           <div className="table-scroll">
             <table className="table">
-              <thead><tr><th>Name</th><th>Channel</th><th>Type</th><th>Schedule</th><th>Status</th><th className="num">Shown · CTR</th></tr></thead>
+              <thead><tr><th>Name</th><th>Channel</th><th>Type</th><th>Schedule</th><th>Status</th><th className="num" title="In-app messages: people who saw it, and the share who clicked">Seen by · clicked</th></tr></thead>
               <tbody>{shown.map((r) => (
                 <tr key={r.key}>
                   <td><Link to={r.href}>{r.name}</Link></td>
@@ -108,7 +108,7 @@ export function OnSiteList() {
         )}
       </div>
       <p className="xs muted" style={{ marginTop: 10 }}>
-        Websites show these through the Pulse web SDK (<code>POST /v1/web/decide</code>); apps through the Android, iOS or Flutter SDK (<code>POST /v1/web/inapp</code>). In-app shown and clicked count unique contacts.
+        Your website shows these through the Pulse website snippet, and your apps through the Pulse app SDK (Android, iOS or Flutter): no other code is needed. "Seen by" counts people, each once.
       </p>
     </div>
   );
@@ -252,7 +252,7 @@ function KindOrder({ kind, ids, byId, canEdit, onChange }: { kind: FocusKind; id
       {overlap.data && (
         <div style={{ marginTop: 10 }}>
           <p className="xs muted" style={{ marginBottom: 6 }}>Published {KIND_PLURAL[kind].toLowerCase()} only, in the order above.</p>
-          <OverlapView o={overlap.data.o} noun="item" stale={overlap.data.key !== live.join()} />
+          <OverlapView o={overlap.data.o} noun="item" stale={overlap.data.key !== live.join()} audiences={live.map((id) => byId.get(id)?.targeting ?? {})} />
         </div>
       )}
     </section>

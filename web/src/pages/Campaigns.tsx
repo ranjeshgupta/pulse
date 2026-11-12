@@ -2,15 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  api, CHANNEL_NAMES, CHANNELS, type Broadcast, type CampaignCategory, type CampaignRow, type Channel, type Repeat, type Segment, type Template,
+  api, CHANNEL_NAMES, CHANNELS, type Broadcast, type CampaignCategory, type CampaignRow, type Channel, type Journey, type Repeat, type Segment, type Template,
 } from "../api";
 import { useCan } from "../auth";
-import { CATEGORIES, describeDeadline, stepProblem, WIZARD_STEPS, type WizardState, type WizardStep } from "../campaigns";
+import { CAMPAIGN_GOALS, CATEGORIES, describeDeadline, newCampaignHref, stepProblem, WIZARD_STEPS, type WizardState, type WizardStep } from "../campaigns";
+import { ContactCount } from "../ContactCount";
+import { outcomeFilters } from "../contactLinks";
+import { listActions, type ListAction } from "../journeyGraph";
 import { AudienceEstimate, DeadlineFields, TagEditor } from "../campaignUI";
 import { initialEmailMode, replacesLayout, type EmailMode } from "../editorModes";
 import { TestSendModal } from "../messagePreview";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
-import { ChannelLabel, Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
+import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, Status, STATUS_TEXT, timeAgo, useToast } from "../ui";
 import { PersonalizeScopeProvider } from "../VarPicker";
 import { browserZone, localClock } from "./Broadcasts";
 import type { EmailBuilderHandle } from "./EmailBuilder";
@@ -26,23 +29,30 @@ function schedule(r: CampaignRow): string {
     if (r.status === "scheduled" && r.next_run_at) return `${REPEAT_LABEL[r.repeat ?? "none"]}, next ${fmt(r.next_run_at)}`;
     return REPEAT_LABEL[r.repeat ?? "none"];
   }
-  const by = r.trigger === "event" ? `On ${r.trigger_event}` : r.trigger === "form" ? "On a form" : "On joining the segment";
+  const by = r.trigger === "event" ? `When someone does ${r.trigger_event}` : r.trigger === "form" ? "When someone submits a form" : "When someone joins the segment";
   return r.end_at ? `${by}, until ${fmt(r.end_at)}` : by;
 }
 
 const href = (r: CampaignRow) => (r.kind === "broadcast" ? `/broadcasts/${r.id}` : `/journeys/${r.id}`);
 
-/** CampaignHub lists everything that sends: one-time campaigns (broadcasts), trigger-based and automation journeys. */
+/** CampaignHub is the one place for campaigns: one-time, triggered and automation, with what
+ * each type means, a "New campaign" chooser by goal, and the journeys' progress and actions. */
 export function CampaignHub() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") ?? "") as CampaignCategory | "";
-  const nav = useNavigate();
+  const qc = useQueryClient();
+  const toast = useToast();
   const canBroadcast = useCan("broadcasts", "edit");
   const canJourney = useCan("journeys", "edit");
+  const canPublishJourney = useCan("journeys", "publish");
+  const canViewJourneys = useCan("journeys", "view");
+  const [choosing, setChoosing] = useState(params.get("new") === "1");
   const qs = new URLSearchParams();
   if (tab) qs.set("category", tab);
   for (const k of ["status", "channel", "tag", "q"]) { const v = params.get(k); if (v) qs.set(k, v); }
   const q = useQuery({ queryKey: ["campaigns", qs.toString()], queryFn: () => api.get<{ campaigns: CampaignRow[]; counts: Record<CampaignCategory, number> }>(`/v1/campaigns?${qs}`), refetchInterval: 10_000 });
+  const journeys = useQuery({ queryKey: ["journeys"], queryFn: () => api.get<{ journeys: Journey[] }>("/v1/journeys"), enabled: canViewJourneys, refetchInterval: 10_000 });
+  const jById = new Map((journeys.data?.journeys ?? []).map((j) => [j.id, j]));
   const tags = useQuery({ queryKey: ["campaign-tags"], queryFn: () => api.get<{ tags: string[] }>("/v1/campaigns/tags") });
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
   const [search, setSearch] = useState(params.get("q") ?? "");
@@ -51,32 +61,50 @@ export function CampaignHub() {
   const counts = q.data?.counts;
   const total = counts ? counts.one_time + counts.trigger + counts.automation : undefined;
   const filtered = !!(params.get("status") || params.get("channel") || params.get("tag") || params.get("q"));
+  const canCreate = canBroadcast || canJourney;
+  const current = CATEGORIES.find((c) => c.key === tab);
+
+  const act = useMutation({
+    mutationFn: ({ j, action }: { j: Journey; action: ListAction }) => action === "delete"
+      ? api.del(`/v1/journeys/${j.id}`) : api.post(`/v1/journeys/${j.id}/${action === "archive" ? "archive" : "unarchive"}`),
+    onSuccess: (_, { j, action }) => {
+      qc.invalidateQueries({ queryKey: ["journeys"] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+      toast({ text: action === "delete" ? `Deleted ${j.name}` : action === "archive" ? `Archived ${j.name}` : `Restored ${j.name}` });
+    },
+    onError: (e) => toast({ text: (e as Error).message, error: true }),
+  });
+  const run = (j: Journey, action: ListAction) => {
+    const ask = action === "delete" ? `Delete "${j.name}"? This can't be undone.`
+      : action === "archive" ? `Archive "${j.name}"? It's hidden from this list (choose the Archived status to see it); its history and reports are kept, and you can restore it.` : null;
+    if (!ask || confirm(ask)) act.mutate({ j, action });
+  };
+
   return (
     <div className="page">
       <PageHead
         title="Campaigns"
-        intro="Everything that sends, in one place. One-time campaigns go to a segment on a schedule; trigger-based journeys start when a contact does something; automations start when a contact joins a segment."
-        actions={<>
-          {canJourney && <Link className="btn" to="/journeys/new">New journey</Link>}
-          {canBroadcast && (
-            <select className="select inline btn-like" value="" aria-label="New one-time campaign" onChange={(e) => e.target.value && nav(`/campaigns/new/${e.target.value}`)}>
-              <option value="">New one-time campaign…</option>
-              {CHANNELS.map((c) => <option key={c} value={c}>{CHANNEL_NAMES[c]}</option>)}
-            </select>
-          )}
-        </>}
+        intro="Every email, SMS, WhatsApp, RCS, push and app inbox campaign, in one place. Pick a type below to see only those."
+        actions={canCreate && <button className="btn primary" onClick={() => setChoosing(true)}>New campaign</button>}
       />
+      {choosing && <NewCampaignModal canOneTime={canBroadcast} canJourney={canJourney} onClose={() => setChoosing(false)} />}
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === ""} onClick={() => set("tab", "")}>All{total !== undefined ? ` (${total})` : ""}</button>
         {CATEGORIES.map((c) => (
           <button key={c.key} role="tab" aria-selected={tab === c.key} title={c.hint} onClick={() => set("tab", c.key)}>{c.label}{counts ? ` (${counts[c.key]})` : ""}</button>
         ))}
       </div>
+      <p className="small muted hub-type-hint">
+        {current ? <><strong>{current.label}:</strong> {current.hint}</> : <>
+          <strong>One-time</strong> campaigns send one message to a segment. <strong>Triggered</strong> campaigns start when someone does something;
+          <strong> automations</strong> start when someone joins a segment. Triggered campaigns and automations are built as journeys: a flow of messages, waits and checks.
+        </>}
+      </p>
       <div className="row hub-filters">
         <input className="input" style={{ maxWidth: 260 }} type="search" placeholder="Search names and tags" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search campaigns" />
         <select className="select inline" value={params.get("status") ?? ""} onChange={(e) => set("status", e.target.value)} aria-label="Status">
-          <option value="">Any status</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
+          <option value="">Any status (archived hidden)</option>
+          {STATUSES.map((st) => <option key={st} value={st}>{STATUS_WORDS[st]}</option>)}
         </select>
         <select className="select inline" value={params.get("channel") ?? ""} onChange={(e) => set("channel", e.target.value)} aria-label="Channel">
           <option value="">Any channel</option>
@@ -91,31 +119,105 @@ export function CampaignHub() {
       <ErrorNote error={q.error} />
       <div className="panel">
         {rows.length === 0 && !q.isLoading ? (
-          <Empty title={filtered ? "Nothing matches these filters" : "No campaigns yet"} action={canBroadcast ? <Link className="btn primary" to="/campaigns/new/email">Create a one-time email</Link> : undefined}>
-            {filtered ? "Clear the filters to see every campaign." : "Send one message to a segment, or build a journey that reacts to what contacts do."}
+          <Empty title={filtered ? "Nothing matches these filters" : "No campaigns yet"} action={canCreate ? <button className="btn primary" onClick={() => setChoosing(true)}>New campaign</button> : undefined}>
+            {filtered ? "Clear the filters to see every campaign." : "Send one message to a segment, or set up messages that go out when people act."}
           </Empty>
         ) : (
+          <div className="table-scroll">
           <table className="table hub-table">
-            <thead><tr><th>Name</th><th>Type</th><th>Channels</th><th>Status</th><th>Schedule</th><th className="num">Audience</th><th className="num">Sent</th><th>Last activity</th></tr></thead>
-            <tbody>{rows.map((r) => (
-              <tr key={`${r.kind}${r.id}`}>
-                <td>
-                  <Link to={href(r)}>{r.name}</Link>
-                  {r.tags.length > 0 && <div className="row" style={{ gap: 4, marginTop: 4 }}>{r.tags.map((t) => <button key={t} type="button" className="tag-chip tag-link" onClick={() => set("tag", t)} title={`Show campaigns tagged ${t}`}>{t}</button>)}</div>}
-                </td>
-                <td className="small">{CATEGORIES.find((c) => c.key === r.category)?.label}</td>
-                <td><div className="row" style={{ gap: 4 }}>{r.channels.length ? r.channels.map((c) => <ChannelLabel key={c} channel={c} />) : <span className="muted small">None yet</span>}</div></td>
-                <td><Status value={r.status} /></td>
-                <td className="small muted">{schedule(r)}</td>
-                <td className="num">{r.audience === null ? <span className="muted" title="Contacts enter when they do the trigger">—</span> : <LiveNumber value={r.audience} />}</td>
-                <td className="num">{r.sent.toLocaleString("en-IN")}</td>
-                <td className="small muted">{timeAgo(r.last_activity)}</td>
-              </tr>
-            ))}</tbody>
+            <thead><tr>
+              <th>Name</th><th>Type</th><th>Channels</th><th>Status</th><th>When it sends</th>
+              <th className="num" title="One-time and automation: people in the segment now. Triggered campaigns have no fixed audience.">Audience now</th>
+              <th className="num" title="Journeys: people still going through its steps">In progress</th>
+              <th className="num" title="Contacts sent at least one message (all time)">Sent to</th>
+              <th>Last activity</th><th aria-label="Actions" />
+            </tr></thead>
+            <tbody>{rows.map((r) => {
+              const j = r.kind === "journey" ? jById.get(r.id) : undefined;
+              const st = j?.stats?.status ?? {};
+              return (
+                <tr key={`${r.kind}${r.id}`}>
+                  <td>
+                    <Link to={href(r)}>{r.name}</Link>
+                    {r.tags.length > 0 && <div className="row" style={{ gap: 4, marginTop: 4 }}>{r.tags.map((t) => <button key={t} type="button" className="tag-chip tag-link" onClick={() => set("tag", t)} title={`Show campaigns tagged ${t}`}>{t}</button>)}</div>}
+                  </td>
+                  <td className="small" title={CATEGORIES.find((c) => c.key === r.category)?.hint}>{CATEGORIES.find((c) => c.key === r.category)?.label}</td>
+                  <td><div className="row" style={{ gap: 4 }}>{r.channels.length ? r.channels.map((c) => <ChannelLabel key={c} channel={c} />) : <span className="muted small">None yet</span>}</div></td>
+                  <td><Status value={r.status} /></td>
+                  <td className="small muted">{schedule(r)}</td>
+                  <td className="num">{r.audience === null ? <span className="muted" title="Contacts start when they do the trigger">—</span> : <ContactCount live value={r.audience} filters={r.segment_id ? [["in", r.segment_id]] : null} />}</td>
+                  <td className="num">{r.kind === "journey" && j ? <ContactCount live value={(st.active ?? 0) + (st.waiting ?? 0)} filters={[["journey", r.id], ["journey_status", "in_progress"]]} /> : <span className="faint">—</span>}</td>
+                  <td className="num"><ContactCount value={r.sent} filters={outcomeFilters(r.kind, r.id, "sent")} /></td>
+                  <td className="small muted">{timeAgo(r.last_activity)}</td>
+                  <td className="row-actions">
+                    {(r.kind === "broadcast" ? canBroadcast : canJourney) && <DuplicateLink r={r} />}
+                    {j && listActions(j).map((a) => (a === "delete" ? canJourney : canPublishJourney) && (
+                      <button key={a} className={`btn ghost sm${a === "delete" ? " danger" : ""}`} disabled={act.isPending} onClick={() => run(j, a)}>
+                        {a === "delete" ? "Delete" : a === "archive" ? "Archive" : "Restore"}
+                      </button>
+                    ))}
+                  </td>
+                </tr>
+              );
+            })}</tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
+  );
+}
+
+const STATUS_WORDS = STATUS_TEXT;
+
+/** DuplicateLink copies a campaign as a draft and opens the copy. */
+function DuplicateLink({ r }: { r: CampaignRow }) {
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const dup = useMutation({
+    mutationFn: () => api.post<{ id: number }>(`/v1/${r.kind === "broadcast" ? "broadcasts" : "journeys"}/${r.id}/duplicate`),
+    onSuccess: (x) => {
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+      qc.invalidateQueries({ queryKey: ["journeys"] });
+      toast({ text: "Copy created as a draft" });
+      nav(r.kind === "broadcast" ? `/broadcasts/${x.id}` : `/journeys/${x.id}`);
+    },
+    onError: (e) => toast({ text: (e as Error).message, error: true }),
+  });
+  return <button className="btn ghost sm" disabled={dup.isPending} onClick={() => dup.mutate()}>Duplicate</button>;
+}
+
+/** NewCampaignModal asks what the marketer wants to do, then (one-time) on which channel. */
+export function NewCampaignModal({ canOneTime, canJourney, onClose }: { canOneTime: boolean; canJourney: boolean; onClose: () => void }) {
+  const nav = useNavigate();
+  const [goal, setGoal] = useState<CampaignCategory | null>(null);
+  const goals = CAMPAIGN_GOALS.filter((g) => (g.key === "one_time" ? canOneTime : canJourney));
+  return (
+    <Modal title={goal === "one_time" ? "Which channel?" : "What do you want to do?"} onClose={onClose}>
+      {goal !== "one_time" ? (
+        <div className="goal-list">
+          {goals.map((g) => (
+            <button key={g.key} type="button" className="goal-card" onClick={() => (g.key === "one_time" ? setGoal("one_time") : nav(newCampaignHref(g.key)))}>
+              <strong>{g.title}</strong>
+              <span className="small">{g.text}</span>
+              <span className="xs muted">For example: {g.examples}</span>
+              <span className="xs faint">{CATEGORIES.find((c) => c.key === g.key)?.label} campaign</span>
+            </button>
+          ))}
+          {goals.length < CAMPAIGN_GOALS.length && <p className="xs muted">Your role can't create the other types.</p>}
+        </div>
+      ) : (
+        <div className="goal-list">
+          {CHANNELS.map((c) => (
+            <button key={c} type="button" className="goal-card goal-channel" onClick={() => nav(newCampaignHref("one_time", c))}>
+              <ChannelLabel channel={c} />
+            </button>
+          ))}
+          <button type="button" className="btn ghost sm" onClick={() => setGoal(null)}>Back</button>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -274,10 +376,11 @@ export function OneTimeWizard() {
     <PersonalizeScopeProvider value={{ event: scopeEvent || undefined, channel: s.channel }}>
     <div className="page" style={step === "content" && s.channel === "email" ? { maxWidth: "none" } : undefined}>
       <PageHead
-        back={<Link className="back" to="/campaigns?tab=one_time">Campaigns</Link>}
+        back={<Link className="back" to="/campaigns?tab=one_time">Campaigns · One-time</Link>}
         title={s.name || `New one-time ${CHANNEL_NAMES[s.channel]} campaign`}
         actions={<>
           {status && <Status value={status} />}
+          {editing && <Link className="btn ghost" to={`/broadcasts/${id}`} title="A/B tests, conversion goal, results">All settings and results</Link>}
           {!live && <button className="btn" disabled={busy || !s.name.trim() || s.include.length === 0} title={!s.name.trim() || s.include.length === 0 ? "Name it and choose an audience first" : undefined} onClick={() => draft.mutate()}>Save draft</button>}
         </>}
       />

@@ -140,6 +140,8 @@ type Field struct {
 	Hint string `json:"hint,omitempty"`
 	// Options limits the value to a list (the form shows a select).
 	Options []string `json:"options,omitempty"`
+	// OptionLabels name options for people (M7: the form showed raw values like "oauth2").
+	OptionLabels map[string]string `json:"option_labels,omitempty"`
 }
 
 // Kind is one provider type in the catalog.

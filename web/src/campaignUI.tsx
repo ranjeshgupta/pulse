@@ -7,6 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { api, CHANNEL_NAMES, type Channel, type Deadline, type Estimate, type SegmentReach, type TestContact } from "./api";
 import { deadlineProblem, describeDeadline, estimateSteps, normalizeTags, suggestTags, tagProblem } from "./campaigns";
 import { ErrorNote, Field, useToast } from "./ui";
+import { ContactCount } from "./ContactCount";
+import { estimateFilters } from "./contactLinks";
 
 const n = (v: number) => v.toLocaleString("en-IN");
 
@@ -97,12 +99,12 @@ export function AudienceEstimate({ include, exclude, channel, transactional }: {
         {steps.map((s) => (
           <li key={s.key}>
             <span className="estimate-label">{s.label}{s.note && <small className="muted"> ({s.note})</small>}</span>
-            <strong className="num">{n(s.count)}</strong>
+            <strong className="num"><ContactCount value={s.count} filters={estimateFilters(s.key, include, exclude, channel)} /></strong>
             {s.dropped > 0 && <span className="xs muted">−{n(s.dropped)}</span>}
           </li>
         ))}
       </ol>
-      <p className="estimate-total"><strong className="num">{n(e.will_send)}</strong> contacts will get it{e.capped?.approximate ? " (about)" : ""}, if nothing changes before it sends.</p>
+      <p className="estimate-total"><strong className="num"><ContactCount value={e.will_send} filters={estimateFilters(e.capped && e.cap ? "cap" : "reach", include, exclude, channel)} /></strong> contacts will get it{e.capped?.approximate ? " (about)" : ""}, if nothing changes before it sends.</p>
       {!e.ready && <p className="xs muted">Reachability is still being computed for this workspace; the last steps may read low for a few minutes.</p>}
       <p className="xs muted">Counted {new Date(e.computed_at).toLocaleTimeString()} · refreshes every 30 seconds.</p>
     </div>
@@ -122,10 +124,12 @@ export function ReachByChannel({ segmentId, channels, title = "Reachable by chan
       <table className="table compact">
         <thead><tr><th>Channel</th><th className="num">Not unsubscribed</th><th className="num">Reachable</th></tr></thead>
         <tbody>{rows.map((c) => (
-          <tr key={c.channel}><td>{CHANNEL_NAMES[c.channel]}</td><td className="num">{n(c.after_consent)}</td><td className="num"><strong>{n(c.reachable)}</strong></td></tr>
+          <tr key={c.channel}><td>{CHANNEL_NAMES[c.channel]}</td>
+            <td className="num"><ContactCount value={c.after_consent} filters={[["in", segmentId], ["subscribed", c.channel]]} /></td>
+            <td className="num"><strong><ContactCount value={c.reachable} filters={[["in", segmentId], ["reachable", c.channel]]} /></strong></td></tr>
         ))}</tbody>
       </table>
-      <p className="xs muted">Of {n(q.data.size)} members now. Reachable: has an address on the channel (a push device for push), not bounced, not unsubscribed or Do Not Contact.{q.data.ready ? "" : " Still being computed for this workspace."}</p>
+      <p className="xs muted">Of <ContactCount value={q.data.size} filters={[["in", segmentId]]} /> members now. Click a number to see those contacts. Reachable: has an address on the channel (a push device for push), not bounced, not unsubscribed or Do Not Contact.{q.data.ready ? "" : " Still being computed for this workspace."}</p>
     </div>
   );
 }

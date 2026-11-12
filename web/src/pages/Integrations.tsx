@@ -335,7 +335,7 @@ function PullPanel({ id }: { id: string }) {
         </div>
       </div>
       <div className="panel-body">
-        <p className="small muted">Records become <code>crm_synced</code> events on the contact with that email (or a new contact), so segments and journeys react at once. The log below shows each pull.</p>
+        <p className="small muted">Records become <code>crm_synced</code> events on the contact with that email (or a new contact), so segments and campaigns react at once. The log below shows each pull.</p>
         <ErrorNote error={pull.error} />
       </div>
     </section>

@@ -30,9 +30,9 @@ export const PIPES: PipeDef[] = [
 const PIPE_BY_NAME = new Map(PIPES.map((p) => [p.name, p]));
 
 export const CAMPAIGN_VARS: VarItem[] = [
-  { var: "campaign.name", label: "Journey or broadcast name", group: "campaign" },
-  { var: "campaign.id", label: "Journey or broadcast ID", group: "campaign" },
-  { var: "campaign.type", label: "Type (journey, broadcast, test)", group: "campaign" },
+  { var: "campaign.name", label: "Campaign name", group: "campaign" },
+  { var: "campaign.id", label: "Campaign ID", group: "campaign" },
+  { var: "campaign.type", label: "Type: journey (triggered or automation), broadcast (one-time) or test", group: "campaign" },
   { var: "campaign.step", label: "Journey step ID", group: "campaign" },
   { var: "campaign.channel", label: "Channel", group: "campaign" },
   { var: "campaign.template", label: "Template name", group: "campaign" },

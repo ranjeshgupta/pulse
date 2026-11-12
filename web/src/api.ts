@@ -339,7 +339,7 @@ export interface Journey {
 }
 export type Stats = { status: Record<string, number>; node: Record<string, number> };
 
-export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean; default?: string; hint?: string; options?: string[] }
+export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean; default?: string; hint?: string; options?: string[]; option_labels?: Record<string, string> }
 export interface ProviderKind {
   id: string; channel: Channel; name: string; description: string; config: ProviderField[]; secrets: ProviderField[];
   notes?: string; default_limits?: ProviderLimits; auth?: boolean; custom_request?: boolean;
