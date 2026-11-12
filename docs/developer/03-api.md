@@ -76,8 +76,10 @@ email in 15 minutes. Use an API key, not a session, for automation.
 A signed-in user is limited by their role. Each route needs a **level** (view, edit or publish) in
 one **area** (contacts, segments, journeys, broadcasts, content, reports, channels, settings): reads
 need view, changes need edit, and going live (activating journeys, scheduling broadcasts) needs
-publish. Built-in roles: admin (everything), editor (publish everywhere, view on channels and
-settings), viewer (view everywhere except settings). Admins can define custom roles. A few
+publish. The API's area names are the internal ones; the app's Roles page shows `broadcasts` as
+**One-time campaigns** and `journeys` as **Triggered & automation campaigns**. Built-in roles:
+admin (everything), editor (publish everywhere, view on channels and settings), viewer (view
+everywhere except settings). Admins can define custom roles. A few
 settings that amount to all access (SSO, the API key, identity verification, webhooks) need
 **every** admin permission ("full admin" in the index). A route that isn't in the permission table
 needs settings edit, so a new route is never open to everyone by accident.
@@ -297,7 +299,39 @@ curl -s $PULSE/v1/contacts/cust-1001 -H "Authorization: Bearer $KEY"
 ```
 
 `segments` are the IDs of the segments (dynamic and static) the contact is in right now. An unknown
-external ID answers 404. `GET /v1/contacts/{id}/events` returns the latest 100 events.
+external ID answers 404.
+
+### The contact page: profile, messages and events
+
+The app's contact page (`/contacts/{external_id}`) reads three routes, all with contacts view:
+
+```bash
+# Reach per channel, devices, journeys with their current step, activity over 1/7/30/365 days,
+# purchases and products
+curl -s $PULSE/v1/contacts/cust-1001/profile -H "Authorization: Bearer $KEY"
+# {"contact":{…},"reach":[{"channel":"email","address":"asha@example.com","has_address":true,
+#   "opted_out":false,"bounced":false,"reachable":true},…],"devices":[…],"journeys":[{"journey_id":8,
+#   "name":"Welcome series","status":"waiting","step":"opened","current":true,…}],"activity":{…},
+#   "purchases":{"count":3,"total":2497,"currency":"INR",…},"products":[…]}
+
+# Every message sent (or not) to the contact, newest first: one row per message
+curl -s "$PULSE/v1/contacts/cust-1001/messages?limit=50" -H "Authorization: Bearer $KEY"
+# {"messages":[{"message_id":"…","channel":"email","source":"broadcast","source_id":6,
+#   "campaign":"Spring catalogue","status":"bounced","kinds":["sent","bounced"],
+#   "reason_code":"hard_bounce","reason_label":"…","reason":"550 mailbox unavailable",
+#   "opened":false,"clicked":false,"clicks":0,"at":"…","last":"…"},…]}
+
+# The timeline, filtered: names (up to 20), the contact's own activity or what Pulse recorded
+curl -s "$PULSE/v1/contacts/cust-1001/events?name=purchase,add_to_cart&kind=activity&limit=100" \
+  -H "Authorization: Bearer $KEY"
+```
+
+`reach` uses the dispatcher's own rules (an address that works, not bounced, not opted out) and
+says `why` when a channel can't be used. `messages` and `events` page with `before` (RFC 3339) and
+`limit` (default 50 for messages, 100 for events; at most 200). `kind` is `activity` (events that
+count as the contact being active) or `pulse` (outcomes, engagement and bookkeeping Pulse records).
+A message's `campaign` name is filled only for roles that may view that kind of campaign
+(broadcasts or journeys).
 
 ### Tags, points, stage, owner, company
 
@@ -442,7 +476,84 @@ Filtered views run in ClickHouse. The first page carries `count` (exact up to 10
 `approximate: true`) and `rule`: the segment rule the filters compile to, which you can save as a
 dynamic segment with `POST /v1/segments`. Without `q`, pages come from Postgres and carry no count.
 An unknown filter value (a segment that doesn't exist, `is:` with another word) answers 400 with an
-explanation.
+explanation. Words that don't start with a known filter name are free text.
+
+#### The contacts behind a number
+
+Every number the app counts (a segment's size, an estimate step, a campaign's "Opened", a
+dashboard's buyers, an AMP poll's answers…) opens the Contacts list with filters that name exactly
+that set, so the list and the number agree. The same filters work in `q`:
+
+| Filter | Lists |
+|---|---|
+| `in:<segment>` | Members of the segment (name or ID). `in:a,b` = in any of them; several `in:` filters = in all of them. At most 10 segments in all |
+| `not_in:<segment>` | Not in the segment (or `not_in:a,b`: in none of them) |
+| `subscribed:<channel>` | Not unsubscribed from the channel (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`) |
+| `reachable:<channel>` | Not unsubscribed and with a working address on it (the estimate's "Reachable" step) |
+| `under_cap:<channel>` | Not held back by the channel's frequency cap right now |
+| `journey:<id or name>` | Contacts who entered the journey. With `at:<step id>`: now at that step. With `journey_status:` `in_progress`, `completed`, `converted`, `exited`, `active` or `waiting` |
+| `campaign:broadcast/<id>`, `campaign:journey/<id>` | A campaign's contacts. With `outcome:` (default `targeted`), `run:<unix seconds>` (broadcasts), `step:<step id>` (journeys), `reason:<code>` |
+| `outcome:<outcome>` | `targeted`, `sent`, `delivered`, `opened`, `read`, `clicked`, `downloaded`, `bounced`, `hard_bounced`, `soft_bounced`, `complained`, `failed`, `failed_all`, `unsubscribed`, `fallback`, `skipped`, `skipped_consent`, `skipped_reachability`, `skipped_cap`, `skipped_missing_value`, `skipped_deadline`. Without `campaign:` it covers every campaign |
+| `reason:<code>` | A failure or skip [reason code](06-webhooks-and-integrations.md#reason-codes); `outcome:` is then the raw kind (`failed`, `bounced`, `complained`, `suppressed`, `capped`), like the reports' reasons table |
+| `event:<name>`, `no_event:<name>` | Did / didn't do the event (at most 5 event filters). `product:<code>` and `category:<name>` narrow them to one product or category |
+| `active:<any, web, android, ios, other, new, returning>` | Active in the period (the Users dashboard's definition); `utm:<source>` (or `utm:none`) narrows by campaign source. Needs `period:` |
+| `amp_poll:<template id>/<block id>` | Answered the poll in an AMP email; `answer:<text>` for one answer |
+| `form:<id>` | Submitted the form |
+| `period:<from>..<to>` | UTC days, both included, at most 366 (`period:2026-10-01..2026-10-31`); applies to `campaign:`, `outcome:`, `event:`, `active:`, `amp_poll:` and `form:` |
+
+```bash
+# Everyone who opened the "Spring catalogue" broadcast in October
+curl -s -G $PULSE/v1/contacts -H "Authorization: Bearer $KEY" \
+  --data-urlencode 'q=campaign:broadcast/6 outcome:opened period:2026-10-01..2026-10-31'
+```
+
+```json
+{
+  "filters": [{"token": "campaign:broadcast/6", "label": "Campaign “Spring catalogue”"},
+              {"token": "outcome:opened", "label": "Opened"}, {"token": "period:2026-10-01..2026-10-31", "label": "…"}],
+  "text": "",
+  "note": "Counted now from the event log. Contacts merged into another or deleted since aren't listed, so this can be a little lower than the report.",
+  "count": 412, "approximate": false,
+  "contacts": [ … ], "next": "5120"
+}
+```
+
+Filters combine with each other and with the older ones (`tag:`, `is:`…). With any of these
+filters the answer has no `rule` (they aren't segment rules) and carries a `note` saying where the
+list can differ from the number it came from (contacts merged or deleted since; a journey's numbers
+count entries, the list people). Combinations that make no sense are refused with the reason
+(`at: and journey_status: need journey:<id>`, `run: needs campaign:broadcast/<id>`,
+`step: needs campaign:journey/<id>`, `answer: needs amp_poll:<template>/<block>`,
+`product: and category: need event: or no_event:`, `utm: needs active:`,
+`active: needs period:<from>..<to>`, `use outcome: once`…).
+
+How they run: segment, subscription, reach and journey filters are Redis bitmap operations on the
+same bitmaps the counts come from (cached for a minute); outcome, event, activity, poll and form
+filters are ClickHouse queries. A view that has both checks the bitmap's contacts in ClickHouse
+5,000 at a time; its `count` is exact up to 10,000 candidates (50,000 for `under_cap:` alone) and
+sampled above (`approximate: true`). Building these views is limited to 120 a minute per
+workspace (`429 too many contact list filters at once; try again in a minute`).
+
+**Permissions.** A list needs contacts view, plus, for `campaign:broadcast/…` broadcasts view or
+reports view; for `campaign:journey/…` and `journey:` journeys view or reports view; for `outcome:`
+or `reason:` without `campaign:` (every campaign) reports view; for `amp_poll:` and `form:` content
+view or reports view. Otherwise: `400 campaign: your role can't list these contacts (it needs view
+access to …)`.
+
+**Create a segment from a list.** These lists can't be a dynamic segment's rule, so they are saved
+as a static segment holding the list's contacts now:
+
+```bash
+curl -s -X POST $PULSE/v1/contacts/view-segment -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"q":"campaign:broadcast/6 outcome:clicked","name":"Clicked the spring catalogue"}'
+# 202 {"id":31,"contacts":187,"approximate":false}
+```
+
+It needs segments edit, contacts view and whatever each filter needs; up to 500,000 contacts
+(larger lists answer 400: use a dynamic segment or narrow the filters). The segment is created at
+once and filled in the background through `list_joined` events, from a copy of the list taken
+when you asked; it doesn't follow the list afterwards. At most 10 requests a minute and 2 fills
+at a time per workspace (429). A view without any filter answers `400 add a filter first`.
 
 ### Import and export
 
@@ -457,7 +568,7 @@ curl -s -X POST "$PULSE/v1/imports?filename=big.csv&list_id=9" -H "Authorization
   -H "Content-Type: text/csv" --data-binary @big.csv
 # 202 {"bytes":1048576,"id":5,"status":"queued"}
 
-# Export: everything, or a view, with the columns you want (contacts edit access)
+# Export: everything, or a view (any filter above), with the columns you want (contacts edit access)
 curl -s -G $PULSE/v1/contacts/export -H "Authorization: Bearer $KEY" \
   --data-urlencode 'q=tag:vip' --data-urlencode 'columns=first_name,city,plan' -o vip.csv
 ```
@@ -467,7 +578,8 @@ segments and journeys like live data. Values of fields defined as numbers or yes
 (`PUT /v1/attributes/{key}`) are converted, and rows that don't convert are reported in `errors`.
 Re-uploading the same file is harmless: event IDs derive from the content. The export always starts
 with `external_id, email, created_at, updated_at`, then the chosen attributes (every attribute
-without `columns`); cells are defused against spreadsheet formulas.
+without `columns`); cells are defused against spreadsheet formulas. It takes the same `q` as the
+list, with the same permissions for each filter.
 
 ---
 
@@ -594,10 +706,77 @@ curl -s -X POST $PULSE/v1/templates -H "Authorization: Bearer $KEY" -H "Content-
   "content": {"text": "Hi {{contact.first_name | default:\"there\"}}, your {{event.product_name}} is waiting: https://shop.example.com/cart", "track_links": true}}'
 ```
 
-What `content` takes per channel is in `channel.Content` (`internal/channel/channel.go`): WhatsApp
-`template_name`, `language`, `body_params`; RCS `text` or `card`, up to 4 `suggestions`; push and
-inbox `title`, `body`, `image_url`, `url`, `data` (inbox also `expires_days`, `category`); email
-`attachments` (asset IDs). `"transactional": true` skips frequency caps and quiet hours.
+What `content` takes per channel is in `channel.Content` (`internal/channel/channel.go`): SMS
+`text`, `sender_id`, `track_links` and, for India's DLT rules, `dlt_template_id` and
+`dlt_entity_id` (sent by providers that take them, such as Gupshup, instead of the provider's
+defaults); WhatsApp `template_name`, `language`, `body_params`, `header_image_url`; RCS `text` or
+`card`, up to 4 `suggestions`; push and inbox `title`, `body`, `image_url`, `url`, `data` (inbox
+also `expires_days`, `category`); email `attachments` (asset IDs) and the AMP part (below).
+`"transactional": true` skips frequency caps and quiet hours.
+
+### The AMP part of an email
+
+An email template may carry an AMP part (`text/x-amp-html`) next to its HTML: either AMP code in
+`content.amp`, or the visual builder's document in `content.amp_blocks`, from which Pulse builds the
+code on every save (the blocks are then the source; don't send both).
+
+```bash
+curl -s -X POST $PULSE/v1/templates -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "name": "Rate your order", "channel": "email", "subject": "How did we do?", "html": "<p>How did we do?</p>",
+  "content": {"amp_blocks": {"style": {"accent": "#2747d6", "font": "sans"}, "blocks": [
+    {"id": "intro", "type": "text", "text": "Hi {{contact.first_name | default:\"there\"}}, one quick question:"},
+    {"id": "rating", "type": "poll", "text": "How was your delivery?", "options": ["Great", "Fine", "Late"], "show_results": true},
+    {"id": "more", "type": "form", "submit_text": "Send", "success_text": "Thanks!", "fields": [
+      {"key": "size", "label": "Your size", "type": "select", "options": ["S", "M", "L"], "save_to": "shoe_size"}]}]}}}'
+```
+
+Block `type`s: `heading`, `text`, `image` (`image`: `src`, `alt`, `link`, `width`, `height`),
+`button` (`text`, `url`), `carousel` and `gallery` (`items`: images; `height`, `autoplay` seconds),
+`accordion` (`sections`: `title`, `body`), `poll` (`text` = the question, `options`,
+`show_results`) and `form` (`fields`: `key`, `label`, `type` text, email, number, textarea, select
+or checkbox, `required`, `options`, `save_to`; `submit_text`, `success_text`). `style` sets
+`background`, `text`, `accent` and `font` (`sans` or `serif`). A form field's `save_to` copies the
+answer into a contact field: only custom fields, never identity, consent or Pulse's own fields.
+
+Hand-written AMP is checked when saved: the AMP for Email doctype and `<html ⚡4email>`, the
+runtime and boilerplate, only allowed component scripts (each one used must be included), no other
+scripts, event handlers or `javascript:` URLs, no `img`, `iframe`, `video`, `svg`…, one
+`<style amp-custom>` (no `!important`, at most 75,000 bytes), sized https `amp-img`, forms with
+`method="post"` and `action-xhr`, and at most 200 KB. Errors refuse the save with their lines:
+
+```
+400 {"error":"AMP part: line 12: <img>: use <amp-img> with width and height; line 30: …"}
+```
+
+Forms and polls must post to `action-xhr="pulse:submit/<block id>"` (an `amp-list` may read
+`pulse:results/<block id>`); Pulse replaces these per recipient with a signed link to
+`/v1/amp/{token}` (valid 60 days). Pulse variables work in the AMP part as in the HTML, except
+inside amp-mustache `<template>`s, which belong to the email client.
+
+```bash
+# Check code, or build blocks, without saving: problems with lines, size, a script-free preview,
+# and whether each of the workspace's email providers sends AMP
+curl -s -X POST $PULSE/v1/templates/amp/check -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"amp_blocks": {"blocks": [{"id": "rating", "type": "poll", "text": "How was it?", "options": ["Great", "Late"]}]}}'
+# {"amp":"<!doctype html>…","problems":[],"size":4120,"max_size":204800,"preview":"<html>…",
+#  "blocks":[…],"providers":[{"name":"Postmark","amp":false,"note":"Postmark doesn't send AMP email: …"}]}
+
+# Poll results of a saved template, per poll block
+curl -s $PULSE/v1/templates/31/amp/results -H "Authorization: Bearer $KEY"
+# {"polls":{"rating":{"question":"How was your delivery?","total":48,
+#   "items":[{"label":"Great","count":30,"percent":63},…]}}}
+```
+
+`problems` items are `{"line", "message", "warning"}`; warnings (an included component nobody uses)
+don't stop a save. `POST /v1/templates/preview` also returns `amp` (the part as personalised for
+the contact) and `amp_preview` (a script-free look at it), and a test send includes the AMP part.
+
+Answers recorded from AMP emails are events on the contact: `amp_poll_answered` (`block`,
+`question`, `answer`, `template_id`, `broadcast_id` or `journey_id`, `message_id`) and
+`amp_form_submitted` (`block`, the ids, one property per field; fields with `save_to` update the
+contact). Both are platform events: `POST /v1/events` refuses them, but segments, journeys and
+webhooks can use them, and their starter schemas are in `GET /v1/events/schemas/suggested`. The
+public endpoint they arrive through is described in [AMP post-backs](#amp-post-backs).
 
 Try a template before using it:
 
@@ -623,7 +802,10 @@ SMS, WhatsApp, RCS and push in the test inbox (`GET /v1/sandbox/messages`).
 
 ## Journeys
 
-A journey is a **trigger** plus a **graph** of steps. It is created as a draft, then activated.
+A journey is a **trigger** plus a **graph** of steps. It is created as a draft, then activated. In
+the app, journeys are the **Triggered** campaigns (an event or form trigger: "starts for each
+person when they do something") and **Automation** campaigns (a segment trigger: "starts for each
+person when they join a segment"), built on the step canvas; the API keeps the name `journey`.
 
 ### A worked example
 
@@ -705,7 +887,8 @@ about the engine: [architecture, journeys](../02-architecture.md#journeys).
 ## Broadcasts
 
 A broadcast sends one template to a segment, once or repeating. It's saved as a draft, then
-scheduled.
+scheduled. In the app a broadcast is a **one-time campaign** (the word "broadcast" appears only in
+the API).
 
 ```bash
 curl -s -X POST $PULSE/v1/broadcasts -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
@@ -737,12 +920,17 @@ A run sends to whoever is in the segment when it starts. `start_at` in the past 
 `GET /v1/broadcasts/{id}` returns the broadcast and its runs; `POST /v1/broadcasts/{id}/cancel`
 stops the schedule; scheduling a broadcast that is already sending answers 409.
 
-### Campaigns, estimates and one-time campaigns (M3)
+### Campaigns, estimates and one-time campaigns
 
 `GET /v1/campaigns` lists broadcasts and journeys together, with `category` set by type (`one_time`,
-`trigger`, `automation`), `channels`, `status`, `tags`, schedule, `audience` (the audience segment's
-size now; `null` for trigger-based journeys), `sent` and `last_activity`, and `counts` per category.
-Filter with `?category=&status=&channel=&tag=&q=`. A role sees only the kinds it may view.
+`trigger`, `automation`: the app's One-time, Triggered and Automation tabs), `channels`, `status`,
+`tags`, schedule, `audience` (the audience segment's size now; `null` for trigger-based journeys),
+`sent` and `last_activity`, and `counts` per category. Filter with
+`?category=&status=&channel=&tag=&q=`. A role sees only the kinds it may view.
+
+The app's old list addresses `/journeys` and `/broadcasts` answer `301` to `/campaigns` and
+`/campaigns?tab=one_time`; a campaign's own page (`/journeys/{id}`, `/broadcasts/{id}`) is unchanged.
+API routes are not redirected.
 
 The app's one-time wizard is ordinary calls: the content as a template with `"hidden": true` (left out
 of `GET /v1/templates` and every picker until a `PUT` with `"hidden": false`), then a broadcast, then
@@ -836,7 +1024,63 @@ curl -s "$PULSE/v1/stats/overview?days=14" -H "Authorization: Bearer $KEY"
 ```
 
 Message counts in reports have `sent`, `delivered`, `read`, `failed`, `fallback`, `suppressed`,
-`capped`, `deferred`, `opened`, `clicked`, `unsubscribed` and `converted`. A funnel covers the last
+`capped`, `deferred`, `opened`, `clicked`, `unsubscribed`, `converted`, `bounced`, `complained` and
+`downloaded` (clicks on `/a/{key}` assets or links to files such as `.pdf`, `.zip`, `.docx`; also
+counted in `clicked`). Broadcast and journey reports also carry:
+
+| Field | Is |
+|---|---|
+| `targeted` | Contacts with any outcome |
+| `funnel` | Contacts at each stage: `audience` (broadcasts: the audience at send time, summed over runs, with `after_exclude`, `after_consent`, `reachable`) or `enrolled` (journeys), `targeted`, `skipped` by group (`consent`, `reachability`, `cap`, `missing_value`, `deadline`), `sent`, `delivered`, `opened`, `read`, `clicked`, `downloaded`, `converted`, `bounced` (`hard_bounced`, `soft_bounced`), `complained`, `failed` (tried and failed; skips not included), `unsubscribed` |
+| `reasons` | Why messages failed, bounced, were skipped or complained about: `[{"kind","code","label","group","contacts"}]`, `kind` being `failed`, `bounced`, `complained`, `suppressed` or `capped` and `code` a [reason code](06-webhooks-and-integrations.md#reason-codes) |
+| `reasons_by_node` | Journeys: the same per step |
+
+Every count in a funnel and in `reasons` has a matching contact list (see
+[the contacts behind a number](#the-contacts-behind-a-number)); "delivered" stays 0 for providers
+that don't report deliveries (plain SMTP relays, FCM, web push).
+
+Dashboards (reports view; answers cached for a minute, at most 60 uncached answers a minute per
+workspace; `from` / `to` are UTC days, both included, at most 366 days):
+
+```bash
+# Users: active people per day, DAU / WAU / MAU, stickiness, new vs returning, by platform and UTM source
+curl -s "$PULSE/v1/analytics/users?from=2026-08-01&to=2026-10-31&platform=web" -H "Authorization: Bearer $KEY"
+# {"from":"2026-08-01","to":"2026-10-31","report":{"days":[…],"active":5210,"dau":340,"wau":1630,"mau":4020,
+#   "stickiness":0.08,"new":1200,"returning":4010,"by_platform":[…],"by_source":[…]},"computed_at":"…"}
+
+# Campaign performance: each campaign's counts, reasons, revenue and buyers (default: last 30 days)
+curl -s "$PULSE/v1/analytics/campaigns?category=one_time&channel=email" -H "Authorization: Bearer $KEY"
+# {"campaigns":[{"kind":"broadcast","id":6,"name":"Spring catalogue",…,"counts":{…},"reasons":[…],
+#   "revenue":48200,"buyers":31}],"reasons":[…],"revenue_event":"purchase","currency":"INR",
+#   "window_days":7,"delivery_reports":{"email":true,"sms":true,…}}
+
+# Products: views, carts, buyers, revenue and abandoned carts per product and category
+curl -s "$PULSE/v1/analytics/products?view_event=product_viewed&cart_event=add_to_cart" -H "Authorization: Bearer $KEY"
+```
+
+`users` takes `platform` (`web`, `android`, `ios`, `other`) and `source` (a UTM source; empty for
+none); it defaults to the last 90 days. A person counts as active on a day when they did anything
+other than identify, message outcomes or engagement, or bookkeeping. `campaigns` takes
+`category`, `channel`, `tag` and `q`, lists only the kinds of campaign the role may view, and credits
+revenue within 7 days of a recipient's first message; `delivery_reports` says per channel whether
+the default provider reports deliveries. `products` reads `product_code` and `product_category`
+from the view, cart and revenue events; abandoned means added to the cart and not bought in the
+range.
+
+The **live feed** shows the workspace's newest events as they are stored (contacts view, because
+it shows people's events):
+
+```bash
+curl -s "$PULSE/v1/live/events?cursor=&name=email_*&limit=100" -H "Authorization: Bearer $KEY"
+# {"events":[{"id":"…","name":"email_opened","external_id":"cust-1001","ts":"…","props":{…}},…],
+#  "cursor":"1794375162123-0","max_per_second":50}
+```
+
+Poll with the returned `cursor` (the app polls every 2 s; at most 120 polls a minute per workspace).
+`name` matches an event name (a trailing `*` matches a prefix), `contact` part of an external ID.
+The feed keeps the newest 1,000 events per workspace (Settings → Automation & limits changes it)
+and at most 50 events a second; properties an event schema marks personal are removed, and
+properties over 4 KB are dropped (`truncated: true`). A funnel covers the last
 30 days unless you send `from` / `to`, and at most a year. Cohorts (`/v1/cohorts/run`) and the custom report builder
 (`/v1/reports/run`) take the specs the Analytics pages build (`analytics.CohortSpec` and
 `analytics.ReportSpec` in `internal/analytics`); saving any of them (`POST /v1/funnels`,
@@ -844,6 +1088,227 @@ Message counts in reports have `sent`, `delivered`, `read`, `failed`, `fallback`
 
 For raw data, ClickHouse holds every event (table `events`); see
 [architecture, ClickHouse tables](../02-architecture.md#clickhouse-tables).
+
+---
+
+## Channels and providers
+
+A provider connects a channel to a sending service. `GET /v1/channels/catalog` lists every provider
+type with its fields (`config` and `secrets`, each with `label`, `hint`, `options` and, for options
+shown in words, `option_labels`, e.g. `{"app_password": "An app password (simplest)"}`). Adding,
+changing and removing providers needs channels edit **and** settings edit.
+
+```bash
+curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "channel": "email", "provider": "gmail_smtp", "name": "News Gmail", "is_default": false,
+  "config": {"username": "news@acme.example", "from": "Acme <news@acme.example>", "auth_method": "app_password"},
+  "secrets": {"password": "<app password>"}}'
+# 200 {"id":12,"webhook_url":"http://localhost:7080/v1/webhooks/providers/12","secrets_cleared":false}
+```
+
+- **Secrets are merged key by key** on `PUT /v1/channels/providers/{id}`: a secret left out or
+  empty keeps its saved value. Secrets are never returned.
+- **Changing where credentials go needs them again.** When a change points the provider at another
+  host (any URL setting, an SMTP host, a login or token URL), the saved secrets are dropped and the
+  save is refused until every secret is entered again; the answer then says `"secrets_cleared": true`.
+  Other changes that could steer a secret (URLs including path and query, modes, authentication and
+  request templates, receipt mappings, user names) also need every secret again
+  (`400 the authentication or request settings changed: enter every secret again to save them`).
+  Harmless settings (sender name or number, pool sizes, DLT IDs) don't.
+- **Sending limits.** A new provider starts with `limits` if you send them
+  (`{"rate_per_second": 1, "daily_quota": 500, "timezone": "Asia/Kolkata"}`), else its type's preset
+  (Gmail 500 a day at 1/s, Google Workspace 2,000 a day at 2/s, the Workspace relay 10,000 a day),
+  else the workspace's default for the channel (Settings → Automation & limits). Change them later
+  with `PUT /v1/channels/providers/{id}/limits`.
+
+Two tools work on the settings being edited, before saving (`provider_id` uses the saved secrets for
+fields left empty, unless a host changed). Both need channels edit and settings edit and are audited:
+
+```bash
+# Test connection: run the custom authentication's login or token request now (20 a minute per workspace)
+curl -s -X POST $PULSE/v1/channels/providers/check-auth -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"provider_id": 14, "provider": "http_sms", "config": {…}, "secrets": {}}'
+# 200 {"ok":true,"result":{"type":"login","token":"eyJh…9xQk","expires":"2026-11-12T11:00:00Z","static":false}}
+# 502 {"ok":false,"error":"…","meaning":"…"}   (any secret is removed from the text)
+
+# Preview: the exact request the provider would send for Pulse's test message, or for a template
+# rendered for a contact (template_id, external_id, event); secrets and the token are masked
+curl -s -X POST $PULSE/v1/channels/providers/preview -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"provider_id": 14, "provider": "http_sms", "config": {…}, "template_id": 32, "external_id": "cust-1001", "to": "+919811122233"}'
+# {"method":"POST","url":"https://api.sms.example/v2/send","headers":{"Authorization":"••••",…},"body":"{\"to\":\"+919811122233\",…}"}
+```
+
+The token is shown masked (at most its first and last four characters); the preview shows it as
+`{{token}}`. Rendering for a contact needs contacts view. A provider without custom
+authentication answers `400 this provider has no custom authentication to test; use Send test`; SMTP
+has no request to preview. How custom authentication and custom requests work:
+[6. Webhooks and integrations](06-webhooks-and-integrations.md#the-custom-http-gateway).
+
+Email delivery webhooks (bounces, complaints, deliveries) can be verified with each service's own
+signature. Save the keys with `PUT /v1/settings/bounces/signing` (settings edit; never returned):
+
+```bash
+curl -s -X PUT $PULSE/v1/settings/bounces/signing -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"sendgrid_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE…", "mailgun_signing_key": "key-…",
+       "basic_user": "pulse", "basic_password": "<at least 12 characters>"}'
+# {"signing":{"sendgrid":true,"mailgun":true,"ses":true,"basic":true,"basic_user":"pulse"}}
+```
+
+Empty fields keep what's saved; `"clear": ["sendgrid", "mailgun", "basic"]` removes keys.
+`GET /v1/settings/bounces` returns the same `signing` status with the URLs. Once any key is saved,
+every report must pass a check; see [6. Webhooks and integrations](06-webhooks-and-integrations.md#bounces-complaints-and-deliveries-email).
+
+---
+
+## Workspace settings: Automation & limits
+
+Everything Pulse does on its own for a workspace, with each value's default and allowed range.
+Reading needs settings view; changing, previewing and running cleanup need settings edit (audited).
+
+```bash
+curl -s $PULSE/v1/settings/automation -H "Authorization: Bearer $KEY"
+# {"settings":{…},"defaults":{…},"limits":{"retention.event_days":{"min":30,"max":3650,"zero":true},…},
+#  "server":{"sweep_minutes":5,"web_view_names":["page_view","screen_view","landing_page_viewed"],
+#            "limit_channels":["email","sms","whatsapp","rcs","push"],"max_overrides":100,
+#            "retention_hour_utc":7,"last_retention_run":"…"}}
+```
+
+| Section and field | Default | Range | Means |
+|---|---|---|---|
+| `retention.event_days` | 0 (forever) | 30-3650, or 0 | Events |
+| `retention.message_event_days` | like events | 30-3650, or 0 | Message outcomes and engagement |
+| `retention.web_view_days` | like events | 7-3650, or 0 | `page_view`, `screen_view`, `landing_page_viewed` |
+| `retention.event_overrides` | none | 7-3650, or 0, per event name (up to 100) | Always win over the type-wide setting |
+| `retention.anonymous_days` | 0 (off) | 7-3650, or 0 | Delete anonymous visitors idle this long |
+| `retention.audit_days` | 365 | 30-3650, or 0 | Audit log |
+| `retention.import_days` | 0 | 7-3650, or 0 | Import history (not the contacts) |
+| `retention.webhook_delivery_days` | 7 | 1-90 | Outbound webhook delivery log |
+| `retention.integration_log_days` | 7 | 1-90 | Integration log |
+| `retention.sandbox_days` | 0 | 1-3650, or 0 | Sandbox test inbox |
+| `retention.live_feed_size` | 1,000 | 100-10,000 | Events kept for the live feed |
+| `retries.attempts` | 8 | 1-20 | Tries of a temporarily failed send, the first included |
+| `retries.max_backoff_seconds` | 3600 | 60-86400 | Longest wait between tries (also caps a provider's `Retry-After`) |
+| `schedules.sweep_minutes` | 0 (the server's `PULSE_SWEEP_INTERVAL`) | 1-1440, or 0 | Re-check time-window segments every |
+| `schedules.reach_rebuild_hour` | -1 (a day after the last rebuild) | -1-23 | Hour (UTC) to recount who can be reached |
+| `schedules.daily_segment_at`, `daily_segment_tz` | `06:00`, the browser's zone | | Default time for new daily-refresh segments |
+| `messages.inbox_expiry_days` | 30 | 1-365 | App inbox messages expire after |
+| `default_limits.<channel>` | none | rate 0-100,000/s, quota 0-1,000,000,000/day | Limits new providers start with |
+
+```bash
+# A PUT replaces the sections it sends; fields left out of a section take their defaults
+curl -s -X PUT $PULSE/v1/settings/automation -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"retention": {"event_days": 730, "event_overrides": {"page_view": 90}, "audit_days": 365,
+       "webhook_delivery_days": 7, "integration_log_days": 7, "live_feed_size": 1000}}'
+
+# What a shorter retention would delete now (counts; cached 60 s, one uncached preview per workspace every 5 s)
+curl -s -X POST $PULSE/v1/settings/automation/preview -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"retention": {"event_days": 365, "audit_days": 365, "webhook_delivery_days": 7, "integration_log_days": 7, "live_feed_size": 1000}}'
+# {"items":[{"key":"events","store":"clickhouse","table":"events","days":365,"cutoff":"…",
+#   "old_days":0,"rows":1834520}],"approximate":true,"cached":false}
+
+# Run this workspace's cleanup now (409 while one is running)
+curl -s -X POST $PULSE/v1/settings/automation/run-retention -H "Authorization: Bearer $KEY"
+```
+
+Unknown sections or fields and out-of-range values answer 400. Cleanup otherwise runs once a day
+per workspace, in the UTC hour `retention_hour_utc`. `PUT /v1/settings/data` still changes the
+anonymous-visitor, event and audit retention (merged into these settings) along with anonymous
+tracking and GeoIP.
+
+---
+
+## Website content and web push
+
+**Content slot variants.** A content slot (`/v1/dwc`) has a default and ordered `variants`; the
+first variant whose audience matches wins:
+
+```json
+{"name": "home-hero", "default_html": "<h2>Welcome</h2>", "variants": [
+  {"name": "VIPs on mobile", "html": "<h2>Your VIP offer</h2>",
+   "audience": {"segment_ids": [9], "exclude_segment_ids": [12], "url_contains": ["/shop"],
+                "url_not_contains": ["/checkout"], "devices": ["mobile", "tablet"],
+                "conditions": [{"prop": "contact.city", "op": "eq", "value": "Pune"}]}}]}
+```
+
+Variants get a stable `id` when saved. Every audience rule is optional (no rules: everyone);
+`conditions` are segment property filters on contact fields, applied only to visitors with a
+verified identity. `GET` and save return `shadowed` (`[{"index", "by", "note"}]`: variants an
+earlier one always covers, so they can never show) and `default_never_shown`. An older variant's
+`segment_id` is read as its audience's segment.
+
+**Focus items** take the same rules in `targeting` (`segment_ids`, `exclude_segment_ids`,
+`url_contains`, `url_not_contains`, `devices`, `conditions`) plus `trigger`, `trigger_value`,
+`frequency` and `priority`. The SDK shows one pop-up, one bar and one slide-in per page: the first
+in order whose frequency allows it. Set the order with
+`PUT /v1/focus-items/order` `{"ids": [7, 3, 9]}` (content edit; 204).
+
+**Overlap.** How many known contacts each variant's audience reaches, and how they overlap
+(content view; cached a minute; 30 uncached counts a minute per workspace):
+
+```bash
+curl -s -X POST $PULSE/v1/dwc/overlap -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"slot_id": 3}'
+# or unsaved variants: {"variants": [...]}; focus items: POST /v1/focus-items/overlap {"kind": "modal"} or {"ids": [...]}
+# {"names":["VIPs on mobile","Pune"],"variants":[{"index":0,"matching":120,"sees":120},{"index":1,"matching":340,"sees":300}],
+#  "pairs":[{"a":0,"b":1,"both":20}],"multi":40,"default":5200,"contacts":5620,"approximate":true,
+#  "shadowed":[],"default_never_shown":false,"cached":false,"at":"…"}
+```
+
+Only segment rules are counted; with page, device or contact-field rules the answer is
+`approximate`.
+
+**Web push prompt and install check** (Settings → Web push; channels view to read, channels edit to
+change):
+
+```bash
+curl -s -X PUT $PULSE/v1/settings/web-push -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "site_url": "https://www.example.com", "service_worker": "/pulse-sw.js",
+  "prompt": {"enabled": true, "style": "bell", "position": "bottom-right", "title": "Get updates",
+             "text": "We'll tell you about offers.", "allow": "Allow", "later": "Not now",
+             "delay_seconds": 5, "scroll_percent": 0, "page_views": 2, "repeat_days": 7,
+             "show_on": ["/shop"], "hide_on": ["/checkout"]}}'
+
+# Fetch the site and its service worker from the server and check the set-up (10 a minute)
+curl -s -X POST $PULSE/v1/settings/web-push/check -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"site_url": "https://www.example.com", "service_worker": "/pulse-sw.js"}'
+# {"site_url":"…","service_worker_url":"…","ok":false,"checked_at":"…",
+#  "items":[{"key":"https","label":"Your site uses HTTPS","status":"ok"},
+#           {"key":"snippet","label":"The Pulse snippet is on the page","status":"fail","detail":"…"},…]}
+
+# A 30-minute link that makes the SDK on your site report Pulse.diagnose(), then read the report
+curl -s -X POST $PULSE/v1/settings/web-push/check-token -H "Authorization: Bearer $KEY"
+# {"token":"pc…","url":"https://www.example.com?pulse_check=pc…","expires_at":"…"}
+curl -s "$PULSE/v1/settings/web-push/diagnosis?token=pc…" -H "Authorization: Bearer $KEY"
+# {"report":null}   until the page was opened; then the browser's report
+```
+
+`style` is `bell`, `bar` or `modal`; `repeat_days` 0 never asks again after "Not now". The install
+check reaches only public https addresses (redirects only within the site, 1 MB, 10 s) unless
+`PULSE_ALLOW_PRIVATE_WEBHOOKS` is set. What the SDK does with these settings:
+[4. Web SDK](04-web-sdk.md#web-push).
+
+---
+
+## AMP post-backs
+
+Forms and polls in AMP emails post from inside the email client to public, token-signed routes:
+
+| Route | Does |
+|---|---|
+| `POST /v1/amp/{token}` | A form's or poll's answer (form fields of the block the template defines). Answers `{"message": …}` for the email to show; polls also `items` and `total` |
+| `GET /v1/amp/{token}/results` | A poll's results `{"items": [{"label","count","percent"}], "total"}` for `amp-list` |
+| `OPTIONS` on both | CORS preflight |
+
+The token (sealed by this server) names the workspace, contact, message, template and block, and
+expires after 60 days; nothing in the body chooses who answered. Requests must follow the AMP for
+Email CORS rules: version 2 (`AMP-Email-Sender` → `AMP-Email-Allow-Sender`) or version 1 (`Origin`
+of a known email client, such as Gmail, Yahoo, Outlook, Mail.ru or the AMP playground, plus
+`__amp_source_origin` → `Access-Control-Allow-Origin` and
+`AMP-Access-Control-Allow-Source-Origin`), and the sender's domain must be the domain of one of the
+workspace's email From addresses (or the server's `PULSE_SMTP_FROM`). Limits: 60 answers a minute
+per client IP and workspace, 10 per token. A poll records one answer per contact (later ones get
+"You already answered: …"); a replayed form records once. Test sends answer without recording anything.
+Errors answer with a `message` too: 403 (not from the email it was sent in), 404, 410 (expired),
+400 (a required field missing, an invalid email or number), 429.
 
 ---
 
@@ -899,8 +1364,8 @@ the path, a signature, or nothing).
 | `POST` | `/v1/settings/identity/rotate` | Replace the identity signing secret | full admin |
 | `GET` | `/v1/audit` | Audit log (`?before=&user_id=&object_type=` and dates) | settings edit |
 | `GET` | `/v1/audit/export` | Audit log as CSV or JSON (`?format=`) | settings edit |
-| `GET` | `/v1/settings/data` | Anonymous tracking, GeoIP and retention settings | settings view |
-| `PUT` | `/v1/settings/data` | Change them | settings edit |
+| `GET` | `/v1/settings/data` | Anonymous tracking, GeoIP and the older retention values | settings view |
+| `PUT` | `/v1/settings/data` | Change them (retention merged into Automation & limits) | settings edit |
 | `GET` | `/v1/roles` | List roles (built-in and custom) | settings view |
 | `POST` | `/v1/roles` | Create a custom role | settings edit |
 | `PUT` | `/v1/roles/{id}` | Change a custom role | settings edit |
@@ -915,6 +1380,10 @@ the path, a signature, or nothing).
 | `POST` | `/v1/settings/api-key` | Replace the server API key; returns the new `api_key` once | full admin |
 | `GET` | `/v1/settings/delivery` | Delivery rules: frequency caps, quiet hours, keywords, reply tracking | settings view |
 | `PUT` | `/v1/settings/delivery` | Change delivery rules | settings edit |
+| `GET` | `/v1/settings/automation` | Automation & limits: settings, defaults, ranges, the cleanup hour and last run | settings view |
+| `PUT` | `/v1/settings/automation` | Change them (the sections sent replace the saved ones) | settings edit |
+| `POST` | `/v1/settings/automation/preview` | Rows a shorter retention would delete now; cached 60 s | settings edit |
+| `POST` | `/v1/settings/automation/run-retention` | Run the workspace's cleanup now (409 while one runs) | settings edit |
 
 ### Events and contacts
 
@@ -935,7 +1404,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/contacts/{external_id}/points` | Add or take away points (`delta`, `reason`); 202 | contacts edit |
 | `POST` | `/v1/devices` | Store a push token for a contact (`external_id`, `token`, `platform`) | contacts edit |
 | `POST` | `/v1/contacts/import` | Import a CSV (up to 200 MB) synchronously; `?list_id=` adds rows to a static segment | contacts edit |
-| `GET` | `/v1/contacts/export` | CSV of all contacts or of a view (`?q=&columns=`) | contacts edit |
+| `GET` | `/v1/contacts/export` | CSV of all contacts or of a view (`?q=&columns=`) | contacts edit (+ what each filter needs) |
 | `POST` | `/v1/imports` | Start a background CSV import (body: the file, up to 10 GB; `?filename=&list_id=`); 202 | contacts edit |
 | `GET` | `/v1/imports` | Background imports and their progress | contacts view |
 | `GET` | `/v1/imports/{id}` | One import: status, rows done and failed, errors | contacts view |
@@ -953,8 +1422,12 @@ the path, a signature, or nothing).
 | `DELETE` | `/v1/events/{name}/schema` | Delete it | contacts edit (+ settings edit when enforced) |
 | `GET` | `/v1/contacts/{external_id}/segments/{id}/explain` | Why the contact is (or isn't) in a segment, filter by filter | contacts view |
 | `GET` | `/v1/contacts/{external_id}` | Profile and the IDs of the segments the contact is in | contacts view |
-| `GET` | `/v1/contacts` | List or search contacts: `?q=` filters, `limit`, `after` cursor | contacts view |
-| `GET` | `/v1/contacts/{external_id}/events` | The contact's latest 100 events | contacts view |
+| `GET` | `/v1/contacts` | List or search contacts: `?q=` filters, `limit`, `after` cursor | contacts view (+ what each filter needs) |
+| `GET` | `/v1/contacts/{external_id}/events` | The contact's events, newest first (`?name=&kind=activity\|pulse&before=&limit=`, default 100) | contacts view |
+| `GET` | `/v1/contacts/{external_id}/profile` | The contact page: reach per channel, devices, journeys, activity, purchases, products | contacts view |
+| `GET` | `/v1/contacts/{external_id}/messages` | Every message to the contact with outcome, reason, campaign and engagement (`?before=&limit=`) | contacts view |
+| `POST` | `/v1/contacts/view-segment` | Create a static segment from a list view (`q`, `name`); filled in the background; 202 | segments edit + contacts view (+ what each filter needs) |
+| `GET` | `/v1/live/events` | The live feed: newest events after `cursor` (`?name=&contact=&limit=`) | contacts view |
 | `GET` | `/v1/contacts/{external_id}/data` | Download everything about the contact as JSON (audited) | contacts edit |
 | `DELETE` | `/v1/contacts/{external_id}` | Delete the contact permanently (audited) | contacts edit |
 
@@ -1030,19 +1503,24 @@ the path, a signature, or nothing).
 | `GET` | `/v1/dwc/{id}` | A content slot | content view |
 | `PUT` | `/v1/dwc/{id}` | Change a content slot | content edit |
 | `DELETE` | `/v1/dwc/{id}` | Delete a content slot | content edit |
+| `POST` | `/v1/dwc/overlap` | How a slot's variant audiences overlap (`slot_id` or unsaved `variants`) | content view |
+| `POST` | `/v1/focus-items/overlap` | The same for live focus items of a `kind`, or the given `ids` | content view |
+| `PUT` | `/v1/focus-items/order` | The order focus items are tried in (`ids`); 204 | content edit |
 | `POST` | `/v1/templates` | Create a template (`channel` defaults to email); 201 | content edit |
 | `GET` | `/v1/templates` | List message templates (`?channel=`) | content view |
 | `GET` | `/v1/templates/{id}` | A template | content view |
 | `PUT` | `/v1/templates/{id}` | Change a template (its channel stays) | content edit |
 | `DELETE` | `/v1/templates/{id}` | Delete a template | content edit |
 | `POST` | `/v1/templates/text` | Plain-text version of an email's HTML | content view |
+| `POST` | `/v1/templates/amp/check` | Validate AMP code or build it from blocks: problems with lines, size, preview, providers' AMP support | content view |
+| `GET` | `/v1/templates/{id}/amp/results` | A template's AMP poll results, per poll block | content view |
 | `POST` | `/v1/templates/{id}/duplicate` | Copy a template ("… (copy)", reusable); 201 | content edit |
 | `GET` | `/v1/test-contacts` | Saved test contacts | content view |
 | `POST` | `/v1/test-contacts` | Add one (`name`, and `external_id` or any of `email`, `phone`, `push_token`); at most 50 | content edit (+ channels edit without `external_id`) |
 | `PUT` | `/v1/test-contacts/{id}` | Change one | content edit (+ channels edit without `external_id`) |
 | `DELETE` | `/v1/test-contacts/{id}` | Remove one | content edit |
 
-### Journeys
+### Journeys (triggered and automation campaigns)
 
 | Method | Path | Does | Needs |
 |---|---|---|---|
@@ -1057,7 +1535,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/journeys/{id}/duplicate` | Copy it as a draft ("… (copy)", same steps and tags); 201 | journeys edit (+ contacts edit for steps that need it) |
 | `POST` | `/v1/journey-steps/check` | Check a clipboard of copied steps before pasting; returns it cleaned with `notes` | journeys edit |
 
-### Broadcasts
+### Broadcasts (one-time campaigns)
 
 | Method | Path | Does | Needs |
 |---|---|---|---|
@@ -1078,15 +1556,23 @@ the path, a signature, or nothing).
 
 | Method | Path | Does | Needs |
 |---|---|---|---|
-| `GET` | `/v1/settings/bounces` | The workspace's secret bounce and reply webhook URLs | settings edit |
+| `GET` | `/v1/settings/bounces` | The workspace's secret bounce and reply webhook URLs, and which signature checks are on | settings edit |
+| `PUT` | `/v1/settings/bounces/signing` | Save the email services' webhook keys (SendGrid, Mailgun, basic auth); never returned | settings edit |
 | `POST` | `/v1/sandbox/bounce` | Simulate a bounce or complaint (`email`, `type`) | content edit |
 | `POST` | `/v1/channels/providers/{id}/test` | Send a fixed test message through one provider | channels edit + settings edit |
 | `GET` | `/v1/channels/catalog` | Channels and every provider type with its settings fields | channels view |
 | `GET` | `/v1/channels/providers` | Configured providers (secrets never returned) with their webhook URLs, `limits` and `usage_today` | channels view |
 | `PUT` | `/v1/channels/providers/{id}/limits` | Sending limits: `rate_per_second`, `daily_quota`, `timezone` (0 or empty: none) | channels edit |
 | `POST` | `/v1/channels/providers` | Add a provider (`channel`, `provider`, `name`, `config`, `secrets`, `is_default`) | channels edit + settings edit |
-| `PUT` | `/v1/channels/providers/{id}` | Change a provider (omitted secrets are kept) | channels edit + settings edit |
+| `PUT` | `/v1/channels/providers/{id}` | Change a provider (secrets merged key by key; a changed host clears them, `secrets_cleared`) | channels edit + settings edit |
 | `DELETE` | `/v1/channels/providers/{id}` | Remove a provider | channels edit + settings edit |
+| `POST` | `/v1/channels/providers/check-auth` | Test connection: run a provider's login or token request now (settings being edited); 20 a minute | channels edit + settings edit |
+| `POST` | `/v1/channels/providers/preview` | The exact request a provider would send, secrets masked | channels edit + settings edit (+ contacts view to render for a contact) |
+| `GET` | `/v1/settings/web-push` | Web push prompt, site address and service worker path, with defaults | channels view |
+| `PUT` | `/v1/settings/web-push` | Change them | channels edit |
+| `POST` | `/v1/settings/web-push/check` | Fetch the site and its service worker and check the set-up; 10 a minute | channels edit |
+| `POST` | `/v1/settings/web-push/check-token` | A 30-minute `?pulse_check=` link for the browser self-check | channels edit |
+| `GET` | `/v1/settings/web-push/diagnosis` | What the browser reported for that link (`?token=`) | channels view |
 | `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `event` properties for `{{event.x}}`); 202; 30 a minute per workspace (429) | content edit |
 | `GET` | `/v1/sandbox/messages` | Messages the sandbox providers recorded (test inbox) | content view |
 | `POST` | `/v1/sandbox/receipts` | Simulate a delivery report for a sandbox message | content edit |
@@ -1128,6 +1614,9 @@ the path, a signature, or nothing).
 | `DELETE` | `/v1/funnels/{id}` | Delete a saved funnel | reports edit |
 | `POST` | `/v1/funnels/run` | Run a funnel (`steps`, `window_days`, dates, `segment_id`, `breakdown`) | reports view |
 | `GET` | `/v1/stats/overview` | Dashboard counts and daily activity (`?days=`, up to 90) | reports view |
+| `GET` | `/v1/analytics/users` | Users dashboard: active people, DAU/WAU/MAU, new and returning (`?from=&to=&platform=&source=`) | reports view |
+| `GET` | `/v1/analytics/campaigns` | Campaign performance (`?from=&to=&category=&channel=&tag=&q=`); campaigns listed by the role's view access | reports view |
+| `GET` | `/v1/analytics/products` | Products dashboard (`?from=&to=&view_event=&cart_event=`) | reports view |
 
 ### Outbound webhooks and integrations
 
@@ -1179,21 +1668,23 @@ the path, a signature, or nothing).
 | `OPTIONS` | `/v1/web/inbox` | CORS preflight | none |
 | `POST` | `/v1/web/inbox` | Mark read, delete or click inbox messages | site key |
 | `OPTIONS` | `/v1/web/decide` | CORS preflight | none |
-| `POST` | `/v1/web/decide` | Focus items and content slots for this visitor and page | site key |
+| `POST` | `/v1/web/decide` | Focus items (in order) and content slots for this visitor, page and `device`; returns `variants` | site key |
 | `OPTIONS` | `/v1/web/events` | CORS preflight | none |
 | `POST` | `/v1/web/events` | Browser/app events, 1-50 per request; 202 | site key |
 | `OPTIONS` | `/v1/web/devices` | CORS preflight | none |
 | `POST` | `/v1/web/devices` | Register a push token (`external_id`, `token`, `platform`, `user_hash`); 204 | site key |
-| `GET` | `/v1/web/push-config` | The workspace's web push public key (`vapid_public_key`) | site key |
+| `GET` | `/v1/web/push-config` | Web push public key (`vapid_public_key`), the opt-in `prompt` and the `service_worker` path | site key |
+| `OPTIONS` | `/v1/web/diagnose` | CORS preflight | none |
+| `POST` | `/v1/web/diagnose` | The SDK's web push self-check (`token`, `report`) | site key + check token |
 
 ### Inbound webhooks (secret URL or signature)
 
 | Method | Path | Does | Needs |
 |---|---|---|---|
-| `POST` | `/v1/bounces/{token}` | Bounces and complaints (SendGrid, Postmark, Mailgun, SES via SNS, generic JSON) | none |
+| `POST` | `/v1/bounces/{token}` | Bounces, complaints and deliveries (SendGrid, Postmark, Mailgun, SES via SNS, SparkPost, generic JSON); verified with the saved keys | none |
 | `POST` | `/v1/replies/{token}` | Inbound email replies (SendGrid, Mailgun, Postmark inbound parse, generic JSON) | none |
 | `POST` | `/v1/webhooks/providers/{id}` | Delivery receipts and inbound messages from a provider (signature checked by the adapter) | none |
-| `GET` | `/v1/webhooks/providers/{id}` | Provider URL verification (Meta's `hub.challenge`) | none |
+| `GET` | `/v1/webhooks/providers/{id}` | Provider URL verification (Meta's `hub.challenge`); Gupshup delivery reports sent by GET | none |
 | `POST` | `/v1/webhooks/shopify/{id}` | Shopify orders, customers and checkouts (Shopify HMAC) | none |
 
 ### Public pages and tracking links
@@ -1213,6 +1704,10 @@ the path, a signature, or nothing).
 | `OPTIONS` | `/t/p/{token}` | CORS preflight | none |
 | `GET` | `/u/{token}` | Unsubscribe and preference page | none |
 | `POST` | `/u/{token}` | Unsubscribe (also RFC 8058 one-click) | none |
+| `OPTIONS` | `/v1/amp/{token}` | CORS preflight | none |
+| `POST` | `/v1/amp/{token}` | An AMP email's form or poll answer (AMP for Email CORS, signed token) | none |
+| `OPTIONS` | `/v1/amp/{token}/results` | CORS preflight | none |
+| `GET` | `/v1/amp/{token}/results` | A poll's results for `amp-list` | none |
 
 
 Next: [4. Web SDK](04-web-sdk.md).

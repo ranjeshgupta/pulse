@@ -172,11 +172,11 @@ and `internal/config/config.go`. For production, set at least:
 
 | Variable | Why |
 |---|---|
-| `PULSE_SECRET_KEY` | 64 hex characters (`openssl rand -hex 32`). Encrypts stored credentials (SSO client secrets, provider and integration credentials, bounce mailbox passwords), SSO state, tracking links and download links. Without it SSO and stored provider credentials don't work, and emails go out without open and click tracking. **Keep it in a secret store and back it up**: if it's lost, everything encrypted with it has to be entered again. Don't reuse the dev key from `deploy/docker-compose.yml` |
+| `PULSE_SECRET_KEY` | 64 hex characters (`openssl rand -hex 32`). Encrypts stored credentials (SSO client secrets, provider and integration credentials, email webhook signing keys, cached provider tokens, bounce mailbox passwords), SSO state, tracking links, message references, AMP post-back links and download links. Without it SSO and stored provider credentials don't work, and emails go out without open and click tracking. **Keep it in a secret store and back it up**: if it's lost, everything encrypted with it has to be entered again. Don't reuse the dev key from `deploy/docker-compose.yml` |
 | `PULSE_PUBLIC_URL` | The `https://` address people use, e.g. `https://pulse.example.com`. Used for SSO redirects, tracking, unsubscribe and webhook links; `https` also makes the session cookie `Secure` |
 | `PULSE_PAGES_URL` | A **separate origin** for landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`), e.g. `https://pages.example.com`. Content your users write then never shares an origin or cookies with the app. See [Two origins](#two-origins-public_url-and-pages_url) |
 | `PULSE_PG_DSN`, `PULSE_CH_*`, `PULSE_REDIS_ADDR`, `PULSE_KAFKA_BROKERS` | Where the data services are. Use `sslmode=require` (or `verify-full`) in the Postgres DSN when it crosses a network |
-| `PULSE_SMTP_ADDR`, `PULSE_SMTP_FROM` | The SMTP relay for workspaces without an email provider of their own, and its default sender |
+| `PULSE_SMTP_ADDR`, `PULSE_SMTP_FROM` | The SMTP relay for workspaces without an email provider of their own, and its default sender (whose domain may also send AMP emails that post back) |
 | `PULSE_ALLOW_SIGNUP=false` | On a private installation, so strangers can't create workspaces. Create them with `PULSE_ADMIN_TOKEN` instead (below) |
 | `PULSE_ADMIN_TOKEN` | A long random value (`openssl rand -hex 32`) for `POST /v1/tenants`; leave it unset to turn that route off |
 | `PULSE_TRUST_PROXY=true` | Only when Pulse is reachable **only** through your reverse proxy: then client IPs (rate limits, audit log) come from `X-Forwarded-For` |
@@ -407,7 +407,7 @@ load the new file.
 |---|---|---|
 | Postgres | `pg_dump` nightly (or your provider's snapshots with point-in-time recovery) | Everything you configured, and every contact |
 | ClickHouse | `BACKUP DATABASE pulse TO …` (to a backup disk or S3), or your provider's backups | The event history: reports, contact activity, behaviour segments |
-| Redis | Keep AOF on (the dev stack runs `--appendonly yes`) and copy its data directory, or use your provider's snapshots | Live segment membership and event counters |
+| Redis | Keep AOF on (the dev stack runs `--appendonly yes`) and copy its data directory, or use your provider's snapshots | Live segment membership and reachability, event counters, AMP poll answers, the live feed |
 | `PULSE_SECRET_KEY` | In your secret store, separately from the database backups | Without it, encrypted credentials in a restored database can't be read |
 
 Kafka holds events in flight; it doesn't need a backup of its own, but give its volume or cluster
@@ -471,6 +471,9 @@ is skipped by its idempotency key.
 | SSO fails with an address error | The provider's discovery URL resolves to a private address. Use a public one, or set `PULSE_ALLOW_PRIVATE_SSO=true` for a provider on your internal network |
 | Events are accepted (202) but contacts or segments don't change | A consumer role is down or behind: check every role's log, and the consumer groups' lag (`pulse-profile`, `pulse-segments`, `pulse-journeys`, …) with your Kafka tools |
 | Landing pages or forms redirect to a host that doesn't answer | `PULSE_PAGES_URL` is set but its DNS or proxy isn't. Point the pages host at Pulse too |
+| An email service's delivery webhooks answer 401 | A signing key or basic auth user is saved under **Settings → Channels → Bounces and complaints** and the service doesn't send it: once any key is saved, every format must pass a check ([webhooks](06-webhooks-and-integrations.md#bounces-complaints-and-deliveries-email)) |
+| Reports show "—" for Delivered | The provider doesn't report deliveries (a plain SMTP relay, Gmail, FCM, web push), or its delivery webhook isn't set up |
+| Old data disappears | Retention in **Settings → Automation & limits**; cleanup runs once a day per workspace |
 
-Next: the configuration reference (coming), or start using Pulse with
+Next: the [configuration reference](02-configuration.md), or start using Pulse with
 [tutorial 1](../tutorials/01-getting-started.md).

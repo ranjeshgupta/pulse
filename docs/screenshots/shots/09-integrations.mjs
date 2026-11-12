@@ -243,6 +243,7 @@ async function run(context, page, made) {
   await test.getByRole("button", { name: "Send test" }).click();
   await test.locator(".alert").waitFor({ timeout: 30_000 });
   await settle(page, { quiet: 1500 });
+  await page.locator(".toast").waitFor({ state: "detached", timeout: 15_000 }).catch(() => {}); // the "Webhook added" note
   await shot(page, AREA, "09-webhook-test", { clip: page.locator("section.panel:has(h3:text-is('Signing secret')), section.panel:has(h3:text-is('Send a test'))"), pad: 8 });
   // The test is listed under Deliveries, marked "test".
   await page.reload();

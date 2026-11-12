@@ -12,12 +12,12 @@ access to edit segments (the **Admin** or **Editor** role).
 
 ## 1. Dynamic and static segments
 
-A segment is a group of contacts you send to, start journeys from, or look at. There are two types:
+A segment is a group of contacts you send campaigns to, start automation campaigns from, or look at. There are two types:
 
 | | Dynamic | Static |
 |---|---|---|
 | Who is in it | Contacts who match its rules: attributes, events, tags, consent, other segments | Exactly the contacts you put in it |
-| How it changes | On its own, the moment an event or a profile change makes a contact match or stop matching (or once a day at a set time, section 9) | When you add or remove contacts: by hand, by importing a CSV, with a journey step, a form or the API |
+| How it changes | On its own, the moment an event or a profile change makes a contact match or stop matching (or once a day at a set time, section 9) | When you add or remove contacts: by hand, by importing a CSV, with a campaign step, a form, the API, or from a list of contacts (**Create segment from this list**) |
 | Good for | "Bought twice this month in Pune", "VIPs who haven't opened in 90 days" | Event guests, a sales hand-off, a seed list |
 
 Go to **Segments** (under *Audience*). Every segment is listed with its **Type**, **Who's in it**
@@ -101,14 +101,15 @@ Behaviour filters count events: "did *this* at least *N* times in the last *N* d
    **Opened an email from a campaign**, **Didn't open an email from a campaign** (good for a
    resend), **Received an SMS**, **Read a WhatsApp message**, and more. In a message filter, the
    first drop-down chooses **the email** (a template), **from campaign**, **not from campaign**,
-   **from journey** or **not from journey**.
+   **from journey** or **not from journey** ("journey" here means a triggered or automation campaign;
+   "campaign" a one-time campaign).
 
 Next to **+ Add group** is **+ Exclude (none of)**, for contacts to leave out (section 8).
 
 Groups can be nested inside groups, up to 7 levels. **Remove group** deletes a group with its
 filters; removing the last filter of a nested group removes the group too.
 
-![The finished rule: City is Pune AND purchase at least 2 times in the last 30 days AND a nested ANY group with Tags include vip OR opened the Welcome email; on the right, 7 contacts would match, and the rule in words](img/03-builder.png)
+![The finished rule: City is Pune AND purchase at least 2 times in the last 30 days AND a nested ANY group with Tags include vip OR opened the Welcome email; on the right, 8 contacts would match, and the rule in words](img/03-builder.png)
 
 ### Check the live count and save
 
@@ -123,21 +124,27 @@ Pulse fills the segment in the background: its **State** is **Queued**, then **L
 segment now** shows how many contacts are in it. **Last rebuilt** says when it was last filled
 from scratch.
 
-![The saved segment Pune shoppers to thank: Live, 7 contacts in it, and View contacts highlighted](img/03-segment-saved.png)
+![The saved segment Pune shoppers to thank: Live, 8 contacts in it, and View contacts highlighted](img/03-segment-saved.png)
 
 Under the rule, **Refresh** is **Live: contacts join and leave as events arrive (default)**; section
 9 shows the other choice, **Daily at a set time**.
 
 To change a dynamic segment later, open it, edit the rule and click **Save segment**: Pulse
-rebuilds it. **Delete** asks you to confirm; journeys that start from it stop enrolling.
+rebuilds it. **Delete** asks you to confirm; automation campaigns that start from it stop enrolling.
 
 ## 3. View contacts
 
-Click **View contacts** (on the segment's page, or on its row in the list). It opens **Contacts**
-filtered to the segment, as the chip **Segment: Pune shoppers to thank**. From there you can add
-more filters, choose columns or export the list (tutorial 2, steps 7 to 9).
+Click **View contacts** (on the segment's page, or on its row in the list), or click the segment's
+size: the number in the **Contacts** column, or **In segment now** on its page. Every size is a link
+(the dotted line under it). It opens **Contacts** filtered to the segment, as the chip **In segment
+“Pune shoppers to thank”**, and the list has exactly as many contacts as the segment. From there you
+can add more filters, choose columns or export the list (tutorial 2, steps 7 to 9).
+[Tutorial 18](18-contacts-behind-a-number.md) shows the same for every other number in Pulse.
+Because the list is "who is in the segment now", the bar offers **Create segment from this list** (a
+static copy of today's members) rather than **Save as segment**; to change who is in it, edit the
+segment's rule instead.
 
-![Contacts filtered to Segment: Pune shoppers to thank, 7 contacts](img/03-view-contacts.png)
+![Contacts filtered to In segment “Pune shoppers to thank”, 8 contacts](img/03-view-contacts.png)
 
 ## 4. Membership updates in real time
 
@@ -153,7 +160,8 @@ Try it:
 
 The same happens with events: a Pune VIP's second `purchase` in 30 days puts them in **Pune
 shoppers to thank** at once. Leaving because time passes ("in the last 30 days" no longer holds) is
-checked on a schedule instead, every 5 minutes by default (`PULSE_SWEEP_INTERVAL`). Journeys that
+checked on a schedule instead, every 5 minutes by default. An admin can change how often under
+**Settings → Automation & limits → Re-check time-window segments every**. Automation campaigns that
 start when a contact enters a segment react at the moment the contact joins.
 
 Two exceptions: an event filter whose period starts more than a year ago is checked by that sweep,
@@ -196,14 +204,17 @@ Click **Import CSV**. It opens **Contacts → Import** with this segment already
 - A dynamic segment can include or exclude a static one: in the builder, pick **Segment
   membership** → **is in** / **is not in** → the segment.
 
-## 6. Use segments in journeys and broadcasts
+## 6. Use segments in campaigns
 
-- **Broadcasts** (tutorial 7): **Send to** picks a segment. Who is in it is taken at send time.
-- **Journeys** (tutorial 6): **Start this journey when a contact** → **enters a segment** enrolls
-  each contact the moment they join. The **Contact segments** condition asks **Is the contact in
-  this segment?** when the contact reaches it, and the **Modify contact's segments** action adds
-  contacts to, or removes them from, static segments.
-- **On-site & in-app** (tutorial 8): pop-ups, web content and in-app messages can target a segment.
+- **One-time campaigns** (tutorials 7 and 14): **Send to members of** picks one or more segments.
+  Who is in them is taken at send time.
+- **Automation campaigns** (tutorial 6): **Campaigns → New campaign → Follow up when someone joins a
+  segment** starts each contact the moment they join (in the builder: **Start this campaign for a
+  contact when they** → **join a segment**). In any triggered or automation campaign, the **Contact
+  segments** condition asks **Is the contact in this segment?** when the contact reaches it, and the
+  **Modify contact's segments** action adds contacts to, or removes them from, static segments.
+- **Website & app messages** (tutorial 8): pop-ups, web content and in-app messages can target a
+  segment.
 
 ## 7. Scoring and stages
 
@@ -218,7 +229,7 @@ Go to **Settings → Scoring** (under *Contact data*).
 ![Settings → Scoring with review_written and 15 typed, Save rule highlighted, and a wishlist_added +5 rule below](img/03-scoring.png)
 
 From then on, each time a contact does that event, their points change. You can also change points
-by hand in the profile (tutorial 2, step 4) or with the journey step **Adjust contact points**. In segments, filter on
+by hand in the profile (tutorial 2, step 4) or with the campaign step **Adjust contact points**. In segments, filter on
 **Points** (group **Points & stage**), e.g. **Points** **is at least** `50`; in the contact list,
 `points:>=50`.
 
@@ -235,7 +246,7 @@ Lead → Engaged → Customer. Each contact is in one stage at a time.
 2. **Edit** changes a stage. Renaming it moves its contacts to the new name within seconds.
 3. **Remove** deletes the stage; its contacts keep the old name until they move.
 
-Contacts change stage by hand (the **Stage** drop-down in the profile), with a journey's **Change
+Contacts change stage by hand (the **Stage** drop-down in the profile), with a campaign's **Change
 contact's stage** step, through the API, or automatically when their points reach a stage's threshold. A
 threshold only moves contacts forward, to the furthest stage they reach, never back. Segments use
 the **Stage** filter (group **Points & stage**); the contact list uses `stage:Lead`.
@@ -298,7 +309,9 @@ By default a dynamic segment is **Live**: contacts join and leave as events arri
 send that must not change during the day (a morning SMS list, a report), choose a daily refresh:
 
 1. Under the rule, in **Refresh**, choose **Daily at a set time**.
-2. Set the time, e.g. `06:00`, and the time zone, e.g. **Asia/Kolkata**.
+2. Set the time, e.g. `06:00`, and the time zone, e.g. **Asia/Kolkata**. Pulse fills in the
+   workspace's default for new daily segments: 06:00 in your browser's time zone, unless an admin
+   changed it under **Settings → Automation & limits → New daily segments**.
 
    ![Refresh: Daily at a set time, 06:00, Asia/Kolkata; members change only at this time each day](img/03-refresh.png)
 3. Click **Create segment** (or **Save segment**).
@@ -321,10 +334,10 @@ many haven't unsubscribed from each channel, and how many Pulse can actually rea
 address that hasn't bounced, a valid phone number with its country code, a push device; not Do Not
 Contact).
 
-<img src="img/03-reach.png" alt="Reachable by channel for Pro plan: email 193 not unsubscribed, 192 reachable; SMS, WhatsApp, RCS and app inbox 199; push 0" width="340">
+<img src="img/03-reach.png" alt="Reachable by channel for Pro plan: email 191 not unsubscribed, 183 reachable; SMS, WhatsApp, RCS and app inbox 199; push 0" width="340">
 
-The numbers are exact and redone every 30 seconds. Campaigns use the same counts, step by step
-(tutorial 14).
+The numbers are exact and redone every 30 seconds, and each one is a link to those contacts.
+Campaigns use the same counts, step by step (tutorial 14).
 
 - **Copy** and **Paste** on every group's header: **Copy** puts the group's filters on the clipboard;
   **Paste** adds copied filters to a group, in this segment or any other (even in another browser

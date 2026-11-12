@@ -298,7 +298,7 @@ Built as designed, with these choices:
 - **Seed.** `make docs-seed` adds (once) the "Spring catalogue" email with delivered / bounced / complained / opened /
   clicked outcomes (written as the linked events webhooks record), a WhatsApp "Monsoon preview" with sandbox receipts
   (delivered, read, blocked, spam policy), product views and app screen views.
-- **Docs** are deferred to the final docs pass (product owner, after M6); see the M4 report for the list.
+- **Docs** were deferred to the final docs pass (product owner, after M6), now done: see "Docs: final pass done" below.
 
 ## M5 as built
 
@@ -600,121 +600,17 @@ Built as designed, with these choices:
   vitest `contactLinks.test.ts` (link building, chips round trip, who may open a list, goals, redirects, nav
   highlighting); e2e `test/e2e/m7_test.go`.
 
-## Docs for the final pass
+## Docs: final pass done
 
-From M4 on, docs and screenshots are updated in one pass after M6 (owner's decision, 2026-11-11).
-Each milestone adds what it needs here.
-
-**M4:**
-- Webhook verification fails closed once any key is saved (a format with no check of its own needs
-  basic auth, else it's refused; the settings page shows "Refused"); the Campaigns dashboard and the
-  contact page's message list show campaign names only to roles that may view broadcasts / journeys.
-- README: M4 features; SMTP "Sending service" setting.
-- docs/02-architecture.md: message references and linking, webhook verification, reason codes,
-  ClickHouse `message_events.reason_code`, `message_events_mv3`, `active_users_daily`, `first_active`,
-  migrations pg 023 / ch 006, live feed stream, dashboard caching; mark DAU pre-aggregation done.
-- docs/05-feature-parity.md: delivered, complaints, DAU/WAU/MAU, live feed, contact page, failure reasons.
-- Developer 03 (API): `/v1/analytics/users|campaigns|products`, `/v1/live/events`,
-  `/v1/contacts/{id}/profile|messages`, `/events` filters, `PUT /v1/settings/bounces/signing`, report
-  fields `funnel`, `reasons`, `reasons_by_node`, `targeted` and counts `bounced`/`complained`/`downloaded`,
-  sandbox receipt statuses `bounced`/`complained` and `code`.
-- Developer 06 (webhooks/providers): per-provider webhook set-up and signatures, reference headers,
-  SparkPost, gateway `ref` and receipt `bounced`/`complained`/`kind`/`reason_code`, plain SMTP reports
-  no delivered.
-- Tutorials: 2 (full contact page), 4 (delivery webhooks, signing keys), 7 and 14 (funnel and reasons),
-  10 (Users, Campaign performance, Products, Live events); new 15 "Delivery and dashboards" in the index.
-- Screenshots: new `15-*.mjs`; retake 02, 04, 07, 10, 14 and every shot showing the sidebar.
-
-**M5:**
-- Provider requests that carry credentials (custom auth logins and token requests, the gateway,
-  Gupshup) never follow a redirect to another site (`safehttp.SameOrigin`). Test connection with saved
-  secrets works only for the saved settings (changed settings need every secret entered again), and
-  its error text never contains a secret.
-- Saving a provider with any changed setting except harmless ones (sender name/number, pool sizes,
-  DLT ids…) needs every secret entered again (`providers.CredentialSettingsChanged`): URLs including
-  path and query, modes, auth and request templates, receipt mappings, user names.
-- README: M5 features; provider list (Gmail, Google Workspace, Workspace relay, Gupshup SMS/WhatsApp/RCS, gateway
-  custom request and authentication); the new settings page with every field, default and range; retention moved
-  off Data & privacy and now daily per workspace; provider secrets merged key by key and cleared on a host change.
-- docs/02-architecture.md: `internal/httpauth` (types, token cache keys, lock, 401 retry, sealing), host pinning,
-  gateway custom-request mode and `{{message.x}}`, `Outbound.Vars`, Gupshup adapters and GET receipts, SMTP `Helo`
-  and XOAUTH2, `internal/automation` and `tenant_settings.automation`, migration pg 024 and `retention_runs`, daily
-  per-workspace retention with event groups, per-workspace retries / sweep interval / rebuild hour / live feed size,
-  the rebuild verification in segengine (M1 flake).
-- docs/05-feature-parity.md: custom auth, custom requests, Gmail/Workspace/relay, Gupshup, automation settings.
-- Developer 03 (API): `POST /v1/channels/providers/check-auth`, `POST /v1/channels/providers/preview`, provider save
-  (merge, `secrets_cleared`, preset limits, `limits` on create), `GET|PUT /v1/settings/automation`,
-  `POST /v1/settings/automation/preview`, `POST /v1/settings/automation/run-retention`, the `PUT /v1/settings/data`
-  merge, SMS template `dlt_template_id` / `dlt_entity_id`.
-- Developer 06 (webhooks/providers): authentication types and the login flow (JSON path / header / regex, expiry,
-  injection, refresh on 401), the custom request (template variables and escaping, success rule, id path, receipt
-  mapping and verification, fail-closed), Gupshup webhook set-up (`?token=`, v2 events, delivery report URL by GET or
-  POST), endpoints unconfirmed; Gmail XOAUTH2 setup (OAuth client, refresh token for https://mail.google.com/) and
-  relay setup (Admin console, IP allowlist, EHLO domain).
-- Tutorials: 4 (Channels: Gmail / Workspace / relay presets with their limits, Gupshup, custom gateway with
-  authentication, Test connection, Preview request), 5 (SMS template DLT fields), 11 (or the settings tutorial:
-  Automation & limits, the "What will be deleted" dialog, Data & privacy now linking there); a new tutorial 16
-  "Connecting any provider" (custom request + login flow walk-through) in the index.
-- Screenshots: new `16-*.mjs` (provider form with authentication, custom request, Test connection result, request
-  preview; Automation & limits page; What will be deleted dialog); retake the Channels provider form (presets, notes),
-  the SMS template editor, Data & privacy, Segments "Daily at" default, and every shot showing the settings menu.
-
-**M6:**
-- README: M6 features (AMP emails with the block builder and post-back events, content variants with ordering and
-  overlap, focus item order, web push prompt and install check); Postmark sends no AMP; `PULSE_SMTP_FROM` is also an
-  AMP sender domain.
-- docs/02-architecture.md: `internal/amp` (validator rules, builder, placeholders, Protect/Fill, preview), AMP
-  MIME order and `providers.SupportsAMP`, `tracking.AMPToken` and `InstrumentAMP`, the `/v1/amp/{token}` post-back
-  (CORS v1/v2, sender domains, rate limits, poll Redis keys `amp:ans:*` / `amp:poll:*`), `onsite.OnsiteAudience`,
-  `DecideFor`, `Shadowed`, `CountOverlap` and keys `ovl:*` / `ovltmp:*`, focus priority, `internal/webcheck` and the
-  fetcher's safety rules, `tenant_settings.webpush` (migration pg 025), diagnose keys `pchk:*` / `pchkr:*`.
-- docs/05-feature-parity.md: AMP email, content variants with rules and overlap, web push opt-in prompt and install
-  check.
-- Developer 03 (API): `POST /v1/templates/amp/check`, `GET /v1/templates/{id}/amp/results`, `content.amp` /
-  `content.amp_blocks` (block schema) and the 400 with lines, preview `amp` / `amp_preview`, `POST /v1/amp/{token}`
-  and `GET /v1/amp/{token}/results` (headers, answers, errors), DWC variant `audience`/`id`/`name` and GET
-  `shadowed`, `POST /v1/dwc/overlap`, `POST /v1/focus-items/overlap`, `PUT /v1/focus-items/order`, focus targeting
-  fields, decide `device` and `variants`, `GET|PUT /v1/settings/web-push`, `/check`, `/check-token`, `/diagnosis`,
-  `POST /v1/web/diagnose`, `push-config` `prompt` / `service_worker`, events `amp_form_submitted` /
-  `amp_poll_answered` and the starter schemas.
-- Developer 06 (webhooks/providers): AMP support per provider, gateway `content.amp` / `{{message.amp}}`.
-- Web SDK guide: `device` in decide, one focus item per kind in order, the opt-in prompt (no code), `Pulse.diagnose()`
-  and `?pulse_check=`, the new `push_prompt_*` events, the service worker path setting.
-- Tutorials: 5 or 6 (email templates: the AMP section — blocks, code mode, problems, preview, providers, Gmail
-  registration, poll results; segments/journeys on `amp_poll_answered`), 8 or the on-site tutorial (variants: rules,
-  order, never-shown warnings, overlap; focus item order), the web push tutorial (Settings → Web push: prompt and
-  install check); a new tutorial 17 "Interactive AMP emails" in the index.
-- Screenshots: new `17-*.mjs` (AMP blocks editor, code mode with problems, preview and providers, poll results;
-  content variants with rules and a never-shown warning; overlap panel; focus item order drawer; Web push settings
-  with prompt preview, install check results and browser check); retake the template editor, the on-site editors and
-  list, and every shot showing the settings menu (new "Web push" item).
-
-**M7:**
-- Navigation changed (one Campaigns entry, "Website & app messages", campaign types renamed), so **every
-  screenshot showing the sidebar must be retaken** (in practice most of them), plus every shot of the Campaigns hub,
-  the old Journeys / Broadcasts lists (gone: retake as the hub with the type tab), the journey and one-time editors
-  (headers, back links, "Edit step by step" / "All settings and results"), the New campaign chooser (new), status
-  badges (Active → Live, Completed → Finished), report funnels and estimate steps (numbers are now links), the
-  Contacts page with link chips and "Create segment from this list" (new), the provider form (option labels,
-  order), Channels, Automation & limits, the AMP editor, Roles.
-- README: M7 features (contacts behind every number, one campaign model); the Journeys/Broadcasts → Campaigns
-  wording everywhere.
-- docs/02-architecture.md: `internal/api/contactsets.go` (set and outcome filters, the two engines, `cvset:*` keys
-  and `rlview` limit, `ContactFilter`, view-segment snapshots `cvset:*:snap`), `JourneyContacts`, the server-side
-  redirects of `/journeys` and `/broadcasts`, provider `option_labels`, the Events catalog's whole-day window.
-- docs/05-feature-parity.md: drill-down from every report number to its contacts; campaign types.
-- Developer 03 (API): the new `GET /v1/contacts?q=` filters (each key, values, combinations, errors, `note`,
-  permissions), `POST /v1/contacts/view-segment`, the export taking the same filters, provider field
-  `option_labels`.
-- Tutorials: 1 (getting started: navigation, New campaign chooser), 2 (contacts: the new filters and chips, lists
-  opened from numbers, Create segment from this list), 3 (segments: View contacts / sizes as links), 4 (channels:
-  provider wording), 6 and 7 (journeys → triggered and automation campaigns; canvas numbers that open lists), 14
-  (Campaigns hub and one-time campaigns: types, chooser, two editors, redirects), 15 (dashboards: drill-down,
-  which totals aren't linked and why), 16 and 17 (provider form labels, AMP editor), and any tutorial text saying
-  "Journeys", "Broadcasts", "On-site & in-app", "Active" or "Completed".
-- Screenshot scripts: every `*.mjs` that clicks the "Journeys" or "Broadcasts" sidebar entries or "New journey" /
-  "New broadcast" / "New one-time campaign…" must go through Campaigns → New campaign; selectors for status badge
-  text change.
+The documentation for M4–M7 (deferred from M4 on, by the owner's decision of 2026-11-11) was updated in one
+pass after M7 (be1294f): README, [architecture](02-architecture.md), [feature parity](05-feature-parity.md), every
+[developer guide](developer/README.md) and [tutorial](tutorials/README.md), with every screenshot retaken. Tutorials 6,
+7 and 8 were renamed for the M7 names ([triggered and automation campaigns](tutorials/06-triggered-and-automation-campaigns.md),
+[one-time campaigns](tutorials/07-one-time-campaigns.md), [website & app messages](tutorials/08-website-and-app-messages.md));
+new tutorials 15 [Delivery and dashboards](tutorials/15-delivery-and-dashboards.md), 16
+[Connecting any provider](tutorials/16-connecting-any-provider.md), 17 [Interactive AMP emails](tutorials/17-interactive-amp-emails.md)
+and 18 [Finding the contacts behind a number](tutorials/18-contacts-behind-a-number.md). `make docs-check` reports no
+problems.
 
 ## Risks
 

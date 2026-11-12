@@ -25,6 +25,9 @@ make docs-shots SHOT=01,dev-01     # several, comma-separated
    into `.cache/docs-shots` once (git-ignored), then runs `run.mjs`, which runs each matching script
    in `shots/` with a fresh browser and stops with an error if any fails.
 
+Pass a script's whole number (`SHOT=06`, not `SHOT=0`): a short prefix runs every script that starts with it, and
+some scripts change shared data (tutorial 6 pauses its test campaign).
+
 Pictures are written to `docs/<area>/img/<name>.png`, overwriting the old ones. Review them
 (`git diff --stat docs/*/img`, then look) before committing.
 
@@ -41,6 +44,7 @@ DOCS_WORKSPACE=… DOCS_EMAIL=… DOCS_PASSWORD=…`. To upgrade Playwright, cha
 | `lib.mjs` | Shared helpers (below) |
 | `shots/NN-<guide>.mjs` | One script per tutorial, e.g. `01-getting-started.mjs` → `docs/tutorials/img/01-*.png` |
 | `shots/dev-NN-<guide>.mjs` | One script per developer guide, e.g. `dev-01-installation.mjs` → `docs/developer/img/dev-01-*.png` |
+| `mock-provider.py` | A pretend SMS API for tutorial 16's Test connection picture. It runs in a container on the compose network (`http://sms-api:8080`), never on the host; the command is in its header. Without it, `16-*.mjs` still runs and the picture shows the connection error |
 
 ## Writing a script
 

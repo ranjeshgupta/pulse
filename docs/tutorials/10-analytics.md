@@ -3,6 +3,10 @@
 In about 20 minutes you will read the live Overview, build your own report, follow contacts through a
 funnel, see who comes back with a cohort report, and find out which campaigns bring in revenue.
 
+The ready-made dashboards (**Users**, **Campaign performance**, **Products** and **Live events**) and
+how messages are delivered, bounced or skipped have their own tutorial:
+[Tutorial 15, Delivery and dashboards](15-delivery-and-dashboards.md).
+
 **You need:** a workspace with some activity. The pictures use the **Acme Retail** example workspace:
 300 contacts with page views, carts and purchases over the last 30 days. Anyone with **Reports:
 View** can run everything here; saving a report, funnel or cohort needs **Reports: Edit**, and
@@ -21,9 +25,9 @@ Everything under **Analytics** updates as you change it: there is no "Run" butto
 | Part | Shows |
 |---|---|
 | **Live** | Events this minute, the last 60 minutes as a line, and totals for the last hour and today |
-| Counts | Contacts, segments, journeys running, templates |
+| Counts | **contacts**, **segments**, **campaigns running** (triggered and automation campaigns that are live) and **templates**. Click the number of contacts to open the Contacts list |
 | **Most frequent events** | The top events of the last 14 days |
-| **Messages** | Per channel: **Sent**, **Delivered**, **Opened**, **Clicked**, **Failed**, **Opted out** and **To SMS** (WhatsApp messages that fell back to SMS) |
+| **Messages** (14 days) | Per channel: **Sent**, **Delivered**, **Opened**, **Clicked**, **Failed**, **Opted out** and **To SMS** (WhatsApp messages that fell back to SMS). **Test inbox** opens the messages sent through sandbox providers |
 
 ## 2. Build a report
 
@@ -35,13 +39,13 @@ Everything under **Analytics** updates as you change it: there is no "Run" butto
 1. Click **New report**. Under **Start from** pick a ready-made report to change, or build from
    scratch:
 
-   ![New report: the Start from buttons Revenue by product, Purchases per day, Email outcomes by broadcast and Contacts by country](img/10-report-presets.png)
+   ![New report: the Start from buttons Revenue by product, Purchases per day, Email outcomes by campaign and Contacts by country](img/10-report-presets.png)
 
    | Start from | Counts |
    |---|---|
    | **Revenue by product** | Sum of `amount` of `purchase` events, by `sku`, as bars |
    | **Purchases per day** | `purchase` events each day, as a line |
-   | **Email outcomes by broadcast** | Email messages of each broadcast |
+   | **Email outcomes by campaign** | Email messages of each one-time campaign |
    | **Contacts by country** | All contacts by `geo_country` (needs GeoIP, [tutorial 11](11-admin-and-privacy.md#4-data--privacy-tracking-and-retention)) |
 
 2. Click **Purchases per day**. The left side is the report's settings, the right side the result.
@@ -49,14 +53,14 @@ Everything under **Analytics** updates as you change it: there is no "Run" butto
    ![Purchases per day: Events, Number of events, grouped by Day, shown as a line, with the chart and the table of days](img/10-report-line.png)
 
 3. Under **What to count**:
-   - **Source**: **Events** (what contacts did), **Messages** (what happened to broadcast and journey
-     messages; test sends aren't counted) or **Contacts** (profiles and their attributes).
+   - **Source**: **Events** (what contacts did), **Messages** (what happened to campaign messages;
+     test sends aren't counted) or **Contacts** (profiles and their attributes).
    - **Measure**: for events, **Number of events**, **Unique contacts**, **Sum of a property** or
      **Average of a property** (then type the **Property**, e.g. `amount`). Messages count messages or
      unique contacts; contacts count contacts, or sum or average an attribute.
    - **Group by**: **Nothing (one total)**, **Event name**, **Event property**, **Contact
      attribute**, or **Day**, **Week**, **Month**. Messages group by **Outcome**, **Channel** or
-     **Broadcast or journey**; contacts by an **Attribute** or the day, week or month they were first
+     **Campaign**; contacts by an **Attribute** or the day, week or month they were first
      seen.
    - **Show as**: **Table**, **Bars** or **Line** (a line needs grouping by day, week or month).
      The table is always shown under a chart.
@@ -73,7 +77,8 @@ gives bars like the seeded report:
 - **Only these events** (events): add up to 10 event names; with none, all events count.
 - **Only count events where…**: up to 5 conditions on event properties (for contacts, **Only count
   contacts where…** on attributes), e.g. `amount` **is at least** `1000`.
-- For messages: **From** (broadcasts, journeys or both), **Channels** and **Outcomes**
+- For messages: **From** (**Every campaign**, **One-time campaigns**, or **Triggered and automation
+  campaigns (journeys)**), **Channels** and **Outcomes**
   (Sent, Delivered, Opened, Clicked, Bounced, Unsubscribed and more).
 - **Only contacts in** (right side): only contacts who are in a segment right now.
 
@@ -109,7 +114,7 @@ A funnel counts how many contacts go from one event to the next, in order, and w
 4. On the right choose **Step 1 done in** (the period) and, if you like, **Only contacts in** a
    segment.
 
-![The Browse to purchase funnel: three steps, a 7-day window, and the results: 37% overall, 305 → 155 → 113 contacts](img/10-funnel.png)
+![The Browse to purchase funnel: three steps, a 7-day window, and the results: 36% overall, 322 → 157 → 117 contacts](img/10-funnel.png)
 
 The result shows the **Overall conversion**, each step's contacts as a bar with the share of step 1
 and of the step before, and how many dropped between steps.
@@ -138,7 +143,7 @@ something) and shows how many come back in each following period.
    (up to 60 days, 26 weeks or 12 months), and **Cohorts to show**: the **Most recent** N, or those
    **Starting between dates** (a year at most). **Only contacts in** limits it to a segment.
 
-![The Weekly buyers cohort report: settings, Back in week 1 on average 1.5%, and the retention heat map](img/10-cohort.png)
+![The Weekly buyers cohort report: settings, Back in week 1 on average 3.6%, and the retention heat map](img/10-cohort.png)
 
 Read the table row by row: each row is a cohort (e.g. **Week of 26 Oct**) with its number of
 **Contacts**, then the share who came back in **Week 0** (the week they started), **Week 1** and so
@@ -147,19 +152,22 @@ means that period hasn't happened yet, or the cohort is empty. Weeks start on Mo
 
 Click **Create report** / **Save report** to keep it.
 
-## 5. Journey and broadcast reports
+## 5. Campaign reports
 
-Each journey and broadcast has its own report (sent, delivered, opened, clicked, converted, per
-step or A/B variant, top links, by day). See [tutorial 6](06-journeys.md#13-per-step-stats-and-the-report)
-for journeys and [tutorial 7](07-broadcasts.md) for broadcasts. To compare campaigns side by side,
-build a **Messages** report grouped by **Broadcast or journey** (step 2).
+Each campaign has its own report (a funnel from audience to clicks, why messages didn't go out, A/B
+variants or steps, top links, by day). Its numbers open the contacts behind them. See
+[tutorial 6](06-triggered-and-automation-campaigns.md) for triggered and automation campaigns,
+[tutorial 7](07-one-time-campaigns.md) for one-time campaigns, and
+[tutorial 15](15-delivery-and-dashboards.md) for how to read a funnel. To compare campaigns side by
+side, open **Analytics → Campaign performance** (tutorial 15), or build a **Messages** report grouped
+by **Campaign** (step 2).
 
 ## 6. Revenue
 
-**Analytics → Revenue** adds up your purchases and credits them to the broadcasts, journeys and UTM
-campaigns that came before them.
+**Analytics → Revenue** adds up your purchases and credits them to the campaigns and UTM campaigns
+(from your ads and links) that came before them.
 
-![Revenue for the last 30 days: ₹5,51,541 from 328 orders and 215 buyers, with the Broadcasts and journeys and UTM campaigns tables](img/10-revenue.png)
+![Revenue for the last 30 days with the revenue, orders, buyers and average order, and the Campaigns and UTM campaigns tables](img/10-revenue.png)
 
 1. Choose **Purchases made in** (the period).
 2. Choose the **Attribution model**:
@@ -176,14 +184,15 @@ campaigns that came before them.
 The figures at the top are **revenue**, **orders**, **buyers**, **average order**, and the revenue
 **from messages** and **from UTM campaigns**. Below:
 
-- **Broadcasts and journeys**: a touch is the buyer opening or clicking one of their messages. Each
-  name links to the broadcast or journey.
+- **Campaigns**: a touch is the buyer opening or clicking one of their messages. Each name links to
+  the campaign, with its type (**One-time campaign**, or a triggered or automation campaign). A
+  campaign deleted since shows as its type and number, e.g. *One-time campaign 425*.
 - **UTM campaigns**: a touch is a visit from a link with `utm_*` parameters. The Pulse web SDK
   records them on page views, and keeps `first_utm_*` and `last_utm_*` on the profile.
 
 Messages and UTM campaigns are counted separately, so one purchase can appear in both tables.
-Revenue with no touch in the window is **Unattributed**. In the picture nothing is attributed: the
-example purchases didn't follow an opened message or a tagged link.
+Revenue with no touch in the window is **Unattributed**. In the picture most revenue is
+unattributed: few of the example purchases followed an opened message, and none a tagged link.
 
 ### Revenue settings
 
@@ -198,7 +207,8 @@ At the bottom, **Revenue settings** says which events count. Click **Change**:
 - **Currency code**: used to show amounts, e.g. `INR`. Amounts aren't converted, so send them all in
   one currency.
 
-Click **Save settings**. Broadcast and journey reports use the same settings for their revenue.
+Click **Save settings**. Campaign reports and **Campaign performance** use the same settings for their
+revenue.
 
 ## What you have now
 
@@ -206,6 +216,9 @@ Click **Save settings**. Broadcast and journey reports use the same settings for
 - A funnel with its drop-offs, broken down by plan
 - A cohort report of who comes back
 - Revenue, and which campaigns earned it
+
+For the dashboards, delivery and the contacts behind each number, go on to
+[tutorial 15](15-delivery-and-dashboards.md).
 
 **Next:** [Tutorial 11, Admin and privacy](11-admin-and-privacy.md): consent, data retention, the
 audit log and single sign-on.

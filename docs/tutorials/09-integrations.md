@@ -37,7 +37,7 @@ the list.
 ## 2. Connect HubSpot
 
 Pulse pulls HubSpot contacts on a schedule and pushes Pulse contacts to HubSpot, one at a time or
-from a journey.
+from a triggered or automation campaign.
 
 **In HubSpot** create a private app (*Settings → Integrations → Private Apps*) with the scopes
 `crm.objects.contacts.read` and `crm.objects.contacts.write`, and copy its access token
@@ -47,7 +47,7 @@ from a journey.
 
 1. On the **HubSpot** card click **Connect**. The page is **Connect HubSpot**.
 2. Fill in:
-   - **Name**: how the integration appears in lists and journeys, e.g. `HubSpot`.
+   - **Name**: how the integration appears in lists and campaign steps, e.g. `HubSpot`.
    - **Private app access token**: the token you copied.
    - **Pull contacts**: how often Pulse asks HubSpot for contacts changed since the last pull:
      **Every 15 minutes**, **Every 30 minutes**, **Every hour** (the default), **Every 4 hours**,
@@ -95,7 +95,7 @@ Each row joins a HubSpot field to a Pulse attribute. HubSpot starts with five ro
 - **Pull now** asks for changes since the last pull right away (*Pull starts within a few seconds*).
   **Pull everything again** starts from the beginning; unchanged contacts stay as they are.
   Each record becomes a `crm_synced` event on the contact with the same email, or on a new contact,
-  so segments and journeys react straight away.
+  so segments and campaigns react straight away.
 - **Push a contact**: type a contact's external ID and click **Preview** to see exactly which fields
   Pulse would send. **Push** sends them: to the HubSpot record Pulse already knows (`hubspot_id`),
   else the one with the contact's email, else a new record. Empty Pulse values never blank a HubSpot
@@ -132,22 +132,22 @@ be Salesforce API names (letters, digits and `_`). Pulse keeps the record ID as 
 When a push creates a record without a last name, Pulse sends `[not provided]` (and the same for a
 lead's company), because Salesforce requires them.
 
-## 4. Push contacts to your CRM from a journey
+## 4. Push contacts to your CRM from a campaign
 
-Once HubSpot or Salesforce is connected, journeys can send contacts to it: in the journey editor,
-click a **+**, choose **Action → Push contact to integration**, and pick the integration under
-**CRM**.
+Once HubSpot or Salesforce is connected, triggered and automation campaigns can send contacts to it.
+Open the campaign (**Campaigns**, then the campaign's name) to see its steps, click a **+**, choose
+**Action → Push contact to integration**, and pick the integration under **CRM**.
 
 <img src="img/09-journey-push.png" alt="The Push contact to integration step with CRM set to the HubSpot integration" width="340">
 
 The fields go through the integration's field mapping. If a push fails, Pulse records an
-`integration_push_failed` event on the contact and the journey carries on. Building journeys is
-covered in [tutorial 6](06-journeys.md).
+`integration_push_failed` event on the contact and the campaign carries on. Building triggered and
+automation campaigns is covered in [tutorial 6](06-triggered-and-automation-campaigns.md).
 
 ## 5. Connect Shopify
 
 Shopify sends Pulse a webhook for each new order, new customer and checkout. Pulse turns them into
-events you can use in segments, journeys and revenue reports.
+events you can use in segments, campaigns and revenue reports.
 
 **In Pulse:**
 
@@ -359,7 +359,7 @@ To pause sending, untick **Active** and **Save**. **Delete** stops it at once.
 
 ## What you have now
 
-- A CRM connected: contacts pulled on a schedule, pushed on demand or from a journey
+- A CRM connected: contacts pulled on a schedule, pushed on demand or from a campaign
 - Shopify orders, customers and checkouts arriving as events
 - A key for Zapier or Make, and segments kept in step with ad audiences
 - A webhook telling your own systems about purchases

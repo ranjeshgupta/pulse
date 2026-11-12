@@ -3,17 +3,24 @@
 How data leaves Pulse for your systems, and how other systems talk back to it:
 
 - [Outbound webhooks](#outbound-webhooks): Pulse POSTs events to your URLs, signed.
-- [Inbound provider webhooks](#inbound-provider-webhooks): delivery receipts, replies, bounces and
-  complaints from email, SMS, WhatsApp and RCS services.
+- [Inbound provider webhooks](#inbound-provider-webhooks): delivery receipts, replies, bounces,
+  complaints and deliveries from email, SMS, WhatsApp and RCS services, and the
+  [reason codes](#reason-codes) Pulse gives every failure.
 - [Zapier and Make (REST hooks)](#zapier-and-make-rest-hooks): triggers and actions with an
   integration key.
-- [The custom HTTP gateway](#the-custom-http-gateway): send any channel through your own service.
+- [The custom HTTP gateway](#the-custom-http-gateway): send any channel through your own service,
+  or call any provider's API with [your own request](#custom-request-mode) and
+  [authentication](#custom-authentication).
+- [Google and Gupshup providers](#google-and-gupshup-providers): Gmail, Google Workspace, the
+  Workspace relay, and Gupshup SMS, WhatsApp and RCS.
 - [CRM, Shopify and ad audiences](#crm-shopify-and-ad-audiences): what the built-in connectors do.
 
 Outbound calls (webhooks, the gateway, connectors) go through an HTTP client that refuses private
 and loopback addresses unless `PULSE_ALLOW_PRIVATE_WEBHOOKS=true` (development only; see
-[Configuration](02-configuration.md#secrets-and-outbound-calls)). Signing secrets are stored
-encrypted with `PULSE_SECRET_KEY`, which webhooks need.
+[Configuration](02-configuration.md#secrets-and-outbound-calls)). Requests that carry a
+provider's credentials (custom authentication logins and token requests, the gateway, Gupshup)
+never follow a redirect to another site. Signing secrets are stored encrypted with
+`PULSE_SECRET_KEY`, which webhooks need.
 
 ---
 
@@ -242,13 +249,16 @@ reports" and in `GET /v1/channels/providers` (`webhook_url`). Enter it in the pr
 | Twilio (SMS) | The number's "A message comes in" webhook and the status callback (Pulse sends its URL with each message) | `X-Twilio-Signature`: HMAC-SHA1 with the auth token over the URL Twilio called plus the form fields. Behind a proxy, keep `Host` and set `X-Forwarded-Proto` so the URL matches |
 | Meta WhatsApp Cloud API | The app's webhook URL, with the provider's **verify token**; subscribe to `messages` | `GET` verification with `hub.verify_token`; `X-Hub-Signature-256` (HMAC-SHA256 with the app secret) on every post |
 | Google RCS Business Messaging | The agent's webhook URL, with the provider's **webhook client token** | The client-token handshake; HMAC-SHA512 signature on every post |
-| Custom HTTP gateway | Your service posts receipts back (see [the gateway contract](#the-custom-http-gateway)) | `X-Pulse-Signature`, as above, with the gateway's signing secret |
+| Gupshup SMS, WhatsApp, RCS | The delivery report / callback URL, with `?token=<the provider's webhook token>` appended (see [Gupshup](#gupshup)) | The webhook token (`?token=` or an `X-Pulse-Token` header); reports without it are refused |
+| Custom HTTP gateway | Your service posts receipts back (see [the gateway contract](#the-custom-http-gateway)) | Standard mode: `X-Pulse-Signature`, as above, with the gateway's signing secret. Custom request mode: the [receipt token](#receipts-in-custom-request-mode) |
 
 What Pulse does with them:
 
 - **Delivery receipts** (`delivered`, `read`, `failed`) become `<channel>_delivered`, `_read` and
   `_failed` events on the message's contact, for reports and journey message decisions. A WhatsApp
-  or RCS message reported undeliverable falls back to its SMS template, if it has one.
+  or RCS message reported undeliverable falls back to its SMS template, if it has one. Failures
+  carry a [reason code](#reason-codes) (from the provider's error code where it has one: Meta
+  131026 is `blocked`, 131048/131049 and Twilio 30007 `spam_policy`, Gupshup 1002 `not_on_channel`…).
 - **Inbound messages** from a known phone number become `<channel>_received` (`text`, `from`,
   `keyword`) on every contact with that number. Messages from unknown numbers are dropped.
 - **Keywords**: a reply matching the workspace's opt-out words (STOP and the like) unsubscribes
@@ -259,35 +269,101 @@ What Pulse does with them:
   latest RCS message the contact got in the last 7 days, so a journey can wait for "replied".
 
 To try this without a provider, the sandbox simulates both: `POST /v1/sandbox/inbound`
-(`{"channel":"sms","from":"+919800000001","text":"STOP"}`) and `POST /v1/sandbox/receipts`.
+(`{"channel":"sms","from":"+919800000001","text":"STOP"}`) and `POST /v1/sandbox/receipts`
+(`{"provider_message_id": "…", "status": "delivered"}`; `status` is `delivered`, `failed`, `read`,
+`complained`, or `bounced` with `"kind": "hard"` or `"soft"`; `reason` and `code` optional).
 
-### Bounces and complaints (email)
+### Reason codes
+
+Every `<channel>_failed`, `_suppressed` (skipped for consent) and `_capped` event, and every
+`email_bounced` and `email_complained`, carries `props.reason_code` next to the raw
+`props.reason` (the provider's or dispatcher's own words). Reports group by these codes, and the
+Contacts list filters by them (`reason:<code>`).
+
+| Code | Means |
+|---|---|
+| `invalid_number`, `invalid_email` | The phone number or address is invalid or the mail server rejected it |
+| `no_address` | The contact has no email, valid phone or push device |
+| `not_on_channel` | Not a WhatsApp user, RCS not supported, handset unreachable |
+| `blocked` | WhatsApp: undeliverable (possibly blocked by the person) |
+| `invalid_token` | Push: the device token or browser subscription is gone |
+| `hard_bounce`, `soft_bounce`, `complaint` | Email bounced permanently, temporarily, or was marked as spam |
+| `consent`, `bounced_before`, `capped`, `deadline`, `missing_value` | Skipped: opted out; bounced earlier; frequency cap; past the send deadline; a variable had no value |
+| `template`, `no_provider` | Template missing, wrong channel, not approved or failed to render; no provider for the channel |
+| `provider_auth`, `provider_rejected`, `spam_policy` | The provider refused Pulse's credentials; refused the message; held it back by spam or frequency policy |
+| `rate_limited`, `timeout`, `provider_error` | The provider kept answering 429, didn't answer, or failed (5xx, network), after every retry |
+| `unknown` | Recorded before reason codes existed, or not classifiable ("Not recorded") |
+
+Codes are derived in `internal/reasons` from the adapters' error texts and the providers' own
+codes; a receipt may carry one directly (`code` in a sandbox receipt, `reason_code` in a gateway
+receipt).
+
+### Bounces, complaints and deliveries (email)
 
 **Settings → Channels → Bounces and complaints** (or `GET /v1/settings/bounces`) shows the
 workspace's secret bounce URL, `{PULSE_PUBLIC_URL}/v1/bounces/{token}`. Point your email service's
 event webhook at it. The body format is detected:
 
-| Service | Configure |
-|---|---|
-| SendGrid | Event Webhook (bounce, dropped, spam report events) |
-| Postmark | Bounce and spam complaint webhooks |
-| Mailgun | Webhooks for permanent and temporary failures and complaints (v3 `event-data`) |
-| Amazon SES | Notifications through an SNS topic with an HTTPS subscription to the URL; Pulse confirms the subscription itself |
-| Anything else | Generic JSON: `{"email": "…", "type": "hard", "reason": "…"}` (`type`: `hard`, `soft` or `complaint`), or a list of them |
+| Service | Configure | Verified with (once saved) |
+|---|---|---|
+| SendGrid | Event Webhook: delivered, bounce, dropped, spam report; turn on the signed event webhook | The verification key SendGrid shows (ECDSA over timestamp + body, ±24 h) |
+| Postmark | Bounce, spam complaint and delivery webhooks; put a user and password in the URL | HTTP basic auth |
+| Mailgun | Webhooks for delivered, permanent and temporary failures and complaints (v3 `event-data`) | The HTTP webhook signing key (HMAC of timestamp + token, ±24 h; each token accepted once) |
+| Amazon SES | Notifications (bounce, complaint, delivery) through an SNS topic with an HTTPS subscription to the URL; Pulse confirms the subscription itself | Always: the SNS message signature (v1 or v2), with the certificate from an `sns.<region>.amazonaws.com` host (SES events posted without SNS: basic auth) |
+| SparkPost | Event webhook: delivery, bounce, out-of-band bounce, spam complaint; basic auth credentials on the webhook | HTTP basic auth |
+| Anything else | Generic JSON: `{"email": "…", "type": "hard", "reason": "…", "ref": "…"}` (`type`: `hard`, `soft`, `complaint` or `delivered`), or a list of them | HTTP basic auth |
 
 ```bash
-curl -s -X POST "$PULSE/v1/bounces/$BOUNCE_TOKEN" -H "Content-Type: application/json" \
+curl -s -X POST "$PULSE/v1/bounces/$BOUNCE_TOKEN" -u pulse:$BASIC_PASSWORD -H "Content-Type: application/json" \
   -d '[{"email":"asha@example.com","type":"hard","reason":"550 mailbox unavailable"}]'
 ```
 
-A **hard** bounce records `email_bounced` and sets `email_bounced: true`, which stops email to the
-address until your server clears it. A **soft** bounce is only recorded. A **complaint** records
-`email_complained` and unsubscribes the contact from email (`source: "complaint"`). Addresses that
-match no contact are ignored. The URL is the only credential: keep it private.
+**Verification.** The secret URL picks the workspace. Save keys with
+`PUT /v1/settings/bounces/signing` (or on the settings page): the SendGrid verification key, the
+Mailgun signing key, and a basic auth user and password (at least 12 characters) for the formats
+without a signature of their own. Once a format's key is saved, its bodies that don't pass are
+refused; and **once any key is saved**, every body must pass a saved check, so a format with no
+check of its own needs basic auth or is refused (the settings page shows it as "Refused"). With no
+key saved, the URL alone is accepted ("URL secret only"). Refused bodies get 401.
+
+**Message references.** Every email with tracking on carries a signed reference to its message
+(workspace, contact, template, campaign, run, variant: ids only, plus an HMAC), as the
+`Message-ID`'s local part, in `X-Pulse-Ref`, and in the sending service's own metadata header,
+which its webhooks echo back. The SMTP provider's **Sending service** setting chooses that header
+(auto-detected from the host: `smtp.sendgrid.net`, `*.mailgun.org`, `*.postmarkapp.com`,
+`email-smtp.*.amazonaws.com`, `*.sparkpostmail.com`):
+
+| Service | Header |
+|---|---|
+| SendGrid | `X-SMTPAPI: {"unique_args":{"pulse_ref":"…"}}` |
+| Mailgun | `X-Mailgun-Variables: {"pulse_ref":"…"}` |
+| Postmark | `X-PM-Metadata-pulse_ref` (split into `pulse_ref2` past 80 characters) |
+| Amazon SES | `X-SES-MESSAGE-TAGS: pulse_ref=…` |
+| SparkPost | `X-MSYS-API: {"metadata":{"pulse_ref":"…"}}` |
+
+A report whose reference was signed by this server for this workspace is linked to the message,
+its campaign and template (so it shows in that campaign's report); otherwise it's recorded on the
+contact with that address, unlinked. Linked events take their IDs from the message, so a repeated
+webhook records once. Deliveries without a reference are dropped (they would count nowhere).
+Bounces from before references existed stay unlinked.
+
+What Pulse records:
+
+- A **hard** bounce records `email_bounced` and sets `email_bounced: true` (only while the contact
+  still has the bounced address), which stops email to the address until your server clears it.
+- A **soft** bounce is only recorded.
+- A **complaint** records `email_complained` and unsubscribes the contact from email
+  (`source: "complaint"`).
+- A **delivery** records `email_delivered`. Plain SMTP relays (and Gmail, the Workspace relay, FCM
+  and web push) never report deliveries: reports show "—" ("not reported by this provider") for
+  them.
+
+Addresses that match no contact are ignored. Keep the URL private.
 
 If your mail goes through a server that sends delivery status notifications (RFC 3464) and ARF
 complaints (RFC 5965) to a mailbox instead, add it under **Settings → Channels → Bounce mailbox**
-(IMAP; the `integrations` role reads it every 5 minutes, and needs `PULSE_SECRET_KEY`).
+(IMAP; the `integrations` role reads it every 5 minutes, and needs `PULSE_SECRET_KEY`). They are
+linked from the quoted original's `X-Pulse-Ref` or `Message-ID`.
 
 ### Email replies
 
@@ -344,10 +420,18 @@ else create one named by the email.
 ## The custom HTTP gateway
 
 When Pulse has no adapter for your provider (a regional SMS aggregator, an in-house notification
-service), add a **Custom HTTP gateway** provider to any channel (email, SMS, WhatsApp, RCS, push):
-Pulse POSTs each rendered message to your endpoint, signed, and your service delivers it.
+service), add a **Custom HTTP gateway** provider to any channel (email, SMS, WhatsApp, RCS, push).
+It works in two modes, chosen by **How Pulse calls your gateway** (`config.mode`):
 
-![Settings, Channels, Add SMS provider: Custom HTTP gateway selected, Name in Pulse, Endpoint URL https://sms-gateway.example.com/pulse, a masked signing secret, and Use for all SMS messages](img/dev-06-gateway.png)
+- **Pulse's standard request (signed JSON)** (`standard`, the default): Pulse POSTs each rendered
+  message to your endpoint in the format below, signed, and your service delivers it.
+- **My own request (method, address, headers, body)** (`custom`): you design the request, so Pulse
+  can call a provider's existing API directly ([custom request mode](#custom-request-mode)).
+
+Both modes can add [custom authentication](#custom-authentication) (basic, bearer, API key, OAuth2
+or a login flow).
+
+![Settings, Channels, Add SMS provider: Custom HTTP gateway selected, Name in Pulse, How Pulse calls your gateway set to Pulse's standard request (signed JSON), Endpoint URL https://sms-gateway.example.com/pulse, Authentication type None, a masked signing secret, the Test connection and Preview request buttons, and Use for all SMS messages](img/dev-06-gateway.png)
 
 ```bash
 curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
@@ -380,9 +464,10 @@ Idempotency-Key: 1f6c…-welcome
 | `to` | all | Email address, E.164 phone number, or push token |
 | `platform` | push | `android`, `ios` or `web` |
 | `subject`, `html`, `text` | email | The rendered email; `text` is the plain-text part |
+| `ref` | email | The message reference; pass it on as an `X-Pulse-Ref` header (and the sending service's metadata) so bounces and deliveries can be [linked](#bounces-complaints-and-deliveries-email) |
 | `headers` | email | Extra headers to set, e.g. `List-Unsubscribe` and `List-Unsubscribe-Post` |
 | `attachments` | email | `[{"filename","content_type","size","url"}]`: signed download links valid 7 days (needs `PULSE_SECRET_KEY`) |
-| `content` | all | The rendered channel content (`channel.Content`): `text`, `sender_id` (SMS); `template_name`, `language`, `body_params` (WhatsApp); `text`, `card`, `suggestions` (RCS); `title`, `body`, `image_url`, `url`, `data` (push; `data.pulse_track` is the click tracking URL) |
+| `content` | all | The rendered channel content (`channel.Content`): `text`, `sender_id`, `dlt_template_id`, `dlt_entity_id` (SMS); `template_name`, `language`, `body_params` (WhatsApp); `text`, `card`, `suggestions` (RCS); `title`, `body`, `image_url`, `url`, `data` (push; `data.pulse_track` is the click tracking URL); `amp` (email: the AMP part, personalised, when the template has one; your service must add it to the email as `text/x-amp-html`) |
 
 Verify `X-Pulse-Signature` with the functions [above](#verifying-the-signature) and the gateway's
 signing secret.
@@ -399,10 +484,13 @@ Pulse waits up to 15 seconds.
 | `429` or `5xx`, a timeout or a network error | Temporary failure: the dispatcher tries again, see the note below |
 
 **Note on temporary failures.** The `dispatch` role tries a message that failed temporarily again
-after 30 s, 1 min, 2 min, 5 min, 10 min, 30 min and 1 h (about 1 h 50 min in all), without holding
-up other messages. Send `Retry-After` (seconds or an HTTP date) with a `429` or `503` to ask for a
-longer wait (up to an hour). If every try fails, Pulse records `<channel>_failed` with
-`reason: "gave up after 8 tries: …"`. Every try carries the same `message_id`: deliver it once.
+after 30 s, 1 min, 2 min, 5 min, 10 min, 30 min and 1 h (8 tries, about 1 h 50 min in all), without
+holding up other messages. Each workspace can change the number of tries (1-20) and the longest
+wait (1 minute to a day) in **Settings → Automation & limits**: fewer tries cut the schedule, a
+shorter longest wait caps it, more tries keep doubling the last wait. Send `Retry-After` (seconds or
+an HTTP date) with a `429` or `503` to ask for a longer wait (up to that longest wait). If every try
+fails, Pulse records `<channel>_failed` with `reason: "gave up after 8 tries: …"`. Every try
+carries the same `message_id`: deliver it once.
 
 ### Receipts and replies back to Pulse
 
@@ -412,12 +500,16 @@ Post delivery receipts and inbound messages to the provider's webhook URL
 
 ```json
 {"id": "your-message-id", "status": "delivered"}
-{"id": "your-message-id", "status": "failed", "unreachable": true, "reason": "not on WhatsApp"}
+{"id": "your-message-id", "status": "failed", "unreachable": true, "reason": "not on WhatsApp", "reason_code": "not_on_channel"}
+{"id": "your-message-id", "status": "bounced", "kind": "hard", "reason": "550 mailbox unavailable"}
+{"id": "your-message-id", "status": "complained"}
 {"status": "inbound", "id": "your-inbound-id", "from": "+919811122233", "text": "STOP"}
 ```
 
-`status` is `delivered`, `failed`, `read` or `inbound`; `unreachable: true` on a failure triggers the
-SMS fallback for WhatsApp and RCS (and marks an SMS number bounced). Receipts are matched to messages
+`status` is `delivered`, `failed`, `read`, `bounced` (email; `kind` `hard` or `soft`, `hard` when
+missing), `complained` (email) or `inbound`; `unreachable: true` on a failure triggers the
+SMS fallback for WhatsApp and RCS (and marks an SMS number bounced). `reason_code` is optional
+([reason codes](#reason-codes)); without it Pulse derives one from `reason`. Receipts are matched to messages
 sent in the last 3 days; later or unknown IDs are ignored. Inbound messages are handled like any provider's
 ([above](#delivery-receipts-and-replies-sms-whatsapp-rcs-gateway)). Signing in Node.js:
 
@@ -433,6 +525,177 @@ await fetch(webhookUrl, {
 ```
 
 Pulse answers 200 when accepted, 401 for a bad signature, 400 for a body it can't read.
+
+### Custom request mode
+
+In custom mode the provider's `config.request` (JSON) describes the request; the app's form writes
+it for you.
+
+```json
+{
+  "method": "POST",
+  "url": "https://api.sms.example/v2/messages?route=promo",
+  "headers": [{"name": "X-Account", "value": "acme"}],
+  "content_type": "application/json",
+  "body": "{\"to\": \"{{message.to}}\", \"text\": \"{{message.text}}\", \"customer\": \"{{contact.external_id}}\"}",
+  "success": {"status_min": 200, "status_max": 299, "json_path": "status", "json_value": "queued"},
+  "id_path": "data.message_id",
+  "receipt": {"items_path": "events", "id_path": "message_id", "status_path": "state",
+              "statuses": {"DELIVRD": "delivered", "READ": "read", "UNDELIV": "undeliverable", "FAILED": "failed"},
+              "reason_path": "error.text", "code_path": "error.code",
+              "verify": "header", "verify_name": "X-Receipt-Token"}
+}
+```
+
+- **Method** `GET`, `POST`, `PUT` or `PATCH`; **content type** JSON (the default), a form
+  (`application/x-www-form-urlencoded`) or anything else as plain text.
+- **Variables**: the standard ones (`{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`) and
+  `{{message.x}}`, the rendered message: `id`, `channel`, `to`, `from`, `platform`, `subject`,
+  `html`, `text`, `title`, `body`, `image_url`, `url`, `sender_id`, `dlt_template_id`,
+  `dlt_entity_id`, `template_name`, `language`, `params`, `header_image_url`, `suggestions`, `card`,
+  `data`, `ref`, `amp`. (`message.x` is empty in message templates.)
+- **Escaping**: every value is escaped for where it lands: JSON-escaped in a JSON body
+  (`| json` inserts a whole value, e.g. `{{message.params | json}}`), percent-encoded in a form
+  body and in query parameters. A header value containing a line break refuses the send.
+- **Fixed destination**: the URL's scheme and host must be written out
+  (`https://api.sms.example/…`); variables are allowed only in its path and query, so a contact's
+  data can never choose where the request goes. Private and loopback addresses are refused unless
+  `PULSE_ALLOW_PRIVATE_WEBHOOKS` is set.
+- **Success rule**: the status within `status_min`-`status_max` (default 200-299) and, with
+  `json_path`, the answer's value there equal to `json_value` (or, with no value, present and not
+  `false` or empty). `id_path` reads the provider's message ID from a JSON answer, to match receipts.
+- **Answers**: 404 and 410 mean unreachable (fallback to SMS), 429 and 5xx are retried, any other
+  4xx and a 2xx that fails the success rule are permanent failures.
+
+Use **Preview request** in the form (`POST /v1/channels/providers/preview`) to see the exact
+request, with secrets masked, for the test message or a template rendered for a contact.
+
+### Receipts in custom request mode
+
+The provider's delivery webhook posts to the same provider webhook URL. `receipt` maps it: an
+object, or a list of them at `items_path` (or the body itself when it's an array); `id_path` and
+`status_path` find the message ID and status; `statuses` maps the provider's values (any case) to
+`delivered`, `read`, `failed`, `undeliverable` (failed, and the SMS fallback runs) or `bounced`;
+values not listed (such as "queued") are ignored. `reason_path` and `code_path` add the reason.
+
+Receipts **fail closed**: they must carry the provider's **receipt token** (a secret you choose),
+or every receipt is refused. `verify` says where:
+
+| `verify` | The token is |
+|---|---|
+| `header` | The value of the header `verify_name` |
+| `query` | The value of the query parameter `verify_name` (register the URL with `?<name>=<token>`) |
+| `hmac` | The key of an HMAC-SHA256 of the raw body, sent in the header `verify_name` as hex or base64 (a `sha256=` prefix is allowed) |
+
+### Custom authentication
+
+The gateway (both modes) takes authentication in `config.auth` (JSON), with its secrets among the
+provider's sealed secrets:
+
+| `type` | Settings | Secrets |
+|---|---|---|
+| `none` | | |
+| `basic` | | `auth_username`, `auth_password` |
+| `bearer` | `inject` (optional) | `auth_token` |
+| `api_key` | `key_in` (`header` or `query`), `key_name` | `auth_api_key` |
+| `oauth2` | `token_url`, `client_id`, `scope`, `audience`, `grant` (`client_credentials`, or `refresh_token`), `client_auth` (`body` or `basic`), `inject` | `auth_client_secret` (and `auth_refresh_token`) |
+| `login` | `login`: the login request and how to read its answer; `inject` | any `{{secrets.x}}` the login names |
+
+A **login flow** is for APIs that hand out a token from a login call:
+
+```json
+{"type": "login",
+ "login": {"method": "POST", "url": "https://api.sms.example/auth/login",
+           "content_type": "application/json",
+           "body": "{\"user\": \"{{secrets.username}}\", \"password\": \"{{secrets.password}}\"}",
+           "token_from": "json", "token_path": "data.token",
+           "expiry_from": "json", "expiry_path": "data.expires_in"},
+ "inject": {"in": "header", "name": "Authorization", "template": "Bearer {{token}}"}}
+```
+
+- `{{secrets.x}}` names a secret (each gets its own masked field in the form). In a JSON body it's
+  JSON-escaped; in a form body or the URL, percent-encoded. A secret is never allowed in the login
+  or token URL's scheme, user info, host or port: only its path and query.
+- The token is read with `token_from`: `json` (a dotted path: `data.token`, `items[0].t` or
+  `items.0.t`), `header` (a response header; a leading `Bearer ` is dropped) or `regex` (an
+  expression on the body: its first group, or the whole match).
+- Its lifetime: `expiry_from: "json"` with `expiry_path` (seconds left, a Unix time in seconds or
+  milliseconds, or an RFC 3339 time), `fixed` with `expiry_seconds` (10 seconds to 30 days), or
+  empty (an hour, renewed sooner on a 401). Login and token URLs must be `https` (and public)
+  unless `PULSE_ALLOW_PRIVATE_WEBHOOKS` is set.
+- `inject` puts the token into each request: a header (`name`, default `Authorization`;
+  `template`, default `Bearer {{token}}`), a query parameter, or a top-level field of a JSON object
+  or form body (`in: "body"`).
+
+Tokens are cached per provider in Redis (sealed with the server key), keyed by a hash of the
+settings and secrets, so a changed password never reuses an old token. A token is renewed shortly
+before it expires (a tenth of its lifetime, at most a minute early) by one instance at a time
+(the others wait for its result); a `401` on a send drops the token and retries once with a new
+one. A login or token endpoint answering 4xx (other than 429), or an answer without a token where
+the settings say, is a permanent failure (`provider_auth`); 5xx and network errors are retried
+like any send. **Test connection** (`POST /v1/channels/providers/check-auth`) runs the login now and
+shows the token masked with its expiry; it never uses or fills the cache.
+
+Changing any of these settings (or the URLs, the mode, the request template, the receipt mapping)
+needs every secret entered again, and pointing the provider at another host clears the saved
+secrets ([API guide](03-api.md#channels-and-providers)).
+
+---
+
+## Google and Gupshup providers
+
+### Gmail, Google Workspace and the Workspace relay
+
+| Provider | Host | Sign-in | Limits a new provider starts with |
+|---|---|---|---|
+| Gmail (SMTP) `gmail_smtp` | `smtp.gmail.com`, port 587 (STARTTLS) or 465 (TLS) | An app password, or a Google OAuth client | 500 a day, 1 a second |
+| Google Workspace (SMTP) `gworkspace_smtp` | the same | the same | 2,000 a day, 2 a second |
+| Google Workspace SMTP relay `gworkspace_relay` | `smtp-relay.gmail.com`, port 587, 465 or 25 | Your server's IP address, or SMTP auth | 10,000 a day |
+
+These accounts are for low volume: send bulk mail through the relay or a sending service. None of
+them reports deliveries.
+
+- **App password**: 16 characters from the Google account's security page (it needs 2-step
+  verification); spaces are removed.
+- **OAuth client (XOAUTH2)**: in Google Cloud, create an OAuth client, authorise it once for the
+  scope `https://mail.google.com/` with the sending account, and keep the **refresh token**. Enter
+  the client ID, client secret and refresh token; Pulse exchanges the refresh token for access
+  tokens at Google's token endpoint (cached per provider, like custom authentication) and signs in
+  with XOAUTH2, only over TLS.
+- **Relay**: in the Google Admin console (Apps → Google Workspace → Gmail → Routing → SMTP relay
+  service), allow your server's IP addresses (or require SMTP authentication), and allow sending
+  from your domain's addresses. Enter **Your domain (sent in EHLO)**: the relay identifies you by it.
+
+### Gupshup
+
+`gupshup_sms` (Enterprise SMS gateway), `gupshup_whatsapp` and `gupshup_rcs`. They were built
+from Gupshup's public documentation and tested against mock servers only: every API URL is a
+setting, and the endpoints should be confirmed with a real Gupshup account.
+
+- **SMS** goes through the Enterprise gateway (`GatewayAPI/rest`, `method=SendMessage`) with your
+  user ID and password, the sender ID (DLT header) as `mask`, and India's DLT IDs: the template's
+  `dlt_template_id` / `dlt_entity_id`, or the provider's defaults. Unicode text is detected.
+- **WhatsApp** sends approved templates (the template's name is Gupshup's template ID, with body
+  parameters and a header image) or session text, with the app's API key; delivery events (v2:
+  delivered, read, failed) are matched on Gupshup's message ID, and replies feed STOP keywords.
+- **RCS** sends text, a rich card and suggestions; "RCS not supported" answers fall back to SMS.
+  Its delivery report and inbound formats are inferred, not documented by Gupshup.
+- **Webhooks**: every Gupshup provider needs a **Webhook token** (any long random string). Register
+  the provider's Pulse webhook URL at Gupshup with `?token=<the token>` appended (or send it as an
+  `X-Pulse-Token` header). SMS delivery reports may come by GET or POST. Reports and replies
+  without the token are refused.
+- Error codes become reason codes (unknown subscriber → `invalid_number` and the number marked
+  bounced, DND → `consent`, template mismatch → `template`, WhatsApp 1002 → `not_on_channel` and
+  the SMS fallback…).
+
+### AMP email by provider
+
+An email template's AMP part goes out as `text/x-amp-html` between the plain-text and HTML parts
+with every SMTP relay (SES, SendGrid, SparkPost, Mailgun, Gmail and Workspace, plain relays)
+**except Postmark**, which doesn't support AMP: there the AMP part is left out and the HTML is sent.
+The custom gateway gets it as `content.amp` (standard mode) or `{{message.amp}}` (custom mode) and
+must add it itself. The editor shows this per provider (`POST /v1/templates/amp/check` →
+`providers`). Gmail shows AMP only from senders Google has registered.
 
 ---
 

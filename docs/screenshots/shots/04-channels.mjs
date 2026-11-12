@@ -3,7 +3,7 @@
 // (email goes through the server's SMTP relay, Mailpit in development). Provider forms are filled
 // with placeholder values and cancelled, never saved; delivery rules are changed on screen only.
 // The one thing it sends is a provider test through the SMS sandbox, which lands in the test inbox.
-import { api, clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
+import { api, BASE, clearHighlights, DOCS, go, highlight, session, settle, shot } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -35,11 +35,26 @@ export default async function (browser) {
   await dialog.getByRole("combobox").first().selectOption("smtp");
   await dialog.getByLabel("Name in Pulse").fill("Amazon SES (Mumbai)");
   await dialog.getByLabel("Host").fill("email-smtp.ap-south-1.amazonaws.com");
-  await dialog.getByLabel("Port").fill("587");
+  await dialog.getByLabel(/^Port/).fill("587");
   await dialog.getByLabel("From address").fill("Acme Retail <hello@acme-retail.example.com>");
+  await page.setViewportSize({ width: 1440, height: 1300 });
   await settle(page);
   await shot(page, AREA, "04-add-smtp", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Gmail: the preset's notes and the daily quota it starts with (placeholders, not saved).
+  await emailPanel.getByRole("button", { name: "Add provider" }).click();
+  dialog = page.getByRole("dialog", { name: "Add Email provider" });
+  await dialog.getByRole("combobox").first().selectOption("gmail_smtp");
+  await dialog.getByLabel("Name in Pulse").fill("Gmail (Asha)");
+  await dialog.getByLabel(/^Google account/).fill("asha.acme.retail@gmail.example.com");
+  await dialog.getByLabel(/^From address/).fill("Asha at Acme <asha.acme.retail@gmail.example.com>");
+  await page.setViewportSize({ width: 1440, height: 1900 });
+  await settle(page);
+  await shot(page, AREA, "04-add-gmail", { clip: dialog, pad: 0 });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // 3. SMS: MSG91, and WhatsApp: Meta Cloud API (placeholders, not saved).
   const smsPanel = page.locator("section.panel").nth(1);
@@ -67,7 +82,7 @@ export default async function (browser) {
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  // 4. Push: Firebase Cloud Messaging; and the custom HTTP gateway (placeholders, not saved).
+  // 4. Push: Firebase Cloud Messaging (placeholders, not saved). The custom gateway is in 16-*.mjs.
   const pushPanel = page.locator("section.panel").nth(4);
   await pushPanel.getByRole("button", { name: "Add provider" }).click();
   dialog = page.getByRole("dialog", { name: "Add Push provider" });
@@ -79,14 +94,6 @@ export default async function (browser) {
   await shot(page, AREA, "04-add-fcm", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
-  await smsPanel.getByRole("button", { name: "Add provider" }).click();
-  dialog = page.getByRole("dialog", { name: "Add SMS provider" });
-  await dialog.getByRole("combobox").first().selectOption("http_sms");
-  await dialog.getByLabel("Name in Pulse").fill("Our SMS gateway");
-  await dialog.getByLabel(/^Endpoint URL/).fill("https://gateway.example.com/pulse");
-  await settle(page);
-  await shot(page, AREA, "04-add-gateway", { clip: dialog, pad: 0 });
-  await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // 5. A provider test through the SMS sandbox.
@@ -120,7 +127,8 @@ export default async function (browser) {
   const bounces = panel(page, "Bounces and complaints");
   await bounces.scrollIntoViewIfNeeded();
   await maskWebhookTokens(page);
-  await shot(page, AREA, "04-bounces", { clip: bounces, pad: 8 });
+  await shot(page, AREA, "04-bounces", { clip: bounces.locator(".panel-head, .panel-body > p, .panel-body > .row, .panel-body > .grid-2"), pad: 8 });
+  await shot(page, AREA, "04-webhook-signatures", { clip: bounces.locator("div", { has: page.getByRole("heading", { name: "Webhook signatures" }) }).last(), pad: 8 });
   const mailbox = panel(page, "Bounce mailbox (IMAP)");
   await mailbox.getByLabel("IMAP server").fill("imap.example.com");
   await mailbox.getByLabel("Username").fill("bounces@acme-retail.example.com");
@@ -182,5 +190,55 @@ export default async function (browser) {
   await shot(page, AREA, "04-send-test-saved", { clip: test, pad: 0 });
   await page.keyboard.press("Escape");
 
+  await webPush(context, page);
   await context.close();
+}
+
+// 12. Settings → Web push: the opt-in prompt (changed on screen, not saved), the check from the
+// server against a public site, and the browser check on one of the workspace's landing pages
+// (the site address is saved for it, then the settings are put back as they were).
+async function webPush(context, page) {
+  const before = (await api(context, "GET", "/v1/settings/web-push")).settings;
+  try {
+    await page.setViewportSize({ width: 1440, height: 1800 });
+    await go(page, "/settings/web-push");
+    const prompt = panel(page, "Opt-in prompt");
+    await prompt.locator(".switch input").check();
+    await prompt.locator("label.wp-style", { hasText: "Pop-up" }).click();
+    await prompt.getByLabel(/^Title/).fill("Never miss a sale");
+    await prompt.getByLabel(/^Message/).fill("Get a note when your favourites are back in stock or on sale. At most two a week.");
+    await prompt.getByLabel(/^Allow button/).fill("Yes, notify me");
+    await prompt.getByLabel(/^After/).fill("10");
+    await prompt.getByRole("textbox", { name: /^Never on pages/ }).fill("/checkout");
+    await prompt.getByRole("button", { name: "Add", exact: true }).last().click();
+    await settle(page, { quiet: 600 });
+    await shot(page, AREA, "04-web-push-prompt", { clip: prompt, pad: 8 });
+
+    await go(page, "/settings/web-push");
+    const check = panel(page, "Install check");
+    await check.getByLabel(/^Your site's address/).fill("https://www.example.com/");
+    await check.getByRole("button", { name: "Check my site" }).click();
+    await check.locator(".wp-report").first().waitFor({ timeout: 30_000 });
+    await settle(page);
+    await shot(page, AREA, "04-web-push-check", { clip: check.locator(".wp-check").first(), pad: 8 });
+
+    // The browser check opens the saved site address with a one-off ?pulse_check= link.
+    const lp = (await api(context, "GET", "/v1/landing-pages")).pages.map((x) => x.page).find((x) => x.status === "published");
+    if (!lp) { console.log("  no published landing page: 04-web-push-browser not taken"); return; }
+    await api(context, "PUT", "/v1/settings/web-push", { ...before, site_url: `${BASE}/p/${DOCS.workspace}/${lp.slug}` });
+    await go(page, "/settings/web-push");
+    const browserCheck = panel(page, "Install check").locator(".wp-check").last();
+    await browserCheck.getByRole("button", { name: "Check in my browser" }).click();
+    const link = await browserCheck.locator(".wp-link code").innerText();
+    const site = await context.newPage();
+    await site.goto(link);
+    await settle(site, { quiet: 1500 });
+    await site.close();
+    await browserCheck.locator(".wp-headline").waitFor({ timeout: 30_000 });
+    await settle(page);
+    await shot(page, AREA, "04-web-push-browser", { clip: browserCheck, pad: 8 });
+  } finally {
+    await api(context, "PUT", "/v1/settings/web-push", before).catch((e) => console.log(`  web push settings restore: ${e}`));
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
 }

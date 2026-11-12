@@ -37,7 +37,11 @@ async function newWorkspace(browser) {
   await shot(page, AREA, "01-overview-empty");
 
   // 3. The sidebar.
+  // A taller window so the whole sidebar, Settings at the bottom included, fits.
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await settle(page);
   await shot(page, AREA, "01-navigation", { clip: page.locator("nav.sidebar"), pad: 0 });
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // 6. Settings → Sign-in & keys → Your website.
   await go(page, "/settings/access");
@@ -111,6 +115,15 @@ async function teamAndRoles(browser) {
   await shot(page, AREA, "01-add-teammate", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
+  // 3. Campaigns → New campaign: the chooser (closed again without picking).
+  await go(page, "/campaigns");
+  await page.getByRole("button", { name: "New campaign" }).first().click();
+  const chooser = page.getByRole("dialog", { name: "What do you want to do?" });
+  await chooser.waitFor();
+  await settle(page);
+  await shot(page, AREA, "01-new-campaign", { clip: chooser, pad: 0 });
+  await page.keyboard.press("Escape");
+
   // 5. Roles, and a new "Content writer" role (filled in, not saved).
   await go(page, "/settings/roles");
   const newRole = page.getByRole("button", { name: "New role" });
@@ -121,7 +134,7 @@ async function teamAndRoles(browser) {
   await settle(page);
   await page.getByLabel("Name").first().fill("Content writer");
   await page.getByLabel("Description").first().fill("Writes templates, pages and forms; reads reports");
-  const levels = { Contacts: "None", Segments: "None", Journeys: "None", Broadcasts: "None", Content: "Edit",
+  const levels = { Contacts: "None", Segments: "None", "Triggered & automation campaigns": "None", "One-time campaigns": "None", Content: "Edit",
     Reports: "View", Channels: "None", Settings: "None" };
   for (const [area, level] of Object.entries(levels)) {
     await page.getByRole("group", { name: `${area} access` }).getByRole("button", { name: level, exact: true }).click();

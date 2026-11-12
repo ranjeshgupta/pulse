@@ -66,17 +66,17 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 | Variable | Default | Used by | Meaning | Change it when |
 |---|---|---|---|---|
 | `PULSE_SECRET_KEY` | none | `api`, `journeys`, `dispatch`, `webhooks`, `integrations` | 64 hex characters (32 bytes, AES-256-GCM). Encrypts stored credentials (SSO client secrets, provider and integration credentials, webhook signing secrets, bounce mailbox passwords), SSO state, email tracking and unsubscribe links, and signed download links. A value that isn't 64 hex characters stops the role with `secret key must be 64 hex characters (32 bytes)` | Always in production: `openssl rand -hex 32`, kept in a secret store and backed up. Without it the log warns `PULSE_SECRET_KEY not set`, SSO, provider credentials and outbound webhooks don't work, and emails go out without open/click tracking |
-| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | `api`, `journeys`, `dispatch`, `webhooks`, `integrations` | Lets every user-entered URL reach private and loopback addresses: journey webhook steps, outbound webhooks and their tests, the custom HTTP gateway and other provider endpoints, integrations (CRM, Shopify, ad platform base URLs) and bounce mailboxes (IMAP) | Local development and tests only (the dev stack turns it on so the e2e receivers on the Compose network can be called). Leave it off in production: any workspace admin can type these URLs |
+| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | `api`, `journeys`, `dispatch`, `webhooks`, `integrations` | Lets every user-entered URL reach private and loopback addresses (and use plain `http` where `https` is otherwise required): journey webhook steps, outbound webhooks and their tests, the custom HTTP gateway and other provider endpoints, custom authentication login and token URLs, Gupshup URLs, the web push install check, integrations (CRM, Shopify, ad platform base URLs) and bounce mailboxes (IMAP) | Local development and tests only (the dev stack turns it on so the e2e receivers on the Compose network can be called). Leave it off in production: any workspace admin can type these URLs |
 
 ### Workers
 
 | Variable | Default | Used by | Meaning | Change it when |
 |---|---|---|---|---|
 | `PULSE_SMTP_ADDR` | `localhost:11025` | `dispatch` | SMTP relay (`host:port`) for workspaces that haven't added an email provider of their own. The dev default is Mailpit | Always in production (`smtp.example.com:587`) |
-| `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | `dispatch` | Default sender for that relay | Always in production |
+| `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | `dispatch`, `api` | Default sender for that relay. Its domain is also accepted as a sender of AMP email post-backs (`/v1/amp/…`), like the From domains of the workspaces' email providers | Always in production |
 | `PULSE_EMAIL_RATE` | `200` | `dispatch` | Emails per second **per workspace** (a Redis token bucket). Fractions are allowed (`0.5` is one every 2 seconds) | Your relay or provider allows more or less. The other channels have fixed rates, see [Limits](#limits-fixed-in-the-code) |
-| `PULSE_SWEEP_INTERVAL` | `5m` | `segments` | How often segments with event windows ("within the last N days") or relative dates are re-checked in ClickHouse, so membership decays without new events | Shorter for fresher "within N days" segments, longer to take load off ClickHouse |
-| `PULSE_MAINTENANCE_INTERVAL` | `1h` | `journeys` | How often retention cleanup runs (anonymous visitors, events, audit log, per each workspace's Settings → Data & privacy) | Rarely |
+| `PULSE_SWEEP_INTERVAL` | `5m` | `segments`, `api` | How often segments with event windows ("within the last N days") or relative dates are re-checked in ClickHouse, so membership decays without new events. The default for workspaces that leave **Re-check time-window segments every** (Settings → Automation & limits) at 0 | Shorter for fresher "within N days" segments, longer to take load off ClickHouse |
+| `PULSE_MAINTENANCE_INTERVAL` | `1h` | `journeys` | How often the maintenance pass runs. Each pass runs the daily retention cleanup of the workspaces whose hour it is (each workspace once a day, in UTC hour `workspace id % 24`, by its Settings → Automation & limits) | Rarely; keep it at an hour or less so no workspace's hour is skipped |
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | `integrations` | How often each ad audience sync (Facebook Custom Audiences, Google Ads Customer Match) re-checks its whole segment. Entries and exits stream in between | You want drift corrected sooner, or fewer API calls to the ad platforms |
 
 ### Variables that aren't server settings
@@ -164,13 +164,29 @@ Not configurable today; listed so you know what to expect.
 | API key cache | Each `api` instance caches a key's workspace for up to 1 minute, so a replaced key keeps working for up to a minute | `authCacheTTL` |
 | Send rates per workspace | email `PULSE_EMAIL_RATE` (200/s), SMS 100/s, WhatsApp 80/s, RCS 50/s, push 500/s, app inbox 2,000/s | `DefaultRates` in `internal/dispatch/dispatcher.go` |
 | Outbound webhook retries | 30 s, 2 min, 10 min, 1 h, 6 h after the first attempt (about 7 hours), then given up | `Backoff` in `internal/webhooks/webhooks.go` |
-| Message retries (provider network error, timeout, 429, 5xx) | 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h (at least the provider's `Retry-After`, capped at 1 h), then `<channel>_failed` | `RetryBackoff` in `internal/dispatch/retry.go` |
+| Message retries (provider network error, timeout, 429, 5xx) | By default 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h (at least the provider's `Retry-After`, capped at 1 h), then `<channel>_failed`. Per workspace in Settings → Automation & limits (1-20 tries, longest wait 1 minute to a day) | `BaseBackoff` in `internal/automation/plan.go` |
 | Contacts list page | `limit` 1-200 (default 50) | `internal/api/contactview.go` |
 | Segment rules | 8 levels deep, 200 nodes, event windows 1-365 days, `in` lists up to 1,000 values | `internal/segment/ast.go` |
 | Journeys | 500 steps, waits up to 365 days, 25 jumps per enrollment | `internal/journey` |
+| Audience estimates | Cached 30 s; 60 uncached a minute per workspace; frequency-cap check exact up to 50,000 contacts | `internal/api` (`segments/estimate`) |
+| Contact lists behind numbers (`in:`, `campaign:`, `outcome:`…) | Bitmaps cached a minute; 120 new views a minute per workspace; counts exact up to 10,000 candidates, sampled above; "Create segment from this list" up to 500,000 contacts, 10 a minute, 2 at a time | `internal/api/contactsets.go` |
+| Dashboards (Users, Campaign performance, Products) | Answers cached a minute; 60 uncached a minute per workspace; ranges up to 366 days | `internal/api/dashboards.go` |
+| Live event feed | Newest 1,000 events per workspace (Settings → Automation & limits: 100-10,000), at most 50 a second, properties over 4 KB dropped; 120 polls a minute | `internal/live` |
+| Provider tools | Test connection 20 a minute, test sends 30 a minute per workspace | `internal/api` |
+| AMP emails | AMP part at most 200 KB (CSS 75,000 bytes); post-back links valid 60 days; 60 answers a minute per client IP and workspace, 10 per link | `internal/amp`, `internal/api/amp.go` |
+| On-site overlap counts | Cached a minute; 30 uncached a minute per workspace | `internal/api/onsite_m6.go` |
+| Web push install check | 10 a minute per workspace; 1 MB, 10 s per fetch; browser check links valid 30 minutes | `internal/webcheck` |
+| Custom authentication tokens | Renewed a tenth of their lifetime (at most a minute) before expiry; one instance logs in at a time (15 s lock, others wait up to 8 s); unknown lifetime = 1 hour | `internal/httpauth` |
 
-Workspace-level settings (delivery rules, frequency caps, quiet hours, retention, anonymous tracking,
-identity verification) are not environment variables: admins change them in the app under
-**Settings**, or through the API (`/v1/settings/*`, see the [API guide](03-api.md)).
+Workspace-level settings are not environment variables: admins change them in the app under
+**Settings**, or through the API (`/v1/settings/*`, see the [API guide](03-api.md)). Delivery rules
+(frequency caps, quiet hours, keywords) are in Settings → Channels; anonymous tracking and visitor
+location in Settings → Data & privacy; identity verification in Settings → Sign-in & keys; the web
+push prompt in Settings → Web push; and in **Settings → Automation & limits**: how long each kind of
+data is kept (events, message events, page views, per event name, anonymous visitors, audit log,
+import history, webhook and integration logs, the test inbox, the live feed), send retries, the
+segment re-check interval, when reachability is recounted, the default time of daily segments,
+app inbox expiry and the sending limits new providers start with
+([API guide](03-api.md#workspace-settings-automation--limits)).
 
 Next: [3. API guide](03-api.md).

@@ -30,7 +30,9 @@ On load, `init`:
 2. records the visit's campaign (`utm_*` parameters) for attribution;
 3. records a `page_view` (and a `session_start` first, when a new session begins);
 4. renders any `data-pulse-form` forms and asks Pulse for focus items and content slots for this
-   page.
+   page;
+5. shows the workspace's web push opt-in prompt when its rules allow (see [Web push](#web-push)),
+   and runs the browser self-check when the page was opened with `?pulse_check=…`.
 
 ### Options
 
@@ -248,10 +250,14 @@ A content slot is an element whose HTML Pulse fills per visitor (Mautic's Dynami
 </div>
 ```
 
-Create a content slot in **Campaigns → On-site & in-app** (New → Website) with the same name
-(`home-hero`), a default and per-segment variants. On `init` (and `Pulse.refresh()`), the SDK posts
-the page URL and the slot names on the page to `POST /v1/web/decide`; the first variant whose
-segment the visitor is in wins. Journeys can also push HTML into a slot for one contact (step
+Create a content slot in **Campaigns → Website & app messages** (New → Website → Dynamic web
+content) with the same name (`home-hero`), a default and ordered variants. Each variant has an
+audience: segments the visitor is in (or not), page address contains / doesn't contain, device
+(desktop, mobile, tablet) and contact-field conditions (matched only for a verified identity, see
+[identity verification](#identity-verification)). On `init` (and `Pulse.refresh()`), the SDK posts
+the page URL, the slot names on the page and the device type to `POST /v1/web/decide`; the first
+variant in order whose audience matches wins, else the default. The answer's `variants` names the
+variant chosen per slot. Journeys can also push HTML into a slot for one contact (step
 **Push dynamic content**). A slot request from a known contact is recorded as `dwc_requested`, which
 the journey decision "Requests dynamic content" waits for. Slot names: lower-case letters, digits,
 `-` and `_`; at most 50 slots per page.
@@ -259,8 +265,10 @@ the journey decision "Requests dynamic content" waits for. Slot names: lower-cas
 ## Focus items
 
 Focus items are pop-ups (`modal`), bars (`bar`, top or bottom) and slide-ins (`slide`) created in
-**Campaigns → On-site & in-app** (Website). The decide call returns the items for this visitor and
-URL (by segments, excluded segments, URL contains, and schedule); the SDK shows each on its
+**Campaigns → Website & app messages** (New → Website). The decide call returns the items for this
+visitor, URL and device (by the same audience rules as content variants, and schedule), in the
+workspace's order (**Order** on the list). The SDK shows **one pop-up, one bar and one slide-in per
+page**: of each kind, the first in order whose frequency still allows it. It shows it on its
 trigger:
 
 | Trigger | Shown |
@@ -287,34 +295,77 @@ Pulse accepts and sends to subscriptions only on the browsers' push services (`h
 `fcm.googleapis.com`, `push.services.mozilla.com`, `push.apple.com` or `notify.windows.com`); any other
 endpoint is refused with `400` when registered, so a page script can't point Pulse at another address.
 
-1. Serve a service worker file from your site's root, e.g. **`/pulse-sw.js`**, containing one line:
+1. Serve a service worker file from your site, by default **`/pulse-sw.js`** at its root,
+   containing one line:
 
    ```js
    importScripts("https://pulse.example.com/sdk/pulse-sw.js");
    ```
 
    (A service worker must come from your own origin; this file pulls in Pulse's, which shows
-   notifications, opens their link on click and reports clicks and dismissals.)
+   notifications, opens their link on click and reports clicks and dismissals.) If it lives
+   elsewhere, set it in **Settings → Web push → Install check** (**Service worker file**); the SDK reads it
+   from `GET /v1/web/push-config`.
 
-2. Ask for permission from a user gesture (browsers require one):
+2. Ask visitors, either way:
 
-   ```js
-   document.querySelector("#notify-me").addEventListener("click", async () => {
-     const ok = await Pulse.enablePush();            // or Pulse.enablePush({ serviceWorker: "/sw/pulse-sw.js" })
-     if (!ok) showHint("Notifications are blocked or not supported in this browser.");
-   });
-   ```
+   - **No code: the opt-in prompt.** Turn it on in **Settings → Web push**: a bell, a bar or a
+     pop-up, its texts and colours, when it appears (seconds after the page loads, how far the
+     visitor has scrolled, pages seen this visit), on which pages (show on / hide on, matched
+     against the path and query), and after how many days to ask again once dismissed (0: never).
+     The SDK shows it only while the browser's permission is undecided; **Allow** then opens the
+     browser's own prompt (browsers require that click) and subscribes. Browsers that already
+     allowed notifications are kept subscribed on their next visit.
+   - **Your own button**, from a user gesture:
+
+     ```js
+     document.querySelector("#notify-me").addEventListener("click", async () => {
+       const ok = await Pulse.enablePush();            // or Pulse.enablePush({ serviceWorker: "/sw/pulse-sw.js" })
+       if (!ok) showHint("Notifications are blocked or not supported in this browser.");
+     });
+     ```
 
 `enablePush` asks for permission, fetches the workspace's public key (`GET /v1/web/push-config`),
 registers the service worker, subscribes, and registers the subscription for the current visitor
 (`POST /v1/web/devices`). It resolves to `true` when subscribed. Call it again after `identify` if
 the visitor signed in, so the subscription belongs to the user.
 
-Send with a **push** template (title, body, image, URL) from a journey or broadcast. Browser
-subscriptions are sent with the workspace's own VAPID keys and need no provider; app tokens on the
-same contact go through the push provider in Settings → Channels (FCM). The service worker
-posts clicks and dismissals to the message's tracking link (`POST /t/p/{token}?a=clicked`), recorded
-as `push_clicked` / `push_dismissed` for reports and journey decisions.
+The prompt records events (with `props.style`) for reports and segments:
+
+| Event | When |
+|---|---|
+| `push_prompt_shown` | The prompt appeared |
+| `push_prompt_allowed` | The visitor clicked **Allow** on it |
+| `push_prompt_dismissed` | The visitor clicked **Not now** (it's asked again after the repeat days) |
+| `push_subscribed` | The browser's prompt was accepted and the subscription registered |
+| `push_permission_refused` | The browser's prompt was refused or failed |
+
+### Checking the set-up
+
+**Settings → Web push → Install check → Check my site** has the server fetch your page and service worker (public
+https addresses only) and report: HTTPS, the page opens, the snippet is found (and from which
+host), the site key is this workspace's, the service worker exists, is JavaScript and imports
+Pulse's, and the workspace has VAPID keys.
+
+**Check in my browser** gives a link to your site with `?pulse_check=<token>` (valid 30 minutes).
+Opened in a browser, the SDK on that page runs `Pulse.diagnose()` and posts the result to
+`POST /v1/web/diagnose`, where the settings page shows it. You can also call it yourself in the
+browser console:
+
+```js
+await Pulse.diagnose();
+// {sdk_version, url, https, push_supported, permission: "default"|"granted"|"denied"|"unsupported",
+//  service_worker: "/pulse-sw.js", worker_found, worker_pulse, subscribed, prompt_enabled, identified,
+//  problems: ["No service worker at /pulse-sw.js.", …]}
+```
+
+### Sending
+
+Send with a **push** template (title, body, image, URL) from a campaign. Browser subscriptions
+are sent with the workspace's own VAPID keys and need no provider; app tokens on the same contact
+go through the push provider in Settings → Channels (FCM). The service worker posts clicks and
+dismissals to the message's tracking link (`POST /t/p/{token}?a=clicked`), recorded as
+`push_clicked` / `push_dismissed` for reports and journey decisions.
 
 If your site already uses Firebase Cloud Messaging for the web, register its token instead:
 `Pulse.registerPushToken(token)`.
@@ -355,6 +406,8 @@ Use it to check a setup end to end:
 2. Enter an external ID and click **Identify**: the visitor is merged into that contact.
 3. Click **Track purchase**: a `purchase` event with `amount: 499` is on the contact's timeline.
 4. Create a content slot `home-hero` or a focus item and reload to see it.
+5. Turn on the opt-in prompt in Settings → Web push and reload: it appears after its delay
+   (browsers allow notifications on `http://localhost` too).
 
 The test page records real data in the workspace, so use a test workspace or test IDs. In the
 browser's developer tools, the requests to `/v1/web/events` and `/v1/web/decide` show exactly what
@@ -367,13 +420,15 @@ the SDK sends and receives.
 | Call | Endpoint |
 |---|---|
 | Events | `POST /v1/web/events` (`X-Pulse-Site-Key`, or `?site_key=` for beacons), `{"events":[{"id","external_id","name","ts","props","attrs","email"}]}` → 202 |
-| On-site content | `POST /v1/web/decide` (`X-Pulse-Site-Key`), `{"external_id","user_hash","url","slots":[…]}` → `{"focus":[…],"content":{slot: html}}` |
+| On-site content | `POST /v1/web/decide` (`X-Pulse-Site-Key`), `{"external_id","user_hash","url","slots":[…],"device"}` → `{"focus":[…in order],"content":{slot: html},"variants":{slot: variant id}}` |
 | Forms | `GET /v1/web/forms/{key}?id=&user_hash=` → fields; `POST /v1/web/forms/{key}` → `{"ok","message","redirect_url"}` or 422 with `fields` |
-| Push key | `GET /v1/web/push-config?site_key=` → `{"vapid_public_key"}` |
+| Push settings | `GET /v1/web/push-config?site_key=` → `{"vapid_public_key","prompt":{…},"service_worker"}` |
+| Self-check | `POST /v1/web/diagnose`, `{"token","report"}` (only with a `?pulse_check=` token from Settings → Web push) |
 | Push token | `POST /v1/web/devices`, `{"external_id","token","user_hash","platform":"web"}` → 204 |
 | Inbox | `GET /v1/web/inbox?site_key=&id=&user_hash=&before=`; `POST /v1/web/inbox` `{"id","user_hash","action","message_ids":[…]}` with `action` `read`, `delete` or `click` |
 
-The source of truth is `web/src/sdk/pulse.ts`; its unit tests (`npm test` in `web/`) cover the
-device parsing, sessions, attribution and form pages.
+The source of truth is `web/src/sdk/pulse.ts` (the prompt is `pushPrompt.ts`); its unit tests
+(`npm test` in `web/`) cover the device parsing, sessions, attribution, form pages and the prompt's
+rules.
 
 Next: [5. Mobile SDKs](05-mobile-sdks.md).

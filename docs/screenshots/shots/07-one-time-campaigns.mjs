@@ -1,9 +1,12 @@
-// Screenshots for docs/tutorials/07-broadcasts.md.
-// Sends an email broadcast with an A/B test (winner picked by hand) to "Sale preview testers", a
-// static segment of six test contacts this script makes, so every email goes to Mailpit; shows preview, test send, sending, the winner pick
-// and the report. Then schedules a weekly broadcast for next week, cancels it and deletes it.
+// Screenshots for docs/tutorials/07-one-time-campaigns.md.
+// Starts a one-time email campaign from Campaigns → New campaign, saves it as a draft in the wizard,
+// opens "All settings and results", and sends it with an A/B test (winner picked by hand) to "Sale
+// preview testers", a static segment of six test contacts this script makes, so every email goes to
+// Mailpit; shows preview, test send, sending, the winner pick, the results and "Send again". Then
+// schedules a weekly campaign for next week in the wizard, cancels it and deletes it. Last, the seeded
+// draft "Monsoon clearance" is changed on screen (not saved) for the deadline and estimate pictures.
 // It also makes a second email template ("Weekend sale (subject B)") for variant B, once.
-// A rerun first deletes the broadcasts earlier runs made (by name; never the seeded ones).
+// A rerun first deletes the campaigns earlier runs made (by name; never the seeded ones).
 import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
 
 const AREA = "tutorials";
@@ -55,26 +58,44 @@ export default async function (browser) {
   await until(async () => (await api(context, "GET", "/v1/lists")).lists.find((l) => l.id === group.id)?.size === TESTERS.length,
     { what: "the test group to fill" });
 
-  // 1. Campaigns → Broadcasts.
-  await go(page, "/broadcasts");
-  const newBtn = page.getByRole("link", { name: "New broadcast" });
+  // 1. Campaigns → One-time tab.
+  await go(page, "/campaigns?tab=one_time");
+  await page.locator("tbody tr").first().waitFor();
+  await settle(page, { quiet: 600 });
+  const newBtn = page.getByRole("button", { name: "New campaign" }).first();
   await highlight(newBtn);
-  await shot(page, AREA, "07-broadcasts-list", { clip: page.locator(".page > *"), pad: 12 });
+  await shot(page, AREA, "07-campaigns-one-time", { clip: page.locator("main .page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
   await clearHighlights(page);
 
-  // 2. New broadcast: name, audience, channel, template.
+  // 2. New campaign → Send a message to a segment → Email; the wizard's first two steps, saved as a draft.
   await newBtn.click();
-  await page.waitForURL("**/broadcasts/new");
-  await settle(page);
-  await field(page, "Name").fill(AB_NAME);
-  await field(page, "Send to").selectOption({ label: GROUP });
-  await field(page, "Channel").selectOption({ label: "Email" });
+  const chooser = page.getByRole("dialog");
+  await chooser.getByRole("button", { name: /^Send a message to a segment/ }).click();
+  await chooser.getByRole("button", { name: "Email", exact: true }).click();
+  await page.waitForURL("**/campaigns/new/email");
+  await page.getByLabel("Campaign name").fill(AB_NAME);
+  await page.getByLabel("Send to members of").selectOption({ label: GROUP });
+  await page.getByRole("button", { name: "Next: Content" }).click();
+  await page.getByLabel("Use a saved template").check();
   await field(page, "Template").selectOption({ label: "Weekend sale" });
-  // Leave out members of: one segment for the picture, removed again before sending (× Remove).
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await page.waitForURL(/\/campaigns\/one-time\/\d+$/);
+  const id = page.url().split("/").pop();
+  const allSettings = page.getByRole("link", { name: "All settings and results" });
+  await highlight(allSettings);
+  await shot(page, AREA, "07-wizard-draft", { clip: page.locator("main .page-head"), pad: 8 });
+  await clearHighlights(page);
+  await allSettings.click();
+  await page.waitForURL(`**/broadcasts/${id}`);
+  await field(page, "Name").waitFor();
+  await settle(page, { quiet: 600 });
+
+  // 3. All settings and results: the audience, channel and template (one segment left out for the
+  // picture, removed again before sending).
   const leaveOut = page.getByRole("combobox", { name: "Leave out members of (optional)" });
   await leaveOut.selectOption({ label: "VIP customers" });
   await settle(page, { quiet: 800 });
-  await shot(page, AREA, "07-new-broadcast", { clip: page.locator(".page-head, .page > fieldset > .grid-2:first-child, .page > fieldset > .grid-2:first-child + .row, .page > fieldset > label.check:has-text('A/B test')"), pad: 12 });
+  await shot(page, AREA, "07-editor", { clip: page.locator(".page-head, .page > fieldset > .grid-2:first-child, .page > fieldset > .grid-2:first-child + .row, .page > fieldset > label.check:has-text('A/B test')"), pad: 12 });
   await page.locator(".page > fieldset .badge", { hasText: "VIP customers" }).getByRole("button", { name: "Remove" }).click();
 
   // Preview and send a test.
@@ -104,7 +125,7 @@ export default async function (browser) {
   await shot(mp, AREA, "07-test-mailpit", { clip: { x: 296, y: 56, width: 904, height: 420 } });
   await mp.close();
 
-  // 3. A/B test: two subject lines, 50% test group, winner picked by hand.
+  // 4. A/B test: two subject lines, 50% test group, winner picked by hand.
   await page.getByLabel("A/B test: try up to 5 versions on part of the audience first").check();
   await page.getByLabel("Template for variant B").selectOption({ label: TEMPLATE_B });
   await page.getByRole("spinbutton", { name: "Test group percent" }).fill("50");
@@ -112,26 +133,27 @@ export default async function (browser) {
   await shot(page, AREA, "07-ab-test", { clip: page.locator(".ab-box"), pad: 8 });
   await page.locator(".ab-box").getByLabel("Pick the winner by").selectOption({ label: "By hand" });
 
-  // 4. When, and a conversion goal. First the local-time option, ticked for its picture only.
+  // 5. When, and a conversion goal. First the local-time option, ticked for its picture only.
   const localTime = page.getByLabel("Send at this time in each contact's own time zone");
   await localTime.check();
   await settle(page);
   await shot(page, AREA, "07-local-time", { clip: page.locator(".page > fieldset > label.check:has-text('own time zone'), .page > fieldset > label.check:has-text('own time zone') + p"), pad: 8 });
   await localTime.uncheck();
   await field(page, "Event (optional)").fill("purchase");
+  await page.getByRole("heading", { name: "Conversion goal" }).click(); // close the event suggestions
+  await page.setViewportSize({ width: 1440, height: 1800 });
   await settle(page);
   await shot(page, AREA, "07-when", {
     clip: page.locator("h3:has-text('When'), h3:has-text('When') ~ *"), pad: 8,
   });
+  await page.setViewportSize({ width: 1440, height: 900 });
 
-  // 5. Schedule: the send time is now, so it goes out right away.
+  // 6. Schedule: the send time is now, so it goes out right away.
   const schedule = page.getByRole("button", { name: "Schedule", exact: true });
   await highlight(schedule);
   await shot(page, AREA, "07-schedule-button", { clip: page.locator(".page-head"), pad: 8 });
   await clearHighlights(page);
   await schedule.click();
-  await page.waitForURL((u) => /\/broadcasts\/\d+$/.test(u.pathname));
-  const id = page.url().split("/").pop();
   await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}`)).broadcast.status === "testing", { timeout: 60_000, what: "the A/B test to go out" });
   await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}/report`)).totals.sent >= 2, { timeout: 60_000, what: "the test sends" });
   await go(page, `/broadcasts/${id}`);
@@ -140,19 +162,19 @@ export default async function (browser) {
   const results = page.locator("section.section", { has: page.getByRole("heading", { name: "Results" }) });
   const pickA = results.getByRole("button", { name: "Pick A as winner" });
   await highlight(pickA);
-  await shot(page, AREA, "07-pick-winner", { clip: results, pad: 8 });
+  await shot(page, AREA, "07-pick-winner", { clip: results.locator("section.panel", { has: page.getByRole("heading", { name: "Variants" }) }), pad: 8 });
   await clearHighlights(page);
 
-  // 6. Pick A: it goes to the rest of the segment.
+  // 7. Pick A: it goes to the rest of the segment.
   await pickA.click();
   await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}`)).runs.some((r) => r.winner_sent_at), { timeout: 60_000, what: "the winner send" });
   // Two testers open the email and one clicks its link (as a mail app would: the tracking image,
-  // then the tracked link), so the report has something to show.
+  // then the tracked link), so the results have something to show.
   const sent = await until(async () => {
     const r = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent('to:"sale.tester."')}&limit=50`).then((x) => x.json()).catch(() => null);
     const fresh = (r?.messages ?? []).filter((m) => Date.now() - new Date(m.Created).getTime() < 300_000);
     return fresh.length >= TESTERS.length ? fresh : null;
-  }, { timeout: 60_000, what: "the broadcast emails in Mailpit" });
+  }, { timeout: 60_000, what: "the campaign emails in Mailpit" });
   for (const [i, m] of sent.slice(0, 2).entries()) {
     const html = (await fetch(`${MAILPIT}/api/v1/message/${m.ID}`).then((x) => x.json())).HTML;
     const pixel = /<img[^>]+src="([^"]+\/o\/[^"]+)"/.exec(html)?.[1] ?? /<img[^>]+src="([^"]+)"/.exec(html)?.[1];
@@ -168,17 +190,30 @@ export default async function (browser) {
   await shop.waitForTimeout(1000);
   await buyer.close();
   await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}/report`)).totals.converted >= 1, { timeout: 90_000, what: "the conversion" });
+  await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}`)).broadcast.status === "completed", { timeout: 60_000, what: "the campaign to finish" });
+  await page.setViewportSize({ width: 1440, height: 2400 });
   await go(page, `/broadcasts/${id}`);
   await settle(page, { quiet: 6000 });
   const resultsDone = page.locator("section.section", { has: page.getByRole("heading", { name: "Results" }) });
   await shot(page, AREA, "07-report", { clip: resultsDone, pad: 8 });
   await shot(page, AREA, "07-sends", { clip: page.locator("section.section", { has: page.getByRole("heading", { name: "Sends" }) }), pad: 8 });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await go(page, `/broadcasts/${id}`);
+  const again = page.getByRole("button", { name: "Send again" });
+  await again.waitFor();
+  await settle(page, { quiet: 600 });
+  await highlight(again);
+  await shot(page, AREA, "07-send-again", { clip: page.locator(".page-head"), pad: 8 });
+  await clearHighlights(page);
 
-  // 7. A weekly broadcast scheduled for next week, then cancelled and deleted.
-  await go(page, "/broadcasts/new");
-  await field(page, "Name").fill(WEEKLY_NAME);
-  await field(page, "Send to").selectOption({ label: "VIP customers" });
+  // 8. A weekly campaign for next week, set up in the wizard, then cancelled and deleted.
+  await go(page, "/campaigns/new/email");
+  await page.getByLabel("Campaign name").fill(WEEKLY_NAME);
+  await page.getByLabel("Send to members of").selectOption({ label: "VIP customers" });
+  await page.getByRole("button", { name: "Next: Content" }).click();
+  await page.getByLabel("Use a saved template").check();
   await field(page, "Template").selectOption({ label: "Weekend sale" });
+  await page.getByRole("button", { name: "Next: Schedule" }).click();
   await field(page, "Repeat").selectOption({ label: "Every week" });
   const [start, end] = await page.evaluate(() => {
     const pad = (n) => String(n).padStart(2, "0");
@@ -189,14 +224,16 @@ export default async function (browser) {
   });
   await field(page, "First send (required)").fill(start);
   await field(page, "Ends (optional)").fill(end);
-  await page.getByRole("heading", { name: "When" }).click();
+  await field(page, "Repeat").click();
+  await page.keyboard.press("Escape");
   await settle(page);
-  await shot(page, AREA, "07-weekly", { clip: page.locator("h3:has-text('When'), h3:has-text('When') ~ .grid-2:first-of-type, h3:has-text('When') ~ fieldset, h3:has-text('When') ~ p"), pad: 8 });
+  await shot(page, AREA, "07-weekly", { clip: page.locator("main .page > fieldset"), pad: 8 });
+  await page.getByRole("button", { name: "Next: Review" }).click();
   await page.getByRole("button", { name: "Schedule", exact: true }).click();
   await page.waitForURL((u) => /\/broadcasts\/\d+$/.test(u.pathname));
-  await page.getByText("This broadcast is scheduled").waitFor();
+  await page.getByText("This campaign is scheduled").waitFor();
   await settle(page, { quiet: 800 });
-  const cancel = page.getByRole("button", { name: "Cancel broadcast" });
+  const cancel = page.getByRole("button", { name: "Cancel campaign" });
   await highlight(cancel);
   await shot(page, AREA, "07-scheduled", { clip: page.locator(".page-head, .alert.info"), pad: 8 });
   await clearHighlights(page);
@@ -205,15 +242,15 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "07-cancelled", { clip: page.locator(".page-head"), pad: 8 });
   await page.getByRole("button", { name: "Delete" }).click();
-  await page.waitForURL((u) => u.pathname === "/broadcasts");
+  await page.waitForURL((u) => u.pathname === "/campaigns");
 
-  // 8. M3: more segments, a send deadline and the exact estimate in the editor (not saved).
+  // 9. More segments, a send deadline and the exact estimate, on the seeded draft (not saved).
+  const monsoon = (await api(context, "GET", "/v1/broadcasts")).broadcasts.find((b) => b.name === "Monsoon clearance");
   await page.setViewportSize({ width: 1440, height: 1600 });
-  await go(page, "/broadcasts/new");
-  await field(page, "Name").fill("Festive preview, Pro plan");
+  await go(page, `/broadcasts/${monsoon.id}`);
   await field(page, "Send to").selectOption({ label: "Pro plan" });
   await page.getByLabel("Leave out members of (optional)").selectOption({ label: "VIP tag" });
-  await field(page, "Template").selectOption({ label: "Weekend sale" });
+  await field(page, "Channel").selectOption({ label: "Email" });
   await page.getByLabel(/^Send deadline/).check();
   await page.getByLabel("Don't send after").fill("21:00");
   await page.locator(".estimate-total").waitFor();

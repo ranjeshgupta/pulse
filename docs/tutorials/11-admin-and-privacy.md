@@ -1,9 +1,9 @@
 # Tutorial 11: Admin and privacy
 
-In about 25 minutes you will see how Pulse keeps track of what each contact agreed to, give contacts
-their own unsubscribe and preference pages, decide what Pulse records and for how long, answer a
-request to see or erase someone's data, check who changed what, and set up single sign-on for your
-team.
+In about 30 minutes you will see how Pulse keeps track of what each contact agreed to, give contacts
+their own unsubscribe and preference pages, decide what Pulse records and for how long (and the other
+things it does on its own), answer a request to see or erase someone's data, check who changed what,
+and set up single sign-on for your team.
 
 **You need:** an admin account. Most pages here are under **Settings**, and several (Sign-in & keys,
 Audit log, Webhooks) need the full **Admin** role, not just settings access.
@@ -72,17 +72,17 @@ newsletter"), open the static segment and, under **Preference center**, tick **L
 leave this segment from their preference center**, add **What subscribers get**, and **Save**. It
 then appears under *What you get* (see [tutorial 3](03-segments.md#5-static-segments)).
 
-## 3. Consent in journeys
+## 3. Consent in campaigns
 
-Journeys can change consent too: **Add Do Not Contact** (for a channel or all) and **Remove Do Not
-Contact**, and the condition **Marked as Do Not Contact** checks it. **Remove Do Not Contact** needs
-**Contacts: Edit** as well as journey access. See [tutorial 6](06-journeys.md#every-step-at-a-glance).
+Triggered and automation campaigns can change consent too: **Add Do Not Contact** (for a channel or
+all) and **Remove Do Not Contact**, and the condition **Marked as Do Not Contact** checks it. **Remove
+Do Not Contact** needs **Contacts: Edit** as well as access to triggered and automation campaigns. See [tutorial 6](06-triggered-and-automation-campaigns.md#every-step-at-a-glance).
 
 ## 4. Data & privacy: tracking and retention
 
 Go to **Settings → Data & privacy** (under *Contact data*).
 
-![Data & privacy: the Tracking switches, and Keep data for with anonymous visitors 0, events 0 and audit log 365](img/11-data-privacy.png)
+![Data & privacy: the Tracking switches, the note that locating by IP isn't set up, and Keep data for pointing to Automation & limits with the current values](img/11-data-privacy.png)
 
 **Tracking**
 
@@ -90,26 +90,87 @@ Go to **Settings → Data & privacy** (under *Contact data*).
   signed in are recorded and join their profile when they identify or fill a form. Off: only
   signed-in visitors are recorded.
 - **Locate visitors by IP address** (on by default): sets `geo_country`, `geo_region`, `geo_city`
-  and `geo_timezone`. Quiet hours use that time zone when a contact has none. It needs a MaxMind
-  GeoIP database on the server (`PULSE_GEOIP_DB`); until your operator adds one, the page says so and
-  nothing is located (as in the picture).
+  and `geo_timezone`. Quiet hours use that time zone when a contact has none. It needs a free MaxMind
+  location database on the server (`PULSE_GEOIP_DB`); until your server administrator adds one, the
+  page says so and nothing is located (as in the picture).
 
-**Keep data for** (0 keeps it forever):
+Click **Save**. Changing these needs **Settings: Edit**; others can see them.
 
-| Setting | Deletes | Shortest |
-|---|---|---|
-| **Anonymous visitors (days idle)** | Visitors who never signed in, with their events, after this many days without activity | 7 days |
-| **Events (days)** | Events older than this. Profiles, segments and reports of recent activity stay | 30 days |
-| **Audit log (days)** | Audit entries older than this (365 by default) | 30 days |
+**Keep data for** shows how long events, anonymous visitors and the audit log are kept now. You
+change those on **Settings → Automation & limits** (the link on the page), next.
 
-The longest is 3,650 days. Click **Save** (*Saved. Cleanup runs every hour.*). The cleanup runs
-hourly for every workspace; expired app inbox messages and old webhook delivery records are always
-removed too. Only admins can change these settings; others can see them.
+## 5. Automation & limits
+
+**Settings → Automation & limits** (under *Workspace*) lists everything Pulse does on its own for
+your workspace: how long it keeps data, how it retries failed sends, when it refreshes segments, and
+the limits new providers start with. Each setting shows its value, what it does, its allowed range
+and its **Default** (what Pulse has always done). Anyone with **Settings: View** can see the page;
+changing it needs **Settings: Edit**. Change what you need and click **Save** at the bottom
+(**Discard changes** undoes your edits); every change is in the audit log.
+
+### Keep data for
+
+![Automation & limits, Keep data for: events 0 (forever), message events and page and screen views Same as events, Add event name, Delete idle visitors off, audit log 365, import history 0, webhook deliveries 7, integration log 7, test inbox 0 and a live event feed of 1000 events, each with its default](img/11-automation-retention.png)
+
+Days; **0 keeps forever**. Cleanup runs once a day for your workspace (the page says at about what
+time, and when it last ran). Contacts themselves are never deleted, except anonymous visitors.
+
+| Setting | Keeps | Default | Range |
+|---|---|---|---|
+| **Events** | The event log behind segments, timelines and reports | forever | 30–3,650 |
+| **Message events** | Sends, deliveries, opens and clicks behind campaign reports and dashboards | **Same as events** | untick to set its own |
+| **Page and screen views** | `page_view`, `screen_view`, `landing_page_viewed`: usually the largest | **Same as events** | untick to set its own |
+| **By event name** | **Add event name** for a name and its days, e.g. `page_view` 90 and `purchase` 0 (forever); wins over the settings above | none | up to 100 names |
+| **Anonymous visitors** | Tick **Delete idle visitors** to delete visitors who never signed in, with their events, after this many **days idle** | off | 7–3,650 |
+| **Audit log** | Who changed what (step 7) | 365 days | 30–3,650 |
+| **Import history** | Finished imports on the import page (the contacts stay) | forever | 7–3,650 |
+| **Webhook deliveries** | The attempts shown on each webhook's page | 7 days | 1–90 |
+| **Integration log** | What each integration did | 7 days | 1–90 |
+| **Test inbox** | Messages sent through sandbox providers | forever | 1–3,650 |
+| **Live event feed** | How many recent events **Analytics → Live events** keeps (a number of events, not days) | 1,000 events | 100–10,000 |
+
+**What will be deleted.** When a change keeps something for less time than before, **Save** first
+counts what would go and asks you to confirm:
+
+<img src="img/11-what-deleted.png" alt="What will be deleted: the changes (events forever to 30 days, and the message events and page views that follow them), a table of what, older than which date, and how many rows now, and the Cancel and Save buttons" width="460">
+
+The table shows, for each kind of data, the cut-off date and about how many rows are older than it
+now. The red button says how many rows will go (*Delete about … rows and save*), or just **Save**
+when nothing is old enough yet. The rows are deleted at your workspace's next daily cleanup and
+**can't be recovered**; **Cancel** keeps everything as it was.
 
 > Deleted anonymous visitors drop out of dynamic segments at their next refresh. Deleting events
 > can't be undone: reports and funnels then start from the oldest event kept.
 
-## 5. A person's data: see it, export it, erase it
+### Retries, schedules and messages
+
+![Retries of failed sends (8 tries, longest wait 60 minutes, and the list of waits), Schedules (re-check time-window segments, recount who can be reached, new daily segments at 06:00) and Messages (app inbox expiry 30 days)](img/11-automation-retries.png)
+
+| Setting | What it does | Default |
+|---|---|---|
+| **Tries in all** | A send that fails for a passing reason (network error, timeout, provider busy) is tried again; after the last try it counts as failed, with the reason. 1 means no retries | 8 (1–20) |
+| **Longest wait** | The waits grow from 30 seconds; none is longer than this. The line under it lists the waits and how long until a message is given up | 60 minutes |
+| **Re-check time-window segments every** | How often segments with a time window ("in the last 7 days") are checked again, so people whose events grew too old leave. People still join and leave on new events at once | 0 = the server's interval (5 minutes here) |
+| **Recount who can be reached** | Who has an email, a phone, push devices and consent is counted as things change, and rebuilt once a day: **A day after the last rebuild**, or **Daily at** an hour (UTC) | A day after the last rebuild |
+| **New daily segments** | The time (and time zone) a segment set to "refresh daily" starts with; each segment can change it ([tutorial 3](03-segments.md)) | 06:00, your browser's time zone |
+| **App inbox expiry** | How long an app inbox message stays when its template doesn't say | 30 days (1–365) |
+
+### Default limits of new providers, and what's fixed
+
+**Default limits of new providers** sets, per channel (**Email**, **SMS**, **WhatsApp**, **RCS**,
+**Push**), the messages per second, the daily quota and its time zone that a provider added from now
+on starts with, unless its kind has its own (Gmail's daily quota, for one). Existing providers keep
+theirs: change them with **Limits** on the Channels page ([tutorial 4](04-channels.md#9-sending-limits-and-daily-quotas)).
+
+**Fixed by the platform** lists what is the same for every workspace on the server, because it
+protects shared capacity or correct sending: the workspace's sending speed per channel, a message
+never being sent twice (sends remembered for 7 days), held messages released every few seconds,
+deleted inbox messages purged after 7 days, SMS short links working for 30 days, the live feed's 50
+events a second, and webhook retries.
+
+<a id="5-a-persons-data-see-it-export-it-erase-it"></a>
+
+## 6. A person's data: see it, export it, erase it
 
 When someone asks what you hold about them, or asks to be forgotten:
 
@@ -127,22 +188,23 @@ your server: `GET /v1/contacts/{external_id}/data`.
 
 **Erase it.** Open the contact, click **Delete contact**, type `DELETE` and click **Delete contact**.
 Pulse deletes the contact with their attributes, events, segment memberships, devices, inbox
-messages, journey progress and files they uploaded through forms; it can't be undone. Download their
+messages, campaign progress and files they uploaded through forms; it can't be undone. Download their
 data first if you need a copy. It needs **Contacts: Edit** and is in the audit log as *Deleted a
 contact*. From your server: `DELETE /v1/contacts/{external_id}`. If your site or app sends new events
 for that ID later, a new contact is created, so stop tracking them too.
 
 <img src="img/11-delete-contact.png" alt="Delete the contact? The warning about what is deleted, DELETE typed in Type DELETE to confirm, and the Delete contact button" width="420">
 
-To make erasure an automatic process instead, use a journey step:
+To make erasure an automatic process instead, use a campaign step:
 
-1. Create a journey whose trigger is an event, e.g. `erasure_requested`.
+1. Create a triggered campaign (**Campaigns → New campaign → React when someone does something**)
+   whose trigger is the event `erasure_requested`.
 2. Add **Action → Delete contact**. It warns *Permanently deletes the contact and all their data.
    This can't be undone.* Type `DELETE` in **Type DELETE to confirm**.
 
    <img src="img/11-delete-step.png" alt="The Delete contact step: the warning and DELETE typed in the confirmation box" width="330">
 
-3. Save and activate the journey. Setting up or activating this step needs **Contacts: Edit**.
+3. Click **Save and go live**. Setting up this step or putting it live needs **Contacts: Edit**.
 4. When a request comes in, send the event for that person from your server:
 
    ```bash
@@ -151,12 +213,12 @@ To make erasure an automatic process instead, use a journey step:
      -d '{"events":[{"external_id":"cust-0001","name":"erasure_requested"}]}'
    ```
 
-Either way, the contact, their events and their journey history are deleted. Static segments may keep the
+Either way, the contact, their events and their campaign history are deleted. Static segments may keep the
 ID until they next change, but it no longer matches anyone. Audience uploads to Facebook or Google
 aren't recalled automatically: if the person was in a linked segment, remove them in the ad platform
 too.
 
-## 6. The audit log
+## 7. The audit log
 
 **Settings → Audit log** lists every change made in the app or through the API, and every sign-in,
 newest first. Only admins can see it.
@@ -167,7 +229,7 @@ newest first. Only admins can see it.
   the **Object** (a link when it can be opened) and the **Outcome**: **Done**, **Failed** or
   **Refused** (not allowed).
 - Narrow it down with **Everyone** / a person, **Everything** / an object type (**Sign-ins**,
-  **Journeys**, **Settings**, **Team**, **Roles**…), and **From** / **To** dates. **Clear filters**
+  **Triggered & automation campaigns**, **Settings**, **Team**, **Roles**…), and **From** / **To** dates. **Clear filters**
   resets them. **Load older** fetches more.
 - Click a row to see the request: time, request, response, IP address and the body that was sent.
   Passwords, keys and secrets in it are redacted.
@@ -178,7 +240,7 @@ newest first. Only admins can see it.
   the ones on screen). Use it for a security review or to keep records longer than the retention
   setting.
 
-## 7. Single sign-on (OIDC)
+## 8. Single sign-on (OIDC)
 
 With single sign-on your team signs in through your identity provider (Keycloak, Microsoft Entra
 ID, Google Workspace, Okta or any OpenID Connect provider) instead of Pulse passwords.
@@ -222,7 +284,7 @@ SSO**; Pulse sends them to your provider and back.
 
 Every change here is in the audit log as *Changed single sign-on* or *Removed single sign-on*.
 
-## 8. Identity verification
+## 9. Identity verification
 
 Your website's site key (`sk_…`) is public, so anyone could call `Pulse.identify()` with someone
 else's user ID and read or pollute their profile. Identity verification stops that.
@@ -242,7 +304,7 @@ else's user ID and read or pollute their profile. Identity verification stops th
 **Replace secret** makes a new one; hashes made with the old one stop working at once, so update
 your server first.
 
-## 9. Replace the server API key
+## 10. Replace the server API key
 
 The server API key (`pk_…`) lets your servers send events and manage data; it acts as an admin.
 Replace it if it leaks or someone who knew it leaves:
@@ -257,15 +319,21 @@ Replace it if it leaks or someone who knew it leaves:
 Zapier / Make connectors have their own keys, rotated on their integration page
 ([tutorial 9](09-integrations.md#7-connect-zapier-or-make)); webhooks have their own signing secrets.
 
-## 10. Roles, a recap
+## 11. Roles, a recap
 
 Who can do what is set on **Settings → Team** and **Settings → Roles**
 ([tutorial 1](01-getting-started.md#4-add-your-teammates)). For the pages in this tutorial:
 
+The areas on **Settings → Roles** are **Contacts**, **Segments**, **Triggered & automation
+campaigns**, **One-time campaigns**, **Content**, **Reports**, **Channels** and **Settings**. In the two
+campaign areas, **Publish** is more than **Edit**: it lets someone put campaigns live, pause,
+schedule and cancel them, and pick A/B winners.
+
 | Page or action | Needs |
 |---|---|
-| Change a contact's consent, export contacts, **Download data** and **Delete contact** on a profile, the **Delete contact** and **Remove Do Not Contact** journey steps | **Contacts: Edit** |
-| See **Data & privacy** | **Settings: View** (changing it: Admin) |
+| Change a contact's consent, export contacts, **Download data** and **Delete contact** on a profile, the **Delete contact** and **Remove Do Not Contact** campaign steps | **Contacts: Edit** |
+| See **Data & privacy** and **Automation & limits** | **Settings: View** (changing them: **Settings: Edit**) |
+| **Web push** settings (tutorial 4) | **Channels: View** (changing them: **Channels: Edit**) |
 | **Sign-in & keys**, **Audit log**, **Webhooks** | The full **Admin** role |
 | **Integrations** | Seen with **Settings: View**; connected and changed by admins |
 | Revenue settings | **Settings: Edit** |
@@ -276,7 +344,9 @@ they have themselves.
 ## What you have now
 
 - Per-channel consent, with unsubscribe and preference pages your contacts use themselves
-- Retention rules that clean up anonymous visitors, old events and old audit entries
+- Retention rules that clean up anonymous visitors, old events and old logs, with a preview of what
+  a shorter setting deletes
+- Retries, segment schedules and default provider limits that fit your workspace
 - A repeatable way to export or erase one person's data
 - An audit trail you can filter and export
 - Single sign-on, identity verification and a fresh API key

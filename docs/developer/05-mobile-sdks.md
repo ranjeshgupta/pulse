@@ -194,8 +194,8 @@ as unregistered.
 
 Every Pulse push carries `pulse_track` in its data: a URL `{pulse}/t/p/{token}`. The SDKs POST
 `?a=clicked&platform=…` when the notification is opened and `?a=dismissed` when it's dismissed;
-Pulse records `push_clicked` / `push_dismissed` on the sending journey or broadcast, for reports and
-for journey decisions waiting for a click.
+Pulse records `push_clicked` / `push_dismissed` on the sending campaign (journey or broadcast), for
+reports and for journey decisions waiting for a click.
 
 - **Android**: call `Pulse.handleNotificationIntent(intent)` in your launcher activity's `onCreate`
   and `onNewIntent` (notifications FCM shows itself). For notifications you build, wrap the tap
@@ -213,7 +213,7 @@ for journey decisions waiting for a click.
 
 ## App inbox
 
-Messages sent to the **inbox** channel (by journeys' `send_inbox` and inbox broadcasts) are kept on
+Messages sent to the **inbox** channel (by journeys' `send_inbox` steps and one-time campaigns on the inbox channel) are kept on
 the server per person.
 
 | | Flutter | Android | iOS |
@@ -232,7 +232,7 @@ verification for events: without it the calls fail with a 403 error (`PulseExcep
 
 ## In-app messages
 
-In-app campaigns (modal, banner, full screen) are created in **Campaigns → On-site & in-app → New →
+In-app campaigns (modal, banner, full screen) are created in **Campaigns → Website & app messages → New →
 Mobile app**. Their title, message and buttons may use contact variables (`{{contact.first_name | default:"there"}}`);
 Pulse fills them per person when the SDK fetches them, but only for a verified identity: the workspace has an
 identity secret and the request's `user_hash` (HMAC-SHA256 of the user ID with that secret, computed by your server)
@@ -277,6 +277,6 @@ first.
   `hex(HMAC-SHA256(secret, userId))` on your server, with the current secret.
 - A 400 means the server refused the batch (an invalid event name or a server-only event).
 - Sends to a device appear in Settings → Test inbox when the workspace's push provider is the
-  sandbox, so you can check journeys before Firebase is set up.
+  sandbox, so you can check campaigns before Firebase is set up.
 
 Next: [6. Webhooks and integrations](06-webhooks-and-integrations.md).

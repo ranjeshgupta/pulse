@@ -56,17 +56,39 @@ The sidebar groups everything into:
 
 | Group | Pages | For |
 |---|---|---|
-| | **Overview** | Live activity: events this minute, contacts, running journeys |
-| **Audience** | Contacts, Companies, Segments | Who your contacts are and how you group them |
-| **Campaigns** | Journeys, Broadcasts, On-site & in-app | What you send and show them |
+| | **Overview** | Live activity: events this minute, contacts, campaigns running, messages of the last 14 days |
+| **Audience** | Contacts, Companies, Segments, Events | Who your contacts are, how you group them, and what they do |
+| **Campaigns** | Campaigns, Website & app messages | What you send them, and what you show on your website and in your app |
 | **Content** | Message templates, Landing pages, Forms, Assets | What your campaigns are made of |
-| **Analytics** | Reports, Funnels, Cohorts, Revenue | How it is going |
+| **Analytics** | Users, Campaign performance, Products, Live events, Reports, Funnels, Cohorts, Revenue | How it is going |
 | | **Settings** (bottom) | Team, sign-in, contact data, channels, connections |
 
 <br clear="right">
 
 You only see the pages your role allows (step 5). On a narrow screen the sidebar folds behind the
 **Menu** button.
+
+### Every campaign is under Campaigns
+
+**Campaigns** lists everything you send, in three types named by *when* they send:
+
+| Type | Sends | For example |
+|---|---|---|
+| **One-time** | One message to everyone in your chosen segments, sent once or repeated | A newsletter, a sale announcement |
+| **Triggered** | Starts for each person when they do something | An abandoned cart reminder, a welcome after sign-up |
+| **Automation** | Starts for each person when they join a segment | Winning back inactive customers |
+
+Triggered and automation campaigns are built as *journeys*: a flow of messages, waits and checks.
+
+To start one, click **Campaigns → New campaign**. Pulse asks **What do you want to do?** and you
+pick the goal in plain words: **Send a message to a segment** (then the channel), **React when
+someone does something**, or **Follow up when someone joins a segment**. Pulse opens the right editor
+for it. (Tutorials 6, 7 and 14 build each type.)
+
+![The New campaign window: What do you want to do? with the three goals](img/01-new-campaign.png)
+
+Almost every number in Pulse (a segment's size, a campaign's "Sent to", a dashboard figure) is a
+link: click it to see exactly those contacts. Tutorial 18 shows how.
 
 ## 4. Add your teammates
 
@@ -101,16 +123,16 @@ When the built-in roles don't fit, say a copywriter who should only touch conten
    ![Settings → Roles: the built-in roles compared area by area, and the New role button](img/01-roles.png)
 2. Enter a **Name** (e.g. `Content writer`) and a **Description**.
 3. **Start from** copies a built-in role's access, which you can then change.
-4. Under **Access**, choose a level for each area: **None**, **View**, **Edit**, and for Journeys and
-   Broadcasts also **Publish**, which is what lets someone go live, pause, schedule or cancel. Each level
-   includes the ones before it. For a content writer: **Content: Edit**, **Reports: View**, the rest
+4. Under **Access**, choose a level for each area: **None**, **View**, **Edit**, and for
+   **Triggered & automation campaigns** and **One-time campaigns** also **Publish**, which is what lets
+   someone go live, pause, schedule or cancel. Each level includes the ones before it. For a content writer: **Content: Edit**, **Reports: View**, the rest
    **None**.
    <img src="img/01-new-role.png" alt="The New role panel for a Content writer: Content Edit, Reports View, everything else None" width="420">
 
 5. Click **Create role**. It now appears in the **Role** list on **Settings → Team**.
 
-> Some journey steps need more than journey access. A journey that deletes contacts, removes Do Not
-> Contact or changes owners and companies also needs **Contacts: Edit**.
+> Some campaign steps need more than campaign access. A triggered or automation campaign that deletes
+> contacts, removes Do Not Contact or changes owners and companies also needs **Contacts: Edit**.
 
 ## 6. Connect your website
 
@@ -169,7 +191,8 @@ Using the test page (or your site):
    ![The Anonymous visitors filter chip and 0 contacts](img/01-contacts-anonymous.png)
 5. Click **cust-0001** to open the profile: segments, owner, stage and company, tags and points, the
    messages they agreed to, attributes (device, locale, first seen…) and the **Activity** list of
-   events, including the merge of the anonymous visitor.
+   events, including the merge of the anonymous visitor. **Open full page** shows everything about them
+   (tutorial 2).
 
    <img src="img/01-contact-profile.png" alt="The cust-0001 profile panel, from segments down to its activity" width="420">
 
@@ -177,8 +200,9 @@ Using the test page (or your site):
 
    ![Overview with the first events under Live and Most frequent events](img/01-overview-live.png)
 
-Anonymous tracking is on by default. To turn it off, or to change how long idle anonymous visitors are
-kept (they are deleted after a period without activity), go to **Settings → Data & privacy**.
+Anonymous tracking is on by default. To turn it off, go to **Settings → Data & privacy**. To delete
+anonymous visitors after a period without activity (off by default), go to **Settings → Automation &
+limits → Anonymous visitors**.
 
 ## 8. Send data from your server (optional)
 

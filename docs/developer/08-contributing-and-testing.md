@@ -21,7 +21,7 @@ Node.js on the host are optional (see below).
 | `sdks/flutter/pulse_sdk`, `sdks/android`, `sdks/ios` | Mobile SDKs, each with its own README and tests |
 | `test/e2e` | End-to-end tests against a running stack |
 | `deploy/` | `docker-compose.yml` for the dev stack, Keycloak realm, `dev-seed.md` (local test accounts) |
-| `docs/` | Design notes (`01-…05-…`), `tutorials/`, `developer/` (this guide), `screenshots/` (capture tooling) |
+| `docs/` | Design notes (`01-…06-…`), `tutorials/`, `developer/` (this guide), `screenshots/` (capture tooling) |
 | `Makefile`, `Dockerfile` | Every build and test command; the production image (web build, Go build, Alpine) |
 | `.cache/` | Go build and module caches, the screenshot tooling's npm packages and saved sessions (git-ignored) |
 
@@ -89,6 +89,8 @@ workspaces (with the admin token, or by signing up), sends events, waits for seg
 emails (read back from Mailpit), and checks latencies such as event → segment in under 2 s and
 event → email in under 5 s. Every test makes its own workspace, so tests don't interfere and can
 run against a database with other data in it (the workspaces stay behind in your local database).
+Each milestone of the marketing team's plan has its own file (`m1_test.go` … `m7_test.go`); `m7_test.go`
+checks that every number the app links to a contact list has exactly that many contacts.
 
 It runs in **two passes**:
 
@@ -96,8 +98,8 @@ It runs in **two passes**:
    Keycloak address a browser uses (`localhost:8180`).
 2. In a container named `pulse-e2e-hooks` on the **Compose network** (`pulse_default`), with
    `PULSE_API=http://pulse:7070` and `PULSE_HOOK_HOST=pulse-e2e-hooks`, for the tests in which
-   **Pulse calls the test**: outbound webhooks, the custom gateway, REST hooks, HubSpot, audience sync
-   and the bounce mailbox.
+   **Pulse calls the test**: outbound webhooks, the custom gateway (also its login flow), REST
+   hooks, HubSpot, audience sync, the bounce mailbox, Gupshup and the web push install check.
 
 The rule for tests that receive calls from Pulse:
 
@@ -159,9 +161,14 @@ Conventions in `web/src`:
   into messages.
 - Logic is kept out of components in plain modules with unit tests next to them:
   `segmentRules.ts`, `segmentCatalog.ts`, `journeyGraph.ts`, `journeyCatalog.ts`,
-  `contactFilters.ts`, `importMapping.ts`, `reportBuilder.ts`, …. Test those; components are thin.
-- Pages live in `pages/`, one per area; settings pages are listed in `SettingsLayout.tsx` with the
-  permission each needs; old addresses redirect (`main.tsx`).
+  `contactFilters.ts`, `contactLinks.ts` (which numbers link to which contact list, and who may
+  open it), `providerAuth.ts`, `ampBuilder.ts`, `onsiteVariants.ts`, `automation.ts`,
+  `importMapping.ts`, `reportBuilder.ts`, …. Test those; components are thin.
+- Pages live in `pages/`, one per area; the sidebar is `Shell.tsx` and settings pages are listed in
+  `SettingsLayout.tsx`, each with the permission it needs; old addresses redirect (`main.tsx`, and
+  `campaigns.ts` for the old Journeys and Broadcasts lists, which the server redirects too).
+- Words: campaigns are **One-time**, **Triggered** and **Automation** in the app; "broadcast"
+  appears only in code and the API, "journey" only as the step builder.
 - UI text is plain and specific: say what happens ("Pulse stops sending to it right away"), and
   make error messages say what to do.
 

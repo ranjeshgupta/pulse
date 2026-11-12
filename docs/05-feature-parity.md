@@ -11,7 +11,7 @@ approximate is listed once under [Known gaps](#known-gaps).
 |---|---|---|---|---|
 | Contact profiles, custom attributes | ✅ | ✅ | ✅ JSON attributes, no schema needed | |
 | Anonymous visitor tracking, GeoIP location | ✅ | ✅ | ✅ anonymous visitors (on/off per workspace), MaxMind GeoIP city/state/country/time zone | |
-| Data retention and cleanup | ✅ | 🟡 | ✅ Data & privacy: anonymous visitors, events, audit log; hourly cleanup | |
+| Data retention and cleanup | ✅ | 🟡 | ✅ M5: Settings → Automation & limits: events, message events, page / screen views, per event name, anonymous visitors, audit log, import history, webhook deliveries, integration log, test inbox, live feed size; "What will be deleted" before a shorter retention is saved; cleanup once a day per workspace | |
 | Delete a contact | ✅ | ✅ | ✅ **Delete contact** on the profile (typed confirmation) and `DELETE /v1/contacts/{external_id}`: the cleanup deletion path (ClickHouse events and memberships, then profile, devices, inbox, journey state, form uploads); contacts edit access; audited; also the `delete_contact` journey step | Ad audiences aren't recalled |
 | Export one contact's data (access request) | 🟡 | ✅ | ✅ **Download data** on the profile and `GET /v1/contacts/{external_id}/data`: profile, consent per channel, segments and up to 100,000 events as JSON; contacts edit access (personal data, like exports); audited | |
 | Real-time event tracking API | 🟡 | ✅ | ✅ 20k events/s on one machine | |
@@ -25,6 +25,8 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Phone country | ⬜ | ✅ | ✅ M1: `phone_country` (ISO code) kept by Pulse from numbers written with + or 00; "Phone country" segment filter | National numbers without a country code get none |
 | Event schemas (typed properties, enums, dependent enums, checks) | ⬜ | ✅ | ✅ M1: Audience → Events (volume, discovered properties, schema editor, problems with samples), warn (default) or enforce per event, six suggested e-commerce schemas, personal-data flag, "add to list field"; see [architecture](02-architecture.md#event-schemas-m1) | Browser events are never refused |
 | Contact list views: search filters as chips, columns, save as segment | ✅ | ✅ | ✅ batch 9, see [Contact views](#contact-views-batch-9) | |
+| Contact page: reach per channel and why not, devices, campaigns, activity, purchases, messages with reasons, events | 🟡 | ✅ | ✅ M4: `/contacts/:id` (`GET /v1/contacts/{id}/profile`, `/messages`, `/events`) | |
+| Drill-down from every number to its contacts | ⬜ | 🟡 | ✅ M7: estimate steps, reach, segment sizes, campaign funnels and reasons, journey steps, dashboards, events, forms, AMP poll answers and on-site overlap open the Contacts list filtered to exactly those people (set filters on Redis bitmaps, outcome filters in ClickHouse; chips in words); "Create segment from this list" makes a static segment; see [Contacts behind every number](#contacts-behind-every-number-m7) | Not linked where no list of people exists: journey path counts, audience at send time, funnels and cohorts, Campaign performance totals (each campaign's numbers link) |
 | Tags | ✅ | 🟡 | ✅ `tag_added` / `tag_removed` events, API, contact drawer, CSV `tags` column, "is tagged" rules | |
 | Points / lead scoring | ✅ | ⬜ | ✅ scoring rules per event, manual adjust, journey step; `points` attribute in rules | |
 | Stages (lifecycle) | ✅ | ⬜ | ✅ ordered stages (Settings → Stages); `stage` attribute changed by hand, API, `stage_changed` events, the `change_stage` journey step, or a points threshold (forward only); "In stage" segment preset | P2 |
@@ -59,6 +61,9 @@ approximate is listed once under [Known gaps](#known-gaps).
 
 ## Journeys / campaigns
 
+Since M7 the app calls journeys **triggered** (event or form trigger) and **automation** (segment trigger) campaigns,
+and broadcasts **one-time campaigns**, all under one **Campaigns** entry.
+
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
 | Visual canvas | ✅ | ✅ | ✅ "+" on every path opens Action · Decision · Condition · Wait · Split, then a searchable list (disabled items say why); drag-and-drop palette; Yes/No colours and labels, step numbers, Tidy up, zoom to fit, minimap, undo/redo, per-step counts. See [Campaign builder](#campaign-builder-batch-7b) | |
@@ -83,11 +88,14 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Every Mautic campaign decision, action and condition | ✅ | 🟡 | ✅ batch 7b, see [Campaign builder](#campaign-builder-batch-7b) | |
 | Multi-channel message with fallback (first reachable channel) | ✅ marketing messages | ✅ | ✅ `send_message`: ordered rules, each channel → template, optionally with conditions on the contact and trigger event (Indian number → SMS, otherwise WhatsApp); the choice shows in step stats | |
 | Jump to step (loops) | ✅ | ⬜ | ✅ `jump`, capped at 25 jumps per enrollment | |
-| One list of every campaign, by type, with tags | 🟡 | ✅ | ✅ M3: Campaigns → All campaigns: One-time (broadcasts), Trigger based (event or form journeys), Automation (segment journeys), set automatically; free tags with suggestions; search, status, channel and tag filters; audience, sent, last activity | |
+| One list of every campaign, by type, with tags | 🟡 | ✅ | ✅ M3, renamed in M7: Campaigns: One-time (broadcasts), Triggered (event or form journeys), Automation (segment journeys), set automatically; free tags with suggestions; search, status, channel and tag filters; audience, sent, last activity, in progress; duplicate, archive, restore, delete | |
+| Campaign types named by when they send; a "what do you want to do" chooser | 🟡 | ✅ | ✅ M7: **New campaign** asks: send a message to a segment (→ channel → the one-time wizard), react when someone does something (→ builder with an event trigger), follow up when someone joins a segment (→ builder with a segment trigger); one word per status (Live, Finished, Sending, Draft, Scheduled, Paused, Cancelled, Archived) | |
 | Copy and paste steps, duplicate journeys | 🟡 (clone) | 🟡 | ✅ M3: Copy / Paste of a selection of steps between journeys and workspaces (clipboard JSON checked by the server: links outside the selection and other workspaces' references dropped, with notes); Duplicate | |
 | Send deadline on send steps | 🟡 ("prevent after date") | 🟡 | ✅ M3: don't send after HH:MM and/or more than N hours late: late messages are dropped as `<channel>_failed` with reason `deadline` | |
 
 ## Broadcasts (one-time and recurring campaigns)
+
+In the app: **one-time campaigns** (since M7 the word "broadcast" appears only in the API).
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
@@ -101,6 +109,7 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Exact audience estimate (exclusions, consent, reachability, caps) | ⬜ | 🟡 | ✅ M3: Redis `BITOP` over segment and reachability bitmaps, step by step; frequency caps exact up to 50,000 contacts, sampled above; cached 30 s, 60 a minute per workspace | |
 | Send deadline | 🟡 | 🟡 | ✅ M3: time of day and/or hours late (local time for local-time broadcasts); late messages dropped and counted in the report | |
 | Duplicate a broadcast | ✅ | ✅ | ✅ M3: a draft copy, with its own copy of a message written in the campaign | |
+| Report funnel and failure reasons | 🟡 | ✅ | ✅ M4: audience at send time → targeted → skipped by reason → sent → delivered → opened → clicked (downloads), bounced, complaints, failed, unsubscribed; reasons table; each number opens its contacts (M7) | |
 
 ## Channels
 
@@ -115,13 +124,21 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Provider connection test, per provider | 🟡 | ✅ | ✅ Phase 2 | |
 | Email open and click tracking | ✅ | ✅ | ✅ sealed tokens; click links signed (no open redirect); `email_opened` / `email_clicked` events | |
 | Unsubscribe link and List-Unsubscribe header | ✅ | ✅ | ✅ footer or `{{links.unsubscribe}}` (`{{.UnsubscribeURL}}`), RFC 8058 one-click, confirm page | |
-| Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS) and generic webhooks; hard bounces stop email, complaints unsubscribe; an IMAP bounce mailbox read every 5 minutes for DSN (RFC 3464) and ARF (RFC 5965) reports | Non-standard plain-text bounces aren't read; one mailbox per workspace |
+| Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS), SparkPost and generic webhooks; hard bounces stop email, complaints unsubscribe; an IMAP bounce mailbox read every 5 minutes for DSN (RFC 3464) and ARF (RFC 5965) reports; M4: linked to the message and campaign by a signed message reference; webhooks verified (SNS, SendGrid signature, Mailgun HMAC, basic auth) and failing closed once a key is saved | Non-standard plain-text bounces aren't read; one mailbox per workspace; bounces from before M4 aren't linked to campaigns |
+| Delivered status, complaints in reports | ✅ | ✅ | ✅ M4: `email_delivered` from SendGrid, Postmark, Mailgun, SES and SparkPost; complaints counted per campaign | Plain SMTP relays, Gmail, FCM and web push report no delivery ("—") |
+| Failure reasons | 🟡 | ✅ | ✅ M4: a reason code on every failed, skipped, capped, bounced or complained message (invalid number, not on WhatsApp, possibly blocked, spam policy, consent, deadline…), in reports and on the contact page | |
+| Custom provider authentication and requests | 🟡 | 🟡 | ✅ M5: the custom HTTP gateway with basic, bearer, API key, OAuth2 or a login request (token by JSON path, header or regex, with expiry; cached and refreshed on 401), and a custom request (method, URL, headers, templated body, success rule, id path, receipt mapping, verified receipts); Preview request and Test connection | |
+| Gmail, Google Workspace, Workspace SMTP relay | ✅ (SMTP) | ⬜ | ✅ M5: presets with Google's limits, app password or XOAUTH2, relay by IP with an EHLO domain | |
+| Gupshup SMS, WhatsApp and RCS | ⬜ | ✅ | ✅ M5: SMS with DLT template and entity ids, WhatsApp templates and session messages, RCS with SMS fallback; delivery reports and inbound | Built from public docs, tested against mocks; RCS formats inferred |
+| Workspace settings for automatic behaviour (retention, retries, schedules, default limits) | 🟡 | 🟡 | ✅ M5: Settings → Automation & limits, each value with its default and range, plus what stays fixed by the platform | |
+| AMP email (interactive) | ⬜ | 🟡 | ✅ M6: block builder (carousel, gallery, accordion, poll, form…) or code, validated with line numbers, script-free preview, send test; polls and forms post back as `amp_poll_answered` / `amp_form_submitted` (form answers may update contact fields); poll results | Postmark doesn't send AMP; Gmail shows AMP only to registered senders; the preview is an approximation |
 | Plain-text part, attachments | ✅ | 🟡 | ✅ every email is multipart/alternative: the template's own text or one generated from the HTML (links as "text (url)", direct, plus the unsubscribe link); up to 10 asset attachments (10 MB together) in multipart/mixed; the custom gateway gets signed 7-day download links; preview shows the text part and the files | P2 |
 | SMS (Twilio, MSG91) | ✅ | ✅ | ✅ adapters, not tried on live accounts | |
 | WhatsApp (Meta Cloud) with SMS fallback | ⬜ | ✅ | ✅ | |
 | RCS (Google RBM) with SMS fallback | ⬜ | ✅ | ✅ | |
 | Mobile push (FCM) | ✅ | ✅ | ✅ adapter; tokens from the Flutter, Android and iOS SDKs; taps tracked by the native SDKs (`push_clicked`, "clicked" journey decision) | iOS via FCM tokens (no direct APNs); dismissals only where the OS reports them |
 | Web push | ✅ | ✅ | ✅ standard Web Push with per-workspace VAPID keys (no Firebase); `Pulse.enablePush()` and `/sdk/pulse-sw.js`; FCM web tokens still work; clicks and dismissals reported by the service worker (`push_clicked` / `push_dismissed`) | Browsers report dismissals unevenly; FCM web tokens (Firebase's own worker) aren't tracked |
+| Web push opt-in prompt and install check | 🟡 | ✅ | ✅ M6: Settings → Web push: a no-code bell, bar or pop-up (texts, colours, delay / scroll / page triggers, ask again after N days, pages); an install check run from the server (HTTPS, snippet, site key, service worker, VAPID keys) and a browser self-check link (`Pulse.diagnose()`) | |
 | App inbox | ⬜ | ✅ | ✅ `inbox` channel for journeys and broadcasts (templates, consent, caps, reports); SDK API to list, read, delete, click; per-message expiry; `Pulse.inbox` in the web SDK | |
 | In-app messages (modal, banner, full screen) | ⬜ | ✅ | ✅ campaigns with segment, platform, trigger event or screen, delay, frequency, priority, schedule; editor with phone preview, "see what a contact gets" and test send; rendered by the Flutter, Android and iOS SDKs; shown/clicked/dismissed stats | |
 | Webhook channel | ✅ | ✅ | ✅ custom HTTP gateway provider for every channel (signed JSON, receipts and inbound replies back); journey webhook step | |
@@ -132,7 +149,8 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
 | Focus items: pop-up, bar, slide-in; segment and page targeting; triggers; frequency | ✅ | ✅ | ✅ | |
-| Dynamic Web Content: per-segment variants | ✅ | ✅ | ✅ | |
+| Dynamic Web Content: per-segment variants | ✅ | ✅ | ✅ M6: variants with audiences (segments in and out, page URL, devices, contact-field conditions) in priority order, the first match wins; warnings for variants that can never show; an overlap view of how many contacts would see each | Overlap counts segments only (page, device and field rules aren't counted) |
+| Ordering focus items | 🟡 | ✅ | ✅ M6: the same audience rules and an order; one pop-up, one bar and one slide-in per page, the first allowed; overlap per kind | |
 | Schedule on-site content (start, optional end) | 🟡 | ✅ | ✅ Phase 2 | |
 | "See what a contact would see" check | 🟡 | 🟡 | ✅ Phase 2 | |
 | Rendering on websites (JS SDK) | ✅ | ✅ | ✅ `/sdk/pulse.js` (3 KB gzipped): focus items with all triggers and frequency caps, content slots | |
@@ -144,7 +162,9 @@ approximate is listed once under [Known gaps](#known-gaps).
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
-| Live dashboard, message outcomes | 🟡 | ✅ | ✅ | |
+| Live dashboard, message outcomes | 🟡 | ✅ | ✅ M4: Analytics → Live events (the workspace's latest events, polled every 2 s) | |
+| DAU / WAU / MAU, new vs returning | ⬜ | ✅ | ✅ M4: Analytics → Users, by platform and UTM source, pre-aggregated in ClickHouse (`active_users_daily`, `first_active`) | Deleted contacts still count in past days |
+| Campaign and product dashboards | 🟡 | ✅ | ✅ M4: Analytics → Campaign performance (funnel and revenue per campaign) and Products (views, carts, purchases, abandoned, segment of buyers) | |
 | Journey and broadcast reports (sent, delivered, opened, clicked, converted) | ✅ | ✅ | ✅ per run, A/B variant, journey step and channel; top links; daily; from a ClickHouse `message_events` view | |
 | Funnels | ⬜ | ✅ | ✅ 2-8 steps with property filters, conversion window, date range, segment filter; live while editing | |
 | Funnel breakdown by attribute | ⬜ | ✅ | ✅ any profile attribute (geo_country, plan, stage...): step counts for the top 10 values plus everyone else | P2 |
@@ -184,7 +204,7 @@ The build order as it happened; every step below is done.
    - Anonymous visitors: GeoIP with a MaxMind GeoLite2/GeoIP2 City database (`PULSE_GEOIP_DB`) sets geo_country,
      geo_country_code, geo_region, geo_city, geo_postal, geo_timezone; quiet hours fall back to geo_timezone; Data &
      privacy switch to track anonymous visitors or not.
-   - Cleanup like Mautic's maintenance (hourly): anonymous visitors idle for N days with their events, events older than N
+   - Cleanup like Mautic's maintenance (hourly at first; since M5 once a day per workspace): anonymous visitors idle for N days with their events, events older than N
      days, audit entries older than N days; expired inbox messages and old webhook deliveries are always pruned.
    - Journeys: palette grouped into Actions, Conditions, Decisions and Waits; `message_decision` on a step's own message
      (email opened/clicked/delivered, SMS/push delivered, WhatsApp/RCS delivered/read, inbox opened/clicked).
@@ -233,6 +253,23 @@ The build order as it happened; every step below is done.
    - ✅ **Step-by-step tutorials** ([docs/tutorials](tutorials/README.md); all 11 written, with screenshots retaken by
      `make docs-shots`) and the eight [developer guides](developer/README.md).
 
+9. **The marketing team's plan** ([docs/06-marketing-team-plan.md](06-marketing-team-plan.md)), all done:
+   - ✅ **M1, events and segments:** event schemas, property paths, date ranges, NONE groups, list and choice fields,
+     daily-refresh segments, "why is this contact in this segment".
+   - ✅ **M2, personalisation:** standard variables, the trigger event's properties in messages, channel by rule.
+   - ✅ **M3, campaigns:** the Campaigns hub, the one-time wizard, exact estimates, provider rates and quotas, send
+     deadlines, duplicates and copy / paste, saved test contacts.
+   - ✅ **M4, delivery truth and dashboards:** linked bounces and complaints, delivered, reason codes, report funnels,
+     the Users / Campaign performance / Products / Live events dashboards, the contact page.
+   - ✅ **M5, channels and settings:** custom provider authentication and requests, Gmail / Workspace / relay and
+     Gupshup providers, Settings → Automation & limits with daily per-workspace retention.
+   - ✅ **M6, AMP and on-site:** AMP emails, content variants with rules, order and overlap, focus item order, the web
+     push prompt and install check.
+   - ✅ **M7, clarity:** every number opens its contacts, one Campaigns entry with three types named by when they send,
+     "Website & app messages", plain wording.
+   - ✅ **Docs:** README, architecture, this document, the developer guides and 18 tutorials updated in one final
+     pass, with every screenshot retaken.
+
 ## Contact views (batch 9)
 
 **What it is.** Contacts has one search box. Words of the form `key:value` become removable chips; the rest is free
@@ -241,7 +278,7 @@ text. Suggestions appear as you type (`is:` lists its options, `segment:` the se
 removes the last one. The view lives in the address (`/contacts?q=…`), so it can be bookmarked; typing waits 300 ms
 before asking the server. Above the table: the count, **Save as segment**, **Columns** (built-in fields and every
 defined contact field, remembered per browser) and **Export CSV** (the view with the columns shown; contacts edit
-access, like every export). Every segment's row and page has **View contacts**, which opens `segment:<id>`.
+access, like every export). Every segment's row and page has **View contacts**, which opens `in:<id>` since M7 (it was `segment:<id>`), so the list has exactly the segment's size.
 
 | Filter | Means | Rule it compiles to |
 |---|---|---|
@@ -283,18 +320,18 @@ redirect (`/lists`, `/lists/:id`, `/imports`, `/focus-items(/:id)`, `/web-conten
 |---|---|---|
 | Audience → Segments and Audience → Lists | Audience → **Segments**, with a Dynamic / Static type filter and badge; "New segment" asks Dynamic or Static | One concept with two types, as in Mautic (filters vs manual) and WebEngage (live vs static); "list" also meant subscription lists |
 | "Lists" wording (journey "Modify contact's segments", forms, import, merge, audit log, reports) | "static segment" | One name everywhere |
-| Engage → Focus items, Web content, In-app messages | Campaigns → **On-site & in-app**: one list with a channel badge (Website / Mobile app) and type filter; "New" asks Website (pop-up, bar or slide-in; dynamic web content) or Mobile app (in-app message) | Same job (messages shown inside your site or app), chosen by where they show, like WebEngage's on-site / in-app |
+| Engage → Focus items, Web content, In-app messages | Campaigns → **On-site & in-app** (named **Website & app messages** since M7): one list with a channel badge (Website / Mobile app) and type filter; "New" asks Website (pop-up, bar or slide-in; dynamic web content) or Mobile app (in-app message) | Same job (messages shown inside your site or app), chosen by where they show, like WebEngage's on-site / in-app |
 | Audience → Imports, and Contacts → Import CSV (quick import) | Contacts → **Import** (`/contacts/import`): upload, map columns, static segment, review, run in the background; one import history | Two entry points with different limits and histories |
-| Engage (campaigns and content mixed) | **Campaigns** (Journeys, Broadcasts, On-site & in-app) and **Content** (Message templates, Landing pages, Forms, Assets) | Separates what runs from what it's built from (HubSpot "Marketing" vs "Content") |
+| Engage (campaigns and content mixed) | **Campaigns** (Journeys, Broadcasts, On-site & in-app; since M7 one **Campaigns** entry and **Website & app messages**) and **Content** (Message templates, Landing pages, Forms, Assets) | Separates what runs from what it's built from (HubSpot "Marketing" vs "Content") |
 | Templates | **Message templates** | They hold email / SMS / WhatsApp / RCS / push / app inbox content; on-site content and landing pages have their own editors |
 | Audience → Forms | Content → Forms | Forms are content you publish (as in Mautic's Components) |
 | Analyze → Funnels, Cohorts, Revenue, Reports | **Analytics** → Reports, Funnels, Cohorts, Revenue | Standard name; the custom report builder first |
-| Delivery → Channels, Test inbox; Workspace → ten items | **Settings** (one sidebar entry, `/settings`) with a menu: Workspace (Team, Roles, Sign-in & keys, Audit log), Contact data (Contact fields, Scoring, Stages, Data & privacy), Delivery (Channels, Test inbox), Connections (Integrations, Webhooks) | Setup pages out of the daily work menu; Test inbox belongs with the sandbox providers it shows |
+| Delivery → Channels, Test inbox; Workspace → ten items | **Settings** (one sidebar entry, `/settings`) with a menu: Workspace (Team, Roles, Sign-in & keys, Audit log), Contact data (Contact fields, Scoring, Stages, Data & privacy), Delivery (Channels, Test inbox), Connections (Integrations, Webhooks); since M5 also Automation & limits (Workspace), since M6 Web push (Delivery) | Setup pages out of the daily work menu; Test inbox belongs with the sandbox providers it shows |
 | Attributes | **Contact fields** (Settings) | Mautic "Custom fields", HubSpot "Properties": the word marketers use; the API keeps "attributes" |
 
 ## Campaign builder (batch 7b)
 
-**What it is.** Campaigns → Journeys → a journey. Every outgoing path (an edge, or a free Yes / No / split handle) has a "+". It opens
+**What it is.** Campaigns → a triggered or automation campaign (a journey). Every outgoing path (an edge, or a free Yes / No / split handle) has a "+". It opens
 "Add a step": first **Action** (do something), **Decision** (wait for the contact to do something: Yes if they do within
 the time limit, No if not), **Condition** (check something now: Yes or No), **Wait** or **Split** (A/B or percentage), then
 a searchable list of that kind's steps with a description each. Steps that can't go there are greyed with the reason
@@ -496,16 +533,53 @@ in the audience now, added, removed, left out (no consent or nothing to match) a
 | Audit log export | CSV (formula-safe) or JSON, filters for person, object type and date range, streamed in pages of 1,000; buttons on the Audit log page | |
 
 
+## Contacts behind every number (M7)
+
+Every count of people in the app is a link to the Contacts list filtered to exactly those people, so a marketer can
+see who they are, export them or turn them into a segment. The list's filters show as chips in words.
+
+| Number | Opens | Filter |
+|---|---|---|
+| Segment size, "View contacts" | the segment's members | `in:<id>` |
+| Estimate steps (audience, after exclusions, after consent, reachable, under the cap) | the contacts left at that step | `in:`, `not_in:`, `subscribed:`, `reachable:`, `under_cap:` |
+| Reach by channel on a segment | reachable members | `in:` + `reachable:<channel>` |
+| One-time campaign funnel, reasons, per-run and per-variant numbers | the contacts with that outcome | `campaign:broadcast/<id>` + `run:` / `outcome:` / `reason:` |
+| Triggered / automation campaign: per-step messages, "here now", in progress, reasons | the contacts at that step or with that outcome | `journey:` + `at:` / `journey_status:`, `campaign:journey/<id>` + `step:` / `outcome:` |
+| Campaign performance (each campaign's numbers, cross-campaign reasons) | as above; outcomes across every campaign need reports view | `outcome:` + `period:` |
+| Products dashboard (viewers, carters, buyers, abandoned) | those contacts | `event:` / `no_event:` + `product:` / `category:` + `period:` |
+| Users dashboard (active, new, returning, by platform or source) | the active contacts | `active:` + `utm:` + `period:` |
+| Events page contacts, form submitters, AMP poll answers, company and stage counts, on-site overlap | those contacts | `event:`, `form:`, `amp_poll:` + `answer:`, `company:`, `stage:`, `in:` / `not_in:` |
+
+**Equal counts.** On seeded data every linked number equals its list (checked by `test/e2e/m7_test.go` and in the
+browser). Where they can differ, the list says why: reports count contacts merged or deleted since; a journey's numbers
+count entries, the list people. **Not linked**, because no list of people exists: the canvas's entered, Yes / No and
+split path counters, a one-time campaign's audience at send time (a snapshot), an unsaved segment rule's preview, funnel
+and cohort reports, asset downloaders, landing page visitors, in-app "seen by", import rows, duplicate groups, and
+messages-per-channel totals; Campaign performance totals add up each campaign's contacts (a person in two campaigns
+counts twice), so they stay plain with a tooltip. A number the role can't open stays plain with a tooltip naming the
+missing access. **Create segment from this list** saves such a list as a static segment (up to 500,000 contacts); lists
+from rule-only filters keep "Save as segment" (dynamic).
+
 ## Known gaps
 
 Everything above is built. What is still missing or only approximate, in one place:
 
-- **Not checked against live accounts:** the provider adapters (Twilio, MSG91, Meta WhatsApp, Google RBM, FCM) and the
-  connectors (HubSpot, Salesforce, Shopify, Facebook, Google Ads) are tested against `httptest` mocks only.
+- **Not checked against live accounts:** the provider adapters (Twilio, MSG91, Gupshup SMS / WhatsApp / RCS, Meta
+  WhatsApp, Google RBM, FCM, the Gmail XOAUTH2 flow) and the connectors (HubSpot, Salesforce, Shopify, Facebook, Google
+  Ads) are tested against `httptest` mocks only. Gupshup's endpoints must be confirmed with a real account, and its RCS
+  formats (send body, delivery reports, inbound) are inferred from Google RBM.
+- **Delivery reports:** plain SMTP relays, Gmail / Workspace, FCM and web push report no delivery; bounces from before M4
+  can't be linked to campaigns; a provider without a saved webhook key is still accepted on its secret URL alone.
+- **AMP:** the app's preview is an approximation (real behaviour shows in Gmail or the AMP playground); Gmail shows AMP
+  only to senders Google has registered; Postmark sends no AMP part; Pulse variables don't work inside amp-mustache
+  templates; no AMP in internal notifications.
+- **On-site overlap** counts segment audiences only (page, device and contact-field rules aren't counted).
+- **Dashboards:** DAU history keeps counting deleted contacts; new vs returning isn't split by platform or source;
+  Campaign performance totals aren't one list of people.
 - **SDKs:** the Android module was compiled and linted but never run on a device; the iOS UIKit / UserNotifications code
   has never been compiled (no Xcode here); neither native SDK was tested against a running server. The Flutter SDK doesn't
   report push taps. iOS push goes through FCM tokens (no direct APNs).
-- **Journeys:** contacts don't leave a journey when they leave its trigger segment (use a condition, a goal or "Change
+- **Triggered and automation campaigns (journeys):** contacts don't leave a journey when they leave its trigger segment (use a condition, a goal or "Change
   campaigns"); a message decision can't watch a "Send marketing message" step; per-step counts are best effort.
 - **Segments:** no "ever" window (an absolute range from 2000-01-01 comes close); ranges starting more than 365 days back
   are evaluated by the sweep only (every `PULSE_SWEEP_INTERVAL`), not in real time, and journey `check` conditions refuse
@@ -528,4 +602,5 @@ Everything above is built. What is still missing or only approximate, in one pla
 - **Scale:** Redis is single-threaded and the per-poll barrier waits for the slowest partition; bulk imports still go
   through the real-time pipeline; analytics reports and filtered contact views weren't load-tested and will want rollups
   at billions of events ([load test](03-load-test.md), [architecture](02-architecture.md#at-scale-needs-pre-aggregation)).
-- **Broadcasts:** sending at each contact's local time works for one-time broadcasts only.
+- **One-time campaigns:** sending at each contact's local time works for campaigns sent once, not repeating ones.
+- **Settings:** the maintenance pass interval is global (`PULSE_MAINTENANCE_INTERVAL`), not per workspace.

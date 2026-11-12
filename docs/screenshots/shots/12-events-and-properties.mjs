@@ -127,12 +127,12 @@ async function segmentFilter(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
 }
 
-/** A journey's Start: checkout_abandoned, only when payment_method is upi and cart_value is at least 500. */
+/** A triggered campaign's Start: checkout_abandoned, only when payment_method is upi and cart_value is at least 500. */
 async function journeyTrigger(page) {
   await page.setViewportSize({ width: 1440, height: 1200 });
-  await go(page, "/journeys/new");
+  await go(page, "/journeys/new?start=event");
   const insp = page.locator("aside.inspector");
-  await insp.getByLabel("Start this journey when a contact").selectOption("event");
+  await insp.getByLabel("Start this campaign for a contact when they").selectOption("event");
   await insp.getByLabel("Event name").fill("checkout_abandoned");
   const more = insp.getByRole("button", { name: "+ Only when the event's properties match…" });
   await more.click();

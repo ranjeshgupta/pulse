@@ -1,5 +1,6 @@
-// Screenshots for docs/tutorials/08-on-site-and-in-app.md.
-// Website: a "Newsletter slide-in" focus item and a "Sale banner" content slot, both shown on the SDK
+// Screenshots for docs/tutorials/08-website-and-app-messages.md.
+// Website: a "Newsletter slide-in" focus item (and the order drawer) and a "Sale banner" content slot
+// with two variants (rules, a never-shown warning, the overlap count), both shown on the SDK
 // test page. They only show on pages whose address contains "tutorial=8" (the slide-in) or that
 // have a "sale-banner" slot (the test page gets one added on the fly, as your own page would have),
 // so they don't appear in other guides' pictures of the test page. Mobile app: an in-app message
@@ -37,7 +38,7 @@ export default async function (browser) {
   await sdk.close();
   await api(context, "POST", `/v1/lists/${group.id}/members`, { action: "add", external_ids: [MEMBER.id] });
 
-  // 1. Campaigns → On-site & in-app → New.
+  // 1. Campaigns → Website & app messages → New.
   await go(page, "/on-site");
   const newBtn = page.getByRole("button", { name: "New", exact: true });
   await highlight(newBtn);
@@ -70,9 +71,11 @@ export default async function (browser) {
   await field(page, "Show it").selectOption({ label: "After a delay" });
   await field(page, "Seconds on page").fill("2");
   await field(page, "How often").selectOption({ label: "Once per visit" });
+  await page.setViewportSize({ width: 1440, height: 1800 });
   await settle(page);
   await shot(page, AREA, "08-focus-targeting", { clip: page.locator("h3:has-text('Who sees it'), h3:has-text('Who sees it') ~ *:not(aside)"), pad: 8 });
 
+  await page.setViewportSize({ width: 1440, height: 900 });
   // Publish, then check what a visitor sees.
   const publish = page.getByRole("button", { name: "Publish" });
   await highlight(publish);
@@ -81,7 +84,25 @@ export default async function (browser) {
   await publish.click();
   await page.waitForURL((u) => /\/on-site\/focus\/\d+$/.test(u.pathname));
   await settle(page, { quiet: 800 });
-  await go(page, new URL(page.url()).pathname); // reopen: the check needs the saved item's id (see the tutorial's note)
+  const focusPath = new URL(page.url()).pathname;
+
+  // The order of pop-ups, bars and slide-ins (the list's button shows with two or more items).
+  await go(page, "/on-site");
+  const orderBtn = page.getByRole("button", { name: "Order of pop-ups, bars and slide-ins" });
+  await highlight(orderBtn);
+  await shot(page, AREA, "08-order-button", { clip: page.locator(".page > .row").first(), pad: 8 });
+  await clearHighlights(page);
+  await orderBtn.click();
+  const drawer = page.locator(".drawer");
+  await drawer.waitFor();
+  const slides = drawer.locator("section.ov-kind", { has: page.getByRole("heading", { name: "Slide-ins" }) });
+  await slides.getByRole("button", { name: "Check overlap" }).click();
+  await slides.locator(".ov-result").waitFor();
+  await settle(page, { quiet: 500 });
+  await shot(page, AREA, "08-order-drawer", { clip: drawer, pad: 0 });
+  await page.keyboard.press("Escape");
+
+  await go(page, focusPath); // reopen: the check needs the saved item's id (see the tutorial's note)
   const check = page.locator("section.panel", { has: page.getByRole("heading", { name: "Check what a visitor sees" }) });
   await check.getByLabel("Page address").fill(`https://www.acme-retail.example/blog?${MARK}`);
   await check.getByRole("button", { name: "Check" }).click();
@@ -105,15 +126,42 @@ export default async function (browser) {
   await settle(page, { quiet: 800 });
   await field(page, "Name").fill(SLOT_NAME);
   await field(page, "Slot key").fill(SLOT);
+  await page.setViewportSize({ width: 1440, height: 2600 });
+  const card = (i) => page.locator("li.ov-card").nth(i);
+  const segPick = (i, label) => card(i).locator(`select[aria-label="${label}"]`);
+  // Variant 1: the testers. Variant 2: VIP customers on a phone.
   await page.getByRole("button", { name: "Add a variant" }).click();
-  await page.getByLabel("Segment", { exact: true }).selectOption({ label: `For members of "${GROUP}"` });
+  await card(0).getByLabel("Variant 1 name").fill("Sale testers");
+  await segPick(0, "Show to members of any of").selectOption({ label: GROUP });
   await page.getByRole("textbox", { name: "Variant 1 content", exact: true }).click();
   await page.keyboard.type("Testers: the weekend sale is open to you a day early. Use code PREVIEW15.");
+  await page.getByRole("button", { name: "Add a variant" }).click();
+  await card(1).getByLabel("Variant 2 name").fill("VIPs on their phone");
+  await segPick(1, "Show to members of any of").selectOption({ label: "VIP customers" });
+  await card(1).getByRole("checkbox", { name: "Mobile" }).check();
+  await page.getByRole("textbox", { name: "Variant 2 content", exact: true }).click();
+  await page.keyboard.type("VIPs: tap to see your early-access sale picks.");
   await page.getByRole("textbox", { name: "Everyone else sees", exact: true }).click();
   await page.keyboard.type("Weekend sale: up to 30% off home and kitchen, until Sunday night.");
+  await page.getByRole("heading", { name: "Variants" }).click();
   await settle(page, { quiet: 800 });
-  await page.setViewportSize({ width: 1440, height: 1500 });
-  await shot(page, AREA, "08-dwc", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 8 });
+  await shot(page, AREA, "08-dwc", { clip: page.locator(".page-head, .page > .grid-2, .page > h3:text-is('Variants'), .page > h3:text-is('Variants') + p, li.ov-card:nth-child(1)"), pad: 8 });
+  await shot(page, AREA, "08-dwc-rules", { clip: card(1), pad: 6 });
+  // A third variant that can never show: everyone it targets matches variant 1 first.
+  await page.getByRole("button", { name: "Add a variant" }).click();
+  await card(2).getByLabel("Variant 3 name").fill("Testers on their phone");
+  await segPick(2, "Show to members of any of").selectOption({ label: GROUP });
+  await card(2).getByRole("checkbox", { name: "Mobile" }).check();
+  await card(2).getByText(/^Never shown/).waitFor();
+  await settle(page, { quiet: 500 });
+  await shot(page, AREA, "08-dwc-never-shown", { clip: card(2).locator(".panel-head, .ov-who, .alert"), pad: 8 });
+  await card(2).getByRole("button", { name: "Remove", exact: true }).first().click();
+  // How the variants split the contacts.
+  const ov = page.locator("section.ov-overlap");
+  await ov.getByRole("button", { name: "Check overlap" }).click();
+  await ov.locator(".ov-result").waitFor();
+  await settle(page, { quiet: 500 });
+  await shot(page, AREA, "08-dwc-overlap", { clip: ov, pad: 8 });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "Publish" }).click();
   await page.waitForURL((u) => /\/on-site\/content\/\d+$/.test(u.pathname));

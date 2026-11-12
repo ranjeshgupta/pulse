@@ -2,12 +2,20 @@
 
 Real-time, multi-tenant marketing automation in Go on Kafka, ClickHouse, Postgres and Redis.
 It aims for Mautic/WebEngage features at Listmonk speed: events move contacts into segments
-and journeys within seconds, not on a 15-minute cron.
+and campaigns within seconds, not on a 15-minute cron.
 
 ## Documentation
 
-- **[Tutorials](docs/tutorials/README.md)**: twelve step-by-step guides for using Pulse, with screenshots
-  (start with [Getting started](docs/tutorials/01-getting-started.md)).
+- **[Tutorials](docs/tutorials/README.md)**: eighteen step-by-step guides for marketers, with screenshots
+  (start with [Getting started](docs/tutorials/01-getting-started.md)). Campaigns:
+  [triggered and automation campaigns](docs/tutorials/06-triggered-and-automation-campaigns.md),
+  [one-time campaigns](docs/tutorials/07-one-time-campaigns.md),
+  [the Campaigns hub](docs/tutorials/14-campaigns-hub-and-one-time-campaigns.md); on your site and app:
+  [website & app messages](docs/tutorials/08-website-and-app-messages.md); and since M4:
+  [delivery and dashboards](docs/tutorials/15-delivery-and-dashboards.md),
+  [connecting any provider](docs/tutorials/16-connecting-any-provider.md),
+  [interactive AMP emails](docs/tutorials/17-interactive-amp-emails.md),
+  [the contacts behind a number](docs/tutorials/18-contacts-behind-a-number.md).
 - **[Developer docs](docs/developer/README.md)**: eight guides: [installation](docs/developer/01-installation.md)
   (local and production), [configuration](docs/developer/02-configuration.md), [API](docs/developer/03-api.md),
   web and mobile SDKs, webhooks and integrations, architecture, contributing and testing.
@@ -21,6 +29,8 @@ Design notes:
 - [docs/03-load-test.md](docs/03-load-test.md): measured throughput and latency, bottlenecks fixed
 - [docs/04-phase2-plan.md](docs/04-phase2-plan.md): web app, sign-in, channels, on-site
 - [docs/05-feature-parity.md](docs/05-feature-parity.md): Mautic + WebEngage feature check, and what's left
+- [docs/06-marketing-team-plan.md](docs/06-marketing-team-plan.md): the marketing team's requirements, milestones M1–M7
+  and how each was built
 
 ## What's built
 
@@ -33,7 +43,7 @@ Design notes:
     test sends, and provider connection tests.
   - Scheduled journeys, broadcasts and on-site content: start required, end optional (empty means it never ends),
     broadcasts repeating daily, weekly or monthly.
-  - Focus items and Dynamic Web Content (On-site & in-app → Website), through a public decision API.
+  - Focus items and Dynamic Web Content (Website & app messages → Website), through a public decision API.
 - **P0 (done):** per-channel consent honored by every send; email open and click tracking; unsubscribe links and RFC 8058
   one-click; CSV import and export; the web SDK (`/sdk/pulse.js`: track, identify, page views, focus items, content slots,
   push tokens). Install snippet: Settings → Sign-in & keys → Your website. Test page: `/sdk/demo.html?key=<site key>`.
@@ -50,7 +60,8 @@ Design notes:
   `POST /v1/web/inapp` for the app SDKs; the Flutter, Android and iOS SDKs render modal, banner and full-screen messages.
   Segment targeting counts for signed-in users only with their user hash. (On-site focus items follow the workspace's
   identity-verification setting instead.)
-- **Batch 5 (done):** GeoIP and the anonymous-tracking switch, retention cleanup (Settings → Data & privacy), journeys
+- **Batch 5 (done):** GeoIP and the anonymous-tracking switch, retention cleanup (since M5 under Settings → Automation &
+  limits), journeys
   grouped into Actions/Conditions/Decisions/Waits with message-engagement decisions, and segment presets with date rules.
 - **Batch 6, contacts (done):** lifecycle stages (Settings → Stages; by hand, API, the `change_stage` journey step, or
   points thresholds that only move contacts forward), companies (Audience → Companies; attributes copied to contacts as
@@ -137,13 +148,14 @@ Design notes:
     `tag:`, `stage:`, `company:`, `owner:` (`me`, `none`, or a teammate for users with settings view access), `points:>N` /
     `<N` / `=N`, `email:`, `name:`, and free text, ANDed. Filters compile to a segment rule (`internal/api/contactview.go`) and run in ClickHouse with
     the segment compiler, keyset-paged, with a count that is exact up to 10,000 and approximate above. "Save as segment"
-    stores that rule as a dynamic segment; "View contacts" on every segment opens `segment:<id>`; a column chooser; and
+    stores that rule as a dynamic segment; "View contacts" on every segment opens `segment:<id>` (`in:<id>` since M7, so the list has exactly the segment's size); a column chooser; and
     "Export CSV" of the view with its columns (`GET /v1/contacts/export?q=&columns=`, contacts edit access).
-  - **One navigation:** Audience (Contacts, Companies, Segments), Campaigns (All campaigns since M3, Journeys, Broadcasts, On-site & in-app),
+  - **One navigation:** Audience (Contacts, Companies, Segments, and Events since M1), Campaigns (since M7 one
+    **Campaigns** entry and **Website & app messages**),
     Content (Message templates, Landing pages, Forms, Assets), Analytics (Reports, Funnels, Cohorts, Revenue), and one
     Settings entry with its own menu (Workspace, Contact data, Delivery, Connections). Segments and lists are one
-    Segments page with Dynamic and Static segments; focus items, web content and in-app messages are one "On-site &
-    in-app" list (Website or Mobile app first); imports are one flow under Contacts (upload, map columns, static
+    Segments page with Dynamic and Static segments; focus items, web content and in-app messages are one "Website &
+    app messages" list (Website or Mobile app first); imports are one flow under Contacts (upload, map columns, static
     segment, review, background run, one history). Old addresses redirect. Decisions:
     [docs/05-feature-parity.md](docs/05-feature-parity.md#navigation-batch-9).
 - **Docs review fixes (done):** found while writing the docs:
@@ -182,20 +194,119 @@ Design notes:
   (`GET /v1/templates/sample-event`), and "Send marketing message" rules that choose the channel by condition
   (`contact.phone_country = IN` → SMS, otherwise WhatsApp), with the choice in the step stats. Tutorial
   [13, personalising messages](docs/tutorials/13-personalising-messages.md).
-- **M3, campaigns (done):** Campaigns → **All campaigns**: broadcasts and journeys in one list, typed automatically
-  (One-time, Trigger based, Automation), with free tags, search and filters by status, channel and tag
+- **M3, campaigns (done):** the **Campaigns** hub: one-time campaigns (broadcasts in the API) and journeys in one
+  list, typed automatically (named One-time, Triggered and Automation since M7), with free tags, search and filters by status, channel and tag
   (`GET /v1/campaigns`). A **one-time campaign wizard** per channel (audience with segments in and out → content written
   in the template editor, kept with the campaign unless saved as reusable → schedule → review). An **exact audience
   estimate** after exclusions, consent, reachability and frequency caps, from Redis bitmaps per channel that the
   segments role keeps current (`POST /v1/segments/estimate`, `GET /v1/segments/{id}/reach`; cached 30 s, rate
-  limited), also in the broadcast editor, the journey Start panel and segments. **Duplicate** broadcasts, journeys,
+  limited), also in the one-time campaign editor, the journey Start panel and segments. **Duplicate** broadcasts, journeys,
   templates and segments; **copy and paste** journey steps (between journeys and workspaces, checked by
   `POST /v1/journey-steps/check`) and segment filter groups. **Per-provider rates and daily quotas** shared by every
   dispatcher (over the quota, messages wait for the next day), with usage today on Settings → Channels. **Send
   deadlines** on broadcasts and send steps: late messages are dropped as `<channel>_failed` with reason `deadline`
   and counted in reports. **Pooled SMTP connections** (about 30x faster in the benchmark). **Saved test contacts** in
   every Send a test dialog. Tutorial [14, the Campaigns hub and one-time campaigns](docs/tutorials/14-campaigns-hub-and-one-time-campaigns.md).
-- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 14 written. Remaining gaps:
+- **M4, delivery truth and dashboards (done):**
+  - **Linked delivery reports.** Every tracked email carries a signed message reference (the Message-ID's local part,
+    `X-Pulse-Ref` and the sending service's own metadata header, chosen by the SMTP provider's **Sending service**
+    setting: auto-detected for SendGrid, Mailgun, Postmark, SES and SparkPost), so bounces, complaints and deliveries
+    count against the right campaign and contact. New `email_delivered` (sending services only: plain SMTP relays,
+    Gmail, FCM and web push report no delivery, shown as "—"), SparkPost bounces and complaints, and bounce emails /
+    feedback loops linked from the quoted original. Bounces from before M4 stay unlinked.
+  - **Webhook verification.** SNS signatures for SES, SendGrid's signed event webhook, Mailgun's HMAC (each token
+    accepted once), and basic auth for Postmark, SparkPost and generic posts, with keys saved on Settings → Channels →
+    Bounces (`PUT /v1/settings/bounces/signing`, never shown again). Once any key is saved the workspace's webhook URL
+    **fails closed**: a format with no check of its own needs the basic auth password, else it's refused (the page
+    shows "Refused"); with no key saved, the secret URL alone is accepted as before ("URL secret only").
+  - **Failure reasons.** Every failed, skipped, capped, bounced or complained message carries a reason code
+    (invalid number, not on WhatsApp, undeliverable (possibly blocked), spam policy, consent, capped, deadline…), shown
+    in reports and on the contact page.
+  - **Funnels in reports:** audience at send time → targeted → skipped (by reason group) → sent → delivered →
+    opened → clicked (with downloads), plus bounced, complaints, failed and unsubscribed; reasons tables per campaign
+    and per journey step.
+  - **Dashboards** (Analytics → Users, Campaign performance, Products, Live events): DAU / WAU / MAU by platform and UTM source
+    (pre-aggregated in ClickHouse) and new vs returning users; every campaign's funnel and revenue; product views, carts,
+    purchases and abandoned carts with "Segment of buyers"; a live event feed polled every 2 seconds. CSV export.
+  - **Contact page** (`/contacts/:id`): who can be reached on which channel and why not, devices, triggered and
+    automation campaigns with their current step, activity over 1/7/30/365 days, purchases, every message with its status and reason, and the event history.
+  - Campaign names on the Campaign performance dashboard and the contact page show only to roles that may view that
+    kind of campaign.
+- **M5, channels and settings (done):**
+  - **Any provider:** the custom HTTP gateway takes **custom authentication** (none, basic, bearer token, API key in a
+    header or query, OAuth2 client credentials or refresh token, or a **login request** whose token is read by JSON path,
+    response header or regular expression, with its expiry; tokens cached in Redis, shared by every dispatcher and
+    refreshed once on a 401) and a **custom request** (method, URL, headers, body with `{{contact.x}}`, `{{event.x}}`,
+    `{{campaign.x}}` and `{{message.x}}`, each escaped for where it lands; a success rule; the message id by JSON path;
+    a delivery receipt mapping that is refused without the provider's receipt token). **Preview request** shows the
+    exact request with secrets masked; **Test connection** runs the login now and shows the token masked.
+  - **New providers:** Gmail (SMTP, 500/day), Google Workspace (SMTP, 2,000/day) — with an app password or a Google
+    OAuth client (XOAUTH2) — and the Google Workspace SMTP relay (10,000/day, allowed by IP with an EHLO domain, or SMTP
+    auth); Gupshup SMS (Enterprise, with DLT template and entity ids on SMS templates), Gupshup WhatsApp and Gupshup RCS
+    (endpoints built from Gupshup's public docs and tested against mocks: confirm them with a real account). The full
+    list: SMTP (any relay: SES, SendGrid, Mailgun, Postmark, SparkPost…), Gmail, Google Workspace, Workspace relay;
+    Twilio, MSG91, Gupshup SMS; Meta WhatsApp Cloud API, Gupshup WhatsApp; Google RBM, Gupshup RCS; Firebase Cloud
+    Messaging; web push (no provider: VAPID keys); the custom HTTP gateway (any channel); the sandbox (test inbox). A
+    new provider starts with its kind's limits, else the workspace's defaults for the channel.
+  - **Provider secrets** are merged key by key on save (an empty field keeps its saved value). Changing any setting that
+    could steer a secret (a URL including path and query, the mode, authentication, the request template, receipt
+    mapping, a user name) needs every secret entered again (`secrets_cleared`); harmless ones (sender name or number,
+    pool sizes, DLT ids) don't. Requests that carry credentials (logins, token requests, the gateway, Gupshup) never
+    follow a redirect to another site, a secret can't choose the host that is called, and Test connection with saved
+    secrets works only for the saved settings and never shows a secret in its errors.
+  - **Settings → Automation & limits** (settings view to read, settings edit to change; audited): every automatic
+    behaviour Pulse had hard-coded, with its default (= the old behaviour) and range shown on the page:
+    - *Keep data for* (days; 0 = forever): Events (default forever, 30–3650), Message events and Page and screen views
+      (default: like Events), By event name (up to 100 names, 7–3650 or forever; always wins over the type-wide
+      setting), Anonymous visitors (idle days, off by default, 7–3650), Audit log (365, 30–3650), Import history
+      (forever, 7–3650), Webhook deliveries (7, 1–90), Integration log (7, 1–90), Test inbox (forever, 1–3650), Live
+      event feed (1,000 events, 100–10,000).
+    - *Retries of failed sends*: Tries in all (8, 1–20), Longest wait (1 hour, 1 minute to 1 day; also caps a
+      provider's Retry-After).
+    - *Schedules*: Re-check time-window segments every (server default `PULSE_SWEEP_INTERVAL`, 1–1440 minutes),
+      Recount who can be reached (a day after the last recount, or a fixed UTC hour), New daily segments (06:00, the
+      browser's time zone).
+    - *Messages*: App inbox expiry (30 days, 1–365). *Default limits of new providers* per channel (rate per second,
+      daily quota, time zone). *Fixed by the platform* lists what stays fixed and why.
+    Shortening a retention opens **What will be deleted** (counts per log) and asks for confirmation. Retention moved
+    here from Data & privacy and now runs **once a day per workspace** (in its own UTC hour), deleting per group of
+    event names in ClickHouse and in batches in Postgres.
+- **M6, AMP and on-site (done):**
+  - **AMP emails:** an interactive AMP part on any email template, built from blocks (heading, text, image, button,
+    carousel, gallery, accordion, poll, form; page, text and accent colours and font) or written as code, checked on
+    save by Pulse's validator (errors with line numbers stop a save; warnings don't), with a script-free preview and
+    send test. Polls and forms post back to Pulse (`POST /v1/amp/{token}`, CORS per the AMP for Email spec, only from
+    the workspace's sender domains) as `amp_poll_answered` / `amp_form_submitted` events (one answer per contact per
+    poll; form answers may update custom contact fields); poll results on the template. Every SMTP relay sends the AMP
+    part **except Postmark**, which doesn't support AMP (the editor says so per provider); the custom gateway gets it as
+    `content.amp`. Gmail shows AMP only to senders Google has registered. The sender domains allowed to post back are
+    those of the workspace's email providers' From addresses and `PULSE_SMTP_FROM`.
+  - **Content variants:** a website content slot shows the first variant whose audience matches (segments in and out,
+    page URL contains / doesn't contain, devices, contact-field conditions), else the default; the editor orders them,
+    warns about variants that can never show, and counts how many contacts would see each (overlap). **Focus items**
+    take the same audience rules and an order: one pop-up, one bar and one slide-in per page, the first allowed.
+  - **Web push prompt** (Settings → Web push): a no-code opt-in prompt (bell, bar or pop-up; texts, colours,
+    triggers, ask again after N days, pages), an **install check** that opens your site and service worker from the
+    server and reports what's missing, and a **browser check** link (`?pulse_check=`) that runs `Pulse.diagnose()` on a
+    real page.
+- **M7, clarity review (done):**
+  - **The contacts behind every number.** Counts across the app (estimate steps, reach by channel, segment sizes,
+    campaign funnels and reasons, journey steps, product dashboards, Users dashboard, events, forms, AMP poll answers,
+    on-site overlap…) open the Contacts list filtered to exactly those people, with the filters as chips in words
+    ("Campaign “Spring catalogue”", "Opened", "Reachable by email"). New `GET /v1/contacts?q=` filters (`in:`,
+    `not_in:`, `subscribed:`, `reachable:`, `under_cap:`, `journey:` / `at:` / `journey_status:`, `campaign:` with
+    `run:` / `step:` / `outcome:` / `reason:`, `event:` / `no_event:`, `active:`, `amp_poll:`, `form:`, `period:`),
+    run on Redis bitmaps or ClickHouse; **Create segment from this list** saves such a list as a static segment.
+    Numbers a role can't open stay plain with a tooltip; totals that aren't one list of people say so.
+  - **One campaign model.** One **Campaigns** entry in the sidebar; three types named by when they send:
+    **One-time** (a message to everyone in chosen segments, once or repeated), **Triggered** (starts for each person
+    when they do something) and **Automation** (starts when they join a segment); triggered and automation campaigns
+    are built as journeys. **New campaign** asks what you want to do. "Broadcast" no longer appears in the app;
+    `/journeys` and `/broadcasts` redirect to the hub. Roles name the areas "One-time campaigns" and "Triggered &
+    automation campaigns"; "On-site & in-app" is "Website & app messages".
+  - One word per status (Live, Finished, Sending, Draft, Scheduled, Paused, Cancelled, Archived), "Send again" for a
+    finished one-time campaign, provider options in words, and plainer settings.
+- **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 18 written. Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
 ## Run it
@@ -261,19 +372,19 @@ number, duration or switch that doesn't parse stops start-up with an error namin
 | `PULSE_KAFKA_BROKERS` | `localhost:19092` | Kafka brokers, comma-separated |
 | `PULSE_KAFKA_PARTITIONS` | `12` | Partitions per topic when `migrate` creates the topics (caps each role's parallelism) |
 | `PULSE_SMTP_ADDR` | `localhost:11025` | SMTP relay used when a workspace has no email provider of its own |
-| `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | Default email sender |
+| `PULSE_SMTP_FROM` | `Pulse <noreply@pulse.local>` | Default email sender; its domain may also post back AMP forms and polls |
 | `PULSE_ADMIN_TOKEN` | none | Platform operator token for `POST /v1/tenants`; unset turns that route off |
 | `PULSE_ALLOW_SIGNUP` | `true` | Anyone may create a workspace at `/signup`; `false` turns signup off |
 | `PULSE_PUBLIC_URL` | `http://localhost:7080` | Where browsers reach Pulse: SSO redirects, Secure cookies, tracking, unsubscribe and webhook URLs |
-| `PULSE_SWEEP_INTERVAL` | `5m` | How often segments with event windows or relative dates are re-checked |
+| `PULSE_SWEEP_INTERVAL` | `5m` | How often segments with event windows or relative dates are re-checked (a workspace may set its own under Settings → Automation & limits) |
 | `PULSE_EMAIL_RATE` | `200` | Emails per second per workspace, fractions allowed (other channels have fixed rates, see the architecture doc) |
 | `PULSE_SECRET_KEY` | none | 64 hex characters; encrypts stored secrets, SSO state, tracking links, webhook secrets and download links (form-gated assets, attachment links for the custom gateway need it) |
 | `PULSE_TRUST_PROXY` | `false` | Take the client IP (for rate limits and the audit log) from the right-most `X-Forwarded-For` entry. Turn on only behind your own reverse proxy |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | Let SSO discovery reach private addresses (an IdP on your internal network) |
-| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks, channel providers and the custom gateway, integrations (CRM, Shopify, ad platform APIs) and the IMAP bounce mailbox reach private addresses (development only) |
+| `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | Let journey webhooks, outbound webhooks, channel providers and the custom gateway (including login and token requests), integrations (CRM, Shopify, ad platform APIs), the IMAP bounce mailbox and the web push install check reach private addresses, and plain http where https is otherwise required (development only) |
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | How often each ad audience sync re-checks its whole segment (entries and exits stream in between) |
 | `PULSE_GEOIP_DB` | none | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file (download with a free MaxMind licence key, e.g. via `geoipupdate`); unset turns geolocation off |
-| `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often retention cleanup runs |
+| `PULSE_MAINTENANCE_INTERVAL` | `1h` | How often the maintenance pass looks for work: each workspace's retention cleanup still runs once a day, in its own UTC hour (Settings → Automation & limits) |
 | `PULSE_PAGES_URL` | none | A separate origin for landing pages, asset downloads and hosted forms, e.g. `https://pages.example.com`. **Set it in production**: workspace-authored pages then never share an origin or cookies with the app (no lookalike login pages on the app's domain); those paths redirect there, and that host serves nothing else |
 
 In production set at least `PULSE_SECRET_KEY`, `PULSE_PUBLIC_URL` (https) and `PULSE_PAGES_URL`, and consider
@@ -318,7 +429,16 @@ internal/dispatch/  every channel: idempotency, token buckets, provider quotas, 
 internal/profile/   identity resolution, attribute merge
 internal/chsink/    events.enriched -> ClickHouse
 internal/integrations/ CRM, Shopify, REST hook and ad audience connectors; audience sync
-internal/bounces/   bounce webhooks, DSN / ARF report parsing, the IMAP bounce mailbox poller
+internal/bounces/   bounce and delivery webhooks (verification, linking by message reference), DSN / ARF parsing, the IMAP
+                    bounce mailbox poller
+internal/reasons/   reason codes for failed, skipped, bounced and complained messages
+internal/httpauth/  custom HTTP authentication for providers (basic, bearer, API key, OAuth2, login) and its token cache
+internal/automation/ Settings → Automation & limits (retention, retries, schedules, defaults); internal/maintenance/ runs
+                    the daily retention cleanup
+internal/amp/       AMP for Email: validator, block builder, post-back placeholders, script-free preview
+internal/onsite/    focus items and content slots: audiences, decisions, never-shown variants, overlap counts
+internal/webcheck/  web push opt-in prompt settings and the install check's safe fetcher
+internal/live/      the live event feed (a capped Redis stream per workspace)
 sdks/               Flutter, Android (Kotlin) and iOS (Swift) SDKs
 internal/api/       HTTP API
 internal/store/     Postgres and ClickHouse stores
@@ -330,7 +450,7 @@ test/e2e/           end-to-end tests against the running stack
 
 The full list of remaining gaps is in [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
 
-- Journeys don't exit contacts when they leave the trigger segment (use a condition, a goal or "Change campaigns").
+- Automation campaigns (journeys) don't exit contacts when they leave the trigger segment (use a condition, a goal or "Change campaigns").
 - A backfill that runs while live events arrive for the same segment can overwrite a fresh streaming
   change. The next sweep fixes it.
 - Postgres Row-Level Security is not enabled yet. Tenant isolation is enforced in every query (and tested at the API level).

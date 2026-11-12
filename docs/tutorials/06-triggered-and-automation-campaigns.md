@@ -1,23 +1,31 @@
-# Tutorial 6: Your first journey
+# Tutorial 6: Triggered and automation campaigns
 
-In about 20 minutes you will build a welcome series on the journey canvas: a welcome email, a
-decision that waits to see if it was opened, a wait, a condition, and a different path for people who
-didn't open it. You will take it live, watch a test contact go through it, read its report, and pause
-it.
+In about 20 minutes you will build a welcome series in the step builder: a welcome email, a decision
+that waits to see if it was opened, a wait, a condition, and a different path for people who didn't
+open it. You will take it live, watch a test contact go through it, open the people behind its
+numbers, and pause it.
 
 **You need:** a workspace with an email channel and two email templates (the seeded Acme Retail
-workspace has **Welcome email** and **Weekend sale**; tutorial 5 shows how to make templates), and the
-**Journeys: Publish** permission to go live (Admins and Editors have it, see tutorial 1).
+workspace has **Welcome email** and **Weekend sale**; tutorial 5 shows how to make templates), and
+**Triggered & automation campaigns: Publish** to go live (Admins and Editors have it, see tutorial 1).
 
 ---
 
-## 1. What a journey is
+## 1. Triggered and automation campaigns
 
-A journey reacts to each contact on their own: it **starts** when a contact enters a segment or does
-something, then moves them from step to step. Broadcasts (tutorial 7) are the other way round: one
-message to a whole segment at a set time.
+Pulse has three types of campaign ([tutorial 14](14-campaigns-hub-and-one-time-campaigns.md)). Two of
+them react to each person on their own, as they do something or join a segment:
 
-The journey we build:
+| Type | Starts | Example |
+|---|---|---|
+| **Triggered** | For each person when they do something, like buying, signing up, abandoning a cart or submitting a form | A welcome series after `newsletter_signup` |
+| **Automation** | For each person when they join a segment, then follows up step by step | A win-back series when someone joins *Inactive 90 days* |
+
+Both are built as **journeys**: a flow of messages, waits and checks that each person moves through
+step by step, drawn in the step builder. The third type, **One-time**, is the other way round: one
+message to a whole segment at a set time ([tutorial 7](07-one-time-campaigns.md)).
+
+The campaign we build:
 
 | Step | What it does |
 |---|---|
@@ -30,57 +38,75 @@ The journey we build:
 | **Modify contact's tags** (on No of the decision) | Tags them `welcome-unopened`, so you can try another channel later |
 | **Exit journey** | At the end of every path |
 
-## 2. Create the journey
+## 2. Create the campaign
 
-1. Go to **Campaigns → Journeys**. The list shows each journey's status, schedule, number of steps,
-   and how many contacts **Entered**, are **In progress** and **Completed** (the numbers update by
-   themselves).
+1. Click **Campaigns** in the sidebar. The **Triggered** and **Automation** tabs list these
+   campaigns with their status, what starts them, how many people are **In progress** and how many
+   it was **Sent to** (the numbers update by themselves and open the people behind them).
 
-   ![The Journeys list with the New journey button highlighted](img/06-journeys-list.png)
+   ![The Campaigns page, Triggered tab, with the New campaign button highlighted](img/06-campaigns-triggered.png)
 
-2. Click **New journey**. The editor opens with three columns:
+2. Click **New campaign**. Pulse asks **What do you want to do?** Choose **React when someone does
+   something** (a triggered campaign). **Follow up when someone joins a segment** makes an
+   automation instead; you can switch between them later in the Start step.
 
-   ![A new journey: the step palette on the left, the canvas with Start and Exit journey in the middle, the Start settings on the right](img/06-new-journey.png)
+   ![What do you want to do? with React when someone does something highlighted](img/06-new-goal.png)
+
+3. The step builder opens with three columns:
+
+   ![A new campaign in the step builder: the step palette on the left, the canvas with Start and Exit journey in the middle, the Start settings on the right](img/06-new-campaign.png)
 
    | Part | What it's for |
    |---|---|
    | **Add a step** (left) | Every step, by kind, with a search box. Click one to add it after the selected step, or drag it onto the canvas |
-   | Canvas (middle) | The journey. It starts as **Start → Exit journey** |
+   | Canvas (middle) | The steps. It starts as **Start → Exit journey** |
    | Inspector (right) | The settings of the selected step. **Start** is selected first |
 
-3. Click the title **Untitled journey** and type a name: `Welcome series`.
+   Above them, **Campaigns · Triggered** takes you back to the list, and the line under the title
+   says what the type means.
 
-## 3. Choose the trigger
+4. Click the title **Untitled campaign** and type a name: `Welcome series`.
 
-With **Start** selected, the inspector asks when contacts enter:
+## 3. Choose what starts it
 
-<img src="img/06-trigger.png" alt="The Start settings: does an event, event name newsletter_signup, never enters again" width="300" align="right">
+<a id="3-choose-the-trigger"></a>
 
-1. **Start this journey when a contact**: choose **does an event**.
+With **Start** selected, the inspector asks what starts the campaign for a contact:
+
+<img src="img/06-trigger.png" alt="The Start settings: do something (an event), Event name newsletter_signup, Entering again never enters again, Goal, Schedule" width="300" align="right">
+
+1. **Start this campaign for a contact when they**: **do something (an event)** is already chosen.
+   The line under it says *This makes it a Triggered campaign.*
 2. **Event name**: `newsletter_signup`, exactly as your website or app sends it (for example
-   `Pulse.track("newsletter_signup")`, see tutorial 1).
+   `Pulse.track("newsletter_signup")`, see tutorial 1). **+ Only when the event's properties
+   match…** can narrow it, e.g. only sign-ups from the footer ([tutorial 12](12-events-and-properties.md)).
 3. Leave **Entering again** on **never enters again**.
 
 The Start card on the canvas now reads *Contact does ‘newsletter_signup’*.
 
 <br clear="right">
 
-The three kinds of trigger:
+The three ways to start:
 
-| Start this journey when a contact | Use it for | Notes |
-|---|---|---|
-| **enters a segment** | "Became a Pro customer", "Abandoned cart" (tutorial 3) | Only people who newly match from now on enter. Tick **Also enroll contacts added when the segment is rebuilt** to include those too; rebuilding a segment can then enroll many contacts at once |
-| **does an event** | A sign-up, a purchase, any event your site or app sends | Type the event name exactly |
-| **submits a form** | A webinar sign-up, a "contact us" form (tutorial 5) | Choose the **Form**, or leave **Any form**. Each submission starts the journey for the person who sent it, so **Form field value** conditions can check their answers. Inside a journey, the **Submits form** decision waits for a form instead |
+| Start this campaign for a contact when they | Type | Use it for | Notes |
+|---|---|---|---|
+| **join a segment** | Automation | "Became a Pro customer", "Abandoned cart" (tutorial 3) | Only people who newly join from now on start. Tick **Also start it for contacts added when the segment is rebuilt** to include those too; rebuilding a segment can then start it for many contacts at once. **Members it can reach now** shows, per channel, how many members can be reached; click a number to see them |
+| **do something (an event)** | Triggered | A sign-up, a purchase, any event your site or app sends | Type the event name exactly |
+| **submit a form** | Triggered | A webinar sign-up, a "contact us" form (tutorial 5) | Choose the **Form**, or leave **Any form**. Each submission starts the campaign for the person who sent it, so **Form field value** conditions can check their answers. Inside the steps, the **Submits form** decision waits for a form instead |
 
-<img src="img/06-trigger-form.png" alt="The Start settings with submits a form and the form Newsletter sign-up chosen" width="300">
+<img src="img/06-trigger-segment.png" alt="The Start settings with join a segment, the segment VIP customers, the rebuild box and Members it can reach now per channel" width="300">
+<img src="img/06-trigger-form.png" alt="The Start settings with submit a form and the form Newsletter sign-up chosen" width="300">
 
-**Entering again** decides what happens when someone who has already been through the journey
-triggers it again: **never enters again**, **can enter again after finishing**, or **can enter again
-after some days** (1 to 3650). A contact is never in the same journey twice at once.
+Changing the start changes the type: the header switches between **Campaigns · Triggered** and
+**Campaigns · Automation**, and the campaign moves to that tab.
 
-**Goal** (optional): tick **End the journey early for contacts who reach a goal** and give an event,
-such as `purchase`. A contact who does it leaves the journey at once and counts as converted in the
+**Entering again** (*A contact who has been through this journey*) decides what happens when someone
+who has already been through it triggers it again: **never enters again**, **can enter again after
+finishing**, or **can enter again after some days** (1 to 3650). A contact is never in the same
+campaign twice at once.
+
+**Goal** (optional): tick **End the journey early for contacts who reach a goal** and give a **Goal
+event**, such as `purchase`. A contact who does it leaves at once and counts as converted in the
 report.
 
 ## 4. Add the welcome email: "+" → Action → Send email
@@ -182,7 +208,7 @@ Under the inspector, **Before it can go live** lists what is still missing:
 
 ![Before it can go live: Step 2 · Opens email: connect the "No" path. Step 4 · Contact segments: connect the "No" path.](img/06-issues.png)
 
-Click an item to jump to that step. The journey can be saved as a draft at any time, but it can't go
+Click an item to jump to that step. The campaign can be saved as a draft at any time, but it can't go
 live until the list is empty. Close the two open paths:
 
 1. On the red **No** under **4 Contact segments**, click **+** → **Action** → **Send email**, and
@@ -195,7 +221,7 @@ The list disappears when nothing is missing. Other things it checks: a send step
 a decision without a time limit, a condition without a segment, a trigger without its segment or
 event, and an end date before the start.
 
-A journey created through the API may end a path with a step that has no next step (for example
+A campaign created through the API may end a path with a step that has no next step (for example
 **Delete contact**); the editor shows it as the end of that path.
 
 ## 9. Tidy up and find your way around the canvas
@@ -206,10 +232,10 @@ A journey created through the API may end a path with a step that has no next st
 |---|---|
 | **Undo** / **Redo** | Undo or redo the last change (Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y; ⌘ on a Mac) |
 | **Tidy up** | Lays the steps out again in neat rows and columns |
-| **Zoom to fit** | Fits the whole journey in the canvas |
-| **Copy** / **Paste** | Copy the selected steps and paste them after the selected step, here or in another journey (Ctrl+C, Ctrl+V), see step 16 |
+| **Zoom to fit** | Fits all the steps in the canvas |
+| **Copy** / **Paste** | Copy the selected steps and paste them after the selected step, here or in another campaign (Ctrl+C, Ctrl+V), see step 16 |
 | **+** and **–** (bottom left) | Zoom in and out. You can also scroll to zoom and drag the background to move around |
-| Minimap (bottom right) | The whole journey in small; drag in it to move the view. Colours: Start yellow, actions blue, decisions red, conditions purple, waits grey, splits teal |
+| Minimap (bottom right) | All the steps in small; drag in it to move the view. Colours: Start yellow, actions blue, decisions red, conditions purple, waits grey, splits teal |
 | **Show stats** (once saved) | The numbers on each step, see step 13 |
 
 Click **Tidy up**, then **Zoom to fit**:
@@ -232,26 +258,25 @@ Click **Start** and scroll to **Schedule**:
 
 <img src="img/06-schedule.png" alt="Schedule: Contacts can enter from (required), Ends (optional)" width="340">
 
-- **Contacts can enter from (required)**: when the journey starts taking contacts. It is filled in
+- **Contacts can enter from (required)**: when the campaign starts taking contacts. It is filled in
   with now.
-- **Ends (optional)**: leave it empty to keep the journey running until you stop it. With an end,
-  nobody new enters after it; **contacts already inside keep going after the end**.
+- **Ends (optional)**: leave it empty to keep the campaign running until you stop it. With an end,
+  nobody new starts after it; **contacts already inside keep going after the end**.
 
-Times are in your browser's time zone. The line below the fields says what you chose, e.g. *From 11
-Nov 2026, 10:48 am, runs until you stop it*.
+Times are in your browser's time zone. The line at the top of the Start settings says what you
+chose, e.g. *From 12 Nov 2026, 12:34 pm, runs until you stop it*.
 
 ## 11. Save and go live
 
-1. Click **Save draft**. The journey gets its own address and a **Draft** status.
+1. Click **Save draft**. The campaign gets its own address and a **Draft** status.
 2. Click **Save and go live**. (It is greyed out while **Before it can go live** lists anything.)
 
-   ![The journey header: Draft status, Save draft and the Save and go live button highlighted](img/06-go-live.png)
+   ![The campaign header: Draft status, Duplicate, Save draft and the Save and go live button highlighted](img/06-go-live.png)
 
-The status turns **Active**. While a journey is live its steps are locked:
+Pulse says *Campaign is live. People who match start it right away.* The status turns **Live**. While
+a campaign is live its steps are locked:
 
-![Active status, the Pause to edit button, and the note "This journey is live, so its steps are locked"](img/06-live.png)
-
-New matches enter it immediately: going live tells the journey workers at once.
+![Live status, Duplicate, the Pause to edit button, and the note "This campaign is live, so its steps are locked"](img/06-live.png)
 
 ## 12. Try it with a test contact
 
@@ -272,64 +297,78 @@ The subject and greeting are personalised from the contact's `first_name`. Openi
 Mailpit loads its tracking image, which counts as an open, so the contact takes **Yes** at step 2 and
 moves on to the 1-day wait.
 
-## 13. Per-step stats and the report
+## 13. Per-step numbers and the report
 
-Back on the journey, **Show stats** (in the toolbar) is on. Each step shows:
+Back on the campaign, **Show stats** (in the toolbar) is on. Each step shows:
 
-- **Entered**: contacts who reached it
-- **Here now**: contacts waiting at it (decisions and waits)
+- **Entered**: how many times contacts reached it
+- **Here now**: contacts waiting at it (decisions and waits); **Finished** on an Exit step
 - **Yes · No**: how many went each way (decisions and conditions; split steps show each path)
 - **Sent · Opened** (or Read, or Delivered, by channel): messages from send steps
 
 ![The canvas with stats: Send email Entered 1, Sent 1 · Opened 1; Opens email Yes 1 · No 0; Wait Here now 1](img/06-stats.png)
 
+**Here now**, **Sent** and **Opened** (or Read, Delivered) are links: click one and the Contacts page
+opens with exactly those people, e.g. everyone waiting at the 1-day wait right now. **Entered**,
+**Yes · No** and split paths are plain numbers: Pulse counts how many times contacts passed a step,
+but doesn't keep who, so there is no list behind them (point at one to read this).
+
 The **Report** tab has the totals:
 
-![The journey report: 1 entered, 1 in progress, 0 completed, Messages by step, By channel, Top links and By day](img/06-report.png)
+![The report: 1 entered, 1 in progress, 0 completed; the Funnel from Enrolled to Clicked; Why messages didn't go out, by step; Messages by step; By channel; Top links and By day](img/06-report.png)
 
 | Part | Shows |
 |---|---|
 | Figures | **entered**, **in progress**, **completed**, and **reached the goal** / **left early** when there are any |
 | Revenue | When contacts buy after a message: revenue, orders and buyers |
 | Split steps | Contacts per path, the rate it is judged by, and the winner |
+| **Funnel** | Unique contacts at each stage: **Enrolled**, **Targeted** (a message was tried: sent, skipped or failed), **Sent**, **Delivered**, **Opened** or **Read**, **Clicked**, with bounces, complaints, failures, unsubscribes and the skipped groups beside it |
+| **Why messages didn't go out, by step** | Each reason (*Hard bounce*, *Opted out*, *No address on this channel*…) per send step, with the number of contacts |
 | **Messages by step** | Sent, delivered, opened, clicked, failed… per send step. Click a row to jump to the step |
 | **By channel** | The same per channel |
 | **Top links**, **By day** | Most-clicked links; sends and opens per day |
 
-Each contact counts once, and rates are out of messages sent. *Delivered* stays at 0 for email sent
-through plain SMTP (as in local development): only providers that report delivery (SendGrid,
-Postmark, Mailgun, SES) fill it in.
+Each contact counts once, and rates are out of messages sent. **Delivered** shows "—" when the
+provider doesn't report delivery (plain SMTP, as in local development, and Gmail); sending services
+with delivery webhooks fill it in ([tutorial 4](04-channels.md)).
+
+Every number in the report is a link to its people: **1 in progress** opens the contacts still going
+through the steps, a reason's count opens the contacts it happened to at that step, a day in **By day**
+opens who got a message that day. The report counts *entries* where the list counts *people*, so a
+person who went through twice is once in the list; the list says so when it matters.
 
 ## 14. Pause it
 
 1. Click **Pause to edit** (top right).
 
-   ![The live journey with the Pause to edit button highlighted](img/06-pause.png)
+   ![The live campaign with the Pause to edit button highlighted](img/06-pause.png)
 
-2. The status turns **Paused** and the steps unlock: change what you need, then **Save and go live**
-   again.
+2. Pulse says *Campaign paused*; the status turns **Paused** and the steps unlock: change what you
+   need, then **Save and go live** again.
 
-While a journey is paused, nobody new enters, and contacts already inside wait where they are. A wait
-or decision that comes due while it is paused moves on when the journey goes live again.
+While a campaign is paused, nobody new starts it, and contacts already inside wait where they are. A
+wait or decision that comes due while it is paused moves on when the campaign goes live again.
 
 Leave this one paused.
 
-## 15. Delete or archive a journey
+## 15. Delete or archive a campaign
 
-The **Journeys** list has a button at the end of each row that isn't live:
+On the Campaigns page, each triggered or automation campaign that isn't live has a button at the end
+of its row:
 
-- **Delete**, for a journey nobody has entered yet (a draft you no longer need). It asks first and
-  can't be undone.
-- **Archive**, for a journey that has had contacts in it: those can't be deleted, because their
-  history and reports are kept. An archived journey disappears from the list and can't go live.
-  Tick **Show archived** above the list to see archived journeys, and click **Restore** (in the list
-  or on the journey's page) to bring one back as a paused journey.
+- **Delete**, for one nobody has entered yet (a draft you no longer need). It asks first and can't be
+  undone.
+- **Archive**, for one that has had contacts in it: those can't be deleted, because their history and
+  reports are kept. An archived campaign disappears from the list and can't go live. Choose
+  **Archived** in the status list to see archived campaigns, and click **Restore** (in the list or on
+  the campaign's page) to bring one back as **Paused**.
 
-![The Journeys list: Show archived above it, Archive on the paused Welcome series and Delete on the seeded draft Win back (draft) highlighted; live journeys have no button](img/06-archive.png)
+![The Campaigns page, Triggered tab: the status list, Archive on the paused Welcome series and Delete on the draft Win back (draft) highlighted; the live Cart rescue has no button](img/06-archive.png)
 
-Pause a live journey before archiving it. Deleting needs **Journeys: Edit**; archiving and restoring
-need **Journeys: Publish**, like going live. Through the API: `DELETE /v1/journeys/{id}`,
-`POST /v1/journeys/{id}/archive` and `POST /v1/journeys/{id}/unarchive`.
+Pause a live campaign before archiving it. Deleting needs **Triggered & automation campaigns: Edit**;
+archiving and restoring need **Triggered & automation campaigns: Publish**, like going live. Through
+the API: `DELETE /v1/journeys/{id}`, `POST /v1/journeys/{id}/archive` and
+`POST /v1/journeys/{id}/unarchive`.
 
 ## 16. Send deadlines, copy and paste, duplicate, tags
 
@@ -337,14 +376,14 @@ need **Journeys: Publish**, like going live. Through the API: `DELETE /v1/journe
 messages that would go out late**. A message can be held back after its step runs: quiet hours, a
 provider's daily quota (tutorial 4), retries. With a deadline, Pulse drops it instead of sending it
 late: **Don't send after** a time of day (the first time it comes after the step runs, in the zone
-named under it), **…or more than** a number of hours after the step runs (1 to 168). Dropped messages
-are recorded as failed with the reason `deadline`, and the report counts them.
+named under it), **...or more than** a number of hours after the step runs (1 to 168). Dropped
+messages are recorded as failed with the reason *Send deadline passed*, and the report counts them.
 
 <img src="img/06-deadline.png" alt="The Send email step's deadline: Don't send after 21:00, or more than 12 hours late" width="420">
 
 **Copy and paste steps.** Select a step (or several: Ctrl-click, or ⌘-click on a Mac, or Shift-drag a
 box round them) and click **Copy** in the canvas toolbar (or press Ctrl+C). **Paste** (Ctrl+V) puts
-the copied steps after the selected step, in this journey or any other, even in another browser tab:
+the copied steps after the selected step, in this campaign or any other, even in another browser tab:
 
 ![The canvas toolbar with Copy and Paste highlighted](img/06-copy-paste.png)
 
@@ -359,13 +398,13 @@ the copied steps after the selected step, in this journey or any other, even in 
   pasting into another workspace) are cleared, and a note says which steps to fix.
 - If your browser doesn't let Pulse read the clipboard, the box opens empty: paste into it.
 
-![The journey with the pasted Send email step after the first one](img/06-pasted.png)
+![The canvas with the pasted Send email step after the first one](img/06-pasted.png)
 
 Nothing is saved until you click **Save draft**: **Undo** takes a paste back.
 
-**Duplicate** (on the journey's page, or the row's **Duplicate** in the list) makes a draft copy,
-"… (copy)", with the same steps, schedule and tags, and nobody in it. **Tags** under the journey's
-name label it in the Campaigns hub (tutorial 14); they can change while it is live.
+**Duplicate** (on the campaign's page, or the row's **Duplicate** on the Campaigns page) makes a
+draft copy, "… (copy)", with the same steps, schedule and tags, and nobody in it. **Tags** under the
+campaign's name label it on the Campaigns page (tutorial 14); they can change while it is live.
 
 ## Every step, at a glance
 
@@ -399,7 +438,7 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
 | **Contact points** | Has at least, more than, at most, less than, exactly or not a number of points |
 | **Contact owner** | Is owned by some teammates, by anyone, or by no one |
 | **Contact device** | Was last seen on a device type or OS |
-| **Contact campaigns** | Is in, has finished, or has ever entered other journeys |
+| **Contact campaigns** | Is in, has finished, or has ever entered other triggered or automation campaigns (the step calls them journeys) |
 | **Form field value** | Gave an answer on the form submission that brought them here (or their latest) |
 | **Has active notification** | Can get push, or has an unread app inbox message |
 | **Has valid email address** | Has a well-formed address on a domain that takes mail (optionally rejecting disposable addresses) |
@@ -416,7 +455,7 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
 | **Send email to user** | Email a teammate, the contact's owner or other addresses about this contact (not a marketing email) |
 | **Send marketing message** | Choose the channel by rules, e.g. an Indian number gets SMS, otherwise WhatsApp ([tutorial 13](13-personalising-messages.md#8-choose-the-channel-by-rule)); without conditions, send on the first channel in your order that the contact can receive and has agreed to |
 | **Send a webhook** | POST the contact as JSON to a public https:// address, or your own JSON body with variables (`{{contact.x \| json}}`) |
-| **Show focus item** | Show a pop-up, bar or slide-in on the contact's next page view (tutorial 8) |
+| **Show focus item** | Show a pop-up, bar or slide-in on the contact's next page view ([tutorial 8](08-website-and-app-messages.md)) |
 | **Push dynamic content** | Set this contact's content for a dynamic web content slot, for some days |
 | **Update contact** | Set contact fields (values can use variables such as `{{contact.city}}` or the trigger event's `{{event.product_name}}`, or dates like `now+3days`) |
 | **Update contact owner** | Assign the contact to a teammate, or unassign (needs Contacts: Edit) |
@@ -427,13 +466,13 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
 | **Change contact's stage** | Move the contact to a lifecycle stage |
 | **Modify contact's tags** | Add or remove tags |
 | **Modify contact's segments** | Add to or remove from static segments |
-| **Change campaigns** | Add the contact to other journeys, or take them out |
+| **Change campaigns** | Add the contact to other triggered or automation campaigns, or take them out |
 | **Jump to step** | Continue from another step (ends the path; at most 25 jumps per contact) |
 | **Add Do Not Contact** | Stop a channel, or everything, for this contact |
 | **Remove Do Not Contact** | Allow a channel again (needs Contacts: Edit) |
 | **Delete contact** | Permanently delete the contact; you type DELETE to confirm (ends the path; needs Contacts: Edit) |
 | **Push contact to integration** | Send the contact to HubSpot or Salesforce (tutorial 9) |
-| **Exit journey** | End the journey here |
+| **Exit journey** | End the campaign for this contact here |
 
 **Waits**:
 
@@ -449,16 +488,17 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
 | **A/B split** | 2 to 5 paths by share; optionally picks a winner automatically (open, click or goal conversion rate, after a test period and a minimum of contacts per path) and sends everyone after down it |
 | **Percentage split** | 2 to 5 paths by share, e.g. 70% and 30% |
 
-> Also good to know: contacts don't leave a journey when they leave its trigger segment (use a
+> Also good to know: contacts don't leave a campaign when they leave the segment that started it (use a
 > condition, a goal or **Change campaigns**), and a decision can't watch a **Send marketing
 > message** step, because its channel is chosen per contact.
 
 ## What you have now
 
-- A **Welcome series** journey: a welcome email, an open decision, a wait, a segment condition and a
-  follow-up, with every path closed
-- A test contact who went through it, the email in your test inbox, and the stats to show it
-- The journey paused, ready to edit
+- A **Welcome series** triggered campaign: a welcome email, an open decision, a wait, a segment
+  condition and a follow-up, with every path closed
+- A test contact who went through it, the email in your test inbox, and numbers that open the people
+  behind them
+- The campaign paused, ready to edit
 
-**Next:** Tutorial 7, Broadcasts: send one message to a whole segment, once or on a repeat, with an
-A/B test.
+**Next:** [Tutorial 7](07-one-time-campaigns.md), One-time campaigns: send one message to a whole
+segment, once or on a repeat, with an A/B test.

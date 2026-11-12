@@ -3,7 +3,11 @@
 Pulse is a multi-tenant, real-time marketing automation platform written in Go on Kafka, ClickHouse, Postgres and Redis.
 The design targets 10–100M contacts and 10k–100k events/sec. This document covers the overall design and the
 contracts the code in this repository implements, from Phase 1 through batch 9 and the marketing
-team's milestones M1 (events and segments), M2 (personalisation) and M3 (campaigns).
+team's milestones M1 (events and segments), M2 (personalisation), M3 (campaigns), M4 (delivery truth and dashboards),
+M5 (channels and settings), M6 (AMP and on-site) and M7 (contacts behind every number, one campaign model).
+
+Naming: the app calls broadcasts **one-time campaigns** and journeys **triggered** or **automation campaigns**
+(since M7); the code, the API and this document keep `broadcast` and `journey`.
 
 ## Pipeline
 
@@ -39,7 +43,7 @@ and `pulse all` runs every role in one process for local development.
 | `events.enriched` | `tenant:contact_id` | profile → chsink, segments, journeys, webhooks, integrations | `event.Event` with `contact_id` and the merged `attrs` snapshot |
 | `segment.membership` | `tenant:contact_id` | segments → journeys, chsink, webhooks, integrations, segments (segments that depend on other segments) | `segment.Change{tenant, segment, contact, entered, source}` |
 | `messages.<channel>` (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`) | `tenant:contact_id` | journeys (and broadcasts), api test sends, dispatch (SMS fallback, held messages, retries) → dispatch | `model.Message{id, tenant, contact, channel, template, ...}`; header `pulse-tries` on a retry |
-| `delivery.receipts` | `tenant:provider message id` | api (provider webhooks) → dispatch | delivery receipts (delivered, read, failed) |
+| `delivery.receipts` | `tenant:provider message id` | api (provider webhooks) → dispatch | delivery receipts (delivered, read, failed, undeliverable, and from the gateway and sandbox also bounced / complained), with a reason code when the provider gives one |
 | `<topic>.dlq` for each topic above | as the topic | a consumer that gave up on a record → `pulse replay-dlq` | the record as it was, plus an `error` header |
 
 Each key keeps one contact's events in order on a single partition. That ordering is what lets the streaming segment path work without locks.
@@ -332,8 +336,10 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   `html/template` (email HTML, escaped per context) and `text/template` (every other field) actions, next to the older
   `{{.Attrs.x}}` syntax over `{Contact, Attrs, UnsubscribeURL, PreferencesURL}`. Click tracking runs on the rendered HTML,
   so links built from variables are tracked too.
-- Providers (`internal/providers`): SMTP (any relay, SES included), Twilio and MSG91 (SMS), Meta WhatsApp Cloud API, Google RBM
-  (RCS), FCM, standard web push (VAPID), the sandbox, and the custom HTTP gateway for any channel. iOS push goes through FCM
+- Providers (`internal/providers`): SMTP (any relay, SES included), the Gmail and Google Workspace SMTP presets and the
+  Workspace SMTP relay (M5), Twilio, MSG91 and Gupshup (SMS), Meta WhatsApp Cloud API and Gupshup WhatsApp, Google RBM and
+  Gupshup RCS, FCM, standard web push (VAPID), the sandbox, and the custom HTTP gateway for any channel (standard signed
+  JSON or a custom request, with custom authentication; see "Channels and settings (M5)"). iOS push goes through FCM
   (no direct APNs).
 - **Broadcast audiences** (`internal/broadcast`): a run (and an A/B winner step) loads the segment's Redis bitmap and
   clears the bits of every excluded segment (`exclude_segment_ids`, `broadcast.Exclude`), so exclusions cost one bitmap
@@ -350,10 +356,12 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   timeout, 429, 5xx) is temporary. A temporarily failed message is not retried in place, which would hold up the
   partition and so other workspaces' messages: it is parked in the Redis sorted set `retry:messages`, scored by when
   to try again, and the dispatcher's 5-second loop (the same one that releases quiet-hours messages) re-publishes due
-  ones to `messages.<channel>` with the record header `pulse-tries`. Waits are 30 s, 1 min, 2 min, 5 min, 10 min,
-  30 min and 1 h (`RetryBackoff`, about 1 h 50 min in all), or the provider's `Retry-After` when longer (capped at
-  1 h; `providers.RetryAfterError`). After the 8th try the message is recorded as `<channel>_failed` with
-  `props.reason` "gave up after 8 tries: …", which reports count as failed. A retried message keeps its id and is
+  ones to `messages.<channel>` with the record header `pulse-tries`. By default waits are 30 s, 1 min, 2 min, 5 min,
+  10 min, 30 min and 1 h (`automation.BaseBackoff`, about 1 h 50 min in all), or the provider's `Retry-After` when
+  longer (capped at the longest wait; `providers.RetryAfterError`). Since M5 each workspace sets the tries and the
+  longest wait (Settings → Automation & limits: the schedule is cut, capped or extended by doubling,
+  `automation.Retries.Schedule`). After the last try the message is recorded as `<channel>_failed` with
+  `props.reason` "gave up after N tries: …", which reports count as failed. A retried message keeps its id and is
   marked sent (`sent:{tenant}:{id}`) only when it goes out, so it is sent once. For a push message with several
   devices, a retry happens only when no device got it.
 - **Dead letters.** A record the dispatcher can't handle at all after 4 quick tries (undecodable, or Postgres or
@@ -409,13 +417,16 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   collapse). Event-window segment queries hit only the key range for (tenant, event name).
 - `contacts`: `ReplacingMergeTree(version) ORDER BY (tenant_id, id)` with `attrs Map(String, String)`. Queried with `FINAL`.
 - `segment_members`: current membership mirrored from `segment.membership` ("in segment" rules and static segments in SQL).
-- `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv2`)
-  from `events`, for reports.
+- `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv3`
+  since M4, which adds `complained`) from `events`, for reports; `reason_code` (M4) holds the outcome's reason code.
+- `active_users_daily` (M4): `AggregatingMergeTree` of `uniqState(contact_id)` per workspace, UTC day, platform and UTM
+  source, and `first_active` (the first active day per contact), both fed by materialized views and backfilled once
+  (400 days), for the Users dashboard.
 
 - `events.product_code` and `events.product_category`: MATERIALIZED columns from the props (migration
   005), for product reports.
 
-Migrations: `migrations/postgres/001`–`022` and `migrations/clickhouse/001`–`005`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
+Migrations: `migrations/postgres/001`–`025` and `migrations/clickhouse/001`–`006`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
 migrate one at a time.
 
 ## Public pages and origins
@@ -569,8 +580,8 @@ counts use `uniq` (approximate above 65k, exact below); funnels, cohorts' inputs
 These run on raw events today and are fine into the hundreds of millions of rows per tenant; past that they want rollups:
 
 - Cohorts by first seen read the whole contacts snapshot of the tenant (`FINAL`, the attrs map); "any activity" returns
-  read every event name in the range. A daily `(tenant, contact, day)` activity table (an `AggregatingMergeTree` fed by a
-  materialized view) would make return activity a narrow scan.
+  read every event name in the range. **Done for DAU/WAU/MAU (M4):** `active_users_daily` and `first_active` pre-aggregate
+  daily activity per workspace; cohorts don't use them yet.
 - Attribution groups purchases by event id to drop pipeline duplicates and streams one row per attributed purchase to the
   API; a `purchases` table (ReplacingMergeTree by id, with the amount extracted) and a per-contact touch rollup would cut
   both.
@@ -726,3 +737,238 @@ These run on raw events today and are fine into the hundreds of millions of rows
   /v1/channels/test` takes `test_contact_id`: one with an external ID sends to that contact as before; one with bare
   addresses sends a `Message` with `TestTo` and `TestName` and no contact, which the dispatcher renders with only the
   name, sends through the channel's provider without consent, caps, tracking or events.
+
+## Delivery truth and dashboards (M4)
+
+- **Message references** (`internal/tracking/ref.go`). Every email with tracking on carries `Codec.Ref`: `p1` +
+  base64url of varint ids (workspace, contact, template, journey, broadcast, run, variant, message) + `.` + 10 bytes of
+  HMAC-SHA256, usually 45–70 characters. Signed, not sealed: it holds ids only. It is the Message-ID's local part
+  (`<ref@sender-domain>`), `X-Pulse-Ref`, and the sending service's own metadata header, chosen by the SMTP provider's
+  **Sending service** setting (`config.service`, auto-detected from the host): SendGrid `X-SMTPAPI` unique_args, Mailgun
+  `X-Mailgun-Variables`, Postmark `X-PM-Metadata-pulse_ref` (split into `pulse_ref2` past 80 characters), SES
+  `X-SES-MESSAGE-TAGS`, SparkPost `X-MSYS-API`. The custom gateway gets `ref` in its JSON. Chosen over VERP: no
+  return-path domain to set up, and every service echoes one of these.
+- **Linking** (`bounces.Link`). A reference signed by this server *for the workspace whose secret URL received the
+  report* names the message and its contact (tenant ids in bodies are never trusted); otherwise the contact with that
+  address, unlinked. A hard bounce sets `email_bounced` only when the contact still has the bounced address. Linked
+  events take ids from the message (`fb:{message}:{kind}`), so repeated webhooks record once; deliveries without a
+  reference are dropped. Bounce emails (DSN) and feedback loops (ARF) are linked from the quoted original's
+  `X-Pulse-Ref` or Message-ID. Bounces from before M4 stay unlinked.
+- **Delivered.** SendGrid `delivered`, Postmark `Delivery`, Mailgun `delivered`, SES `Delivery`, SparkPost `delivery`
+  and generic `{"type":"delivered"}` record `email_delivered`; SparkPost bounces and complaints are read too. Plain SMTP
+  relays, Gmail / Workspace, FCM and web push report no delivery: `providers.ReportsDelivery` says so per provider and
+  reports show "—".
+- **Webhook verification.** The per-workspace secret URL picks the workspace. On top: SES through SNS is always verified
+  (SNS signature v1/v2, certificate only from `sns.<region>.amazonaws.com`, cached); SendGrid's signed event webhook
+  (ECDSA over timestamp + body, ±24 h) once its verification key is saved; Mailgun's HMAC (timestamp + token, ±24 h) once
+  its signing key is saved, each token accepted once (Redis, 25 h); Postmark, SparkPost, generic posts and SES without
+  SNS need HTTP basic auth once a user/password is saved. Keys live sealed in `tenants.email_webhook_keys` (migration pg
+  023), set with `PUT /v1/settings/bounces/signing` and never returned. A workspace with no key saved is still accepted
+  on the secret URL alone ("URL secret only"); **once any key is saved, the URL fails closed**: a format with no check of
+  its own needs the basic auth password, else it is refused (the settings page shows "Refused").
+- **Reason codes** (`internal/reasons`). Every `<channel>_failed`, `_suppressed`, `_capped`, `email_bounced` and
+  `email_complained` carries `props.reason_code` next to the raw `props.reason`: invalid_number, invalid_email,
+  no_address, not_on_channel, blocked, invalid_token, hard_bounce, soft_bounce, complaint, consent, bounced_before,
+  capped, deadline, missing_value, template, no_provider, provider_auth, provider_rejected, spam_policy, rate_limited,
+  timeout, provider_error, unknown. They are derived from the dispatcher's and adapters' error texts and Meta / Twilio
+  codes; receipts may carry one (`Receipt.Code`). Skips group as consent, reachability, cap, missing_value and deadline.
+  Rows from before M4 read "Not recorded".
+- **ClickHouse** (migration ch 006): `message_events.reason_code`, `message_events_mv3` (adds `complained`; the old
+  views' CREATE statements were removed from 003/004), `active_users_daily` and `first_active` (see "ClickHouse
+  tables"). Active means `analytics.ActiveCondition`: not identify, message outcomes or bookkeeping (a test checks the
+  migration uses the same text). WAU/MAU merge 7/30 days of states in one `ARRAY JOIN range(30)` query.
+  `first_active` rows go with deleted contacts; the uniq states can't drop one contact, so DAU history keeps counting
+  deleted contacts.
+- **Funnels.** Broadcast and journey reports return `funnel` (`ch.BuildFunnel`) and `reasons` (and `reasons_by_node`
+  for journeys): audience at send time (broadcasts: `reach.Count` for the channel stored on `broadcast_runs.audience`
+  when a run starts, migration pg 023; journeys: enrolled), targeted, skipped by group, sent, delivered, opened / read,
+  clicked, downloads (clicks on `/a/{key}` assets or links ending in .pdf, .zip, .docx…, counted in clicked too),
+  bounced (hard / soft), complaints, failed and unsubscribed.
+- **Dashboards** (`GET /v1/analytics/users|campaigns|products`, reports view). Cached a minute in Redis
+  (`dash:{tenant}:…`); cache misses limited to 60 a minute per workspace (`rldash`). Campaign performance credits
+  revenue within 7 days of a recipient's first message, and shows a campaign's name only to roles that may view that
+  kind of campaign (the contact page's message list does the same). Products read `product_code` / `product_category`
+  with view event `product_viewed`, cart `add_to_cart` (changeable on the page) and the revenue event; abandoned =
+  added to cart and not bought in the range. CSV exports are built in the browser.
+- **Live feed** (`internal/live`). The ClickHouse sink appends stored events to a capped Redis stream per workspace
+  (`live:{tenant}`, about 1,000 entries or the workspace's own size in `livek:{tenant}`, at most 50 events/s per
+  workspace, props over 4 KB dropped); `GET /v1/live/events?cursor=` reads it (contacts view, 120 polls a minute per
+  workspace) and removes schema-personal properties. Polling every 2 s rather than SSE: no long-lived connections
+  through proxies, and the cursor makes it lossless within the cap.
+- **Contact page** (`/contacts/:id`, contacts view): `GET /v1/contacts/{id}/profile` (reach per channel by the
+  dispatcher's rules, devices, journeys with their step, 1/7/30/365-day activity, purchases, products), `/messages` (one
+  row per message from the event log with status, reason, campaign, opens / clicks) and
+  `/events?name=&kind=activity|pulse&before=`. Index `journey_enrollments (tenant_id, contact_id, updated_at)`
+  (migration pg 023).
+
+## Channels and settings (M5)
+
+- **Custom HTTP authentication** (`internal/httpauth`): `none`, `basic`, `bearer`, `api_key` (header or query, name
+  configurable), `oauth2` (client credentials, and the refresh-token grant used by Gmail XOAUTH2; client secret in the
+  body or as basic auth; scope, audience) and `login` (method, URL, headers and a body template with `{{secrets.x}}`,
+  JSON-escaped in a JSON body and percent-encoded in a form or URL; the token read by JSON path, a response header (a
+  leading `Bearer ` dropped) or a regular expression; expiry from a JSON path (seconds left, Unix s / ms, or RFC 3339),
+  a fixed lifetime, or 1 hour). The token goes into a header (default `Authorization: Bearer {{token}}`), a query
+  parameter or a top-level body field. Settings are JSON in the provider's `config.auth`; secrets (`auth_username`,
+  `auth_password`, `auth_token`, `auth_api_key`, `auth_client_secret`, `auth_refresh_token` and every
+  `{{secrets.x}}`) live with the provider's sealed secrets.
+- **Token cache.** Redis `httpauth:{tenant}:{provider}:{fingerprint}` (the fingerprint hashes the auth settings and
+  secrets, so a changed password never reuses a token), sealed with the server key, plus a per-process copy. A missing
+  or nearly expired token (margin: a tenth of its lifetime, at most a minute) is fetched under a `SET NX` lock (15 s);
+  other instances poll the cache for up to 8 s, then log in themselves. A 401 on the main request drops the token
+  (compare-and-delete) and retries once. A login answering 4xx (not 429), or without the token where the settings say,
+  is permanent (`provider_auth`); 5xx and network errors are retried like any send. Only adapters built by the
+  dispatcher (and test sends) share the cache; Test connection and previews never touch it.
+- **Host pinning and secrets** (`providers.Endpoints`, `CredentialSettingsChanged`). Secrets are merged key by key on
+  update (an empty field keeps its saved value). When a provider is saved with any setting changed that could steer a
+  secret — a URL setting including path and query, an SMTP host, the mode, the auth or request templates, receipt
+  mappings, user names — its stored secrets are dropped and every secret must be entered again (the save is refused
+  until they are; the response says `secrets_cleared`); harmless settings (sender name or number, pool sizes, DLT ids)
+  don't. Login and token URLs go through `safehttp` (private addresses refused unless `PULSE_ALLOW_PRIVATE_WEBHOOKS`,
+  which also allows plain http; otherwise https only), and every request that carries credentials (logins, token
+  requests, the gateway, Gupshup) is wrapped in `safehttp.SameOrigin`: no redirect to another site. A template is
+  refused in the scheme, user info, host or port of the login, token and custom request URLs, both on validation and
+  when the request is built, so a secret or contact value can never choose, or leak through, the host that is called.
+  Test connection with saved secrets works only for the saved settings, and its error text never contains a secret.
+- **Custom-request mode** (`http_*` providers, `config.mode = custom`, template in `config.request`): method
+  (GET/POST/PUT/PATCH), URL, headers, content type, body; a success rule (status range, default 200–299, plus an
+  optional JSON path that must equal a value, or be present and not false); the provider message id by JSON path; a
+  receipt mapping (list path, id path, status path, a status map to delivered / read / failed / undeliverable (SMS
+  fallback) / bounced, reason and code paths). Templates take `{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}` and
+  `{{message.x}}` (to, text, subject, html, amp, title, body, sender_id, dlt_template_id, template_name, params,
+  suggestions, card, ref…; `personalize.MessageKeys`), from the message's personalisation context, which the dispatcher
+  passes to providers (`Outbound.Vars`). JSON bodies use `Renderer.JSON`; form bodies and query values are percent-encoded
+  value by value; a header value with a line break refuses the send. Answers: 404/410 unreachable, 429/5xx retried, a
+  2xx outside the success rule permanent. **Receipts fail closed:** custom-mode receipts need the provider's
+  `receipt_token` (a header, a query parameter, or the key of an HMAC-SHA256 of the body); without one every receipt
+  is refused.
+- **Preview and Test connection.** `POST /v1/channels/providers/preview` returns the exact request (method, URL, headers,
+  body) for Pulse's test message or a template rendered for a contact, secrets masked and the token as `{{token}}`.
+  `POST /v1/channels/providers/check-auth` runs the login or token request and returns the token masked and its expiry
+  (20 a minute per workspace). Both need channels edit and settings edit and are audited with secrets redacted.
+- **Email presets** (`internal/providers/gmail.go`): `gmail_smtp` (500/day, 1/s) and `gworkspace_smtp` (2,000/day, 2/s)
+  — smtp.gmail.com 587 STARTTLS or 465 TLS with an app password or XOAUTH2 (OAuth client + refresh token → access token
+  through `httpauth`, cached per provider; AUTH only over TLS) — and `gworkspace_relay` (10,000/day,
+  smtp-relay.gmail.com, by IP with an EHLO domain, `helo_domain` → `SMTP.Helo`, or SMTP auth). A new provider starts
+  with its kind's limits (`Kind.DefaultLimits`) unless limits are sent, else the workspace's defaults for the channel.
+  Provider fields may carry `option_labels` (M7) so forms show options in words.
+- **Gupshup** (`gupshup_sms`, `gupshup_whatsapp`, `gupshup_rcs`), from Gupshup's public docs and tested against mocks
+  only (every base URL editable): SMS through the Enterprise gateway (`method=SendMessage`, TEXT / UNICODE_TEXT, DLT
+  `principalEntityId` / `dltTemplateId` from the SMS template's `dlt_entity_id` / `dlt_template_id` or the provider's
+  defaults), delivery reports by POST or GET (`providers.GetReceiver`); WhatsApp template and session messages with v2
+  message events matched on `gsId`, Gupshup and Meta codes mapped to reason codes, inbound messages feeding reply
+  keywords; RCS with an RBM-style `contentMessage` (inferred, the least certain part), falling back to SMS. Gupshup
+  webhooks need the provider's `webhook_token` (`?token=` or `X-Pulse-Token`).
+- **Automation settings** (`internal/automation`, `tenant_settings.automation` jsonb, migration pg 024; `GET|PUT
+  /v1/settings/automation`, settings view / edit, audited). One document: retention per log type (events, message
+  events, page / screen views, per event-name overrides, anonymous visitors, audit log, import history, webhook
+  deliveries, integration log, sandbox test inbox, live feed size), retries (attempts, longest wait), schedules (sweep
+  minutes — 0 = `PULSE_SWEEP_INTERVAL`, honoured in the claim SQL —, the UTC hour reachability is rebuilt, the default
+  time and zone of new daily segments), app inbox expiry and default provider limits per channel. Missing fields take
+  `automation.Defaults`, which equal the behaviour before M5. `POST /v1/settings/automation/preview` counts what a
+  shorter retention would delete (cached 60 s; one uncached preview per workspace every 5 s);
+  `POST /v1/settings/automation/run-retention` runs the cleanup now. `PUT /v1/settings/data` still edits the three old
+  retention values, merged into the document.
+- **Daily retention** (`internal/maintenance`). Each workspace is cleaned once a day in UTC hour `tenant % 24`
+  (`automation.RetentionDue`; a workspace that missed its hour runs after 47 h), claimed in `retention_runs` so several
+  workers never repeat it: one ClickHouse lightweight `DELETE … WHERE tenant_id = ? AND ts < cutoff AND name IN / NOT IN
+  (…)` per group of event names (`Retention.CHPlan`; a per-name setting always wins over a type-wide delete), skipped
+  when `SELECT 1 … LIMIT 1` finds nothing older; Postgres logs in `LIMIT 5000` batches. Workspaces that existed without a
+  settings row keep their audit log forever (migration 024 writes `audit_days: 0`); new ones get 365 days.
+- **Segment rebuild check** (`segengine.Rebuild`). A new segment's catch-up rebuild could read ClickHouse before a
+  contact's latest identify had reached it and put back a contact the stream had just removed. Diffs of up to 20,000
+  contacts of a streamed segment are now checked against the contacts' current profiles (Postgres) and counters
+  (Redis), evaluated as the stream does, and only the changes that still hold are applied, bit by bit; larger diffs
+  (a first backfill) replace the bitmap as before.
+
+## AMP and on-site (M6)
+
+- **Storage.** The AMP code is `templates.content.amp` and the builder's document `content.amp_blocks`; with blocks the
+  API rebuilds the code on every save (`channel.PrepareAMP` → `amp.Doc.Build`), so the blocks are the source. No new
+  columns.
+- **Validator** (`internal/amp/validate.go`): a rules table over the HTML tokenizer with line numbers — doctype,
+  `<html ⚡4email>` (or `amp4email`), `<meta charset="utf-8">` first in head, the runtime script, the boilerplate, only AMP
+  component scripts from cdn.ampproject.org for the allowed components (accordion, anim, autocomplete, bind, carousel
+  0.2, date-picker, fit-text, form, image-lightbox, inputmask, lightbox, list, selector, sidebar, timeago, mustache 0.2),
+  each used component's script present, no other script, no event-handler attributes or `javascript:` URLs, no
+  disallowed tags (img, iframe, video, link, svg…), one `<style amp-custom>`, no `!important` / `@import`, CSS ≤ 75,000
+  bytes, sized https `amp-img`, forms `method="post"` with `action-xhr`, document ≤ 200 KB. Errors stop a save (400 "AMP
+  part: line N: …"); warnings don't. Full validation stays Google's (AMP validator, Gmail sender registration).
+- **Placeholders and tokens.** Forms post to `action-xhr="pulse:submit/<block>"` (amp-list may read
+  `pulse:results/<block>`); any other target is refused. The dispatcher fills them per recipient with
+  `https://<public URL>/v1/amp/<token>` (`amp.Fill`), the token a sealed `tracking.AMPToken` (workspace, contact, message,
+  template, campaign ids, block, 60-day expiry, test flag; its own prefix, so it is never a tracking token). Without a
+  server key an AMP part with forms is left out, as is one over 200 KB once personalised.
+- **Rendering.** The AMP part renders with the HTML part's html/template renderer; amp-mustache `<template>`s are cut out
+  before and put back after (`amp.Protect`), so Pulse variables don't work inside them. `Codec.InstrumentAMP` adds click
+  tracking, the unsubscribe footer and an `<amp-img>` open pixel. `amp.PreviewHTML` makes the script-free preview.
+- **MIME and providers.** `multipart/alternative` is text, AMP (`text/x-amp-html`), HTML (inside `multipart/mixed` with
+  attachments). Every SMTP relay passes the part except Postmark (`providers.SupportsAMP`, shown in the editor per
+  provider); the custom gateway gets `content.amp` and `{{message.amp}}`; the sandbox stores it.
+- **Post-back** `POST /v1/amp/{token}` (public): token opened and expiry checked; CORS per the AMP for Email spec — v2
+  `AMP-Email-Sender` → `AMP-Email-Allow-Sender`, or v1 `Origin` of a known email client plus `__amp_source_origin` →
+  `Access-Control-Allow-Origin`, `AMP-Access-Control-Allow-Source-Origin`, `Access-Control-Expose-Headers`; the
+  sender's domain must be a From domain of the workspace's email providers or `PULSE_SMTP_FROM`'s (cached a minute).
+  Limits: 60 a minute per client IP and workspace (`rlamp`), 10 a minute per token. Polls: one answer per contact per
+  poll (`amp:ans:{tenant}:{template}:{block}:{contact}`, `SETNX`, 400 days), counts in the hash
+  `amp:poll:{tenant}:{template}:{block}`, event `amp_poll_answered`. Forms: `amp_form_submitted` with one property per
+  field; fields with `save_to` update custom contact fields (`eventschema.ListTargetAllowed` rules: never identity,
+  consent or Pulse's own); the event id hashes token and values, so a replay records once. Test tokens answer without
+  recording. `GET /v1/amp/{token}/results` serves `items` for `amp-list`. Both events are platform events (refused on
+  `POST /v1/events`) with starter schemas.
+- **Editor routes.** `POST /v1/templates/amp/check` (content view) validates code or builds blocks and returns problems
+  with lines, size, the preview and the providers' AMP support; the template preview returns `amp` / `amp_preview`;
+  `GET /v1/templates/{id}/amp/results` gives poll counts.
+- **Content variants** (`model.DWCVariant` in `dwc_slots.variants`): id, name, audience (`model.OnsiteAudience`: segments
+  in, segments out, page URL contains / doesn't contain, devices, contact-field conditions) and HTML; array order is the
+  priority, the first match wins, else the default (`onsite.DecideFor`). Contact-field conditions match only verified
+  identities. The SDK sends `device` to `/v1/web/decide`, which also returns `variants` (slot → variant id).
+- **Never shown and overlap.** `onsite.Shadowed` finds variants an earlier one covers, from the rules alone (returned by
+  GET and save, mirrored live in the editor). `POST /v1/dwc/overlap` and `POST /v1/focus-items/overlap` run
+  `onsite.CountOverlap`: one Redis pipeline of BITOPs into temporary `ovltmp:*` keys (per variant audience, pair ANDs,
+  who would see each in order, contacts in more than one, the default's share; page, device and field rules aren't
+  counted, so "approximate"), cached a minute under `ovl:{tenant}:{hash}`, 30 uncached counts a minute per workspace.
+- **Focus items** take the same audiences and a priority (`targeting.priority`; `PUT /v1/focus-items/order`). The SDK
+  shows one pop-up, one bar and one slide-in per page, the first whose frequency allows it.
+- **Web push prompt** (`internal/webcheck`, `tenant_settings.webpush`, migration pg 025; `GET|PUT
+  /v1/settings/web-push`, channels view / edit): bell, bar or pop-up, texts and colours, triggers, ask-again days,
+  pages, the site address and service-worker path; `/v1/web/push-config` returns the prompt and service worker.
+- **Install check** `POST /v1/settings/web-push/check` (channels edit, 10 a minute): `webcheck.Fetcher` fetches the page
+  and the service worker through `safehttp` wrapped in `safehttp.SameOrigin` (public addresses checked per connection,
+  https only, redirects only within the site, 1 MB, 10 s; private and http only with `PULSE_ALLOW_PRIVATE_WEBHOOKS`).
+  **Browser self-check:** `POST /v1/settings/web-push/check-token` stores a 30-minute token (`pchk:{token}` → workspace)
+  for a `?pulse_check=` link; the SDK posts `Pulse.diagnose()` to `POST /v1/web/diagnose` (stored in `pchkr:{token}`),
+  and the app polls `GET /v1/settings/web-push/diagnosis`.
+
+## Contacts behind every number and one campaign model (M7)
+
+- **Set and outcome filters** (`internal/api/contactsets.go`). `GET /v1/contacts?q=` takes, besides the batch 9
+  filters: `in:` (any of the listed segments; several `in:` intersect), `not_in:`, `subscribed:<channel>`,
+  `reachable:<channel>`, `under_cap:<channel>`, `journey:` with `at:<step>` and
+  `journey_status:in_progress|completed|converted|exited|active|waiting`, `campaign:broadcast/<id>` or
+  `campaign:journey/<id>` with `run:`, `step:`, `outcome:` and `reason:<code>`, `event:` / `no_event:` with `product:` /
+  `category:`, `active:any|web|android|ios|other|new|returning` with `utm:`, `amp_poll:<template>/<block>` with
+  `answer:`, `form:<id>`, and `period:<from>..<to>` (UTC days, both included). Each comes back as a chip label in words;
+  wrong combinations are refused with the reason. The export takes the same filters.
+- **Two engines.** Set filters run in Redis on the bitmaps the numbers come from (segment bitmaps, the reach bitmaps; a
+  journey's enrollments read from Postgres by `JourneyContacts` and streamed into a bitmap): one `BITOP` pipeline per
+  view, cached a minute under `cvset:{tenant}:{hash}`, paged newest first by `GETRANGE` chunks (8 KB growing to 1 MB),
+  counted by `BITCOUNT`. Outcome, event, activity, poll and form filters are ClickHouse subqueries over
+  `message_events` / `events` / `first_active`, each with `tenant_id = ?`. A view with both checks the bitmap's
+  candidates in ClickHouse 5,000 at a time (`ContactFilter`); its count is exact up to 10,000 candidates (50,000 for the
+  frequency cap alone) and sampled above ("about"). Bitmap builds and first pages are limited to 120 a minute per
+  workspace (`rlview`). Where a list can differ from its number the response carries a `note`.
+- **Permissions** (`viewFilterNeeds` in `perms.go`): contacts view, plus broadcasts or reports view for
+  `campaign:broadcast`, journeys or reports view for `campaign:journey` and `journey:`, reports view for outcomes across
+  every campaign, content or reports view for `amp_poll:` and `form:`. The app mirrors the rules (`web/src/contactLinks.ts`)
+  and leaves a number unlinked with a tooltip.
+- **Create segment from this list.** `POST /v1/contacts/view-segment {q, name}` (segments edit plus the view's needs;
+  audited; 10 a minute per workspace) makes a static segment and adds the list's contacts (up to 500,000) in the
+  background as `list_joined` events, from a 15-minute copy of the view's bitmap (`cvset:*:snap`).
+- **Campaign navigation.** One sidebar entry, Campaigns; the types One-time (broadcasts), Triggered (event or form
+  journeys) and Automation (segment journeys) as in the M3 hub. `/journeys` and `/broadcasts` answer 301 from the server
+  (`api.OldCampaignLists`) and redirect in the app to `/campaigns` and `/campaigns?tab=one_time`; `/campaigns/new` opens
+  the New campaign chooser (`/journeys/new?start=event|form|segment` for the builder); `/journeys/:id` and
+  `/broadcasts/:id` are unchanged. Role areas keep their keys (`broadcasts`, `journeys`) and are labelled "One-time
+  campaigns" and "Triggered & automation campaigns".
+- **Events catalog.** "Last 30 days" is 30 whole UTC days, today included, so its contact count equals the list it opens.

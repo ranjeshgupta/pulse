@@ -1,7 +1,8 @@
-# Tutorial 8: On-site & in-app
+# Tutorial 8: Website & app messages
 
-In about 20 minutes you will put a slide-in on your website, make a part of a page show different
-content to different people, and set up an in-app message for your mobile app.
+In about 25 minutes you will put a slide-in on your website and decide which pop-up wins when several
+could show, make a part of a page show different content to different people (and check who sees
+which version), and set up an in-app message for your mobile app.
 
 **You need:** the Pulse web SDK on your site, or the SDK test page (tutorial 1, step 6), and a segment
 or two (tutorial 3). Creating and publishing these needs **Content: Edit**.
@@ -16,12 +17,13 @@ or two (tutorial 3). Creating and publishing these needs **Content: Edit**.
 | **Dynamic web content** | Website | A placeholder in your page that shows different content to different segments |
 | **In-app message** | Mobile app | A pop-up, banner or full-screen message in your Android or iOS app, when an app event happens |
 
-Go to **Campaigns → On-site & in-app**. All three are listed together, with their **Channel**
-(**Website** or **Mobile app**), **Type**, **Schedule** and **Status**. For in-app messages, **Shown ·
-CTR** counts the contacts who saw it and the share who tapped a button. Filter with **All / Website /
-Mobile app**, the type list, or **Find by name**.
+In the sidebar, under **Campaigns**, click **Website & app messages**. All three kinds are listed
+together, with their **Channel** (**Website** or **Mobile app**), **Type**, **Schedule** and **Status**
+(**Live** or **Draft**). For in-app messages, **Seen by · clicked** counts the people who saw it (each
+once) and the share who tapped a button. Filter with **All / Website / Mobile app**, the type list, or
+**Find by name**.
 
-![On-site & in-app: the list of focus items, content slots and in-app messages, with the New button highlighted](img/08-list.png)
+![Website & app messages: the list of pop-ups, content slots and in-app messages, with the New button highlighted](img/08-list.png)
 
 Click **New**. Pulse asks where it should show; choose **Website**, then what kind:
 
@@ -57,6 +59,9 @@ Choose **Pop-up, banner bar or slide-in**.
 | **Show to members of any of** | (empty) | Pick segments from **Add a segment**. Empty shows everyone, including anonymous visitors |
 | **Never show to members of** | **VIP customers** | They already get offers. Remove a segment with its **×** |
 | **Only on pages whose address contains** | `tutorial=8` | Comma-separated, e.g. `/pricing, /checkout`. Empty: every page. (Here it keeps the slide-in to the test page; on your site you might use `/blog`) |
+| **Not on pages whose address contains** | (empty) | Comma-separated. These pages never show it, e.g. `/checkout` |
+| **On these devices** | (none ticked) | **Desktop**, **Mobile**, **Tablet**. Leave all unticked for any device |
+| **Whose contact fields match** | (none) | **+ Contact field rule**: a field, a comparison and a value, e.g. `city` **is** `Pune`. All rules must match. Only visitors your site identifies with a verified user hash can match these; anonymous visitors never do |
 | **Show it** | **After a delay**, **Seconds on page** `2` | Or **As the page loads**, **When they're about to leave** (the mouse leaves the top of the window; desktop only), **After scrolling** (**Percent of page scrolled**) |
 | **How often** | **Once per visit** | Or **Once per visitor**, **At most once a day**, **On every matching page**. Counted in the visitor's browser |
 
@@ -81,16 +86,40 @@ you unpublish it.
    ![The SDK test page with the Newsletter slide-in in the bottom-right corner](img/08-focus-live.png)
 
 The SDK records `focus_shown`, `focus_clicked` (the button) and `focus_closed` events on the contact,
-so you can build segments and journeys on them.
+so you can build segments and campaigns on them.
 
 To take it down, click **Unpublish** (the button that was **Save draft**); **Delete** removes it. A
-journey can also show a focus item to one contact on their next page view, whatever its targeting,
-with the **Show focus item** action (tutorial 6).
+triggered or automation campaign can also show a focus item to one contact on their next page view,
+whatever its targeting, with the **Show focus item** action (tutorial 6).
+
+### When several could show: the order
+
+A visitor sees at most one pop-up, one banner bar and one slide-in on a page: the first one in your
+order that they can still see. If they aren't in its audience, have already seen it as often as it
+allows, or it's outside its schedule, the next one is shown instead.
+
+1. On the **Website & app messages** list, click **Order of pop-ups, bars and slide-ins** (it shows
+   once you have two or more).
+
+   ![The list's filters with the Order of pop-ups, bars and slide-ins button highlighted](img/08-order-button.png)
+
+2. Each kind has its own list. Drag an item by its handle (**⋮⋮**), or use the **↑** and **↓**
+   arrows, to put the most important one first.
+3. **Check overlap** counts, for the published items of that kind, how many of your known contacts
+   match each one and how many would actually see it in this order. Click a number to open those
+   contacts. Counts use segments only (marked **\***): page, device and contact-field rules depend
+   on the visit.
+4. Click **Save order**. *Order saved. Visitors see it within seconds.* **Undo changes** puts the
+   saved order back.
+
+   ![The order drawer: Pop-ups and Slide-ins, each with Check overlap; the slide-ins' count shows 294 matching contacts and who would see it](img/08-order-drawer.png)
+
+New items go to the top of their list until you save an order again.
 
 ## 3. Dynamic web content
 
-A content slot is a placeholder in your page. Pulse fills it with the first variant whose segment the
-visitor is in, or with what **Everyone else sees**.
+A content slot is a placeholder in your page. Pulse fills it with the first **variant** whose
+audience the visitor matches, or with what **Everyone else** sees.
 
 ### Put the slot in your page
 
@@ -108,19 +137,65 @@ The page needs the Pulse web SDK (tutorial 1). It asks for the page's slots when
 1. **New → Website → Dynamic web content**.
 2. **Name**: `Sale banner`. **Slot key**: `sale-banner`, the same as in your page (lowercase letters,
    digits, `-` and `_`; one slot per key).
-3. Click **Add a variant**, choose **For members of "Sale preview testers"**, and type its content:
-   `Testers: the weekend sale is open to you a day early. Use code PREVIEW15.`
-4. **Everyone else sees**: `Weekend sale: up to 30% off home and kitchen, until Sunday night.` This
-   also goes to anonymous visitors. Leave it empty to show nothing.
+3. Click **Add a variant**. Give it a name, `Sale testers` (only your team sees it). Under
+   **Audience rules**, pick **Sale preview testers** in **Show to members of any of**, and type its
+   content: `Testers: the weekend sale is open to you a day early. Use code PREVIEW15.`
 
-   ![The content slot editor: name Sale banner, slot key sale-banner, one variant for Sale preview testers, and what everyone else sees](img/08-dwc.png)
+   The line **Who sees it** says in words who gets this variant: *Members of Sale preview testers.*
 
-Variants are checked top to bottom, and a visitor sees the first one whose segment they're in. Order
-them with **Move up** and **Move down**. **Schedule** works as for focus items.
+   ![The content slot editor: name Sale banner, slot key sale-banner, and variant 1 Sale testers with its audience rules and content](img/08-dwc.png)
 
-5. Click **Publish**, then use **Check what a visitor sees** with a contact's external ID:
+4. Click **Add a variant** again: `VIPs on their phone`, for members of **VIP customers**, with
+   **Mobile** ticked under **On these devices**, and the content `VIPs: tap to see your early-access
+   sale picks.`
 
-   ![Check what a visitor sees for sale-tester-aarav: the testers' variant](img/08-dwc-check.png)
+   ![Variant 2: Who sees it: Members of VIP customers, on mobile, unless they match a variant above](img/08-dwc-rules.png)
+
+   A variant's **Audience rules** are the same as a pop-up's: segments to show to and never show
+   to, pages it shows on or not, devices, and contact-field rules. Leave the segments empty for
+   everyone who matches the other rules. Click **Audience rules** to fold them away.
+5. **Everyone else sees**: `Weekend sale: up to 30% off home and kitchen, until Sunday night.` This
+   goes to visitors who match no variant, including anonymous visitors. Leave it empty to show
+   nothing.
+
+A slot can have up to 20 variants, and a variant up to 5 contact-field rules.
+
+### The order of variants, and variants that can never show
+
+Variants are checked top to bottom, and a visitor sees the **first** one they match. Change the order
+by dragging a variant by its handle (**⋮⋮**), or with its **↑** and **↓** arrows. **Remove** deletes
+a variant.
+
+Pulse warns you when a variant can never be shown because a variant above it already takes everyone
+it targets. Here a third variant, *Testers on their phone*, would never show: every tester matches
+*Sale testers* first.
+
+![Variant 3 in red: Never shown: everyone it targets sees variant 1 first. Move it up or narrow variant 1.](img/08-dwc-never-shown.png)
+
+Move it above variant 1, narrow variant 1, or remove it (here, remove it). In the same way, a variant
+with no rules at all shows to everyone, so the variants below it and **Everyone else** are never
+shown; Pulse says so on that variant.
+
+### Check the overlap before you publish
+
+Under **Overlap**, click **Check overlap**. Pulse counts how many of your known contacts match each
+variant (**Matching contacts**), how many would actually see it in this order (**Would see this**),
+how many match more than one variant, and how many get the default content. Click a number to open
+those contacts in **Contacts**.
+
+![Overlap: 1. Sale testers 6 and 6, 2. VIPs on their phone 51 and 51, Everyone else 289; 0 contacts match more than one variant](img/08-dwc-overlap.png)
+
+Counts marked **\*** are approximate: they use segments only, because page, device and contact-field
+rules depend on the visit. Anonymous visitors aren't counted. If you change the variants afterwards,
+Pulse asks you to check again.
+
+**Schedule** works as for pop-ups.
+
+### Publish and check
+
+Click **Publish**, then use **Check what a visitor sees** with a contact's external ID:
+
+![Check what a visitor sees for sale-tester-aarav: the testers' variant](img/08-dwc-check.png)
 
 ### See it on a page
 
@@ -137,9 +212,9 @@ the page loads again:
 new arrivals". For these pictures a `sale-banner` slot was added above it, as your own page would
 have.)
 
-A journey can give one contact their own content for a slot with **Push dynamic content**, which
-takes priority over the variants; the **Requests dynamic content** decision fires when their page asks
-for the slot (tutorial 6).
+A triggered or automation campaign can give one contact their own content for a slot with **Push
+dynamic content**, which takes priority over the variants; the **Requests dynamic content** decision
+fires when their page asks for the slot (tutorial 6).
 
 ## 4. An in-app message in your mobile app
 
@@ -208,15 +283,17 @@ The phone on the right previews it:
 3. Click **Go live**. Apps pick it up the next time they fetch messages. **Back to draft** takes it
    down again.
 
-The app SDKs report when a message is shown, tapped and dismissed; the list's **Shown · CTR** column
-counts unique contacts. On websites, use a pop-up, bar or slide-in instead.
+The app SDKs report when a message is shown, tapped and dismissed; the list's **Seen by · clicked**
+column counts each person once. On websites, use a pop-up, bar or slide-in instead.
 
 ## What you have now
 
 ![The list with Newsletter slide-in, Sale banner and Cart reminder in the app next to the seeded items](img/08-list-after.png)
 
-- **Newsletter slide-in**: a slide-in for visitors who aren't VIPs, after 2 seconds, once per visit
-- **Sale banner**: a content slot with a variant for one segment and a default for everyone else
+- **Newsletter slide-in**: a slide-in for visitors who aren't VIPs, after 2 seconds, once per visit,
+  ordered against your other slide-ins
+- **Sale banner**: a content slot with two variants (testers; VIPs on their phone), checked for
+  overlap, and a default for everyone else
 - **Cart reminder in the app**: an in-app banner for contacts with an abandoned cart, saved as a draft
 
 **Next:** Tutorial 9, Integrations: HubSpot or Salesforce, Shopify, Zapier and ad audiences.

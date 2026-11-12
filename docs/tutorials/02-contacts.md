@@ -1,8 +1,9 @@
 # Tutorial 2: Contacts
 
-In about 20 minutes you will find your way around the contact list and a contact's profile, define
-the fields your team uses, import a CSV of customers into a static segment, filter the list and save
-a view as a segment, export it, merge duplicates, and link contacts to companies.
+In about 25 minutes you will find your way around the contact list and a contact's profile (the quick
+panel and the full contact page), define the fields your team uses, import a CSV of customers into a
+static segment, filter the list and save a view as a segment, export it, merge duplicates, and link
+contacts to companies.
 
 **You need:** a workspace with some contacts (tutorial 1) and access to edit contacts (the **Admin**
 or **Editor** role). For the import, use the sample file
@@ -27,12 +28,20 @@ newest first, 50 at a time (**Load more** at the bottom fetches the next 50).
 
 Click any row to open that contact's profile.
 
+> **Lists opened from a number.** Most numbers in Pulse (a segment's size, a campaign's "Sent to", a
+> dashboard figure) are links. Clicking one opens this page already filtered to exactly those
+> contacts, with the filters shown as chips in words, such as *Campaign “Spring catalogue”* and
+> *Opened*. [Tutorial 18](18-contacts-behind-a-number.md) explains these lists.
+
 ## 2. A contact's profile
 
-The profile opens as a panel on the right. From top to bottom:
+The profile opens as a panel on the right: the quick view, for a look or a change. **Open full page**
+at the top shows everything about the person on a page of its own ([below](#the-full-contact-page)).
+From top to bottom, the panel has:
 
-<img src="img/02-profile-top.png" alt="The profile of store-1001: Merge into…, Download data and Delete contact, its segments with why?, Why not in another segment?, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
+<img src="img/02-profile-top.png" alt="The profile of store-1001: Open full page, Merge into…, Download data and Delete contact, its segments with why?, Why not in another segment?, Owner, stage and company, and Tags and points with 25 points" width="420" align="right">
 
+- **Open full page**: the full contact page (below).
 - **Merge into…**: fold this contact into another one (step 10).
 - **Download data** and **Delete contact** (with **Contacts: Edit**): a JSON file of everything Pulse
   keeps about the person, and permanent deletion after you type `DELETE`. Both are for privacy
@@ -92,6 +101,50 @@ Here the customer bought often enough but lives in Delhi. For a static segment t
 the contact was added to it; for a segment refreshed daily (tutorial 3) it can say the contact
 matches now but joins at the next refresh. **×** closes the box.
 
+### The full contact page
+
+Click **Open full page** in the panel (or go to `/contacts/<external ID>`). The page shows the
+contact's name and external ID with **Merge into…**, **Download data** and **Delete** at the top,
+then a line of facts: **External ID**, **Email**, **Name**, **Stage**, **Owner**, **Created**,
+**Updated** and **Last active**. **Contacts** (top left) goes back to the list.
+
+The right-hand column keeps the panel's sections: owner, stage and company, tags and points,
+consent, lists and choices, **Devices** (the push devices registered for them), app inbox and
+attributes. The main part has three tabs.
+
+**Overview** answers "can we reach this person, and what do they do?":
+
+![The full contact page: the facts line, the Overview tab with Reachability and Activity, and the profile on the right](img/02-contact-page.png)
+
+- **Reachability**: one row per channel with the **Address** Pulse would use, whether a message can
+  get to them (**✓** or **✗**, with **Opted out** or **Bounced** when that's the cause) and **Why**,
+  in words: no phone number, unsubscribed, a hard bounce…
+- **Activity**: how many **Events**, **Messages**, **Opens** and **Clicks** they had **Today**,
+  in **7 days**, **30 days** and **365 days**, and their **Top events** of the last 30 days.
+- **Purchases and products**: their purchases with the total spent, and the products list field.
+- **Journeys**: the triggered and automation campaigns they are in or went through, with the
+  **Status**, the **Step** they are at, when they **Entered** and when it was last **Updated**.
+  **Current** marks the ones still running for them.
+- **Segments**: the same **· why?** and **Why not in another segment?** as in the panel.
+
+**Messages** lists every message Pulse sent them, newest first:
+
+![The Messages tab: each message with its channel, campaign, status, reason, and whether it was opened and clicked](img/02-contact-messages.png)
+
+| Column | Shows |
+|---|---|
+| **Sent** | When (hover for the exact time) |
+| **Channel** | Email, SMS, WhatsApp… |
+| **Campaign** | The campaign (a link to it) and the step that sent it. Roles that can't view that kind of campaign see no name |
+| **Status** | How far it got: **Sent**, **Delivered**, **Opened**, **Clicked**, **Read**, or what stopped it: **Bounced**, **Spam complaint**, **Failed**, **Opted out**, **Over limit**… Hover to see the other steps it went through |
+| **Reason** | For a message that didn't arrive, why, in words (**Hard bounce**, **Not reachable on this channel**…). Click it to see what the provider said |
+| **Opened**, **Clicked** | **✓** when they did (with the number of clicks) |
+
+**Events** is their full event history. Choose **All**, **Their activity** (what they did) or
+**Pulse events** (what Pulse recorded: messages, segment changes, campaign steps), or type event names
+separated by commas and click **Filter** (or click a name under the box). Click an event to see its
+properties.
+
 ## 3. Owner, stage and company
 
 Under **Owner, stage and company**, each drop-down saves as soon as you pick a value, and a message
@@ -120,7 +173,7 @@ events (tutorial 3); here you change them by hand:
 **Messages they agreed to** lists every channel (Email, SMS, WhatsApp, RCS, Push, App inbox) as
 **Subscribed** or **Unsubscribed**. **Unsubscribe** and **Subscribe** change one channel;
 **Unsubscribe from everything** (it asks you to confirm) stops all messages on every channel.
-Every journey and broadcast respects these settings.
+Every campaign respects these settings.
 
 <img src="img/02-profile-consent.png" alt="Messages they agreed to: every channel Subscribed, with Unsubscribe buttons and Unsubscribe from everything" width="420">
 
@@ -260,7 +313,7 @@ Go back to **Contacts**: the new contacts (`store-1001` to `store-1007`, without
 top, and each is in the segment **Pune store opening guests**.
 
 > **A `tags` column adds tags.** The tags in the cell are added to the ones the contact already has;
-> nothing is removed. To take a tag away, use the contact's profile or a journey's
+> nothing is removed. To take a tag away, use the contact's profile or a campaign's
 > **Modify contact's tags** step.
 
 ## 7. Filter your contacts
@@ -299,6 +352,10 @@ How filters work:
   phone, in any case.
 - The address bar keeps the filters (`/contacts?q=…`), so you can bookmark a view or send the link
   to a teammate.
+- Lists opened by clicking a number elsewhere in Pulse carry more filters (who opened a campaign,
+  who is reachable by email, who is at a step of a journey…). They show as chips in words and are
+  removed the same way; [tutorial 18](18-contacts-behind-a-number.md) lists them. A short note under
+  the bar can say why such a list may differ slightly from the number you clicked.
 
 ![The filters Tag: vip and Points > 50: 26 contacts, with Save as segment highlighted](img/02-filter-chips.png)
 
@@ -319,6 +376,12 @@ start or stop matching. See tutorial 3 for what you can do there.
 
 **Save as segment** is only there for roles that can edit segments, and it is greyed out while the
 search box has quick-search text: use `email:` or `name:` instead.
+
+**Create segment from this list.** A list opened from a number (say, everyone who clicked a
+campaign) can't become a segment that updates itself. Instead of **Save as segment**, the bar then
+offers **Create segment from this list**: it makes a **static** segment of the people in the list
+right now (up to 500,000), for example to send them a follow-up. People who match later aren't added.
+[Tutorial 18](18-contacts-behind-a-number.md#5-keep-the-list-as-a-segment) walks through it.
 
 ## 9. Choose columns and export
 
@@ -389,8 +452,8 @@ field, such as industry).
   fields
 - Six customers from the store opening, imported into the static segment **Pune store opening
   guests**, and one of them (`store-1001`) with an owner, a stage, tags and points
-- A feel for filters, saved views, exports, duplicates and companies, and for **· why?** on a
-  contact's segments
+- A feel for filters, saved views, exports, duplicates and companies, for **· why?** on a contact's
+  segments, and for the full contact page with its reachability, messages and events
 
 **Next:** Tutorial 3, Segments: build dynamic segments with the rule builder, manage static ones, and
 set up scoring and stages.

@@ -91,6 +91,23 @@ async function dataAndAudit(page) {
   await go(page, "/settings/data");
   await shot(page, AREA, "11-data-privacy", { clip: page.locator(".page"), pad: 0 });
 
+  // Settings → Automation & limits: the retention panel, the other panels, and the "What will be
+  // deleted" dialog after shortening the events' retention on screen (cancelled, nothing saved).
+  await page.setViewportSize({ width: 1440, height: 3000 });
+  await go(page, "/settings/automation");
+  const autoPanel = (title) => panel(page, title);
+  await shot(page, AREA, "11-automation-retention", { clip: page.locator("header.page-head").or(autoPanel("Keep data for")), pad: 8 });
+  await shot(page, AREA, "11-automation-retries", { clip: autoPanel("Retries of failed sends").or(autoPanel("Schedules")).or(autoPanel("Messages")), pad: 8 });
+  await page.getByRole("spinbutton", { name: "Events", exact: true }).fill("30");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const deleted = page.getByRole("dialog", { name: "What will be deleted" });
+  await deleted.waitFor({ timeout: 30_000 });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await settle(page);
+  await shot(page, AREA, "11-what-deleted", { clip: deleted, pad: 0 });
+  await deleted.getByRole("button", { name: "Cancel" }).click();
+  await go(page, "/settings/automation"); // drop the unsaved change
+
   await go(page, "/settings/audit");
   await page.locator(".audit-table tbody tr").first().waitFor();
   await page.getByLabel("Object type").selectOption({ label: "Sign-ins" });

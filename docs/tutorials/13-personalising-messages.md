@@ -1,14 +1,15 @@
 # Tutorial 13: Personalising messages
 
 In about 20 minutes you will personalise messages with the contact's details and with the event that
-started the journey (the product left in a cart), add defaults and formats, decide what happens when
-a value is missing, preview and test with a real contact and event, and let a journey choose the
-channel by rule: an Indian number gets an SMS, anyone else a WhatsApp message.
+started a triggered campaign (the product left in a cart), add defaults and formats, decide what
+happens when a value is missing, preview and test with a real contact and event, and let a campaign
+choose the channel by rule: an Indian number gets an SMS, anyone else a WhatsApp message.
 
 **You need:** access to edit content (the **Admin** or **Editor** role) for templates, and to edit
-journeys for section 8. Previewing with a contact's real event also needs access to view contacts.
-The examples use the seeded Acme Retail workspace, which has the `cart_abandoned` event schema
-(tutorial 12), the **Cart rescue** templates and an active **Cart rescue** journey.
+triggered & automation campaigns for section 8. Previewing with a contact's real event also needs
+access to view contacts. The examples use the seeded Acme Retail workspace, which has the
+`cart_abandoned` event schema (tutorial 12), the **Cart rescue** templates and a live **Cart rescue**
+triggered campaign.
 
 ---
 
@@ -21,11 +22,12 @@ double braces. Pulse fills them for each contact when the message goes out.
 | Variable | What it is | Example |
 |---|---|---|
 | `{{contact.x}}` | Any contact field: `first_name`, `email`, `phone`, `phone_country`, `city`, your own fields, list fields (joined with commas) | `{{contact.first_name}}` → Asha |
-| `{{event.x}}` | A property of the event that started the journey. Dots go into objects and lists: `items.0.name` is the first item's name, `items[].name` every item's, joined | `{{event.product_name}}` → Brass table lamp |
-| `{{campaign.x}}` | `name`, `id`, `type` (journey, broadcast, test), `step` (the journey step), `channel`, `template` | `{{campaign.name}}` → Cart rescue |
+| `{{event.x}}` | A property of the event that started the campaign (triggered campaigns). Dots go into objects and lists: `items.0.name` is the first item's name, `items[].name` every item's, joined | `{{event.product_name}}` → Brass table lamp |
+| `{{campaign.x}}` | `name`, `id`, `type` (`journey` for a triggered or automation campaign, `broadcast` for a one-time campaign, `test` for a test send), `step` (the step of a triggered or automation campaign), `channel`, `template` | `{{campaign.name}}` → Cart rescue |
 | `{{links.x}}` | Email only: `unsubscribe` and `preferences` (the contact's preference center) | `<a href="{{links.unsubscribe}}">` |
 
-Broadcasts aren't started by an event, so `{{event.x}}` is empty in them (or its default, section 3).
+One-time and automation campaigns aren't started by an event, so `{{event.x}}` is empty in them (or
+its default, section 3).
 
 > Templates written with the older syntax (`{{.Attrs.first_name}}`, `{{.Contact.Email}}`,
 > `{{.UnsubscribeURL}}`, `{{if …}}`) keep working, and both can be used in one template. New
@@ -33,7 +35,7 @@ Broadcasts aren't started by an event, so `{{event.x}}` is empty in them (or its
 
 ## 2. Insert a variable
 
-Go to **Content → Templates** and open **Cart rescue SMS**. Every templated field has a
+Go to **Content → Message templates** and open **Cart rescue SMS**. Every templated field has a
 **{ } Variable** button. Click it in the **Message** field:
 
 <img src="img/13-picker.png" alt="The variable picker open next to the SMS message: a search box, the last Contact fields, then the Trigger event's properties (Product code, Product name, Product category…), a box to type any variable, and the formats" width="560">
@@ -87,11 +89,12 @@ Above the editor, **When a variable has no value and no default** decides what h
 A variable with a `default` is never missing. **Cart rescue SMS** uses **don't send**: an SMS without
 the product would make no sense.
 
-## 5. The event that started the journey
+## 5. The event that started the campaign
 
-When an event (or a form submission) starts a journey, Pulse keeps that event's properties with the
-contact's place in the journey. **Every** message the journey sends afterwards can use them, on any
-channel and after any wait: a reminder sent a day later still knows which lamp was left in the cart.
+When an event (or a form submission) starts a triggered campaign for a contact, Pulse keeps that
+event's properties with the contact's place in the campaign. **Every** message the campaign sends
+them afterwards can use them, on any channel and after any wait: a reminder sent a day later still
+knows which lamp was left in the cart.
 
 What is kept:
 
@@ -105,7 +108,7 @@ What is kept:
   without that proof `{{event.x}}` takes its default. If your cart and checkout events come from the
   browser, turn on identity verification, or send those events from your server.
 
-The template editor doesn't know which journey will send it, so choose the event above the editor
+The template editor doesn't know which campaign will send it, so choose the event above the editor
 (**Trigger event for {{event.…}}**, section 4): the picker then lists its properties and the preview
 fills them. Open **Cart rescue email**, choose **HTML**:
 
@@ -123,7 +126,7 @@ or, if they have none, the schema's example. Edit the JSON to try other values:
 <img src="img/13-preview-event.png" alt="The preview window: the contact cust-0201, the Trigger event cart_abandoned with its properties as JSON (product_name Brass table lamp, cart_value 3299…), and the email rendered with them" width="560">
 
 When a variable has no value, the preview says so, and whether the contact would get nothing.
-Choose **None** to see the message as a broadcast sends it.
+Choose **None** to see the message as a one-time campaign sends it.
 
 **Send a test** works the same way: the test message carries the event you choose, through the
 channel's real delivery path (the test inbox for sandbox providers).
@@ -145,8 +148,8 @@ Under each field, Pulse lists variables it can't fill:
 
 ## 8. Choose the channel by rule
 
-**Send marketing message** (journeys → **+** → **Action**) can choose the channel per contact.
-Open **Journeys → Cart rescue** and select its first step:
+**Send marketing message** (in a triggered or automation campaign's builder: **+** → **Action**) can
+choose the channel per contact. Open **Campaigns**, click **Cart rescue** and select its first step:
 
 <img src="img/13-rules.png" alt="The Send marketing message step: Rule 1: when contact.phone_country is IN, send SMS with Cart rescue SMS; Otherwise send WhatsApp with Cart rescue WhatsApp and Cart rescue SMS as the fallback" width="420">
 
@@ -177,10 +180,10 @@ the contact can receive.
 
 | Where | What |
 |---|---|
-| Journeys → **Send a webhook** → Body | Contact, event and campaign variables. Values are JSON-escaped, so put text inside quotes: `{"name": "{{contact.first_name}}"}`; use `\| json` for a whole value, such as a list: `{"items": {{event.items \| json}}}`. A body that isn't valid JSON once filled in isn't sent |
-| Journeys → **Push dynamic content** | The HTML for the slot, filled (and escaped) when the step runs. Contact values show only to visitors whose identity is verified (below); others see the defaults |
-| Journeys → **Update contact** | Values such as `{{event.product_name}}` copy a property onto the contact |
-| **On-site & in-app → In-app** | Title, message and buttons take contact variables, for verified app users (below); everyone else gets the defaults |
+| Campaign step **Send a webhook** → Body | Contact, event and campaign variables. Values are JSON-escaped, so put text inside quotes: `{"name": "{{contact.first_name}}"}`; use `\| json` for a whole value, such as a list: `{"items": {{event.items \| json}}}`. A body that isn't valid JSON once filled in isn't sent |
+| Campaign step **Push dynamic content** | The HTML for the slot, filled (and escaped) when the step runs. Contact values show only to visitors whose identity is verified (below); others see the defaults |
+| Campaign step **Update contact** | Values such as `{{event.product_name}}` copy a property onto the contact |
+| **Website & app messages → In-app messages** | Title, message and buttons take contact variables, for verified app users (below); everyone else gets the defaults |
 
 Focus items and dynamic web content defaults on your website aren't personalised per contact.
 
@@ -196,9 +199,9 @@ workspaces without a secret get every variable's default, so give public-facing 
 
 | Problem | Fix |
 |---|---|
-| `{{event.x}}` is empty | The journey must start with **does an event** or **submits a form**; segment-started journeys and broadcasts have no event. Check the property name on the event's page (Audience → Events) and that it isn't marked personal |
+| `{{event.x}}` is empty | Only a triggered campaign has an event: its Start must be **do something (an event)** or **submit a form**. Automation (segment-started) and one-time campaigns have no event. Check the property name on the event's page (Audience → Events) and that it isn't marked personal |
 | "Unknown format" on save | Use one of the pipes in section 3; values with spaces need quotes: `default:"dear customer"` |
 | Everyone gets WhatsApp, nobody SMS | The contacts' `phone_country` is empty: their numbers lack `+` and the country code |
 | A message wasn't sent | Open the contact's activity: `…_failed` with `skipped: no value for …` means the template skips missing values (section 4) |
 
-Next: [Analytics](10-analytics.md) to see how the journey performs.
+Next: [Analytics](10-analytics.md) to see how the campaign performs.

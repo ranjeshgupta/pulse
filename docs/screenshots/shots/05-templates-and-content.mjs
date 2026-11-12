@@ -101,6 +101,12 @@ async function templates(page, context, contact) {
   await page.getByRole("tab", { name: "HTML" }).click();
   await settle(page, { quiet: 600 });
   await shot(page, AREA, "05-email-html", { clip: page.locator(".grid-2").last(), pad: 8 });
+  // The AMP version's starting panel (tutorial 17 covers the rest).
+  const amp = page.locator('section[aria-label="AMP version"]');
+  await amp.scrollIntoViewIfNeeded();
+  await highlight(amp.getByRole("button", { name: "Add an interactive AMP version" }));
+  await shot(page, AREA, "05-amp-offer", { clip: amp, pad: 8 });
+  await clearHighlights(page);
   await page.getByRole("tab", { name: "Rich text" }).click();
 
   await page.getByRole("button", { name: "Save template" }).click();
@@ -146,6 +152,7 @@ async function templates(page, context, contact) {
   await page.getByLabel("Template name").fill(SMS_NAME);
   await page.getByLabel(/^Message/).fill('Hi {{contact.first_name | default:"there"}}, Diwali sale: 20% off everything until Sunday. Shop now: https://shop.example.com/diwali');
   await page.getByLabel(/^Sender ID/).fill("ACMEIN");
+  await page.getByLabel(/^DLT template ID/).fill("1107161234567890123");
   await page.getByRole("checkbox", { name: /Track link clicks/ }).check();
   await settle(page);
   await shot(page, AREA, "05-sms", { clip: { x: 0, y: 0, width: 1440, height: 760 } });

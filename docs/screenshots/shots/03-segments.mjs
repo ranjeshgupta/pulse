@@ -123,7 +123,7 @@ async function builder(context, page) {
   await shot(page, AREA, "03-segment-saved", { clip: top(300) });
   await clearHighlights(page);
   await view.click();
-  await page.waitForURL(/\/contacts\?q=segment/);
+  await page.waitForURL(/\/contacts\?q=in/);
   await page.getByText(/^\d+ contacts?$/).waitFor();
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "03-view-contacts", { clip: top(420) });

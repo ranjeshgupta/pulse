@@ -1,9 +1,10 @@
 # Tutorial 4: Channels
 
-In about 20 minutes you will see where each kind of message goes out, connect a provider for email,
+In about 30 minutes you will see where each kind of message goes out, connect a provider for email,
 SMS, WhatsApp, RCS and push, check it with a test send, and set the rules that protect your contacts
 and your sender reputation: frequency caps, quiet hours, reply keywords, bounce handling and reply
-tracking.
+tracking. At the end you set up the web push prompt that asks your website's visitors to get
+notifications.
 
 **You need:** a workspace where you are an **Admin** (tutorial 1). Only admins can add providers, send
 provider tests and change delivery rules; editors and viewers see the page read-only. Nothing in this
@@ -13,11 +14,12 @@ tutorial needs a real provider account: Pulse has a **sandbox** provider for eve
 
 ## 1. Open the Channels page
 
-Go to **Settings → Channels** (under *Delivery*). There is one panel per channel: **Email**, **SMS**,
-**WhatsApp**, **RCS** and **Push**, then **App inbox**, **Delivery rules**, **Bounces and complaints**
-and **Bounce mailbox (IMAP)**.
+Go to **Settings → Channels** (under *Delivery*). A **provider** is the service that delivers your
+messages: an SMTP server, an SMS gateway, WhatsApp. There is one panel per channel: **Email**,
+**SMS**, **WhatsApp**, **RCS** and **Push**, then **App inbox**, **Test contacts**, **Delivery
+rules**, **Bounces and complaints** and **Bounce mailbox (IMAP)**.
 
-![Settings → Channels: the Email panel (using the server's SMTP relay) and SMS, WhatsApp and RCS each with a Sandbox provider marked Default](img/04-channels.png)
+![Settings → Channels: the page's explanation, the Email panel (using the server's SMTP relay) with Add provider highlighted, and SMS and WhatsApp each with a Sandbox provider marked Default](img/04-channels.png)
 
 Each provider row shows:
 
@@ -25,15 +27,16 @@ Each provider row shows:
 |---|---|
 | Name, and the kind of provider under it | e.g. **Sandbox** / *Sandbox (test inbox)* |
 | **Default** or **Standby** | Every message on that channel goes through its default provider. A standby provider is saved but unused until you make it the default |
-| **Delivery reports:** a URL | This provider's Pulse webhook URL. Give it to the provider for delivery receipts and incoming replies |
-| **Send test**, **Edit** | Check the connection (step 7); change the settings or **Remove** the provider |
+| Limits and today's count | e.g. *20/s · 1 of 5,000 today*, or *No limits* (step 9) |
+| **Delivery reports (give this address to the provider):** a URL | This provider's Pulse webhook URL. Give it to the provider for delivery receipts and incoming replies |
+| **Limits**, **Send test**, **Edit** | Sending limits (step 9); check the connection (step 7); change the settings or **Remove** the provider |
 
 What happens when a channel has no provider:
 
 - **Email** says *Using the server's SMTP relay*: Pulse sends through the mail server its operator set
   up (`PULSE_SMTP_ADDR`). On the local Docker stack that is Mailpit, so every email lands at
   `http://localhost:18025`. Add a provider to send through your own.
-- **SMS, WhatsApp, RCS, Push**: journey and broadcast steps on that channel fail with *no provider
+- **SMS, WhatsApp, RCS, Push**: messages on that channel in campaigns fail with *no provider
   configured*.
 
 > The docs workspace in these pictures already has sandbox providers for SMS, WhatsApp, RCS and push
@@ -43,42 +46,61 @@ What happens when a channel has no provider:
 ## 2. Add a provider
 
 1. In the channel's panel, click **Add provider**.
-2. Pick a **Provider** (the choices are in the table below). The line under it says what it does.
+2. Pick a **Provider** (the choices are in the table below). The line under it says what it does, and
+   some providers show a blue note with what to set up at the provider.
 3. **Name in Pulse**: how it is listed, e.g. `Amazon SES (Mumbai)`. Empty means the provider's name.
 4. Fill in its settings. Fields marked *(optional)* can stay empty. Secret fields (passwords, tokens,
-   keys) are **stored encrypted and never shown again**; when you edit the provider later, leave them
-   empty to keep the saved value.
+   keys) are **stored encrypted and never shown again**.
 5. **Use for all <channel> messages** (ticked by default) makes it the channel's default. Untick it to
    save it as a standby.
-6. Click **Save provider**. New sends use it within 30 seconds.
+6. Click **Save provider**. You see *Provider saved. New sends use it within 30 seconds.*
 
 The provider and channel can't be changed after saving. To switch provider, add the new one as the
 default (or edit the old one and **Remove** it).
 
+The list offers the usual services first, then **Custom HTTP gateway**, then **Sandbox (test inbox)**:
+
 | Channel | Providers |
 |---|---|
-| Email | **SMTP**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
-| SMS | **Twilio**, **MSG91**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
-| WhatsApp | **Meta WhatsApp Cloud API**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
-| RCS | **Google RCS Business Messaging**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
+| Email | **Gmail (SMTP)**, **Google Workspace (SMTP)**, **Google Workspace SMTP relay**, **SMTP**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
+| SMS | **Gupshup SMS (Enterprise)**, **MSG91**, **Twilio**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
+| WhatsApp | **Gupshup WhatsApp**, **Meta WhatsApp Cloud API**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
+| RCS | **Google RCS Business Messaging**, **Gupshup RCS**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
 | Push | **Firebase Cloud Messaging**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
 
-The real adapters (Twilio, MSG91, Meta, Google RBM, FCM) are tested against recordings of those
-APIs, not yet against live accounts. Try your first send with a test number.
+The real connections are tested against recordings of those services' APIs, not against live
+accounts; the Gupshup ones say so on the form. Try your first send with a test number.
+
+Some providers start with **sending limits** (step 9): the form says so, e.g. *Starts with a daily
+quota of 500 and 1 messages a second; change it under Limits.* Others start with the workspace's
+default limits for the channel, set on **Settings → Automation & limits** (tutorial 11), or none.
+
+**Editing a provider later.** Leave a secret field empty to keep its saved value; type in a field to
+replace just that secret. To protect saved passwords, Pulse asks for **every secret again** when you
+change a setting that decides where or how they are sent:
+
+- If you change an address's host (a URL, an SMTP host), the form warns *An endpoint's host changed:
+  the saved secrets will be cleared, so enter every secret again.*
+- If you change another such setting (a URL's path, a port, a user name, the authentication or
+  request settings), saving says *the authentication or request settings changed: enter every secret
+  again to save them*.
+
+Sender names and numbers, pool sizes and DLT IDs can change without the secrets.
 
 ### Email: SMTP
 
-**SMTP** works with any SMTP relay: Amazon SES SMTP, SendGrid, Postmark, Mailgun, your own mail
-server.
+**SMTP** works with any SMTP relay: Amazon SES SMTP, SendGrid, Postmark, Mailgun, SparkPost, your
+own mail server.
 
 | Field | Example |
 |---|---|
 | **Host** | `email-smtp.ap-south-1.amazonaws.com` |
 | **Port** | `587` |
 | **From address** | `Acme Retail <hello@acme-retail.example.com>`: the sender every email shows |
+| **Sending service (for delivery reports) (optional)** | Empty works it out from the host: `sendgrid`, `mailgun`, `postmark`, `ses`, `sparkpost`, or `other`. Pulse marks each email in the way that service expects, so its delivery reports, bounces and complaints are matched to the campaign that sent the email |
 | **Username (optional)**, **Password (optional)** | The relay's SMTP credentials (for SES, the SMTP user, not your AWS keys) |
 
-<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP with host, port 587 and a From address filled in; username and password empty" width="420">
+<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP with host, port 587 and a From address filled in, the optional connection settings and Sending service" width="420">
 
 Two optional fields tune how Pulse talks to the relay. Each Pulse server keeps a pool of open
 connections to it (TLS stays on: STARTTLS whenever the server offers it, and implicit TLS on port
@@ -89,8 +111,50 @@ connections to it (TLS stays on: STARTTLS whenever the server offers it, and imp
 | **Max connections** | 4 | Open connections per Pulse server (1 to 50). Ask your relay how many it allows |
 | **Messages per connection** | 100 | Emails sent on one connection before it is closed and a new one opened (1 to 10,000) |
 
+A plain SMTP relay tells Pulse about bounces but not about deliveries, so campaign reports show
+**Delivered** as "—" (*not reported by this provider*) for it. Sending services (SendGrid, Mailgun,
+Postmark, Amazon SES, SparkPost) report deliveries through their webhook (step 5).
+
 > Before sending to real people, set up SPF, DKIM and DMARC for the From domain at your email
-> service, and point its bounce webhook at Pulse (step 5).
+> service, and point its webhook at Pulse (step 5).
+
+### Email: Gmail and Google Workspace
+
+For small volumes from a Google account:
+
+| Provider | Starts with | Use it for |
+|---|---|---|
+| **Gmail (SMTP)** | 500 a day, 1 a second | A personal Gmail account |
+| **Google Workspace (SMTP)** | 2,000 a day, 2 a second | A Workspace account (your company's Google mail) |
+| **Google Workspace SMTP relay** | 10,000 a day | Workspace's relay for applications, set up by your Google admin |
+
+Google limits how many people an account may email a day, and Pulse sets that as the provider's
+daily quota. Bulk mail belongs on the Workspace relay or a sending service (SES, SendGrid, Postmark).
+
+<img src="img/04-add-gmail.png" alt="Add Email provider: Gmail (SMTP) with the note about Google's daily limit, Starts with a daily quota of 500 and 1 messages a second, the Google account, From address, Port 587 (STARTTLS, recommended) and Sign in with An app password (simplest)" width="420">
+
+For **Gmail (SMTP)** and **Google Workspace (SMTP)**:
+
+1. **Google account (sign-in email)** and **From address** (the account's own address, or an alias
+   added to it in Gmail settings).
+2. **Port**: **587 (STARTTLS, recommended)** or **465 (TLS)**.
+3. **Sign in with**:
+   - **An app password (simplest)**: in your Google account, turn on 2-step verification, create an
+     app password (16 characters) and paste it in **App password (app password only)**.
+   - **A Google OAuth client (for IT teams)**: your IT team creates an OAuth client with access to
+     Gmail (`https://mail.google.com/`) and gives you the **OAuth client ID (OAuth client only)**,
+     **OAuth client secret (OAuth client only)** and **OAuth refresh token (OAuth client only)**. Click
+     **Test connection** to check that Pulse gets a token from Google.
+4. Save, then check the account with **Send test** (step 7).
+
+For **Google Workspace SMTP relay**, your Google admin first turns on the relay (Google Admin
+console → Apps → Google Workspace → Gmail → Routing → SMTP relay service), allowing your Pulse
+server's IP address or SMTP sign-in. Then fill in the **From address** (an address in your Workspace
+domain), **Your domain (sent in EHLO)** (needed when the relay allows you by IP address), the
+**Port** (587, 465 or 25) and, only with SMTP sign-in, **SMTP auth user** and **SMTP auth
+password**.
+
+None of the three report deliveries to Pulse (like any plain SMTP relay).
 
 ### SMS: Twilio or MSG91
 
@@ -102,6 +166,26 @@ connections to it (TLS stays on: STARTTLS whenever the server offers it, and imp
 <img src="img/04-add-msg91.png" alt="Add SMS provider: MSG91 with a flow template ID and sender ID ACMEIN, saved as standby" width="420">
 
 A template's own **Sender ID** (tutorial 5) overrides the provider's.
+
+### SMS, WhatsApp and RCS: Gupshup
+
+| Provider | Settings |
+|---|---|
+| **Gupshup SMS (Enterprise)** | **API URL** (keep the default), **Sender ID (DLT header)**, **DLT principal entity ID**, **Default DLT template ID** (used only when an SMS template has no DLT template ID of its own), **User ID (Enterprise account number)**, **Password**, **Webhook token** |
+| **Gupshup WhatsApp** | **Source number (your WhatsApp business number)** (digits with the country code, no +), **App name (src.name)**, **API URL**, **API key**, **Webhook token**. A Pulse WhatsApp template's **Approved template name** is the Gupshup template ID |
+| **Gupshup RCS** | **API URL**, **User ID (Enterprise account number)**, **Password**, **Webhook token** |
+
+Every SMS sent in India needs a DLT-registered sender and template: set the **DLT template ID
+(India)** on each SMS template (tutorial 5), or a default here.
+
+The **Webhook token** is any long random string you make up. Pulse refuses delivery reports and
+replies that don't carry it. At Gupshup, register the provider's **Delivery reports** address (you
+get it after saving) with `?token=<your webhook token>` at the end; for SMS, that is the Realtime
+Delivery URL (Settings → Advanced Account Settings), as a POST.
+
+Gupshup's addresses and fields come from its public documentation and were tested against
+recordings only: confirm them with your Gupshup account manager before the first real campaign. Set
+the provider's **Limits** to the speed Gupshup confirms for your account.
 
 ### WhatsApp: Meta WhatsApp Cloud API
 
@@ -136,44 +220,24 @@ its device tokens with the Pulse mobile SDKs.
 
 ### Web push: no provider needed
 
-Browsers subscribe with standard Web Push, signed with your workspace's own **VAPID keys**. Pulse
-creates the key pair the first time a browser asks for it; there is nothing to set up on this page and
-no Firebase project.
-
-1. Install the web SDK (tutorial 1, step 6).
-2. Serve a file called `/pulse-sw.js` from your site's root containing one line:
-
-   ```js
-   importScripts("http://localhost:7080/sdk/pulse-sw.js");
-   ```
-3. Call `Pulse.enablePush()` from a click (browsers only show the permission prompt after a user
-   action):
-
-   ```js
-   document.querySelector("#notify-me").addEventListener("click", async () => {
-     const ok = await Pulse.enablePush();   // true when this browser is subscribed
-   });
-   ```
-   Use `Pulse.enablePush({ serviceWorker: "/path/to/worker.js" })` if the worker lives elsewhere.
-
-Push messages to subscribed browsers then go out through Web Push even when the Push channel has no
-provider, and the service worker reports clicks and dismissals (`push_clicked`, `push_dismissed`).
+Browsers subscribe with standard Web Push, signed with your workspace's own keys, which Pulse creates
+by itself: there is no provider to add and no Firebase project. Push messages to subscribed browsers
+go out through Web Push even when the Push channel has no provider. Asking visitors and checking your
+site are on **Settings → Web push** ([step 11](#11-web-push-ask-visitors-and-check-your-site)).
 
 ### Any other gateway: Custom HTTP gateway
 
-For an SMS aggregator or in-house service Pulse has no adapter for, pick **Custom HTTP gateway** on
-any channel:
+For a provider Pulse has no ready-made connection for, pick **Custom HTTP gateway** on any channel.
+**How Pulse calls your gateway** has two choices:
 
-- **Endpoint URL**: Pulse POSTs each rendered message there as JSON.
-- **Signing secret (we sign each request with it)**: every request is signed like Pulse's outgoing
-  webhooks, so your endpoint can check it came from Pulse.
-
-<img src="img/04-add-gateway.png" alt="Add SMS provider: Custom HTTP gateway with an endpoint URL and an empty signing secret" width="420">
-
-Your endpoint answers 2xx to accept (optionally `{"id": "..."}` to match receipts later), 404 or 410
-when the recipient can't be reached, another 4xx for a permanent failure; 429 and 5xx are retried.
-Receipts go back to the provider's Pulse webhook URL as `{"id", "status": "delivered" | "failed" |
-"read"}`. The developer docs describe the payload.
+- **My own request (method, address, headers, body)**: you describe the provider's own API (the
+  request, how Pulse logs in, how its delivery reports look), without any code.
+  [Tutorial 16](16-connecting-any-provider.md) walks through it, with **Test connection** and
+  **Preview request**.
+- **Pulse's standard request (signed JSON)**: Pulse posts each message as JSON to the **Endpoint URL**
+  and signs it with the **Signing secret (we sign each request with it)**. Use it when your developers
+  build a small gateway for Pulse; the developer docs describe the format. The **Authentication**
+  box adds a sign-in on top if the gateway needs one.
 
 ### Sandbox (test inbox)
 
@@ -209,25 +273,26 @@ The **Delivery rules** panel holds the workspace's sending limits. Templates mar
    channel. Case and punctuation don't matter, so `Stop.` counts. Defaults: `STOP, BAND, UNSUBSCRIBE,
    CANCEL, END, QUIT, OPTOUT` and `START, UNSTOP, SUBSCRIBE, OPTIN`. For this to work, point the
    provider's incoming-message webhook at its **Delivery reports** URL.
-4. **Reply tracking address** (optional), e.g. `replies@inbound.example.com`: journey emails use it as
-   their Reply-To, so a journey's **Replies to email** decision can see who answered. Point that
-   domain's MX at your email provider's inbound parse, and its webhook at the **Reply webhook URL**
-   (step 5).
+4. **Reply tracking address** (optional), e.g. `replies@inbound.example.com`: emails from triggered
+   and automation campaigns use it as their Reply-To, so a **Replies to email** decision can see who
+   answered. Point that domain's MX at your email provider's inbound parse, and its webhook at the
+   **Reply webhook URL** (step 5).
 5. Click **Save delivery rules**. They apply within 30 seconds.
 
 ## 5. Handle bounces and complaints
 
-The **Bounces and complaints** panel shows your workspace's bounce webhook URL and, below it, the
-**Reply webhook URL**. Click **Copy** and paste the bounce URL into your email service:
+The **Bounces and complaints** panel shows your workspace's email webhook URL and, below it, the
+**Reply webhook URL**. Click **Copy** and paste the first URL into your email service:
 
-![Bounces and complaints: the bounce webhook URL and the reply webhook URL (their secret ends hidden), the services it works with, and what each kind of bounce does](img/04-bounces.png)
+![Bounces and complaints: the webhook URL and the reply webhook URL (their secret ends hidden), the services it works with, and what each kind of bounce does](img/04-bounces.png)
 
 | Service | Where |
 |---|---|
-| SendGrid | Event Webhook |
-| Postmark | Bounce and Spam Complaint webhooks |
-| Mailgun | Permanent Failure, Temporary Failure and Spam Complaint webhooks |
+| SendGrid | Event Webhook (with the Delivered, Bounced, Dropped, Deferred and Spam Reports events) |
+| Postmark | Bounce, Spam Complaint and Delivery webhooks |
+| Mailgun | Delivered, Permanent Failure, Temporary Failure and Spam Complaint webhooks |
 | Amazon SES | An SNS topic with an HTTPS subscription to the URL; Pulse confirms the subscription for you |
+| SparkPost | Bounce, Out of Band, Spam Complaint and Delivery events |
 | Anything else | POST JSON like `{"email": "…", "type": "hard"}` (or a list); `type` is `hard`, `soft` or `complaint` |
 
 What Pulse does with each:
@@ -236,9 +301,44 @@ What Pulse does with each:
   email is sent to them.
 - **Soft bounce** (a full inbox): recorded as an `email_bounced` event; email keeps going.
 - **Complaint** (marked as spam): the contact is unsubscribed from email.
+- **Delivered** (from the sending services): recorded as `email_delivered`.
+
+Each report is matched to the exact email it is about (Pulse marks every email it sends), so
+bounces, complaints and deliveries count in that campaign's report, with the reason
+([tutorial 15](15-delivery-and-dashboards.md)). Bounces from before this matching existed stay
+unmatched: they update the contact but don't show in a campaign. If the panel says *Reports can't be
+matched to the messages they're about*, ask your server administrator to set a secret key
+(`PULSE_SECRET_KEY`).
 
 > Treat both URLs like passwords: anyone who has them can report bounces or replies for your
 > workspace.
+
+### Webhook signatures
+
+Below the services, **Webhook signatures** makes Pulse check that each report really comes from
+your email service. The **Checked** column shows the state per service:
+
+![Webhook signatures: SendGrid and Mailgun URL secret only, Amazon SES Signature checked, Postmark, SparkPost and other posts URL secret only, with the key fields and Save keys](img/04-webhook-signatures.png)
+
+| Service | What to enter |
+|---|---|
+| **SendGrid** | **Signed Event Webhook verification key**: the public key SendGrid shows when you turn on the signed Event Webhook |
+| **Mailgun** | **HTTP webhook signing key**: Mailgun → Sending → Webhooks |
+| **Amazon SES** | Nothing: every SNS notification's signature is always checked |
+| **Postmark, SparkPost and other posts** | A **Basic auth user** and **Password** (at least 12 characters), which you then put in the webhook URL at the service: `https://user:<password>@…/v1/bounces/…` |
+
+Click **Save keys**. Keys are never shown again; leave a field empty to keep what is saved, or
+**Remove** a key.
+
+| Checked | Means |
+|---|---|
+| **Signature checked** | Posts must carry this service's valid signature |
+| **Password checked** | Posts must carry the basic auth user and password |
+| **URL secret only** | No key yet: anyone who learns the URL can post reports |
+| **Refused** | Another service's key is saved, so posts in this format, which nothing checks, are refused. Save its key, or a basic auth password |
+
+Once you save any key, **every** report must pass a check, so set up each service you use before
+saving the first key.
 
 ### No bounce webhook? Use a bounce mailbox
 
@@ -357,7 +457,7 @@ yourself, your team, a QA phone.
 
 <img src="img/04-test-contact-add.png" alt="Add a test contact: Nina (marketing), nina@acme-retail.test, +919812399003" width="420">
 
-In **Send a test** (template editor, journey steps, broadcasts and the campaign wizard), choose one
+In **Send a test** (the template editor, campaign steps, one-time campaigns and the campaign wizard), choose one
 under **Send to**. A test contact without an address for the template's channel is greyed out. You can
 still pick a sample trigger event (tutorial 13).
 
@@ -369,13 +469,77 @@ it skip consent: admins keep that list, and everyone who checks messages sends t
 limited to 30 a minute per workspace, and each one is in the audit log. A browser push token must be a
 subscription from a browser push service (Chrome, Firefox, Safari, Edge).
 
+## 11. Web push: ask visitors and check your site
+
+Go to **Settings → Web push** (under *Delivery*). It works with the website snippet you already
+have (tutorial 1): no code beyond one small file on your site. Web push needs a secure (https)
+site; on iPhone and iPad, visitors must first add your site to their home screen. Changing it needs
+edit access to channels.
+
+### The opt-in prompt
+
+Browsers allow one question about notifications, and a visitor who says no there can't be asked
+again. So Pulse first shows your own friendly message; the browser's question opens only when the
+visitor clicks your **Allow** button.
+
+![The Opt-in prompt panel switched On: style Pop-up, title Never miss a sale, the message, Yes, notify me and Not now buttons, colours, After 10 seconds, ask again after 7 days, never on /checkout, and the live preview of the pop-up](img/04-web-push-prompt.png)
+
+1. Turn the prompt on with the switch at the top right (**On** / **Off**).
+2. **Look**: the **Style**: **Bell** (a small round bell in a corner; the message opens when it's
+   clicked), **Bar** (a slim strip across the top or bottom of the page) or **Pop-up** (a box in the
+   middle of the page over a dimmed background), and **Where** for the bell and the bar. Then the
+   **Title** (optional, up to 60 characters), the **Message** (up to 300: say what visitors will get
+   and how often), the **Allow button** and **Not now button** labels, and the **Background**,
+   **Text** and **Button** colours. The **Preview** on the right shows it as you type.
+3. **When it appears**: **After** so many seconds on the page (default 5), **Scrolled at least** a
+   percentage of the page, and **Pages seen** in this visit. The line under them sums it up, e.g.
+   *After 10 seconds.*
+4. **If the visitor clicks "Not now"**: **Ask again after** a number of days (default 7) or **Never
+   ask again**. Visitors who already allowed or blocked notifications never see it.
+5. **Pages**: **Only on pages whose address contains** (empty: every page) and **Never on pages whose
+   address contains** (e.g. `/checkout`), each with **Add**.
+6. Click **Save** at the bottom of the page. Your site picks up the change on the next page a
+   visitor opens.
+
+With the prompt off, visitors are only asked if your site calls `Pulse.enablePush()` itself (the
+developer docs show how).
+
+### The install check
+
+Web push needs two things on your site: the website snippet on its pages, and one small file, the
+**service worker**, at the address in **Service worker file** (`/pulse-sw.js` unless your web team
+put it elsewhere). The panel shows the line that file holds, with **Copy**; give it to your web team.
+
+**Check my site**: enter **Your site's address** (e.g. `https://www.example.com/`) and click
+**Check my site**. Pulse opens the page from its server and reports each part, with **What to do**
+for anything that's wrong:
+
+<img src="img/04-web-push-check.png" alt="Check my site for https://www.example.com/: 3 problems to fix; HTTPS and the site opening OK; the snippet, the site key and the service worker file each a Problem with what to do; It loads Pulse's worker not checked; web push keys OK" width="460">
+
+Only public https sites can be checked this way, at most 10 checks a minute.
+
+**Check in my browser** tests a real browser, the way your visitors see the site. Save your site's
+address first, then click **Check in my browser**: Pulse makes a one-off check link (it works for 30
+minutes). Click **Open my site**, or open the link on another device, such as a phone. The website
+snippet on that page tests the browser and reports back; the panel shows the result after a few
+seconds:
+
+<img src="img/04-web-push-browser.png" alt="Check in my browser: the check link with Open my site, and the report: Your browser found 3 problems (notifications blocked, the service worker doesn't load Pulse's worker, the opt-in prompt is off) and a list of facts with Yes, Blocked, Off and Not yet" width="460">
+
+The report covers a secure page, browser support, the site key, whether notifications are allowed or
+blocked for the site, the service worker, the opt-in prompt, whether this browser is subscribed, and
+whether the visitor is signed in. In the picture the check ran on one of the workspace's landing
+pages, which has the snippet but no service worker.
+
 ## What you have now
 
 - A provider (or the sandbox) on every channel you use, checked with a test send
 - Sending limits on providers that have them, and test contacts for everyone who checks messages
 - Delivery rules: caps, quiet hours, reply keywords and reply tracking
-- Bounces and complaints flowing back from your email service
+- Bounces, complaints and deliveries flowing back from your email service, with checked signatures
 - The test inbox, for trying everything without messaging anyone
+- A web push prompt and a site that passes the install check
 
-**Next:** Tutorial 5, Templates and content: write the messages these channels send, and the landing
-pages, forms and files around them.
+**Next:** [Tutorial 5, Templates and content](05-templates-and-content.md): write the messages these
+channels send, and the landing pages, forms and files around them. For a provider without a
+ready-made connection, see [tutorial 16](16-connecting-any-provider.md).

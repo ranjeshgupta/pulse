@@ -3,7 +3,7 @@
 In about 25 minutes you will see which events your website, apps and servers send, describe them
 with a **schema** (which properties each event carries, and of what type), send events with
 properties from a web page and from a server, find events that don't fit, and use the properties in
-segments and journeys.
+segments and triggered campaigns.
 
 **You need:** a workspace that receives events (tutorial 1 connects a website), and access to edit
 contacts (the **Admin** or **Editor** role) to change schemas. Turning on **Enforce**, and changing
@@ -19,7 +19,7 @@ Pulse records any event and any properties you send, without setup. A `purchase`
 product, the order value, the payment method and a list of items. Describing the event with a schema
 adds three things:
 
-- **Typed filters.** Segments and journeys know that `value` is a number, `payment_method` is one of
+- **Typed filters.** Segments and campaigns know that `value` is a number, `payment_method` is one of
   `upi`, `card`, `netbanking`…, and `items[].product_code` is text in each item, so they offer the
   right comparisons and a drop-down of allowed values.
 - **Checks.** Events that don't fit (a missing order ID, a value sent as text) are counted and shown
@@ -37,15 +37,15 @@ A schema has one of three **Checking** modes:
 
 ## 2. The Events page
 
-Go to **Audience → Events**. Every event sent in the last 30 days (and every described event) is
-listed, busiest first:
+Go to **Audience → Events**. Every event sent in the last 30 days (today and the 29 whole days before
+it, in UTC) and every described event is listed, busiest first:
 
 ![Audience → Events: each event with its volume over 30 days, contacts, last seen, schema mode and problems in the last 7 days, and the Add suggested events button highlighted](img/12-events-list.png)
 
 | Column | What it shows |
 |---|---|
 | **Event** | The name your code sends, and the label from its schema (e.g. **Purchase**). Click it to open the event |
-| **Last 30 days** | How many events, and from how many contacts |
+| **Last 30 days** | How many events, and from how many contacts. Click the number of contacts to list them ([tutorial 18](18-contacts-behind-a-number.md)) |
 | **Last seen** | When the latest one arrived |
 | **Schema** | **Not described**, **Off**, **Warn** or **Enforce**, and how many properties the schema describes |
 | **Problems (7 days)** | For checked events: how many of the events in the last 7 days didn't fit, e.g. **1 of 19 events** |
@@ -79,7 +79,7 @@ event**.
 
 **Volume** shows a bar per day for the last 30 days (days in UTC), the total, and the busiest day:
 
-![The purchase event: Warn, Purchase · An order was paid for, the four tabs, and the Volume chart with 400 events in the last 30 days](img/12-event-volume.png)
+![The purchase event: Warn, Purchase · An order was paid for, the four tabs, and the Volume chart with 397 events in the last 30 days](img/12-event-volume.png)
 
 **Properties** lists what the latest events (up to a few hundred) actually carried, next to what the
 schema describes:
@@ -106,7 +106,7 @@ schema) or **Start from the N properties seen** (one property per path seen in r
 
 ![About this event for signup: Label Sign-up, Description Someone created an account, Checking Off / Warn / Enforce with Warn chosen](img/12-schema-about.png)
 
-- **Label**: how the event is named in segments, journeys and reports, e.g. `Sign-up`.
+- **Label**: how the event is named in segments, campaigns and reports, e.g. `Sign-up`.
 - **Description**: one line for your team.
 - **Checking**: **Off**, **Warn** or **Enforce** (section 8). The line under it explains the mode.
 
@@ -226,7 +226,7 @@ Tips:
 
 Open the **Problems** tab. It covers the events checked in the last 14 days (counted on the day Pulse received them):
 
-![Problems for purchase: 36 checked in 14 days, 1 with problems (3%), 0 refused, and the By day table](img/12-problems.png)
+![Problems for purchase: 38 checked in 14 days, 5 with problems (13%), 0 refused, and the By day table](img/12-problems.png)
 
 - **Checked, 14 days**, **With problems** (and the share of checked events), **Refused** (only in
   Enforce mode, by the server API).
@@ -237,7 +237,7 @@ Open the **Problems** tab. It covers the events checked in the last 14 days (cou
   type: value should be a number*), and **Properties sent** to see the event's properties
   (personal properties are removed).
 
-![Most common problems: value, wrong type, 1 event; and the latest event with a problem, from cust-0123: value should be a number](img/12-problem-samples.png)
+![Most common problems: order_id missing, value missing, value wrong type, with how many events each; and the latest events with problems: value and order_id missing](img/12-problem-samples.png)
 
 Fix the sending code, and watch the next days' rows go back to zero. In **Off** mode this tab says
 **Checks are off**.
@@ -271,7 +271,7 @@ later, choose **Warn** and save.
 In a dynamic segment (tutorial 3), add **Did an event** and type the event name, here `purchase`.
 Then click **+ Only count events where…**:
 
-![A segment rule: purchase at least 1 time between two dates where items[].product_code is KIT-101; 10 contacts would match](img/12-segment-items.png)
+![A segment rule: purchase at least 1 time between two dates where items[].product_code is KIT-101; 9 contacts would match](img/12-segment-items.png)
 
 - **The property**: type it, or pick from the suggestions (the schema's properties with their
   labels, then others seen). Use a dotted path for nested values (`product.code`) and `items[].…`
@@ -295,13 +295,14 @@ A range that starts more than a year ago shows a note: it is checked by the peri
 few minutes) rather than the moment an event arrives. See
 [tutorial 3](03-segments.md#dates-and-periods) for date fields and more.
 
-## 10. Use properties to start journeys
+## 10. Use properties to start a triggered campaign
 
-A journey can start on an event only when its properties match (tutorial 6). On the **Start** step,
-choose **does an event**, type the **Event name**, and click **+ Only when the event's properties
-match…**. The rows work as in segments.
+A triggered campaign can start on an event only when its properties match (tutorial 6). Click
+**Campaigns → New campaign → React when someone does something**. On the **Start** step, **Start
+this campaign for a contact when they** is already **do something (an event)**: type the **Event
+name** and click **+ Only when the event's properties match…**. The rows work as in segments.
 
-<img src="img/12-journey-trigger.png" alt="The Start step: does an event checkout_abandoned, where payment_method is UPI (upi) and cart_value is at least 500" width="300">
+<img src="img/12-journey-trigger.png" alt="The Start step: do something (an event) checkout_abandoned, where payment_method is UPI (upi) and cart_value is at least 500" width="300">
 
 For example, a recovery message for UPI payments that failed on bigger carts: `checkout_abandoned`
 where `payment_method` **is** **UPI (upi)** and `cart_value` **is at least** `500`. Leave the rows
@@ -329,9 +330,9 @@ values (text, numbers, one of a list) can be added, and not to fields Pulse keep
 - Your events described: labels, typed properties, allowed values, a dependent property
 - Events sent with properties from the website and the server, and the problems they cause shown
 - A way to refuse bad server events with Enforce
-- Segments, journeys and contact lists that use event properties
+- Segments, campaigns and contact lists that use event properties
 
-Event properties also personalise messages: a journey started by `cart_abandoned` can say which
+Event properties also personalise messages: a triggered campaign started by `cart_abandoned` can say which
 product was left in the cart, in every message it sends (personal properties left out). See
 [Personalising messages](13-personalising-messages.md).
 

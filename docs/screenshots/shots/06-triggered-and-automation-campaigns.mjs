@@ -1,11 +1,11 @@
-// Screenshots for docs/tutorials/06-journeys.md.
-// Builds a "Welcome series" journey on the canvas step by step (Start → Send email → Opens email
+// Screenshots for docs/tutorials/06-triggered-and-automation-campaigns.md.
+// Starts a triggered campaign from Campaigns → New campaign and builds a "Welcome series" journey on the canvas step by step (Start → Send email → Opens email
 // → Wait → Contact segments → Send email, with Exit and tag steps on the other paths), saves it,
 // takes it live, sends one test contact through it from the SDK test page, shows the welcome
 // email in Mailpit and the per-step stats and report, then pauses it. The journey is left paused.
-// Then it shows the list's Delete / Archive buttons and Show archived (section 15).
+// Then it shows the Campaigns page's Delete / Archive buttons and the Archived status (section 15).
 // A rerun first deletes the "Welcome series" journeys earlier runs made, or archives the ones that
-// ran (never the seeded ones), so only this run's journey is in the list.
+// ran (never the seeded ones), so only this run's campaign is in the list.
 import { api, clearHighlights, go, highlight, runId, session, settle, shot, until } from "../lib.mjs";
 
 const AREA = "tutorials";
@@ -30,30 +30,48 @@ export default async function (browser) {
     }
   }
 
-  // 1. Campaigns → Journeys.
-  await go(page, "/journeys");
-  const newBtn = page.getByRole("link", { name: "New journey" });
+  // 1. Campaigns → Triggered tab → New campaign → React when someone does something.
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await go(page, "/campaigns?tab=trigger");
+  await page.locator("tbody tr").first().waitFor();
+  await settle(page, { quiet: 600 });
+  const newBtn = page.getByRole("button", { name: "New campaign" }).first();
   await highlight(newBtn);
-  await shot(page, AREA, "06-journeys-list", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
+  await shot(page, AREA, "06-campaigns-triggered", { clip: page.locator("main .page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
   await clearHighlights(page);
   await newBtn.click();
-  await page.waitForURL("**/journeys/new");
+  const goal = page.getByRole("dialog").getByRole("button", { name: /^React when someone does something/ });
+  await highlight(goal);
+  await shot(page, AREA, "06-new-goal", { clip: page.getByRole("dialog"), pad: 0 });
+  await clearHighlights(page);
+  await goal.click();
+  await page.waitForURL("**/journeys/new?start=event");
+  await page.setViewportSize({ width: 1440, height: 900 });
   await settle(page, { quiet: 800 });
-  await shot(page, AREA, "06-new-journey");
+  await shot(page, AREA, "06-new-campaign");
 
-  // 2. Name and trigger.
-  await page.getByLabel("Journey name").fill(NAME);
+  // 2. Name and what starts it.
+  await page.getByLabel("Campaign name").fill(NAME);
   const insp = page.locator("aside.inspector");
-  await insp.getByLabel("Start this journey when a contact").selectOption("event");
+  const kind = insp.getByLabel("Start this campaign for a contact when they");
+  await kind.selectOption("event");
   await insp.getByLabel("Event name").fill(EVENT);
   await settle(page);
   await shot(page, AREA, "06-trigger", { clip: insp.locator(".insp > .insp-head, .insp > label.field, .insp > h4"), pad: 4 });
-  // The third kind of trigger, for the table under it; then back to the event.
-  const kind = insp.getByLabel("Start this journey when a contact");
+  // The other two starts, for the table under it; then back to the event.
   await kind.selectOption("form_submitted");
   await insp.getByLabel(/^Form/).selectOption({ label: "Newsletter sign-up" });
   await settle(page);
   await shot(page, AREA, "06-trigger-form", { clip: insp.locator(".insp > .insp-head, .insp > label.field"), pad: 4 });
+  await kind.selectOption("segment_entered");
+  await insp.locator("label.field", { has: page.locator(":scope > span", { hasText: /^Segment$/ }) }).locator("select").selectOption({ label: "VIP customers" });
+  await insp.locator(".reach-box").waitFor();
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await settle(page, { quiet: 600 });
+  const ib = await insp.boundingBox();
+  const rb = await insp.locator(".reach-box").boundingBox();
+  await shot(page, AREA, "06-trigger-segment", { clip: { x: ib.x, y: ib.y, width: ib.width, height: rb.y + rb.height - ib.y + 8 } });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await kind.selectOption("event");
   await insp.getByLabel("Event name").fill(EVENT);
 
@@ -162,7 +180,7 @@ export default async function (browser) {
   await shot(page, AREA, "06-go-live", { clip: page.locator(".page-head"), pad: 8 });
   await clearHighlights(page);
   await live.click();
-  await page.getByText("This journey is live").waitFor();
+  await page.getByText("This campaign is live").waitFor();
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "06-live", { clip: page.locator(".page-head, .alert.info, .tabs"), pad: 8 });
 
@@ -176,11 +194,14 @@ export default async function (browser) {
   const me = await api(context, "GET", "/v1/auth/me");
   const test = await context.newPage();
   await go(test, `/sdk/demo.html?key=${me.workspace.site_key}`);
-  await test.evaluate(({ ext, email, event }) => {
+  await test.evaluate(({ ext, email }) => {
     Pulse.identify(ext, { email, first_name: "Meera", city: "Bengaluru" });
-    Pulse.track(event, { source: "footer" });
     Pulse.flush();
-  }, { ext, email, event: EVENT });
+  }, { ext, email });
+  // The sign-up event follows once the contact (with their email) is stored, as on a real site.
+  await until(async () => (await api(context, "GET", `/v1/contacts?q=${encodeURIComponent(ext)}&limit=1`)).contacts?.[0]?.email === email,
+    { what: "the test contact to arrive" });
+  await test.evaluate((event) => { Pulse.track(event, { source: "footer" }); Pulse.flush(); }, EVENT);
   await test.waitForTimeout(1500);
   await test.close();
 
@@ -211,11 +232,12 @@ export default async function (browser) {
   // The top of the canvas, where the test contact is.
   const cb = await page.locator(".journey-canvas").boundingBox();
   await shot(page, AREA, "06-stats", { clip: { x: cb.x, y: cb.y, width: cb.width, height: 800 } });
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize({ width: 1440, height: 2200 });
   await page.getByRole("tab", { name: "Report" }).click();
   await settle(page, { quiet: 2000 });
   await shot(page, AREA, "06-report", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 8 });
 
+  await page.setViewportSize({ width: 1440, height: 900 });
   // 15. Pause it (and leave it paused).
   await page.getByRole("tab", { name: "Steps" }).click();
   const pause = page.getByRole("button", { name: "Pause to edit" });
@@ -225,14 +247,17 @@ export default async function (browser) {
   await pause.click();
   await until(async () => (await api(context, "GET", `/v1/journeys/${id}`)).status === "paused", { what: "the journey to pause" });
 
-  // 16. Delete or archive: the list's row buttons and Show archived (nothing is clicked).
-  await go(page, "/journeys");
+  // 16. Delete or archive: the Campaigns page's row buttons and the Archived status (nothing is clicked).
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await go(page, "/campaigns?tab=trigger");
   const row = page.locator("tbody tr", { hasText: NAME }).first();
+  await row.waitFor();
+  await settle(page, { quiet: 600 });
   await highlight(row.getByRole("button", { name: "Archive" }));
   const draftDelete = page.locator("tbody tr").getByRole("button", { name: "Delete" }).first();
   if (await draftDelete.count()) await highlight(draftDelete);
-  await highlight(page.getByLabel(/Show archived/));
-  await shot(page, AREA, "06-archive", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
+  await highlight(page.getByRole("combobox", { name: "Status" }));
+  await shot(page, AREA, "06-archive", { clip: page.locator("main .page > *").filter({ hasNot: page.locator(".toast") }), pad: 12 });
   await clearHighlights(page);
 
   // 17. M3: a send deadline on a step, then copy and paste steps (on screen only, not saved).

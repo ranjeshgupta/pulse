@@ -19,6 +19,7 @@ export default async function (browser) {
   await importCsv(context, page);
   await list(page);
   await profile(context, page);
+  await contactPage(context, page);
   await filters(page);
   await duplicates(page);
   await companies(page);
@@ -250,4 +251,25 @@ async function companies(page) {
   await page.getByText("Contacts at this company").waitFor();
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "02-company", { clip: top(page, 640) });
+}
+
+/** The full contact page of a seeded customer whose "Spring catalogue" email bounced. */
+async function contactPage(context, page) {
+  const bc = (await api(context, "GET", "/v1/broadcasts")).broadcasts.find((b) => b.name === "Spring catalogue");
+  if (!bc) throw new Error("no Spring catalogue campaign (run make docs-seed)");
+  const q = encodeURIComponent(`campaign:broadcast/${bc.id} outcome:hard_bounced`);
+  const who = (await api(context, "GET", `/v1/contacts?q=${q}&limit=5`)).contacts[0];
+  if (!who) throw new Error("no hard bounce for Spring catalogue");
+  const ext = encodeURIComponent(who.external_id);
+  await page.setViewportSize({ width: 1440, height: 1500 });
+  await go(page, `/contacts/${ext}`);
+  await page.getByRole("heading", { name: "Reachability" }).waitFor();
+  await page.locator(".cp-activity").waitFor();
+  await settle(page, { quiet: 1000 });
+  await shot(page, AREA, "02-contact-page", { clip: { x: 232, y: 0, width: 1440 - 232, height: 1100 } });
+  await page.getByRole("tab", { name: "Messages" }).click();
+  await page.locator("table.cp-messages tbody tr").first().waitFor();
+  await settle(page, { quiet: 800 });
+  await shot(page, AREA, "02-contact-messages", { clip: page.locator(".cp-main section.panel").first(), pad: 8 });
+  await page.setViewportSize({ width: 1440, height: 900 });
 }

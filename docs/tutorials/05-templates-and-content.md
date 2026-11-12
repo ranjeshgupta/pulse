@@ -12,7 +12,7 @@ Everything here lives under **Content** in the sidebar:
 
 | Page | Holds |
 |---|---|
-| **Message templates** | The content of every email, SMS, WhatsApp, RCS, push and app inbox message that journeys and broadcasts send |
+| **Message templates** | The content of every email, SMS, WhatsApp, RCS, push and app inbox message your campaigns send |
 | **Landing pages** | Hosted pages at `/p/<workspace>/<address>` |
 | **Forms** | Sign-up and contact forms: a hosted link, or embedded |
 | **Assets** | Files to download (openly or behind a form) and to attach to emails |
@@ -34,7 +34,7 @@ Every template has a **Template name** and a box at the top:
 > only for messages someone is waiting for. Consent still applies.
 
 The buttons at the top right are the same for every channel: **Preview as contact**, **Send a test**
-(after the first save), **Save template**, and **Delete** (journey steps that use a deleted template
+(after the first save), **Save template**, and **Delete** (campaign steps that use a deleted template
 fail to send).
 
 ## 2. Personalisation
@@ -46,19 +46,19 @@ Templates use **variables** in double braces, filled for each contact when the m
 | `{{contact.first_name}}` | Any contact field by its key (`city`, `phone_country`, your own fields from **Settings → Contact fields**) |
 | `{{contact.email}}`, `{{contact.external_id}}` | The contact's email address and ID |
 | `{{contact.first_name \| default:"there"}}` | A fallback when the field is empty; other formats: `upper`, `title`, `date`, `money`, `truncate:40`… |
-| `{{event.product_name}}` | A property of the event that started the journey (a cart's product) |
-| `{{campaign.name}}` | The journey's or broadcast's name |
+| `{{event.product_name}}` | A property of the event that started a triggered campaign (a cart's product) |
+| `{{campaign.name}}` | The campaign's name |
 | `{{links.unsubscribe}}`, `{{links.preferences}}` | Email only: the contact's unsubscribe link and preference center |
 
 Every templated field has a **{ } Variable** button that lists them and adds a default or a format;
 in the rich text editor the **Personalize…** menu does the same. Above the editor, choose what happens
 when a variable has no value: **leave it empty** (the default) or **don't send to that contact**.
-[Tutorial 13](13-personalising-messages.md) covers variables, formats, the event that started a
-journey and choosing the channel by rule.
+[Tutorial 13](13-personalising-messages.md) covers variables, formats, the **Trigger event for
+{{event.…}}** box beside it (the event that started a campaign) and choosing the channel by rule.
 
 > Templates written with the older Go template tags (`{{.Attrs.first_name}}`, `{{.Contact.Email}}`,
 > `{{.UnsubscribeURL}}`, `{{if …}}`) keep working, also next to variables. Mautic's
-> `{contactfield=first_name}` works only in a journey's **Update contact** step.
+> `{contactfield=first_name}` works only in a campaign's **Update contact** step.
 
 ## 3. Write an email
 
@@ -102,13 +102,24 @@ Pulse adds three things to every email when it is sent, so you don't have to:
   the List-Unsubscribe header mail apps use for their own unsubscribe button. If you place
   `{{links.unsubscribe}}` yourself, that's used instead.
 - **Open and click tracking**: every link goes through a signed tracking link, recorded as
-  `email_clicked`; opens are recorded as `email_opened`. Journeys, segments and reports use both.
+  `email_clicked`; opens are recorded as `email_opened`. Campaigns, segments and reports use both.
 - **A plain-text part**. Leave the **Plain text (auto)** tab empty and Pulse generates it from the HTML
   when sending (links become "text (url)"). To write your own, open the tab and click **Generate from
   HTML** to start from that text; **Clear (generate automatically)** goes back to automatic.
 
 **Attachments**: below the editor, choose a file you uploaded to **Assets** (step 9) and click
 **Attach**. Up to 10 files, 10 MB together, go with every email from this template.
+
+**An interactive AMP version (optional)**: below the editor, the **AMP version** panel adds a second
+version of the email in which people vote in a poll, fill in a form or swipe through pictures
+without leaving their inbox (in Gmail, Yahoo Mail and Mail.ru). Everyone else gets the normal email,
+which is always sent too.
+
+![The AMP version (optional) panel, with Add an interactive AMP version highlighted and I have AMP code](img/05-amp-offer.png)
+
+**Add an interactive AMP version** builds it from blocks; **I have AMP code** takes code your
+developers wrote. [Tutorial 17](17-interactive-amp-emails.md) shows both, with the check, the
+preview and the poll results.
 
 ## 4. Preview as a contact
 
@@ -153,10 +164,13 @@ Non-email templates show a phone preview beside the form, filled with sample val
    https://shop.example.com/diwali`. Under it Pulse counts characters and SMS parts (160 per SMS, or 70
    with characters outside the GSM alphabet such as emoji or Hindi).
 3. **Sender ID**: your registered header (e.g. `ACMEIN` for India DLT); empty uses the provider's.
+   For India, also fill in **DLT template ID (India)**: the ID this exact text is registered under on
+   the DLT portal (providers such as Gupshup send it with each message), and, if it differs from the
+   provider's, the **DLT principal entity ID**.
 4. Tick **Track link clicks**: links become short tracked links (about 40 characters, working for 30
    days), so "Clicked a link in an SMS" works in segments and reports.
 
-   ![A new SMS template: the message with a first-name variable and a link, sender ID ACMEIN, Track link clicks ticked, and the SMS preview with Hi Asha](img/05-sms.png)
+   ![A new SMS template: the message with a first-name variable and a link, sender ID ACMEIN, a DLT template ID, Track link clicks ticked, and the SMS preview with Hi Asha](img/05-sms.png)
 5. **Save template** and **Send a test** to `cust-0287`. Through the sandbox, it appears in
    **Settings → Test inbox** with the link shortened:
 
@@ -310,7 +324,7 @@ The submitter becomes a contact (or updates the existing one) right away, with `
 and `utm_source` on their profile and the `bulk-order` tag. Pulse keeps bots out with a hidden
 honeypot field, a minimum fill time (2 seconds; a submission that doesn't say when the form was
 shown counts as too fast) and a limit on submissions per IP address. To follow up automatically,
-start a journey on **submits a form** with this form ([tutorial 6](06-journeys.md#3-choose-the-trigger)).
+start a triggered campaign on **submits a form** with this form ([tutorial 6](06-triggered-and-automation-campaigns.md#3-choose-the-trigger)).
 
 ### Submissions
 
@@ -350,7 +364,7 @@ Visitors who open the download link (`http://localhost:7080/a/<key>`) see the fo
 <img src="img/05-asset-gated.png" alt="The gated download page: the title, description, the file name and size, and the Newsletter sign-up form" width="420">
 
 After they submit, the download starts through a link that works for 15 minutes, and their profile gets
-an `asset_downloaded` event (usable in journeys and segments). Open-link downloads are counted but
+an `asset_downloaded` event (usable in campaigns and segments). Open-link downloads are counted but
 anonymous. Files always download; they never open in the browser.
 
 ![Assets: the 2026 bulk price list, PDF, gated by Newsletter sign-up, with its download count](img/05-assets.png)
@@ -363,4 +377,4 @@ anonymous. Files always download; they never open in the browser.
   submission
 - A price list that people download after signing up
 
-**Next:** Tutorial 6, Your first journey: send these templates automatically, with waits and decisions.
+**Next:** [Tutorial 6, Triggered and automation campaigns](06-triggered-and-automation-campaigns.md): send these templates automatically, with waits and decisions.
