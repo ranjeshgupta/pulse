@@ -59,7 +59,9 @@ func (s *Server) audited(w http.ResponseWriter, r *http.Request, p model.Princip
 		return
 	}
 	var body []byte
-	if ct := r.Header.Get("Content-Type"); (strings.HasPrefix(ct, "application/json") || ct == "") && r.URL.Path != "/v1/imports" {
+	// Not recorded: import files, and /v1/account/* (two-step sign-in codes and passwords).
+	if ct := r.Header.Get("Content-Type"); (strings.HasPrefix(ct, "application/json") || ct == "") && r.URL.Path != "/v1/imports" &&
+		!strings.HasPrefix(r.URL.Path, "/v1/account/") {
 		body, _ = io.ReadAll(io.LimitReader(r.Body, maxBody))
 		r.Body = io.NopCloser(bytes.NewReader(body))
 	}

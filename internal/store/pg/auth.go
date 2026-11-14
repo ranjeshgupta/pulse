@@ -85,11 +85,13 @@ func (s *Store) RotateAPIKey(ctx context.Context, tenant int64, keyHash string) 
 
 // ---- users ----
 
-const userCols = `id, tenant_id, email, name, role, coalesce(password_hash, ''), coalesce(sso_subject, ''), created_at, last_login_at`
+// userCols ends with whether two-step sign-in is on (a user_two_factor row with a confirmed secret).
+const userCols = `id, tenant_id, email, name, role, coalesce(password_hash, ''), coalesce(sso_subject, ''), created_at, last_login_at,
+	EXISTS (SELECT 1 FROM user_two_factor f WHERE f.user_id = users.id AND f.secret_enc IS NOT NULL)`
 
 func scanUser(row pgx.Row) (model.User, error) {
 	var u model.User
-	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.SSOSubject, &u.CreatedAt, &u.LastLoginAt)
+	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.SSOSubject, &u.CreatedAt, &u.LastLoginAt, &u.TwoFactor)
 	u.SSO = u.SSOSubject != ""
 	u.Password = u.PasswordHash != ""
 	return u, notFound(err)
