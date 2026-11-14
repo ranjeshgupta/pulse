@@ -348,6 +348,7 @@ func (s *Server) listJourneys(w http.ResponseWriter, r *http.Request, tenant int
 			s.fail(w, err)
 			return
 		}
+		j.Problem = journeyProblem(j)
 		out[i] = row{j, st, ran[j.ID]}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"journeys": out})
@@ -363,7 +364,21 @@ func (s *Server) getJourney(w http.ResponseWriter, r *http.Request, tenant int64
 		s.fail(w, err)
 		return
 	}
+	j.Problem = journeyProblem(j)
 	writeJSON(w, http.StatusOK, j)
+}
+
+// journeyProblem runs the journey workers' own check (journey.ParseGraph) on a live journey's
+// saved steps: one that fails it is skipped by the workers, so the app says so instead of showing
+// it as running. Drafts and stopped journeys are checked when they're saved or started.
+func journeyProblem(j model.Journey) string {
+	if j.Status != "active" || j.ArchivedAt != nil { // what the workers load (ActiveJourneys)
+		return ""
+	}
+	if _, err := journey.ParseGraph(j.Graph); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func (s *Server) updateJourney(w http.ResponseWriter, r *http.Request, p model.Principal) {

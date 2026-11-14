@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -83,6 +84,8 @@ type Engine struct {
 	idx     atomic.Pointer[index]
 	// changed asks RunTimers for a refresh now (Notify).
 	changed chan struct{}
+	// invalid remembers the reason each skipped journey was last logged with (journey id → string).
+	invalid sync.Map
 	// changes records loaded versions for Announce (WatchChanges); nil without Redis.
 	changes atomic.Pointer[changeLog]
 }
@@ -109,9 +112,13 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	for _, j := range js {
 		g, err := ParseGraph(j.Graph)
 		if err != nil {
-			e.log.Error("skipping invalid journey", "journey", j.ID, "err", err)
+			// Logged once per journey and reason, not on every refresh; the app shows it too.
+			if prev, _ := e.invalid.Swap(j.ID, err.Error()); prev != err.Error() {
+				e.log.Error("skipping invalid journey", "journey", j.ID, "err", err)
+			}
 			continue
 		}
+		e.invalid.Delete(j.ID)
 		if ds, err := Decisions(j.SplitWinners); err != nil {
 			e.log.Error("ignoring invalid A/B winners", "journey", j.ID, "err", err)
 		} else {

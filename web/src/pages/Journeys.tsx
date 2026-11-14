@@ -294,6 +294,7 @@ function JourneyEditor() {
       <ErrorNote error={save.error ?? setStatus.error ?? existing.error} />
       {!isNew && <JourneyTags id={id!} tags={existing.data?.tags ?? []} />}
       {archived && <div className="alert info">This campaign is archived: it's hidden from Campaigns (choose the Archived status to see it) and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
+      {existing.data?.problem && <div className="alert error" role="alert"><strong>This campaign isn't running:</strong> {existing.data.problem}. Nobody moves through it until it's fixed: choose Pause to edit, change that step, then go live again.</div>}
       {locked && <div className="alert info">This campaign is live, so its steps are locked. Pause it to make changes; people already in it wait where they are.</div>}
       {!isNew && (
         <div className="tabs" role="tablist">

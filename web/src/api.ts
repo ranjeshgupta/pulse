@@ -335,6 +335,8 @@ export interface JourneyGraph {
 }
 export interface Journey {
   id: number; name: string; graph: JourneyGraph; status: "draft" | "active" | "paused"; start_at?: string; end_at?: string | null; stats?: Stats;
+  /** Set when it's live but its saved steps no longer pass the checks, so nobody moves through it. */
+  problem?: string;
   /** Automatic A/B winners by split step id. */
   split_winners?: Record<string, SplitDecision>;
   /** Archived journeys are hidden from the list; their enrollments and reports are kept. */
@@ -676,6 +678,8 @@ export type CampaignCategory = "one_time" | "trigger" | "automation";
 /** One line of the Campaigns hub: a broadcast (one-time) or a journey (trigger based, automation). */
 export interface CampaignRow {
   kind: "broadcast" | "journey"; id: number; name: string; category: CampaignCategory; channels: Channel[]; status: string; tags: string[];
+  /** A live journey the workers skip: why, and what to do. */
+  problem?: string;
   repeat?: Repeat; next_run_at?: string | null; start_at: string; end_at?: string | null;
   trigger?: "segment" | "event" | "form"; trigger_event?: string; segment_id?: number;
   /** Size of the audience segment now (broadcasts and segment journeys); null for trigger-based journeys. */

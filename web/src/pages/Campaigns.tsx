@@ -144,7 +144,10 @@ export function CampaignHub() {
                   </td>
                   <td className="small" title={CATEGORIES.find((c) => c.key === r.category)?.hint}>{CATEGORIES.find((c) => c.key === r.category)?.label}</td>
                   <td><div className="row" style={{ gap: 4 }}>{r.channels.length ? r.channels.map((c) => <ChannelLabel key={c} channel={c} />) : <span className="muted small">None yet</span>}</div></td>
-                  <td><Status value={r.status} /></td>
+                  <td>
+                    <Status value={r.status} />
+                    {r.problem && <div className="xs camp-problem" title={`Not running: ${r.problem}. Open it, choose Pause to edit and fix that step.`}>Not running: needs a fix</div>}
+                  </td>
                   <td className="small muted">{schedule(r)}</td>
                   <td className="num">{r.audience === null ? <span className="muted" title="Contacts start when they do the trigger">—</span> : <ContactCount live value={r.audience} filters={r.segment_id ? [["in", r.segment_id]] : null} />}</td>
                   <td className="num">{r.kind === "journey" && j ? <ContactCount live value={(st.active ?? 0) + (st.waiting ?? 0)} filters={[["journey", r.id], ["journey_status", "in_progress"]]} /> : <span className="faint">—</span>}</td>

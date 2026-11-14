@@ -67,6 +67,11 @@ access is missing.
 | **Paused** | A triggered or automation campaign stopped for editing; nobody new starts |
 | **Archived** | A triggered or automation campaign put away; hidden unless you filter by **Archived** |
 
+A live campaign can show **Not running: needs a fix** under **Live**. Its saved steps no longer pass
+Pulse's checks (for example a step that sets **stage** directly, which Pulse now only changes
+through its own steps), so nobody moves through it. Hover over the words for the reason; the
+campaign's page shows it in red. Choose **Pause to edit**, change that step, and go live again.
+
 ### Tabs, search and filters
 
 The tabs **All**, **One-time**, **Triggered** and **Automation** show one type each, with their

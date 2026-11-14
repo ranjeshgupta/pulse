@@ -914,7 +914,10 @@ nobody has entered (409 otherwise). One that has run is archived instead:
 `POST /v1/journeys/{id}/archive` (paused or draft only) hides it from the app's list and stops it
 going live (`activate` answers 409) while keeping its enrollments and reports;
 `POST /v1/journeys/{id}/unarchive` brings it back. `GET /v1/journeys` returns `archived_at` and
-`has_run` for each journey. A step with no next step (such as `delete_contact`) simply ends its path. The web app's builder writes the same JSON, so a
+`has_run` for each journey. A live journey whose saved graph no longer passes the workers' checks
+(`journey.ParseGraph`, e.g. a rule added after it was saved) also carries `problem`, the reason;
+`GET /v1/journeys/{id}` and the campaigns hub (`GET /v1/campaigns`) return it too. The workers skip
+such a journey until it's fixed (and log it once). A step with no next step (such as `delete_contact`) simply ends its path. The web app's builder writes the same JSON, so a
 quick way to learn a step's fields is to build it in the app and `GET /v1/journeys/{id}`. More
 about the engine: [architecture, journeys](../02-architecture.md#journeys).
 
@@ -1634,7 +1637,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/journeys` | Create a journey (`name`, `graph`, optional `start_at`, `end_at`); 201, draft | journeys edit |
 | `POST` | `/v1/journeys/{id}/{action}` | `activate`, `pause`, `archive` or `unarchive` | journeys publish |
 | `GET` | `/v1/journeys/{id}/stats` | Enrollments by status and by current step | journeys view |
-| `GET` | `/v1/journeys` | List journeys with enrollment counts, `archived_at` and `has_run` | journeys view |
+| `GET` | `/v1/journeys` | List journeys with enrollment counts, `archived_at`, `has_run` and `problem` | journeys view |
 | `GET` | `/v1/journeys/{id}` | A journey with its graph | journeys view |
 | `PUT` | `/v1/journeys/{id}` | Change a journey (409 while it's active) | journeys edit |
 | `DELETE` | `/v1/journeys/{id}` | Delete a journey nobody has entered (409 otherwise: archive it) | journeys edit |

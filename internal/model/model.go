@@ -141,6 +141,9 @@ type Journey struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 	// Tags are free labels for the Campaigns hub.
 	Tags []string `json:"tags"`
+	// Problem says why a live journey can't run (its saved steps no longer pass the checks, e.g.
+	// after a rule changed); the journey workers skip it until it's fixed. Set by the API, not stored.
+	Problem string `json:"problem,omitempty"`
 }
 
 type Enrollment struct {

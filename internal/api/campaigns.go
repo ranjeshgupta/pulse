@@ -78,6 +78,8 @@ const (
 
 // CampaignRow is one line of the Campaigns hub.
 type CampaignRow struct {
+	// Problem: a live journey the workers skip (see journeyProblem).
+	Problem   string     `json:"problem,omitempty"`
 	Kind      string     `json:"kind"` // broadcast | journey
 	ID        int64      `json:"id"`
 	Name      string     `json:"name"`
@@ -248,7 +250,7 @@ func (s *Server) campaignRows(ctx context.Context, tenant int64, withB, withJ bo
 				status = "archived"
 			}
 			row := CampaignRow{Kind: "journey", ID: j.ID, Name: j.Name, Category: JourneyCategory(g.Trigger),
-				Channels: JourneyChannels(g), Status: status, Tags: j.Tags, StartAt: j.StartAt, EndAt: j.EndAt}
+				Channels: JourneyChannels(g), Status: status, Tags: j.Tags, StartAt: j.StartAt, EndAt: j.EndAt, Problem: journeyProblem(j)}
 			switch g.Trigger.Type {
 			case journey.TriggerSegmentEntered:
 				row.Trigger, row.SegmentID, row.Audience = "segment", g.Trigger.SegmentID, size(g.Trigger.SegmentID)
