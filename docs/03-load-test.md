@@ -27,6 +27,29 @@ What Pulse sustains on one machine, what limited it at each step, and what was c
 Ingest stayed healthy throughout: 200-event requests took p50 7–14 ms with 0 failures at every rate.
 For comparison, Mautic's cron cycle puts segment entry at up to 15 minutes and a campaign's first action at up to about 30 minutes.
 
+### The month scenario: a month of traffic in minutes
+
+`make load ARGS="-scenario month -contacts N -visitors V -pageviews P -events-per-page 2"` creates
+N contacts, then sends P page views (2 events each) from V visitors, spread over the last 30 days,
+as fast as the API takes them. The full run used `-workers 32` and the half run `-workers 16`.
+
+| Run | Contacts | Traffic | Event → segment change during the burst |
+|---|---|---|---|
+| 5M contacts, 2M visitors, 10M page views | 5M in 1 m 28 s (56,700 ev/s) | 20M events in 4 m 49 s (69,200 ev/s), 0 failed | p50 28 s, p95 100 s |
+| 2.5M contacts, 1M visitors, 5M page views | 2.5M in 36 s (69,100 ev/s) | 10M events in 2 m 27 s (68,300 ev/s), 0 failed | p50 19 s, p95 69 s |
+
+- **Processing rate:** about 11–14k events a second reached ClickHouse with every role on one machine. The profile role
+  (`events.raw`) was the only stage with a backlog.
+- **Redis memory, the limit on this machine:** each event leaves two duplicate-check keys for 24 hours (`evt:`, `evc:`,
+  about 110 B each). Counters are one hash per contact and event type (`cnt:`), with a field per day for a year. A month
+  pushed through in minutes keeps every check key alive at once. Redis went from 7.9 to 11.2 GB in the half run.
+- **The half run was stopped early.** The machine (shared with other software) ran out of free memory, so processing was stopped after 10 minutes,
+  at 8.3M of 12.5M events. The rest of that synthetic backlog was skipped (consumer offsets reset).
+- **Peak use (half run):** Pulse 604% CPU (301% on average) and 630 MB; Redis 162% CPU; ClickHouse 1.7 GB; Postgres 1.4 GB;
+  Kafka 1.2 GB.
+- **On disk:** ClickHouse holds 38.4M events in 1.5 GB (about 42 B each). Postgres was 8.4 GB for every workspace on the
+  machine (about 12M contacts in total).
+
 ## Bottlenecks found and fixed, in the order the data showed them
 
 1. **Profile stage, per-event round trips.** At 5k ev/s its lag grew about 4k/s while every later stage sat near 0, and CPU

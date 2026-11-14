@@ -143,7 +143,49 @@ ClickHouse for windows, backfills, reports and dashboards. Details:
 
 ## Sizing
 
-SIZING-PLACEHOLDER
+Measured on one 12-core / 31 GB workstation running **everything**: Kafka, ClickHouse, Postgres,
+Redis, Pulse (`pulse all`) and the load generator, next to other software. These numbers are a
+floor. Details: [load test](docs/03-load-test.md).
+
+**The month scenario** (`make load ARGS="-scenario month ..."`) creates the contacts, then sends a
+whole month of website traffic as fast as the API takes it. Each page view carries 2 events (the
+page view and one more), spread over the last 30 days.
+
+| Run | Contacts | Visitors / page views a month | Events | Ingest (HTTP, 0 failures) | Event → segment change during the burst |
+|---|---|---|---|---|---|
+| Full | 5M in 1 m 28 s (56,700 ev/s) | 2M / 10M | 20M in 4 m 49 s (69,200 ev/s) | 0 failed | p50 28 s, p95 100 s |
+| Half | 2.5M in 36 s (69,100 ev/s) | 1M / 5M | 10M in 2 m 27 s (68,300 ev/s) | 0 failed | p50 19 s, p95 69 s |
+
+- **Ingest isn't the limit.** The API took about 68k events a second both times. Processing (the
+  profile and segment roles, all on the same 12 cores) ran at about 11–14k events a second, so a
+  backlog builds during a burst like this and the segment lag above is that backlog.
+- **Real traffic is far gentler.** A month of 10M page views at 2 events each is 20M events, about
+  8 events a second on average, or perhaps 80 a second at a busy peak. One small Pulse instance
+  keeps that at sub-second latency (p50 26–180 ms in the steady-rate runs of the load-test doc).
+- **Peak use during the half run:** Pulse 6 cores (3 on average) and 630 MB; Redis 1.6 cores;
+  ClickHouse 1.7 GB; Postgres 1.4 GB; Kafka 1.2 GB.
+- **Redis memory follows recent events.** Each event leaves two duplicate-check keys for 24 hours
+  (about 110 B each), and each contact keeps one counter per event type with a field per day for a
+  year (about 100 B plus about 12 B a day). Because the test pushed a month into a few minutes, every event's
+  check keys were alive at once: Redis grew by 3.3 GB. The half run's processing was stopped after 10 minutes, at 8.3M of 12.5M events,
+  because the shared machine ran out of memory. Spread over a real month, the check keys stay
+  near one day's events.
+- **Storage:** ClickHouse keeps about 42 bytes per event on disk (38M events in 1.5 GB). Postgres
+  needs roughly 0.7 KB per contact with its indexes.
+
+### Example: 5M contacts, 2M visitors and 10M page views a month (20M events)
+
+| Service | CPU | Memory | Disk | Why |
+|---|---|---|---|---|
+| Pulse (2 instances, for failover) | 2 vCPU each | 1 GB each | — | about 8 events a second on average; a burst like the test needs about 6 cores to keep up in real time |
+| Redis 7.4+ | 2 vCPU | 8 GB (16 GB if many contacts are active every day) | snapshot | counters for active contacts, about 1.4M check keys a day, segment bitmaps (about 0.6 MB each) |
+| Postgres | 4 vCPU | 8 GB | 50 GB SSD | about 4 GB for 5M contacts, plus campaigns, journeys and audit |
+| ClickHouse | 4 vCPU | 8 GB | 20 GB SSD a year | about 0.9 GB of events a month |
+| Kafka (3 brokers in production) | 2 vCPU each | 4 GB each | 20 GB each | 7 days of events, replicated 3 times |
+
+For about 10× the traffic, run the roles as separate deployments (`pulse api`, `pulse profile`,
+`pulse segments`…), raise the Kafka partition count, and give Redis its own cores. The load-test
+doc lists what limits come next.
 
 ## Configuration
 
