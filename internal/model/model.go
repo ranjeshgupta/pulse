@@ -172,6 +172,9 @@ type Message struct {
 	// FallbackTemplateID is an SMS template sent if a WhatsApp or RCS message can't reach the contact.
 	FallbackTemplateID int64 `json:"fallback_template_id,omitempty"`
 	IsFallback         bool  `json:"is_fallback,omitempty"`
+	// ProviderID sends through this provider of the channel instead of the default (chosen on the
+	// campaign, step or test send); if it was removed since, the default is used.
+	ProviderID int64 `json:"provider_id,omitempty"`
 	// Broadcast messages: which broadcast, run (unix seconds of its scheduled time) and A/B variant,
 	// carried into every outcome and engagement event for reports.
 	BroadcastID int64  `json:"broadcast_id,omitempty"`
@@ -373,17 +376,19 @@ func (v DWCVariant) Rules() OnsiteAudience {
 
 // Broadcast sends one template to everyone in a segment, once or on a repeat.
 type Broadcast struct {
-	ID                 int64      `json:"id"`
-	TenantID           int64      `json:"tenant_id"`
-	Name               string     `json:"name"`
-	Channel            string     `json:"channel"`
-	TemplateID         int64      `json:"template_id"`
-	FallbackTemplateID int64      `json:"fallback_template_id,omitempty"`
-	SegmentID          int64      `json:"segment_id"`
-	StartAt            time.Time  `json:"start_at"`
-	EndAt              *time.Time `json:"end_at,omitempty"`
-	Repeat             string     `json:"repeat"` // none | daily | weekly | monthly
-	NextRunAt          *time.Time `json:"next_run_at,omitempty"`
+	ID                 int64  `json:"id"`
+	TenantID           int64  `json:"tenant_id"`
+	Name               string `json:"name"`
+	Channel            string `json:"channel"`
+	TemplateID         int64  `json:"template_id"`
+	FallbackTemplateID int64  `json:"fallback_template_id,omitempty"`
+	// ProviderID: the channel's provider to send through; 0 is the channel's default.
+	ProviderID int64      `json:"provider_id,omitempty"`
+	SegmentID  int64      `json:"segment_id"`
+	StartAt    time.Time  `json:"start_at"`
+	EndAt      *time.Time `json:"end_at,omitempty"`
+	Repeat     string     `json:"repeat"` // none | daily | weekly | monthly
+	NextRunAt  *time.Time `json:"next_run_at,omitempty"`
 	// draft | scheduled | running | testing (an A/B test waits for its winner) | completed | cancelled
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`

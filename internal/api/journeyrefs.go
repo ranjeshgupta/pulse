@@ -105,6 +105,24 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 		}
 	}
 	for id, n := range g.Nodes {
+		// A chosen provider must be one of the workspace's, for the step's channel.
+		if ch := journey.SendChannel(n.Type); n.ProviderID != 0 && ch != "" {
+			if err := s.providerFor(ctx, tenant, n.ProviderID, ch); err != nil {
+				return bad(id, "%v", err)
+			}
+		}
+		if n.Type == journey.NodeNotifyUser && n.ProviderID != 0 {
+			if err := s.providerFor(ctx, tenant, n.ProviderID, channel.Email); err != nil {
+				return bad(id, "%v", err)
+			}
+		}
+		for _, cm := range n.Channels {
+			if cm.ProviderID != 0 {
+				if err := s.providerFor(ctx, tenant, cm.ProviderID, cm.Channel); err != nil {
+					return bad(id, "%v", err)
+				}
+			}
+		}
 		switch n.Type {
 		case journey.NodeNotifyUser, journey.NodeUpdateOwner:
 			ids := n.UserIDs

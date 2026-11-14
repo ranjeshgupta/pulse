@@ -83,6 +83,8 @@ type ChannelMessage struct {
 	TemplateID int64  `json:"template_id"`
 	// FallbackTemplateID (whatsapp, rcs): an SMS template sent if the message can't reach them.
 	FallbackTemplateID int64 `json:"fallback_template_id,omitempty"`
+	// ProviderID: the channel's provider to send through; 0 is the default.
+	ProviderID int64 `json:"provider_id,omitempty"`
 	// When: conditions on the contact and the trigger event, as segment property filters whose
 	// paths start with contact. or event. (contact.phone_country eq IN, event.total gt 1000).
 	When []segment.PropFilter `json:"when,omitempty"`

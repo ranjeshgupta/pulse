@@ -251,11 +251,11 @@ export interface DeliveryRules {
 }
 
 /** A send_message rule: conditions on contact.* and event.* (segment property filters), a channel and its template. */
-export interface ChannelRule { channel: Channel; template_id?: number; fallback_template_id?: number; when?: PropFilter[] }
+export interface ChannelRule { channel: Channel; template_id?: number; fallback_template_id?: number; provider_id?: number; when?: PropFilter[] }
 
 export interface JourneyNode {
   type: string; next?: string; seconds?: number; segment_id?: number; yes?: string; no?: string;
-  template_id?: number; fallback_template_id?: number; x?: number; y?: number;
+  template_id?: number; fallback_template_id?: number; provider_id?: number; x?: number; y?: number;
   until?: string; time_of_day?: string; timezone?: string; event?: string; rule?: Rule;
   variants?: { weight: number; next?: string; label?: string }[]; attrs?: Record<string, unknown>; url?: string; body?: string;
   add_tags?: string[]; remove_tags?: string[]; points?: number; list_id?: number; list_action?: "add" | "remove";
@@ -403,7 +403,7 @@ export type ABMetric = "opens" | "clicks" | "manual";
 /** A/B test: variants go to test_percent of the audience; with less than 100%, the winner goes to the rest. */
 export interface ABTest { variants: { label: string; template_id: number }[]; test_percent: number; metric: ABMetric; wait_hours: number }
 export interface Broadcast {
-  id: number; name: string; channel: Channel; template_id: number; fallback_template_id?: number; segment_id: number;
+  id: number; name: string; channel: Channel; template_id: number; fallback_template_id?: number; provider_id?: number; segment_id: number;
   start_at: string; end_at?: string | null; repeat: Repeat; next_run_at?: string | null;
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;

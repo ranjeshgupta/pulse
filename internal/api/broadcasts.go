@@ -166,6 +166,11 @@ func (s *Server) validBroadcast(ctx context.Context, b model.Broadcast) error {
 	} else if t.Channel != b.Channel {
 		errs = append(errs, errors.New("the template is for a different channel"))
 	}
+	if b.ProviderID != 0 {
+		if err := s.providerFor(ctx, b.TenantID, b.ProviderID, b.Channel); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if b.FallbackTemplateID != 0 {
 		ft, err := s.uiStore().Template(ctx, b.TenantID, b.FallbackTemplateID)
 		if !channel.FallsBackToSMS(b.Channel) || err != nil || ft.Channel != channel.SMS {

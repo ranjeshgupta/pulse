@@ -56,6 +56,7 @@ type memStore struct {
 	templates map[int64]model.Template
 	devices   map[uint32][]model.Device
 	providers map[string]model.Provider // by channel
+	byID      map[int64]model.Provider  // other providers a message may choose
 	deleted   []string
 	rules     delivery.Rules
 	inbox     []model.InboxMessage
@@ -104,6 +105,13 @@ func (m *memStore) DeleteDevice(_ context.Context, _ int64, token string) error 
 
 func (m *memStore) DefaultProvider(_ context.Context, _ int64, ch string) (model.Provider, []byte, error) {
 	if p, ok := m.providers[ch]; ok {
+		return p, nil, nil
+	}
+	return model.Provider{}, nil, pg.ErrNotFound
+}
+
+func (m *memStore) ProviderToSend(_ context.Context, _ int64, id int64) (model.Provider, []byte, error) {
+	if p, ok := m.byID[id]; ok {
 		return p, nil, nil
 	}
 	return model.Provider{}, nil, pg.ErrNotFound
@@ -724,5 +732,38 @@ func TestLocalTimeHold(t *testing.T) {
 	}
 	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "email_sent" {
 		t.Errorf("no zone, time passed in India: %v", evs)
+	}
+}
+
+func TestChosenProvider(t *testing.T) {
+	f := setup(t)
+	f.st.providers[channel.SMS] = model.Provider{ID: 1, Channel: channel.SMS, Name: "Default SMS", Kind: "sandbox_sms", Config: map[string]string{}}
+	f.st.byID = map[int64]model.Provider{
+		7: {ID: 7, Channel: channel.SMS, Name: "Backup SMS", Kind: "sandbox_sms", Config: map[string]string{}},
+		8: {ID: 8, Channel: channel.WhatsApp, Name: "A WhatsApp", Kind: "sandbox_whatsapp", Config: map[string]string{}},
+	}
+	ctx := context.Background()
+	for _, c := range []struct {
+		chosen int64
+		want   string
+	}{{0, "Default SMS"}, {7, "Backup SMS"}, {8, "Default SMS"}, {99, "Default SMS"}} { // another channel's, or removed: the default
+		v, err := f.d.senderVia(ctx, 1, channel.SMS, c.chosen)
+		if err != nil || v.name != c.want {
+			t.Errorf("chosen %d: via %q, %v; want %q", c.chosen, v.name, err, c.want)
+		}
+	}
+	// The SMS fallback of a WhatsApp message goes through the SMS default, not the WhatsApp choice.
+	m := model.Message{ID: "x", TenantID: 1, ContactID: 2, Channel: channel.WhatsApp, TemplateID: 2, FallbackTemplateID: 3, ProviderID: 8}
+	if err := f.d.fallback(ctx, m, "unreachable"); err != nil {
+		t.Fatal(err)
+	}
+	var sms model.Message
+	for _, r := range f.pub.recs {
+		if r.Topic == channel.Topic(channel.SMS) {
+			_ = json.Unmarshal(r.Value, &sms)
+		}
+	}
+	if sms.Channel != channel.SMS || sms.ProviderID != 0 {
+		t.Errorf("fallback = %+v", sms)
 	}
 }

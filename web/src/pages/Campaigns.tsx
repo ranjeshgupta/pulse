@@ -18,6 +18,7 @@ import { PersonalizeScopeProvider } from "../VarPicker";
 import { browserZone, localClock } from "./Broadcasts";
 import type { EmailBuilderHandle } from "./EmailBuilder";
 import { SegmentPicker } from "./InApp";
+import { ProviderPick } from "../ProviderPick";
 import { BLANK, emailModeSwitcher, RICH_STARTER, TemplateBody } from "./Templates";
 
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "");
@@ -253,6 +254,7 @@ export function OneTimeWizard() {
   const [s, setS] = useState<WizardState | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [fallback, setFallback] = useState(0);
+  const [provider, setProvider] = useState(0);
   const [t, setT] = useState<Template | null>(null);
   const [reusable, setReusable] = useState(false);
   const [emailMode, setEmailMode] = useState<EmailMode>("richtext");
@@ -277,6 +279,7 @@ export function OneTimeWizard() {
       templateMode: "write", start_at: b.start_at, end_at: b.end_at, repeat: b.repeat, local_time: b.local_time, deadline: b.deadline ?? null });
     setTags(b.tags ?? []);
     setFallback(b.fallback_template_id ?? 0);
+    setProvider(b.provider_id ?? 0);
     api.get<Template>(`/v1/templates/${b.template_id}`).then((tpl) => {
       if (tpl.hidden) {
         setT({ ...tpl, content: tpl.content ?? {} });
@@ -323,7 +326,7 @@ export function OneTimeWizard() {
       name: st.name.trim(), channel: st.channel, template_id: tid, segment_id: st.include[0], include_segment_ids: st.include.slice(1),
       exclude_segment_ids: st.exclude, start_at: st.start_at, end_at: st.end_at ?? null, repeat: st.repeat as Repeat,
       local_time: !!st.local_time, timezone: st.local_time ? browserZone() : "", deadline: st.deadline ?? null, tags,
-      fallback_template_id: fallback || 0, conversion_days: 3,
+      fallback_template_id: fallback || 0, provider_id: provider || 0, conversion_days: 3,
     };
     if (bcId) {
       await api.put(`/v1/broadcasts/${bcId}`, body);
@@ -433,6 +436,7 @@ export function OneTimeWizard() {
                 <FallbackPick value={fallback} onChange={setFallback} />
               </Field>
             )}
+            <ProviderPick channel={s.channel} value={provider} onChange={setProvider} />
             <div className="row">
               <button type="button" className="btn" disabled={test.isPending || !content.body && s.templateMode === "write" || s.templateMode === "pick" && !s.pickedTemplate} onClick={() => test.mutate()}>Send a test</button>
               <span className="xs muted">Saves the content, then sends it to a contact or a saved test contact.</span>

@@ -18,6 +18,7 @@ import { PersonalizeScopeProvider, TemplatedText, usePersonalizeScope, useVariab
 import { GroupEditor, PropertyFilters } from "../SegmentBuilder";
 import type { Pickers } from "./data";
 import { JIcon } from "./icons";
+import { ProviderPick } from "../../ProviderPick";
 import {
   deviceRule, ownerRule, OS_CHOICES, parseDevice, parseOwner, parsePoints, parseStage, parseTags, pointsRule, POINT_OPS, stageRule, tagsRule,
   type PointsPreset,
@@ -345,6 +346,7 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
           </select>
         </Field>
       )}
+      <ProviderPick channel={ch} value={n.provider_id} onChange={(id) => setN({ provider_id: id || undefined })} />
       <DeadlineFields value={n.deadline} onChange={(deadline) => setN({ deadline: deadline ?? undefined })} zone={browserZone()} />
     </>);
   }
@@ -444,7 +446,7 @@ function ChannelRules({ n, setN, templates, event }: { n: JourneyNode; setN: Set
             <RuleConditions when={c.when ?? []} paths={paths} onChange={(when) => setAt(i, { when: when.length ? when : undefined })} />
             <div className="j-cond-line j-send">
               <span className="small">send</span>
-              <select className="select" aria-label={`Rule ${i + 1} channel`} value={c.channel} onChange={(e) => setAt(i, { channel: e.target.value as Channel, template_id: undefined, fallback_template_id: undefined })}>
+              <select className="select" aria-label={`Rule ${i + 1} channel`} value={c.channel} onChange={(e) => setAt(i, { channel: e.target.value as Channel, template_id: undefined, fallback_template_id: undefined, provider_id: undefined })}>
                 {CHANNELS.map((ch) => <option key={ch} value={ch}>{CHANNEL_NAMES[ch]}</option>)}
               </select>
             </div>
@@ -461,6 +463,7 @@ function ChannelRules({ n, setN, templates, event }: { n: JourneyNode; setN: Set
                 </select>
               </label>
             )}
+            <ProviderPick compact channel={c.channel} value={c.provider_id} onChange={(id) => setAt(i, { provider_id: id || undefined })} />
             {c.template_id && <TemplateActions templateId={c.template_id} event={event} />}
           </li>
         ))}

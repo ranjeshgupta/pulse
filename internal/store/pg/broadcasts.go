@@ -15,14 +15,14 @@ import (
 
 const broadcastCols = `id, tenant_id, name, channel, template_id, coalesce(fallback_template_id, 0), segment_id,
 	start_at, end_at, repeat, next_run_at, status, updated_at, ab, conversion_event, conversion_days,
-	exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags`
+	exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags, coalesce(provider_id, 0)`
 
 func scanBroadcast(row pgx.Row) (model.Broadcast, error) {
 	var b model.Broadcast
 	var ab, deadline []byte
 	err := row.Scan(&b.ID, &b.TenantID, &b.Name, &b.Channel, &b.TemplateID, &b.FallbackTemplateID, &b.SegmentID,
 		&b.StartAt, &b.EndAt, &b.Repeat, &b.NextRunAt, &b.Status, &b.UpdatedAt, &ab, &b.ConversionEvent, &b.ConversionDays,
-		&b.ExcludeSegmentIDs, &b.LocalTime, &b.Timezone, &b.IncludeSegmentIDs, &deadline, &b.Tags)
+		&b.ExcludeSegmentIDs, &b.LocalTime, &b.Timezone, &b.IncludeSegmentIDs, &deadline, &b.Tags, &b.ProviderID)
 	if err == nil && len(ab) > 0 && string(ab) != "null" {
 		b.AB = &model.ABTest{}
 		err = json.Unmarshal(ab, b.AB)
@@ -82,23 +82,23 @@ func (s *Store) SaveBroadcast(ctx context.Context, b model.Broadcast) (int64, er
 	if b.ID == 0 {
 		err := s.db.QueryRow(ctx, `
 			INSERT INTO broadcasts (tenant_id, name, channel, template_id, fallback_template_id, segment_id, start_at, end_at, repeat,
-				ab, conversion_event, conversion_days, exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+				ab, conversion_event, conversion_days, exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags, provider_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
 			b.TenantID, b.Name, b.Channel, b.TemplateID, nullID(b.FallbackTemplateID), b.SegmentID, b.StartAt, b.EndAt, b.Repeat,
 			abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone,
-			ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags)).Scan(&b.ID)
+			ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags), nullID(b.ProviderID)).Scan(&b.ID)
 		return b.ID, err
 	}
 	tag, err := s.db.Exec(ctx, `
 		UPDATE broadcasts SET name = $3, channel = $4, template_id = $5, fallback_template_id = $6, segment_id = $7,
 			start_at = $8, end_at = $9, repeat = $10, ab = $11, conversion_event = $12, conversion_days = $13,
 			exclude_segment_ids = $14, local_time = $15, timezone = $16,
-			include_segment_ids = $17, deadline = $18, tags = $19,
+			include_segment_ids = $17, deadline = $18, tags = $19, provider_id = $20,
 			status = 'draft', next_run_at = NULL, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2 AND status NOT IN ('running', 'testing')`,
 		b.TenantID, b.ID, b.Name, b.Channel, b.TemplateID, nullID(b.FallbackTemplateID), b.SegmentID, b.StartAt, b.EndAt, b.Repeat,
 		abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone,
-		ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags))
+		ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags), nullID(b.ProviderID))
 	if err == nil && tag.RowsAffected() == 0 {
 		cur, err := s.GetBroadcast(ctx, b.TenantID, b.ID)
 		if err != nil {

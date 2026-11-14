@@ -127,6 +127,8 @@ type Node struct {
 	TemplateID int64  `json:"template_id,omitempty"` // send_*
 	// FallbackTemplateID (send_whatsapp, send_rcs): SMS template sent if the contact can't be reached.
 	FallbackTemplateID int64 `json:"fallback_template_id,omitempty"`
+	// ProviderID (send_*): the channel's provider to send through; 0 is the default.
+	ProviderID int64 `json:"provider_id,omitempty"`
 
 	Until      string          `json:"until,omitempty"`       // wait_until: RFC 3339 date-time
 	TimeOfDay  string          `json:"time_of_day,omitempty"` // wait_until: "09:30", next occurrence

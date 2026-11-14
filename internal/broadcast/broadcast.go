@@ -394,7 +394,7 @@ func PickWinner(ab *model.ABTest, counts map[string]model.MessageCounts) (string
 // the dispatcher, and the winner step never re-sends to the test group.
 func (r *Runner) message(b model.Broadcast, run int64, contact uint32, template int64, variant string) model.Message {
 	return model.Message{ID: fmt.Sprintf("bc%d:%d:%d", b.ID, run, contact), TenantID: b.TenantID, ContactID: contact,
-		Channel: b.Channel, TemplateID: template, FallbackTemplateID: b.FallbackTemplateID,
+		Channel: b.Channel, TemplateID: template, FallbackTemplateID: b.FallbackTemplateID, ProviderID: b.ProviderID,
 		BroadcastID: b.ID, Run: run, Variant: variant, Campaign: b.Name}
 }
 

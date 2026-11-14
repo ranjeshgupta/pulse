@@ -227,6 +227,7 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 				return "", false, err
 			}
 			m.To = to
+			m.ProviderID = n.ProviderID
 			if err := x.Sender.Send(ctx, m); err != nil {
 				return "", false, err
 			}
@@ -259,6 +260,7 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 				return "", false, err
 			}
 			m.FallbackTemplateID = cm.FallbackTemplateID
+			m.ProviderID = cm.ProviderID
 			m.Deadline = n.Deadline.After(x.Now())
 			if err := x.Sender.Send(ctx, m); err != nil {
 				return "", false, err

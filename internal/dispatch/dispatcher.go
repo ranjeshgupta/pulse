@@ -81,6 +81,8 @@ type Store interface {
 	ContactDevices(ctx context.Context, tenant int64, contact uint32) ([]model.Device, error)
 	DeleteDevice(ctx context.Context, tenant int64, token string) error
 	DefaultProvider(ctx context.Context, tenant int64, ch string) (model.Provider, []byte, error)
+	// ProviderToSend loads one of the workspace's providers (a message's chosen one).
+	ProviderToSend(ctx context.Context, tenant, id int64) (model.Provider, []byte, error)
 	DeliveryRules(ctx context.Context, tenant int64) (delivery.Rules, error)
 	// VAPIDKeys returns the workspace's web push key pair (private key sealed); empty when unset.
 	VAPIDKeys(ctx context.Context, tenant int64) (public string, sealedPrivate []byte, err error)
@@ -335,7 +337,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 			continue
 		}
 		var err error
-		via, err = d.senderVia(ctx, m.TenantID, m.Channel)
+		via, err = d.senderVia(ctx, m.TenantID, m.Channel, m.ProviderID)
 		if errors.Is(err, pg.ErrNotFound) {
 			return d.finish(ctx, sentKey, m, c, "failed", "no "+m.Channel+" provider configured")
 		} else if err != nil {
@@ -1033,12 +1035,33 @@ func (d *Dispatcher) sender(ctx context.Context, tenant int64, ch string) (provi
 }
 
 func (d *Dispatcher) buildSender(ctx context.Context, tenant int64, ch string) (providers.Provider, error) {
-	v, err := d.buildVia(ctx, tenant, ch)
+	v, err := d.buildVia(ctx, tenant, ch, 0)
 	return v.p, err
 }
 
-func (d *Dispatcher) buildVia(ctx context.Context, tenant int64, ch string) (sendVia, error) {
-	cfg, sealed, err := d.store.DefaultProvider(ctx, tenant, ch)
+func (d *Dispatcher) buildVia(ctx context.Context, tenant int64, ch string, chosen int64) (sendVia, error) {
+	var cfg model.Provider
+	var sealed []byte
+	var err error
+	if chosen != 0 {
+		// The provider the campaign or step chose, if it's still there and of this channel; else
+		// the default (it may have been removed since the campaign was set up).
+		cfg, sealed, err = d.store.ProviderToSend(ctx, tenant, chosen)
+		if err == nil && cfg.Channel != ch {
+			err = pg.ErrNotFound
+		}
+		if errors.Is(err, pg.ErrNotFound) {
+			if d.cfg.Log != nil {
+				d.cfg.Log.Warn("chosen provider is gone; sending through the default", "tenant", tenant, "channel", ch, "provider", chosen)
+			}
+			chosen = 0
+		} else if err != nil {
+			return sendVia{}, err
+		}
+	}
+	if chosen == 0 {
+		cfg, sealed, err = d.store.DefaultProvider(ctx, tenant, ch)
+	}
 	if errors.Is(err, pg.ErrNotFound) && ch == channel.Email && d.cfg.EmailDefault != nil {
 		return sendVia{p: d.cfg.EmailDefault, name: "the server's SMTP"}, nil
 	} else if err != nil {
@@ -1069,15 +1092,15 @@ func outboundVars(m model.Message, c model.Contact, unsub, prefs string) *person
 }
 
 // senderVia is sender with the provider's id and limits (cached like sender).
-func (d *Dispatcher) senderVia(ctx context.Context, tenant int64, ch string) (sendVia, error) {
-	key := strconv.FormatInt(tenant, 10) + ":" + ch
+func (d *Dispatcher) senderVia(ctx context.Context, tenant int64, ch string, chosen int64) (sendVia, error) {
+	key := strconv.FormatInt(tenant, 10) + ":" + ch + ":" + strconv.FormatInt(chosen, 10)
 	d.mu.Lock()
 	c, ok := d.vias[key]
 	d.mu.Unlock()
 	if ok && d.now().Before(c.exp) {
 		return c.v, nil
 	}
-	v, err := d.buildVia(ctx, tenant, ch)
+	v, err := d.buildVia(ctx, tenant, ch, chosen)
 	if err != nil {
 		return v, err
 	}
@@ -1222,7 +1245,7 @@ func (d *Dispatcher) sendTest(ctx context.Context, sentKey string, m model.Messa
 		p, err = d.webPusher(ctx, m.TenantID)
 	} else {
 		var v sendVia
-		v, err = d.senderVia(ctx, m.TenantID, m.Channel)
+		v, err = d.senderVia(ctx, m.TenantID, m.Channel, m.ProviderID)
 		p = v.p
 	}
 	if err != nil {

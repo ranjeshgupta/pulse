@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -104,6 +105,21 @@ func (s *Server) webhookProvider(w http.ResponseWriter, r *http.Request) (provid
 }
 
 func (s *Server) chStore() ChannelStore { return s.Store.(ChannelStore) }
+
+// providerFor checks that a chosen provider is one of the workspace's, for this channel.
+func (s *Server) providerFor(ctx context.Context, tenant, id int64, ch string) error {
+	cs, ok := s.Store.(ChannelStore)
+	if !ok {
+		return errors.New("providers aren't available")
+	}
+	p, err := cs.GetProvider(ctx, tenant, id)
+	if errors.Is(err, pg.ErrNotFound) || (err == nil && p.Channel != ch) {
+		return fmt.Errorf("the chosen provider isn't one of this workspace's %s providers", channelWords(ch))
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
 
 func (s *Server) catalog(w http.ResponseWriter, _ *http.Request, _ int64) {
 	writeJSON(w, http.StatusOK, map[string]any{"channels": channel.All, "providers": providers.Catalog(), "send_rates": s.SendRates})
@@ -292,6 +308,8 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		ExternalID         string `json:"external_id"`
 		// TestContactID sends to a saved test contact instead: its contact, or its address for the channel.
 		TestContactID int64 `json:"test_contact_id"`
+		// ProviderID sends through this provider of the template's channel; 0 is the default.
+		ProviderID int64 `json:"provider_id"`
 		// Event: sample trigger event properties for {{event.x}} (as a journey would carry them).
 		Event map[string]any `json:"event"`
 	}
@@ -311,8 +329,14 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		writeErr(w, http.StatusBadRequest, "only WhatsApp and RCS messages take an SMS fallback")
 		return
 	}
+	if req.ProviderID != 0 {
+		if err := s.providerFor(r.Context(), tenant, req.ProviderID, t.Channel); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	m := model.Message{ID: "test:" + auth.NewToken(""), TenantID: tenant, Channel: t.Channel,
-		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID, Campaign: "Test send"}
+		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID, Campaign: "Test send", ProviderID: req.ProviderID}
 	if req.TestContactID != 0 {
 		tc, err := s.campStore().GetTestContact(r.Context(), tenant, req.TestContactID)
 		if err != nil {

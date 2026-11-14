@@ -105,6 +105,21 @@ func (s *Store) DefaultProvider(ctx context.Context, tenant int64, ch string) (m
 	return p, sealed, notFound(err)
 }
 
+// ProviderToSend loads one of the workspace's providers with its sealed secrets and limits, for a
+// message that chose it.
+func (s *Store) ProviderToSend(ctx context.Context, tenant, id int64) (model.Provider, []byte, error) {
+	var p model.Provider
+	var sealed, limits []byte
+	err := s.db.QueryRow(ctx, `
+		SELECT id, tenant_id, channel, provider, name, config, coalesce(secrets_enc, ''::bytea), is_default, limits
+		FROM channel_providers WHERE tenant_id = $1 AND id = $2`, tenant, id).
+		Scan(&p.ID, &p.TenantID, &p.Channel, &p.Kind, &p.Name, &p.Config, &sealed, &p.IsDefault, &limits)
+	if err == nil {
+		err = scanLimits(limits, &p.Limits)
+	}
+	return p, sealed, notFound(err)
+}
+
 // ProviderForWebhook loads a provider by id alone (webhooks are not signed in); the caller must
 // verify the request with the provider's secrets before trusting it.
 func (s *Store) ProviderForWebhook(ctx context.Context, id int64) (model.Provider, []byte, error) {

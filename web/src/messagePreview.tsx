@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, CHANNEL_NAMES, type Channel, type ChannelContent, type EventSchema, type Template } from "./api";
 import { ErrorNote, Field, Modal, useToast } from "./ui";
 import { testContactAddress, useTestContacts } from "./campaignUI";
+import { ProviderPick } from "./ProviderPick";
 
 /** A file attached to an email (template preview). */
 export type PreviewAttachment = { id: number; title: string; filename: string; content_type: string; size: number };
@@ -208,6 +209,7 @@ export function TestSendModal({ template, event = "", onClose }: { template: Tem
   const [who, setWho] = useState(""); // "tc:<id>" for a saved test contact, else "" (type an external ID)
   const [ext, setExt] = useState("");
   const [fallback, setFallback] = useState("");
+  const [provider, setProvider] = useState(0);
   const [evName, setEvName] = useState(event);
   const [evJson, setEvJson] = useState("");
   const ev = parseEvent(evJson);
@@ -221,7 +223,7 @@ export function TestSendModal({ template, event = "", onClose }: { template: Tem
   const send = useMutation({
     mutationFn: () => api.post("/v1/channels/test", {
       template_id: template.id, ...(chosen ? { test_contact_id: chosen.id } : { external_id: ext.trim() }),
-      fallback_template_id: Number(fallback) || 0, event: evName && ev ? ev : undefined,
+      fallback_template_id: Number(fallback) || 0, provider_id: provider || undefined, event: evName && ev ? ev : undefined,
     }),
     onSuccess: () => { toast({ text: "Test queued. Check the test inbox or the contact's device." }); onClose(); },
   });
@@ -238,6 +240,7 @@ export function TestSendModal({ template, event = "", onClose }: { template: Tem
           })}
         </select>
       </Field>
+      <ProviderPick channel={template.channel} value={provider} onChange={setProvider} />
       {!chosen && <Field label="Contact's external ID"><input className="input" value={ext} onChange={(e) => setExt(e.target.value)} autoFocus /></Field>}
       <SampleEventFields name={evName} setName={setEvName} contact={sampleFor} json={evJson} setJson={setEvJson} />
       {canFallback && !(chosen && !chosen.external_id) && (

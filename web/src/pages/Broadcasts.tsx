@@ -16,6 +16,7 @@ import { FUNNEL_OUTCOME, outcomeFilters } from "../contactLinks";
 import { ContactCount } from "../ContactCount";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
+import { ProviderPick } from "../ProviderPick";
 
 const REPEAT_LABEL: Record<Repeat, string> = { none: "Once", daily: "Every day", weekly: "Every week", monthly: "Every month" };
 
@@ -128,7 +129,7 @@ export function BroadcastEdit() {
   const save = useMutation({
     mutationFn: () => {
       const body = {
-        ...b!, end_at: b!.end_at ?? null, fallback_template_id: b!.fallback_template_id || 0,
+        ...b!, end_at: b!.end_at ?? null, fallback_template_id: b!.fallback_template_id || 0, provider_id: b!.provider_id || 0,
         template_id: b!.ab ? b!.ab.variants[0]?.template_id ?? 0 : b!.template_id, ab: b!.ab ?? null,
         conversion_event: (b!.conversion_event ?? "").trim(), conversion_days: b!.conversion_days || 3,
         tags: existing.data?.broadcast.tags ?? b!.tags ?? [], // edited on their own (BroadcastTags)
@@ -255,6 +256,7 @@ export function BroadcastEdit() {
             </select>
           </Field>
         )}
+        <ProviderPick channel={b.channel} value={b.provider_id} onChange={(provider_id) => set({ provider_id })} />
         <h3 style={{ margin: "10px 0 12px" }}>When</h3>
         <div className="grid-2">
           <Field label="Repeat">
