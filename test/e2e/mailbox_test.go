@@ -66,24 +66,25 @@ func TestBounceMailbox(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	settings := map[string]any{"enabled": true, "host": host, "port": port, "tls": "none", "username": "username", "password": "wrong"}
-	if r := jsonCall(t, c, "POST", "/v1/settings/bounce-mailbox/test", settings, 200); r["ok"] != false {
+	if r := jsonCall(t, c, "POST", "/v1/settings/bounce-mailboxes/test", settings, 200); r["ok"] != false {
 		t.Errorf("test with a wrong password: %v", r)
 	}
 	settings["password"] = "password"
-	if r := jsonCall(t, c, "POST", "/v1/settings/bounce-mailbox/test", settings, 200); r["ok"] != true {
+	if r := jsonCall(t, c, "POST", "/v1/settings/bounce-mailboxes/test", settings, 200); r["ok"] != true {
 		t.Fatalf("test: %v", r)
 	}
-	saved := jsonCall(t, c, "PUT", "/v1/settings/bounce-mailbox", settings, 200)
+	saved := jsonCall(t, c, "POST", "/v1/settings/bounce-mailboxes", settings, 200)
+	mid := saved["mailbox"].(map[string]any)["id"]
 	if saved["password"] != "••••••••" {
 		t.Errorf("saved password shown as %v", saved["password"])
 	}
-	jsonCall(t, c, "POST", "/v1/settings/bounce-mailbox/check", nil, 202)
+	jsonCall(t, c, "POST", fmt.Sprintf("/v1/settings/bounce-mailboxes/%v/check", mid), nil, 202)
 
 	waitFor(t, 40*time.Second, func() bool {
 		return attrsOf(t, c, "gone-"+run)["email_bounced"] == true && attrsOf(t, c, "angry-"+run)["optout_email"] == true
 	})
 	waitFor(t, 15*time.Second, func() bool {
-		mb := jsonCall(t, c, "GET", "/v1/settings/bounce-mailbox", nil, 200)["mailbox"].(map[string]any)
+		mb := jsonCall(t, c, "GET", "/v1/settings/bounce-mailboxes", nil, 200)["mailboxes"].([]any)[0].(map[string]any)["mailbox"].(map[string]any)
 		return mb["processed"] == 3.0 && mb["last_error"] == ""
 	})
 	if n := seenCount(t, inbox); n != 3 { // the backend's welcome message (skipped) and the two reports

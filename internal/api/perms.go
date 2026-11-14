@@ -69,7 +69,7 @@ var special = map[string]need{
 	"GET /v1/settings/webhooks":                       {auth.AreaSettings, auth.Edit}, // shows signing secrets
 	"GET /v1/settings/webhooks/{id}":                  {auth.AreaSettings, auth.Edit},
 	"GET /v1/settings/bounces":                        {auth.AreaSettings, auth.Edit}, // shows the bounce URL secret
-	"GET /v1/settings/bounce-mailbox":                 {auth.AreaSettings, auth.Edit}, // mailbox server and user
+	"GET /v1/settings/bounce-mailboxes":               {auth.AreaSettings, auth.Edit}, // mailbox servers and users
 	"POST /v1/sandbox/receipts":                       {auth.AreaContent, auth.Edit},  // test tools, like test sends
 	"POST /v1/sandbox/bounce":                         {auth.AreaContent, auth.Edit},
 	"POST /v1/sandbox/inbound":                        {auth.AreaContent, auth.Edit},

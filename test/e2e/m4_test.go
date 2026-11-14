@@ -328,9 +328,9 @@ func TestBounceMailboxLinks(t *testing.T) {
 	srv.AllowInsecureAuth = true
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
-	jsonCall(t, c, "PUT", "/v1/settings/bounce-mailbox", map[string]any{"enabled": true, "host": host, "port": ln.Addr().(*net.TCPAddr).Port,
-		"tls": "none", "username": "username", "password": "password"}, 200)
-	jsonCall(t, c, "POST", "/v1/settings/bounce-mailbox/check", nil, 202)
+	mbx := jsonCall(t, c, "POST", "/v1/settings/bounce-mailboxes", map[string]any{"enabled": true, "host": host, "port": ln.Addr().(*net.TCPAddr).Port,
+		"tls": "none", "username": "username", "password": "password"}, 200)["mailbox"].(map[string]any)
+	jsonCall(t, c, "POST", fmt.Sprintf("/v1/settings/bounce-mailboxes/%v/check", mbx["id"]), nil, 202)
 	waitFor(t, 60*time.Second, func() bool {
 		m, _ := jsonCall(t, c, "GET", "/v1/contacts/gone-m4-"+run+"/messages", nil, 200)["messages"].([]any)
 		return len(m) == 1 && m[0].(map[string]any)["status"] == "bounced" && m[0].(map[string]any)["source"] == "broadcast"

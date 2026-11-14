@@ -20,20 +20,29 @@ type mailboxMem struct {
 	sealed []byte
 }
 
-func (f *mailboxMem) BounceMailbox(context.Context, int64) (bounces.Mailbox, []byte, error) {
+func (f *mailboxMem) BounceMailboxes(context.Context, int64) ([]bounces.Mailbox, error) {
 	if f.m == nil {
+		return nil, nil
+	}
+	return []bounces.Mailbox{*f.m}, nil
+}
+func (f *mailboxMem) BounceMailbox(_ context.Context, _, id int64) (bounces.Mailbox, []byte, error) {
+	if f.m == nil || f.m.ID != id {
 		return bounces.Mailbox{}, nil, pg.ErrNotFound
 	}
 	m := *f.m
 	m.HasPassword = len(f.sealed) > 0
 	return m, f.sealed, nil
 }
-func (f *mailboxMem) SaveBounceMailbox(_ context.Context, m bounces.Mailbox, sealed []byte) error {
+func (f *mailboxMem) SaveBounceMailbox(_ context.Context, m bounces.Mailbox, sealed []byte) (int64, error) {
+	if m.ID == 0 {
+		m.ID = 7
+	}
 	f.m, f.sealed = &m, sealed
-	return nil
+	return m.ID, nil
 }
-func (f *mailboxMem) DeleteBounceMailbox(context.Context, int64) error { f.m = nil; return nil }
-func (f *mailboxMem) CheckBounceMailboxNow(context.Context, int64) error {
+func (f *mailboxMem) DeleteBounceMailbox(context.Context, int64, int64) error { f.m = nil; return nil }
+func (f *mailboxMem) CheckBounceMailboxNow(context.Context, int64, int64) error {
 	if f.m == nil || !f.m.Enabled {
 		return pg.ErrNotFound
 	}
@@ -61,7 +70,11 @@ func TestBounceMailboxSettings(t *testing.T) {
 		}})
 	h := s.Handler()
 	put := func(body string) (int, map[string]any) {
-		w := do(t, h, "PUT", "/v1/settings/bounce-mailbox", "key-1", body)
+		method, path := "PUT", "/v1/settings/bounce-mailboxes/7"
+		if st.m == nil {
+			method, path = "POST", "/v1/settings/bounce-mailboxes"
+		}
+		w := do(t, h, method, path, "key-1", body)
 		out := map[string]any{}
 		_ = json.Unmarshal(w.Body.Bytes(), &out)
 		return w.Code, out
@@ -80,28 +93,28 @@ func TestBounceMailboxSettings(t *testing.T) {
 		t.Fatal("password not sealed with the server key")
 	}
 	// The masked password sent back keeps the stored one for the same server...
-	if code, _ := put(`{"enabled":true,"host":"imap.example.com","username":"bounces","folder":"Bounces","password":"••••••••"}`); code != 200 || st.m.Folder != "Bounces" {
-		t.Errorf("folder change keeps the password: %d", code)
+	if code, _ := put(`{"enabled":true,"host":"imap.example.com","username":"bounces","folders":[{"name":"Bounces","kind":"bounces"},{"name":"Spam","kind":"complaints"}],"password":"••••••••"}`); code != 200 || len(st.m.Folders) != 2 || st.m.Folders[1].Kind != "complaints" {
+		t.Errorf("folder change keeps the password: %d %+v", code, st.m)
 	}
 	// ...but never goes to another server.
 	if code, out := put(`{"enabled":true,"host":"evil.test","username":"bounces","password":"••••••••"}`); code != 400 || !strings.Contains(out["error"].(string), "password again") {
 		t.Errorf("new host with the stored password: %d %v", code, out)
 	}
-	w := do(t, h, "POST", "/v1/settings/bounce-mailbox/test", "key-1", `{"host":"imap.example.com","username":"bounces","folder":"Bounces"}`)
+	w := do(t, h, "POST", "/v1/settings/bounce-mailboxes/test", "key-1", `{"id":7,"host":"imap.example.com","username":"bounces","folders":[{"name":"Bounces"},{"name":"Spam"}]}`)
 	if !strings.Contains(w.Body.String(), `"ok":true`) {
 		t.Errorf("test with the stored password: %s", w.Body.String())
 	}
-	w = do(t, h, "POST", "/v1/settings/bounce-mailbox/test", "key-1", `{"host":"imap.example.com","username":"bounces","password":"wrong"}`)
+	w = do(t, h, "POST", "/v1/settings/bounce-mailboxes/test", "key-1", `{"host":"imap.example.com","username":"bounces","password":"wrong"}`)
 	if !strings.Contains(w.Body.String(), `"ok":false`) || !strings.Contains(w.Body.String(), "sign-in refused") {
 		t.Errorf("test with a wrong password: %s", w.Body.String())
 	}
-	if strings.Join(dialled, ",") != "imap.example.com/right,imap.example.com/wrong" {
+	if strings.Join(dialled, ",") != "imap.example.com/right,imap.example.com/right,imap.example.com/wrong" { // every folder opened
 		t.Errorf("dialled %v", dialled)
 	}
-	if w := do(t, h, "POST", "/v1/settings/bounce-mailbox/check", "key-1", ""); w.Code != 202 {
+	if w := do(t, h, "POST", "/v1/settings/bounce-mailboxes/7/check", "key-1", ""); w.Code != 202 {
 		t.Errorf("check now: %d", w.Code)
 	}
-	if w := do(t, h, "GET", "/v1/settings/bounce-mailbox", "key-1", ""); w.Code != 200 || strings.Contains(w.Body.String(), "right") {
+	if w := do(t, h, "GET", "/v1/settings/bounce-mailboxes", "key-1", ""); w.Code != 200 || strings.Contains(w.Body.String(), "right") || !strings.Contains(w.Body.String(), `"kind":"complaints"`) {
 		t.Errorf("get: %d %s", w.Code, w.Body.String())
 	}
 }

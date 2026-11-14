@@ -41,13 +41,18 @@ const (
 
 // Mailbox is a workspace's bounce mailbox settings. The password is stored sealed (not here).
 type Mailbox struct {
-	TenantID    int64      `json:"-"`
-	Enabled     bool       `json:"enabled"`
-	Host        string     `json:"host"`
-	Port        int        `json:"port"`
-	TLS         string     `json:"tls"`
-	Username    string     `json:"username"`
-	Folder      string     `json:"folder"`
+	ID       int64  `json:"id"`
+	TenantID int64  `json:"-"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	TLS      string `json:"tls"`
+	Username string `json:"username"`
+	// Folders are read one after another; each says what it holds.
+	Folders []Folder `json:"folders"`
+	// Folder is the folder being read (set by the poller for the Opener).
+	Folder      string     `json:"-"`
 	HasPassword bool       `json:"has_password"`
 	LastCheckAt *time.Time `json:"last_check_at,omitempty"`
 	LastError   string     `json:"last_error"`
@@ -55,13 +60,55 @@ type Mailbox struct {
 	Skipped     int64      `json:"skipped"`   // messages that weren't reports
 }
 
+// Folder kinds: what a folder holds.
+const (
+	FolderAuto       = "auto"       // bounces or complaints: each message is read to tell
+	FolderBounces    = "bounces"    // delivery failures (DSN)
+	FolderComplaints = "complaints" // spam complaints (feedback loops): every report counts as a complaint
+)
+
+// Folder is one folder of a mailbox and what it holds.
+type Folder struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// MaxFolders caps the folders of one mailbox.
+const MaxFolders = 10
+
 // Validate checks the settings; allowPlain allows TLSNone (local development only).
 func (m *Mailbox) Validate(allowPlain bool) error {
 	m.Host = strings.TrimSpace(m.Host)
 	m.Username = strings.TrimSpace(m.Username)
-	m.Folder = strings.TrimSpace(m.Folder)
-	if m.Folder == "" {
-		m.Folder = "INBOX"
+	m.Name = strings.TrimSpace(m.Name)
+	if m.Name == "" {
+		m.Name = m.Username
+	}
+	if len(m.Folders) == 0 {
+		m.Folders = []Folder{{Name: "INBOX", Kind: FolderAuto}}
+	}
+	if len(m.Folders) > MaxFolders {
+		return fmt.Errorf("at most %d folders per mailbox", MaxFolders)
+	}
+	seen := map[string]bool{}
+	for i := range m.Folders {
+		f := &m.Folders[i]
+		f.Name = strings.TrimSpace(f.Name)
+		if f.Kind == "" {
+			f.Kind = FolderAuto
+		}
+		switch {
+		case f.Name == "" || len(f.Name) > 200 || strings.ContainsAny(f.Name, "\r\n\"*%"):
+			return errors.New("each folder must be a mailbox name such as INBOX, Bounces or [Gmail]/Spam reports")
+		case f.Kind != FolderAuto && f.Kind != FolderBounces && f.Kind != FolderComplaints:
+			return errors.New("a folder holds auto, bounces or complaints")
+		case seen[f.Name]:
+			return fmt.Errorf("folder %q is listed twice", f.Name)
+		}
+		seen[f.Name] = true
+	}
+	if len(m.Name) > 100 {
+		return errors.New("the name is too long (at most 100 characters)")
 	}
 	if m.TLS == "" {
 		m.TLS = TLSImplicit
@@ -80,8 +127,6 @@ func (m *Mailbox) Validate(allowPlain bool) error {
 		return errors.New("port must be between 1 and 65535")
 	case m.Username == "" || len(m.Username) > 320:
 		return errors.New("username is required")
-	case len(m.Folder) > 200 || strings.ContainsAny(m.Folder, "\r\n\"*%"):
-		return errors.New("folder must be a mailbox name such as INBOX or Bounces")
 	}
 	return nil
 }
@@ -116,7 +161,7 @@ type MailboxStore interface {
 	// ClaimDueMailboxes returns enabled mailboxes due for a check, with their sealed passwords,
 	// and moves their next check forward (FOR UPDATE SKIP LOCKED, so workers share them).
 	ClaimDueMailboxes(ctx context.Context, limit int, every time.Duration) ([]Mailbox, [][]byte, error)
-	FinishMailboxCheck(ctx context.Context, tenant int64, processed, skipped int, lastErr string) error
+	FinishMailboxCheck(ctx context.Context, id int64, processed, skipped int, lastErr string) error
 	ExternalIDByEmail(ctx context.Context, tenant int64, email string) (string, error)
 	ContactByID(ctx context.Context, tenant int64, id uint32) (model.Contact, error)
 }
@@ -164,13 +209,14 @@ func (p *Poller) checkDue(ctx context.Context) {
 			msg = err.Error()
 			p.Log.Warn("bounce mailbox check", "tenant", m.TenantID, "err", err)
 		}
-		if err := p.Store.FinishMailboxCheck(ctx, m.TenantID, processed, skipped, msg); err != nil {
+		if err := p.Store.FinishMailboxCheck(ctx, m.ID, processed, skipped, msg); err != nil {
 			p.Log.Error("bounce mailbox status", "tenant", m.TenantID, "err", err)
 		}
 	}
 }
 
-// Check reads one mailbox once: the bounces and complaints recorded, and the messages skipped.
+// Check reads one mailbox once, folder by folder: the bounces and complaints recorded, and the
+// messages skipped. A folder that fails doesn't stop the others; the first error is returned.
 func (p *Poller) Check(ctx context.Context, m Mailbox, sealedPassword []byte) (processed, skipped int, err error) {
 	if len(sealedPassword) == 0 {
 		return 0, 0, errors.New("no password saved: enter the mailbox password")
@@ -179,8 +225,25 @@ func (p *Poller) Check(ctx context.Context, m Mailbox, sealedPassword []byte) (p
 	if err != nil {
 		return 0, 0, errors.New("the saved password can't be read (was the server key changed?): enter it again")
 	}
+	folders := m.Folders
+	if len(folders) == 0 {
+		folders = []Folder{{Name: "INBOX", Kind: FolderAuto}}
+	}
+	var firstErr error
+	for _, f := range folders {
+		n, sk, err := p.checkFolder(ctx, m, f, pw)
+		processed, skipped = processed+n, skipped+sk
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", f.Name, err)
+		}
+	}
+	return processed, skipped, firstErr
+}
+
+func (p *Poller) checkFolder(ctx context.Context, m Mailbox, f Folder, pw string) (processed, skipped int, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	m.Folder = f.Name
 	s, err := p.Open(ctx, m, pw)
 	if err != nil {
 		return 0, 0, err
@@ -203,6 +266,9 @@ func (p *Poller) Check(ctx context.Context, m Mailbox, sealedPassword []byte) (p
 		sum := sha256.Sum256(msg.Raw)
 		for i := range bs {
 			bs[i].Key = fmt.Sprintf("mbx:%x:%d", sum[:12], i)
+			if f.Kind == FolderComplaints && bs[i].Kind != Delivered {
+				bs[i].Kind = Complaint // the folder says what these are (e.g. a provider's spam report label)
+			}
 		}
 		all = append(all, bs...)
 	}

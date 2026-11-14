@@ -1,7 +1,8 @@
 package api
 
-// The bounce mailbox (Channels → Bounces): an IMAP mailbox that Pulse reads for delivery status
-// notifications and feedback-loop complaints (package bounces). The password is sealed with the
+// Bounce mailboxes (Settings → Bounces & unsubscribes): IMAP mailboxes that Pulse reads for
+// delivery status notifications and feedback-loop complaints (package bounces), any number per
+// workspace, each with folders that say what they hold. The password is sealed with the
 // server key and only shown masked; changing the server, port, encryption or user needs the
 // password again, so a saved password never goes to a different server.
 
@@ -19,18 +20,23 @@ import (
 )
 
 type MailboxStore interface {
-	BounceMailbox(ctx context.Context, tenant int64) (bounces.Mailbox, []byte, error)
-	SaveBounceMailbox(ctx context.Context, m bounces.Mailbox, sealed []byte) error
-	DeleteBounceMailbox(ctx context.Context, tenant int64) error
-	CheckBounceMailboxNow(ctx context.Context, tenant int64) error
+	BounceMailboxes(ctx context.Context, tenant int64) ([]bounces.Mailbox, error)
+	BounceMailbox(ctx context.Context, tenant, id int64) (bounces.Mailbox, []byte, error)
+	SaveBounceMailbox(ctx context.Context, m bounces.Mailbox, sealed []byte) (int64, error)
+	DeleteBounceMailbox(ctx context.Context, tenant, id int64) error
+	CheckBounceMailboxNow(ctx context.Context, tenant, id int64) error
 }
 
+// maxMailboxes caps a workspace's bounce mailboxes.
+const maxMailboxes = 20
+
 func (s *Server) mailboxRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/settings/bounce-mailbox", s.authed(s.getMailbox))
-	mux.HandleFunc("PUT /v1/settings/bounce-mailbox", s.authed(s.putMailbox))
-	mux.HandleFunc("DELETE /v1/settings/bounce-mailbox", s.authed(s.deleteMailbox))
-	mux.HandleFunc("POST /v1/settings/bounce-mailbox/test", s.authed(s.testMailbox))
-	mux.HandleFunc("POST /v1/settings/bounce-mailbox/check", s.authed(s.checkMailbox))
+	mux.HandleFunc("GET /v1/settings/bounce-mailboxes", s.authed(s.listMailboxes))
+	mux.HandleFunc("POST /v1/settings/bounce-mailboxes", s.authed(s.createMailbox))
+	mux.HandleFunc("PUT /v1/settings/bounce-mailboxes/{id}", s.authed(s.putMailbox))
+	mux.HandleFunc("DELETE /v1/settings/bounce-mailboxes/{id}", s.authed(s.deleteMailbox))
+	mux.HandleFunc("POST /v1/settings/bounce-mailboxes/test", s.authed(s.testMailbox))
+	mux.HandleFunc("POST /v1/settings/bounce-mailboxes/{id}/check", s.authed(s.checkMailbox))
 }
 
 func (s *Server) mailboxStore() MailboxStore { return s.Store.(MailboxStore) }
@@ -50,16 +56,17 @@ func mailboxView(m bounces.Mailbox) map[string]any {
 	return map[string]any{"mailbox": m, "password": pw}
 }
 
-func (s *Server) getMailbox(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	m, _, err := s.mailboxStore().BounceMailbox(r.Context(), p.TenantID)
-	if errors.Is(err, pg.ErrNotFound) {
-		writeJSON(w, http.StatusOK, map[string]any{"mailbox": nil})
-		return
-	} else if err != nil {
+func (s *Server) listMailboxes(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	ms, err := s.mailboxStore().BounceMailboxes(r.Context(), p.TenantID)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, mailboxView(m))
+	out := make([]map[string]any, len(ms))
+	for i, m := range ms {
+		out[i] = mailboxView(m)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mailboxes": out})
 }
 
 type mailboxRequest struct {
@@ -68,10 +75,11 @@ type mailboxRequest struct {
 }
 
 // mailboxSettings validates a request and works out the password to use: the one sent, else the
-// stored one when the server and user are unchanged. sealed is what to store.
-func (s *Server) mailboxSettings(ctx context.Context, tenant int64, req mailboxRequest) (m bounces.Mailbox, password string, sealed []byte, status int, err error) {
+// stored one of mailbox id (0: a new mailbox has none) when the server and user are unchanged.
+// sealed is what to store.
+func (s *Server) mailboxSettings(ctx context.Context, tenant, id int64, req mailboxRequest) (m bounces.Mailbox, password string, sealed []byte, status int, err error) {
 	m = req.Mailbox
-	m.TenantID = tenant
+	m.TenantID, m.ID = tenant, id
 	if err := m.Validate(s.AllowPrivateWebhooks); err != nil {
 		return m, "", nil, http.StatusBadRequest, err
 	}
@@ -85,7 +93,10 @@ func (s *Server) mailboxSettings(ctx context.Context, tenant int64, req mailboxR
 		}
 		return m, pw, s.Box.Seal([]byte(pw)), 0, nil
 	}
-	old, oldSealed, err := s.mailboxStore().BounceMailbox(ctx, tenant)
+	if id == 0 {
+		return m, "", nil, http.StatusBadRequest, errors.New("enter the mailbox password")
+	}
+	old, oldSealed, err := s.mailboxStore().BounceMailbox(ctx, tenant, id)
 	if errors.Is(err, pg.ErrNotFound) || (err == nil && len(oldSealed) == 0) {
 		return m, "", nil, http.StatusBadRequest, errors.New("enter the mailbox password")
 	} else if err != nil {
@@ -101,12 +112,33 @@ func (s *Server) mailboxSettings(ctx context.Context, tenant int64, req mailboxR
 	return m, string(plain), oldSealed, 0, nil
 }
 
+func (s *Server) createMailbox(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	ms, err := s.mailboxStore().BounceMailboxes(r.Context(), p.TenantID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if len(ms) >= maxMailboxes {
+		writeErr(w, http.StatusBadRequest, "at most 20 bounce mailboxes per workspace")
+		return
+	}
+	s.saveMailbox(w, r, p, 0)
+}
+
 func (s *Server) putMailbox(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	s.saveMailbox(w, r, p, id)
+}
+
+func (s *Server) saveMailbox(w http.ResponseWriter, r *http.Request, p model.Principal, id int64) {
 	var req mailboxRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	m, _, sealed, status, err := s.mailboxSettings(r.Context(), p.TenantID, req)
+	m, _, sealed, status, err := s.mailboxSettings(r.Context(), p.TenantID, id, req)
 	if err != nil {
 		if status == 0 {
 			s.fail(w, err)
@@ -115,11 +147,12 @@ func (s *Server) putMailbox(w http.ResponseWriter, r *http.Request, p model.Prin
 		}
 		return
 	}
-	if err := s.mailboxStore().SaveBounceMailbox(r.Context(), m, sealed); err != nil {
+	id, err = s.mailboxStore().SaveBounceMailbox(r.Context(), m, sealed)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	saved, _, err := s.mailboxStore().BounceMailbox(r.Context(), p.TenantID)
+	saved, _, err := s.mailboxStore().BounceMailbox(r.Context(), p.TenantID, id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -128,20 +161,25 @@ func (s *Server) putMailbox(w http.ResponseWriter, r *http.Request, p model.Prin
 }
 
 func (s *Server) deleteMailbox(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if err := s.mailboxStore().DeleteBounceMailbox(r.Context(), p.TenantID); err != nil {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.mailboxStore().DeleteBounceMailbox(r.Context(), p.TenantID, id); err != nil {
 		s.fail(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// testMailbox connects with the settings in the body (unsaved), signs in and opens the folder.
+// testMailbox connects with the settings in the body (unsaved; "id" uses that mailbox's saved
+// password), signs in and opens every folder.
 func (s *Server) testMailbox(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	var req mailboxRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	m, pw, _, status, err := s.mailboxSettings(r.Context(), p.TenantID, req)
+	m, pw, _, status, err := s.mailboxSettings(r.Context(), p.TenantID, req.ID, req)
 	if err != nil {
 		if status == 0 {
 			s.fail(w, err)
@@ -152,19 +190,28 @@ func (s *Server) testMailbox(w http.ResponseWriter, r *http.Request, p model.Pri
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	sess, err := s.mailboxOpener()(ctx, m, pw)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
-		return
+	var opened []string
+	for _, f := range m.Folders {
+		m.Folder = f.Name
+		sess, err := s.mailboxOpener()(ctx, m, pw)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": f.Name + ": " + err.Error()})
+			return
+		}
+		_ = sess.Close()
+		opened = append(opened, f.Name)
 	}
-	_ = sess.Close()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Connected, signed in and opened " + m.Folder + "."})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Connected, signed in and opened " + strings.Join(opened, ", ") + "."})
 }
 
 func (s *Server) checkMailbox(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	err := s.mailboxStore().CheckBounceMailboxNow(r.Context(), p.TenantID)
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	err := s.mailboxStore().CheckBounceMailboxNow(r.Context(), p.TenantID, id)
 	if errors.Is(err, pg.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "turn the bounce mailbox on first")
+		writeErr(w, http.StatusNotFound, "turn this bounce mailbox on first")
 		return
 	} else if err != nil {
 		s.fail(w, err)

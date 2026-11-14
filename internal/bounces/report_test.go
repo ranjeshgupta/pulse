@@ -171,7 +171,8 @@ func TestPollerCheck(t *testing.T) {
 
 func TestMailboxValidate(t *testing.T) {
 	m := Mailbox{Host: " imap.example.com ", Username: "b"}
-	if err := m.Validate(false); err != nil || m.Port != 993 || m.TLS != TLSImplicit || m.Folder != "INBOX" || m.Host != "imap.example.com" {
+	if err := m.Validate(false); err != nil || m.Port != 993 || m.TLS != TLSImplicit || len(m.Folders) != 1 || m.Folders[0] != (Folder{"INBOX", FolderAuto}) ||
+		m.Host != "imap.example.com" || m.Name != "b" {
 		t.Fatalf("defaults: %+v %v", m, err)
 	}
 	for _, bad := range []Mailbox{
@@ -180,7 +181,9 @@ func TestMailboxValidate(t *testing.T) {
 		{Host: "imap.example.com", Username: ""},
 		{Host: "imap.example.com", Username: "b", Port: 70000},
 		{Host: "imap.example.com", Username: "b", TLS: "ssl"},
-		{Host: "imap.example.com", Username: "b", Folder: "a\r\nb"},
+		{Host: "imap.example.com", Username: "b", Folders: []Folder{{Name: "a\r\nb"}}},
+		{Host: "imap.example.com", Username: "b", Folders: []Folder{{Name: "Bounces", Kind: "spam"}}},
+		{Host: "imap.example.com", Username: "b", Folders: []Folder{{Name: "A"}, {Name: "A"}}},
 	} {
 		if err := bad.Validate(false); err == nil {
 			t.Errorf("%+v was accepted", bad)
@@ -199,5 +202,34 @@ func TestMailboxValidate(t *testing.T) {
 	}
 	if !a.SameServer(Mailbox{Host: "IMAP.example.com", Port: 993, TLS: TLSImplicit, Username: "b", Folder: "Other"}) {
 		t.Error("a folder change keeps the password")
+	}
+}
+
+// Several folders are read in turn; a folder marked as spam complaints makes its reports
+// complaints, whatever they look like.
+func TestPollerFolders(t *testing.T) {
+	sessions := map[string]*fakeSession{
+		"Bounces":              {seen: map[uint32]bool{}, msgs: []Message{{UID: 1, Raw: sample(t, "dsn_postfix.eml")}}},
+		"[Gmail]/Spam reports": {seen: map[uint32]bool{}, msgs: []Message{{UID: 9, Raw: sample(t, "dsn_postfix.eml")}}},
+	}
+	var opened []string
+	pub := &fakePub{}
+	p := &Poller{Store: fakeMailStore{known: map[string]string{"gone@example.org": "u1"}}, Pub: pub,
+		Unseal: func(b []byte) (string, error) { return string(b), nil },
+		Open: func(_ context.Context, m Mailbox, _ string) (Session, error) {
+			opened = append(opened, m.Folder)
+			return sessions[m.Folder], nil
+		}}
+	m := Mailbox{TenantID: 7, Host: "imap.example.com", Port: 993, TLS: TLSImplicit, Username: "bounces",
+		Folders: []Folder{{Name: "Bounces", Kind: FolderBounces}, {Name: "[Gmail]/Spam reports", Kind: FolderComplaints}}}
+	processed, _, err := p.Check(context.Background(), m, []byte("pw"))
+	if err != nil || processed != 4 || strings.Join(opened, ",") != "Bounces,[Gmail]/Spam reports" { // two reports per sample
+		t.Fatalf("processed %d, err %v, opened %v", processed, err, opened)
+	}
+	if len(pub.evs) != 2 || pub.evs[0].Name != "email_bounced" || pub.evs[1].Name != "email_complained" {
+		t.Errorf("events %+v: the spam folder's report should be a complaint", pub.evs)
+	}
+	if !sessions["Bounces"].seen[1] || !sessions["[Gmail]/Spam reports"].seen[9] {
+		t.Error("every folder's messages are marked read")
 	}
 }
