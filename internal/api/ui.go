@@ -64,6 +64,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/contacts/view-segment", s.authed(s.viewSegment))
 	mux.HandleFunc("GET /v1/contacts/{external_id}/events", s.tenant(s.contactEvents))
 	mux.HandleFunc("GET /v1/stats/overview", s.tenant(s.overview))
+	mux.HandleFunc("GET /v1/stats/summary", s.authed(s.overviewSummary)) // overview.go
 }
 
 func (s *Server) uiStore() UIStore { return s.Store.(UIStore) }

@@ -103,6 +103,9 @@ var special = map[string]need{
 	// creates a segment, so segments edit; the handler also needs contacts view (the route's
 	// own area) and whatever each of the view's filters needs (viewFilterNeeds).
 	"POST /v1/contacts/view-segment": {auth.AreaSegments, auth.Edit},
+	// The Overview's summary: everyone signed in sees the Overview, and the handler keeps only the
+	// sections the role may view (summaryFor in overview.go).
+	"GET /v1/stats/summary": {"", auth.None},
 }
 
 // viewFilterNeeds: Contacts list filters (GET /v1/contacts?q=, the export and view-segment) that

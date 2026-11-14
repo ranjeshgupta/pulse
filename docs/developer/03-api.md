@@ -1021,7 +1021,33 @@ curl -s -X POST $PULSE/v1/revenue/report -H "Authorization: Bearer $KEY" -H "Con
 
 # Dashboard numbers for the last 14 days
 curl -s "$PULSE/v1/stats/overview?days=14" -H "Authorization: Bearer $KEY"
+
+# The Overview's summary: contacts added and unsubscribes (last 7 days and the 7 before), revenue,
+# one-time campaigns sending, coming up and recently sent, and warnings
+curl -s "$PULSE/v1/stats/summary" -H "Authorization: Bearer $KEY"
+# {"computed_at":"…","today":"2026-11-14","week_from":"2026-11-08","prev_from":"2026-11-01",
+#  "audience":{"new":{"today":42,"week":310,"prev_week":280},"unsubscribed":{"week":12,"prev":9}},
+#  "campaigns":{"sending":[{"id":7,"name":"Flash sale","channel":"email","status":"running","repeat":"none",
+#    "at":"…","run":1794650400,"counts":{"sent":12400,…}}],"next":[…],"recent":[…]},
+#  "revenue":{"event":"purchase","currency":"INR","week":{"orders":31,"revenue":48200,"buyers":29},"prev":{…}},
+#  "attention":[{"kind":"quota","level":"problem","text":"Gmail has used its daily quota of 500 messages. …",
+#    "link":"/settings/channels","link_text":"Channels"}]}
 ```
+
+`/v1/stats/summary` is what the Overview page shows under the live numbers. Anyone signed in may
+call it; the answer has only the parts the role may view: `audience` needs contacts view,
+`campaigns` one-time campaigns view (`recent`, with each run's counts, also reports view),
+`revenue` reports view, and each warning in `attention` the view access of what it is about
+(channels for provider quotas and failing channels, reports or channels for bounce spikes,
+one-time campaigns for a campaign's failures). Days are UTC: the last 7 days are `week_from` to
+`today`. `revenue` is left out when there were no revenue events in either week; a part that
+couldn't be read is left out and named in `unavailable`. Warnings: a provider at 90% or more of its
+daily quota; a channel where at least 20 messages and 10% failed in the last hour; at least 50 email
+bounces today and 3 times the daily average of the 7 days before; a campaign run sending or sent in
+the last 30 days with at least 20 and 10% of its messages failed. The summary is built once a
+minute per workspace and shared by everyone who opens it (Redis, 15 seconds when a part was
+missing), with at most 20 uncached builds a minute per workspace (429 beyond). The app polls it
+every minute, and only while its tab is visible.
 
 Message counts in reports have `sent`, `delivered`, `read`, `failed`, `fallback`, `suppressed`,
 `capped`, `deferred`, `opened`, `clicked`, `unsubscribed`, `converted`, `bounced`, `complained` and
@@ -1624,6 +1650,7 @@ the path, a signature, or nothing).
 | `DELETE` | `/v1/funnels/{id}` | Delete a saved funnel | reports edit |
 | `POST` | `/v1/funnels/run` | Run a funnel (`steps`, `window_days`, dates, `segment_id`, `breakdown`) | reports view |
 | `GET` | `/v1/stats/overview` | Dashboard counts and daily activity (`?days=`, up to 90) | reports view |
+| `GET` | `/v1/stats/summary` | The Overview's summary: audience, revenue, one-time campaigns, warnings (cached a minute) | signed in; each part needs its own view access |
 | `GET` | `/v1/analytics/users` | Users dashboard: active people, DAU/WAU/MAU, new and returning (`?from=&to=&platform=&source=`) | reports view |
 | `GET` | `/v1/analytics/campaigns` | Campaign performance (`?from=&to=&category=&channel=&tag=&q=`); campaigns listed by the role's view access | reports view |
 | `GET` | `/v1/analytics/products` | Products dashboard (`?from=&to=&view_event=&cart_event=`) | reports view |
