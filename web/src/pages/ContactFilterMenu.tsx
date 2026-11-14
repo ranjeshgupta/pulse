@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Broadcast, type Form, type Journey, type Segment, type Stage, type User } from "../api";
 import { chipToken } from "../contactFilters";
-import { defaults, FILTER_MENU, missing, type MenuField, type MenuItem, type OptionSource } from "../contactFilterMenu";
+import { defaults, FILTER_MENU, findItem, missing, type MenuField, type MenuItem, type OptionSource } from "../contactFilterMenu";
 import { Field, Modal } from "../ui";
 import { useCompanyOptions } from "./Companies";
 
@@ -39,10 +39,11 @@ function useSources(): Record<OptionSource, Option[] | undefined> {
 }
 
 /** FilterMenu: every filter of the contact list as a plain question; Add turns it into chips. */
-export function FilterMenu({ onAdd, onClose }: { onAdd: (chips: string[]) => void; onClose: () => void }) {
+export function FilterMenu({ initial, onAdd, onClose }: { initial?: string; onAdd: (chips: string[]) => void; onClose: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [item, setItem] = useState<MenuItem>(FILTER_MENU[1].items[0]);
-  const [values, setValues] = useState<Record<string, string>>(() => defaults(FILTER_MENU[1].items[0], today));
+  const first = (initial && findItem(initial)) || FILTER_MENU[1].items[0]; // "Did an event" unless asked for another
+  const [item, setItem] = useState<MenuItem>(first);
+  const [values, setValues] = useState<Record<string, string>>(() => defaults(first, today));
   const sources = useSources();
   const pick = (i: MenuItem) => { setItem(i); setValues(defaults(i, today)); };
   const need = missing(item, values);

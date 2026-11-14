@@ -44,3 +44,20 @@ describe("contact filters", () => {
     expect(suggest("asha", data)).toEqual([]);
   });
 });
+
+describe("event and date filters in the search box", () => {
+  const d = { segments: [], tags: [], stages: [], companies: [], users: [], events: ["purchase", "page_view"], today: "2026-11-14" };
+  it("lists the Add filter questions when the box is empty, and finds them by word", () => {
+    expect(suggest("", d).slice(0, 6).map((s) => s.menu)).toEqual(["event", "no_event", "campaign", "journey", "active", "form"]);
+    expect(suggest("date", d).map((s) => s.menu)).toContain("event");
+    expect(suggest("camp", d)[0]).toMatchObject({ menu: "campaign" });
+    expect(suggest("ev", d).some((s) => s.label === "event:")).toBe(true);
+  });
+  it("suggests event names and quick date ranges as chips", () => {
+    expect(suggest("event:pur", d)).toEqual([{ label: "event:purchase", hint: "Did it", chip: "event:purchase" }]);
+    const p = suggest("period:", d);
+    expect(p.map((s) => s.label)).toEqual(["Last 7 days", "Last 30 days", "Last 90 days", "This month"]);
+    expect(p[1].chip).toBe("period:2026-10-16..2026-11-14");
+    expect(p[3].chip).toBe("period:2026-11-01..2026-11-14");
+  });
+});

@@ -98,7 +98,7 @@ export default function Contacts() {
   const [choosing, setChoosing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [snapshot, setSnapshot] = useState(false);
-  const [filtering, setFiltering] = useState(false);
+  const [filtering, setFiltering] = useState<string | false>(false); // the Add filter question to open on
   // Lists opened from a number elsewhere (a funnel step, a journey step…) can't be a dynamic
   // segment's rule; they can become a static segment of who is in them now.
   const linkList = chips.some(isLinkFilter);
@@ -123,10 +123,10 @@ export default function Contacts() {
         </>}
       />
       <div className="cv-search-row">
-        <ContactSearch chips={chips} text={text} labels={labels} onText={setText} onChips={(c, t) => applyNow(c, t)} />
-        <button className="btn" onClick={() => setFiltering(true)}>Add filter</button>
+        <ContactSearch chips={chips} text={text} labels={labels} onText={setText} onChips={(c, t) => applyNow(c, t)} onMenu={(id) => setFiltering(id)} />
+        <button className="btn" onClick={() => setFiltering("")}>Add filter</button>
       </div>
-      {filtering && <FilterMenu onClose={() => setFiltering(false)} onAdd={(add) => { setFiltering(false); applyNow(addFilters(chips, add), text); }} />}
+      {filtering !== false && <FilterMenu initial={filtering || undefined} onClose={() => setFiltering(false)} onAdd={(add) => { setFiltering(false); applyNow(addFilters(chips, add), text); }} />}
       <div className="cv-bar">
         <span className="small muted" aria-live="polite">
           {list.isFetching && !list.isFetchingNextPage ? "Searching…" : filtered ? countText : ""}
@@ -179,9 +179,11 @@ export default function Contacts() {
 }
 
 /** ContactSearch is the search box: chips for filters, free text, and suggestions as you type. */
-function ContactSearch({ chips, text, labels, onText, onChips }: {
+function ContactSearch({ chips, text, labels, onText, onChips, onMenu }: {
   chips: string[]; text: string; labels: Map<string, string>; onText: (t: string) => void; onChips: (chips: string[], text: string) => void;
+  onMenu: (question: string) => void;
 }) {
+  const events = useQuery({ queryKey: ["event-names"], queryFn: () => api.get<{ names: string[] }>("/v1/events/names"), staleTime: 60_000, retry: false }).data?.names ?? [];
   const segs = useSegments(0).data?.segments ?? [];
   const tags = useQuery({ queryKey: ["tags"], queryFn: () => api.get<{ tags: string[] }>("/v1/tags"), staleTime: 30_000 }).data?.tags ?? [];
   const stages = useStages().data ?? [];
@@ -192,9 +194,10 @@ function ContactSearch({ chips, text, labels, onText, onChips }: {
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const options = focused ? suggest(text, {
-    segments: segs, tags, stages: stages.map((s) => s.name), companies: companies.map((c) => c.name), users,
+    segments: segs, tags, stages: stages.map((s) => s.name), companies: companies.map((c) => c.name), users, events,
   }) : [];
   const pick = (s: Suggestion) => {
+    if (s.menu) { onText(currentWord(text).before.trimEnd()); setFocused(false); onMenu(s.menu); return; }
     if (s.chip) onChips([...chips.filter((c) => c !== s.chip), s.chip], currentWord(text).before.trimEnd());
     else if (s.fill !== undefined) onText(s.fill);
     setActive(0);
@@ -209,7 +212,7 @@ function ContactSearch({ chips, text, labels, onText, onChips }: {
   const key = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown" && options.length) { e.preventDefault(); setActive((active + 1) % options.length); }
     else if (e.key === "ArrowUp" && options.length) { e.preventDefault(); setActive((active - 1 + options.length) % options.length); }
-    else if ((e.key === "Enter" || e.key === "Tab") && options[active] && currentWord(text).word) { e.preventDefault(); pick(options[active]); }
+    else if ((e.key === "Enter" || e.key === "Tab") && options[active] && (currentWord(text).word || options[active].menu)) { e.preventDefault(); pick(options[active]); }
     else if (e.key === "Enter") {
       e.preventDefault();
       const taken = takeChip(text, true);
@@ -235,7 +238,7 @@ function ContactSearch({ chips, text, labels, onText, onChips }: {
         ))}
         <input ref={input} value={text} onChange={(e) => change(e.target.value)} onKeyDown={key}
           onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => setFocused(false), 150)}
-          placeholder={chips.length ? "Add a filter or search" : "Search, or filter: is:anonymous, segment:, tag:, points:>50…"}
+          placeholder={chips.length ? "Add a filter or search" : "Search, or filter: did an event, date, campaign, segment:, tag:…"}
           aria-label="Search and filter contacts" role="combobox" aria-expanded={options.length > 0} aria-controls="cv-suggestions" aria-autocomplete="list"
           aria-activedescendant={options.length ? `cv-opt-${active}` : undefined} />
         {(chips.length > 0 || text) && <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); onChips([], ""); }}>Clear</button>}

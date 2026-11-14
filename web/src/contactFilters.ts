@@ -16,6 +16,14 @@ export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = 
   { key: "name", hint: "name contains", example: "name:asha" },
 ];
 
+/** Typed keys from the Add filter questions, offered while typing too (they need each other as
+ * described there: product: needs event:, active: needs period:). */
+export const MORE_KEYS: { key: string; hint: string }[] = [
+  { key: "event", hint: "did an event (add period: for dates)" },
+  { key: "no_event", hint: "never did an event (add period: for dates)" },
+  { key: "period", hint: "between two dates, for event:, campaign:, active: and form:" },
+];
+
 /** Filters that other pages put in links (M7: the contacts behind a number). They aren't offered
  * while typing, but they show as chips and can be removed like any other. */
 export const LINK_KEYS = ["in", "not_in", "subscribed", "reachable", "under_cap", "journey", "at", "journey_status", "campaign", "run",
@@ -104,6 +112,9 @@ export function takeChip(input: string, force = false): { chip: string; rest: st
 }
 
 export type SuggestData = {
+  // The workspace's event names (for event: and no_event:), and today (UTC) for period:; optional.
+  events?: string[];
+  today?: string;
   segments: { id: number; name: string; kind: string }[];
   tags: string[];
   stages: string[];
@@ -112,7 +123,32 @@ export type SuggestData = {
 };
 
 /** A suggestion either fills the input with a key ("segment:") or completes a chip. */
-export type Suggestion = { label: string; hint?: string; fill?: string; chip?: string };
+/** A suggestion adds a chip, fills the box, or (menu) opens Add filter on one of its questions. */
+export type Suggestion = { label: string; hint?: string; fill?: string; chip?: string; menu?: string };
+
+/** The Add filter questions offered in the search box's list (ids of contactFilterMenu items), with
+ * the words that find them. The empty box lists them first, so event and date filters are in plain
+ * sight there too. */
+export const MENU_SUGGESTIONS: { id: string; label: string; hint: string; words: string }[] = [
+  { id: "event", label: "Did an event…", hint: "between two dates, e.g. purchase in the last 30 days", words: "event did date dates period when between purchase bought" },
+  { id: "no_event", label: "Didn't do an event…", hint: "between two dates", words: "event didnt didn't not never date dates period" },
+  { id: "campaign", label: "Got a campaign…", hint: "and opened, clicked, bounced…", words: "campaign email message sent opened clicked bounced got" },
+  { id: "journey", label: "In a triggered or automation campaign…", hint: "entered it, finished it…", words: "journey campaign triggered automation entered" },
+  { id: "active", label: "Was active…", hint: "on the website or app, between two dates", words: "active visit visited website app date dates period new returning" },
+  { id: "form", label: "Submitted a form…", hint: "between two dates", words: "form submitted date" },
+];
+
+/** periodPresets: quick date ranges for period: (UTC days, today included). */
+export function periodPresets(today: string): { value: string; label: string }[] {
+  const day = (n: number) => new Date(Date.parse(today) - n * 86_400_000).toISOString().slice(0, 10);
+  const monthStart = `${today.slice(0, 8)}01`;
+  return [
+    { value: `${day(6)}..${today}`, label: "Last 7 days" },
+    { value: `${day(29)}..${today}`, label: "Last 30 days" },
+    { value: `${day(89)}..${today}`, label: "Last 90 days" },
+    { value: `${monthStart}..${today}`, label: "This month" },
+  ];
+}
 
 /** currentWord is the word being typed at the end of the input (a quoted value counts as one). */
 export function currentWord(input: string): { before: string; word: string } {
@@ -130,10 +166,15 @@ export function currentWord(input: string): { before: string; word: string } {
 export function suggest(input: string, d: SuggestData, max = 8): Suggestion[] {
   const { before, word } = currentWord(input);
   const colon = word.indexOf(":");
+  const menu = (m: (typeof MENU_SUGGESTIONS)[number]): Suggestion => ({ label: m.label, hint: m.hint, menu: m.id });
+  // The empty box: the questions first, then the keys you can type.
+  if (!input.trim()) return [...MENU_SUGGESTIONS.map(menu), ...FILTER_KEYS.map((f) => ({ label: `${f.key}:`, hint: f.hint, fill: `${f.key}:` }))];
   if (colon < 0) {
-    if (!/^[a-zA-Z]*$/.test(word)) return [];
+    if (!/^[a-zA-Z']*$/.test(word)) return [];
     const k = word.toLowerCase();
-    return FILTER_KEYS.filter((f) => f.key.startsWith(k)).map((f) => ({ label: `${f.key}:`, hint: f.hint, fill: `${before}${f.key}:` })).slice(0, max);
+    const keys = [...FILTER_KEYS, ...MORE_KEYS].filter((f) => f.key.startsWith(k)).map((f) => ({ label: `${f.key}:`, hint: f.hint, fill: `${before}${f.key}:` }));
+    const questions = k.length >= 3 ? MENU_SUGGESTIONS.filter((m) => m.words.split(" ").some((w) => w.startsWith(k))).map(menu) : [];
+    return [...questions, ...keys].slice(0, max);
   }
   const key = word.slice(0, colon).toLowerCase();
   if (!KEYS.has(key)) return [];
@@ -165,6 +206,12 @@ export function suggest(input: string, d: SuggestData, max = 8): Suggestion[] {
     case "email":
     case "name":
       return partial ? [chip(partial, `${key}:${partial}`, key === "email" ? "Email contains this" : "Name contains this")] : [];
+    case "event":
+    case "no_event":
+      return (d.events ?? []).filter(match).map((e) => chip(e, `${key}:${e}`, key === "event" ? "Did it" : "Never did it")).slice(0, max);
+    case "period":
+      return periodPresets(d.today ?? new Date().toISOString().slice(0, 10)).filter((o) => match(o.label) || o.value.startsWith(p))
+        .map((o) => chip(o.value, o.label, o.value.replace("..", " to ")));
   }
   return [];
 }

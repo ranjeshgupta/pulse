@@ -67,11 +67,15 @@ func TestCartAbandonPersonalisedJourney(t *testing.T) {
 		map[string]any{"external_id": in, "name": "identify", "email": inMail, "attrs": map[string]any{"first_name": "Asha", "phone": inPhone}},
 		map[string]any{"external_id": us, "name": "identify", "attrs": map[string]any{"first_name": "Sam", "phone": usPhone}},
 	}}, 202)
-	waitFor(t, 10*time.Second, func() bool { return attrsOf(t, c, in)["phone_country"] == "IN" && attrsOf(t, c, us)["phone_country"] == "US" })
+	waitFor(t, 10*time.Second, func() bool {
+		return attrsOf(t, c, in)["phone_country"] == "IN" && attrsOf(t, c, us)["phone_country"] == "US"
+	})
 	jsonCall(t, c, "POST", "/v1/events", map[string]any{"events": []any{cart(in), cart(us)}}, 202)
 
 	// The email: subject and body from the event; the personal property never arrives; the link is tracked.
-	var search struct{ Messages []struct{ ID, Subject string } }
+	var search struct {
+		Messages []struct{ ID, Subject string }
+	}
 	waitFor(t, 20*time.Second, func() bool {
 		mailpitGet(t, "/api/v1/search?query="+url.QueryEscape("to:"+inMail), &search)
 		return len(search.Messages) == 1
