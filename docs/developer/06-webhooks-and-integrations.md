@@ -430,7 +430,8 @@ It works in two modes (`config.mode`), chosen in the form with two cards:
 - **Connect to a gateway's existing API** (`custom`): you design the request, so Pulse can call a
   provider's existing API directly ([custom request mode](#custom-request-mode)). The form's steps are
   **1 Where to send**, **2 How Pulse signs in**, **3 What to send**, **4 How Pulse knows it was sent**,
-  **5 Delivery reports (optional)** and **6 Check it**.
+  **5 Delivery reports (optional)** and **6 Check it**, under a box that fills them from the API's
+  pasted curl or Postman examples ([pasting the gateway's examples](#custom-request-mode)).
 
 Both modes can add [custom authentication](#custom-authentication) (basic, bearer, API key, OAuth2
 or a login flow). Like every provider form, it ends with **Sending limits** (`limits`: messages per
@@ -555,6 +556,40 @@ body `{"to": "{{message.to}}", "text": "{{message.text}}", "name": "{{contact.fi
 }
 ```
 
+**Pasting the gateway's examples.** At the top of the custom mode's form, **Have examples from the
+gateway's docs or Postman?** takes the **Send-message request**, and optionally the **Login request**
+and a **Login answer**, as `curl` or `postman request` commands, and **Fill in the form** writes the
+steps from them (in the browser, `web/src/curlImport.ts`; nothing is sent). It reads the method
+(POST when there's a body and no `-X`), address, headers and body. Values in fields named like a
+phone number (`to`, `phone`, `phone_no`, `mobile`…) become `{{message.to}}` and text fields
+(`text`, `message`…) `{{message.text}}`; anything else, such as a template name and its variables, is
+kept as pasted, and the notes under the button say what is left to check. A login example becomes a
+`login` sign-in whose body uses `{{secrets.username}}` and `{{secrets.password}}` (the pasted values
+go into the **Username** and **Password** secret fields), the token path found in the example
+answer, and the token sent as `Authorization: Bearer {{token}}`. Without a login, an
+`Authorization: Bearer` header becomes a `bearer` sign-in, basic auth a `basic` one and an API-key
+header an `api_key` one, each with its value as the secret. For example, RML Connect's RCS API:
+
+```bash
+# Login request
+postman request POST 'https://apis.rmlconnect.net/auth/v1/login/' \
+  --header 'Content-Type: application/json' --body '{"username": "…", "password": "…"}'
+# Login answer
+{"JWTAUTH": "eyJhbGciOi…", "user_data": {…}}
+# Send-message request
+curl --location 'https://apis.rmlconnect.net/rcs/v1/message' \
+  --header 'Authorization: Bearer …' --header 'Content-Type: application/json' \
+  --data '{"type": "template", "phone_no": "…", "bot_name": "acme_promo",
+           "template": {"name": "order_update", "variables": {"name": "Dewy"}}}'
+```
+
+gives a login sign-in to `https://apis.rmlconnect.net/auth/v1/login/` reading the token from
+`JWTAUTH`, and a POST to `https://apis.rmlconnect.net/rcs/v1/message` with `"phone_no":
+"{{message.to}}"` and the template object as pasted (replace `Dewy` with a placeholder such as
+`{{contact.first_name}}`). The form then sums up the login sign-in in one sentence ("Pulse signs in at
+the login address with username and password, reads the token from JWTAUTH, and sends it as
+Authorization: Bearer <token>…") with its details folded.
+
 - **Method** `GET`, `POST`, `PUT` or `PATCH`; **content type** JSON (the default), a form
   (`application/x-www-form-urlencoded`) or anything else as plain text.
 - **Variables**: the standard ones (`{{contact.x}}`, `{{event.x}}`, `{{campaign.x}}`) and
@@ -665,6 +700,11 @@ secrets ([API guide](03-api.md#channels-and-providers)).
 
 These accounts are for low volume: send bulk mail through the relay or a sending service. None of
 them reports deliveries.
+
+The Gmail and Workspace forms open with a three-step guide (the kind's `guide`: turn on 2-Step
+Verification, create an app password, enter it and **Test connection**) and show only the fields of
+the chosen **Sign in with** method (`show_if` on `auth_method`); the port (587 or 465) and the
+number of connections are under **More settings**.
 
 - **App password**: 16 characters from the Google account's security page (it needs 2-step
   verification); spaces are removed.

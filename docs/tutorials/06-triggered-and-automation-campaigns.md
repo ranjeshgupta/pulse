@@ -138,7 +138,9 @@ Every line on the canvas has a **+** in the middle, and every free path has a **
 4. Click **Send email**. The step appears as **1 Send email**, selected, and the inspector shows its
    settings.
 5. **Email template**: choose **Welcome email**. **Preview** shows it as a contact would get it;
-   **Send a test** sends it to one contact (tutorial 4).
+   **Send a test** sends it to one contact (tutorial 4). If the channel has more than one provider,
+   **Send through** picks the one this step sends with (the default is preselected; see
+   [tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)).
 
    <img src="img/06-send-email.png" alt="The Send email step settings: Email template Welcome email, Preview and Send a test" width="300">
 

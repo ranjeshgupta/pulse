@@ -293,18 +293,31 @@ six-digit code an authenticator app on the person's phone shows (Google Authenti
 Authenticator, Authy, 1Password and others). It applies to password sign-ins only; people who sign
 in with SSO get whatever extra checks your identity provider asks for.
 
-**Turn it on for yourself.** At the bottom of the menu, click **Your account**. Under
-**Two-step sign-in** click **Set up the app**, then:
+**Turn it on for yourself.** At the bottom of the menu, under your name, click **Your account**. It
+shows your details and, under **Two-step sign-in**, whether it is **On** or **Off**. Click **Set up
+the app**:
+
+![Your account: You (name, email, workspace, role) and Two-step sign-in, Off, with Set up the app highlighted, and Your account highlighted at the bottom of the menu](img/11-account.png)
 
 1. In the authenticator app, add an account and scan the QR code. (Can't scan it? Click **Can't
-   scan it? Type a key instead** and type the key into the app.)
-2. Type the code the app shows and click **Turn on two-step sign-in**.
+   scan it? Type a key instead** and type the key into the app; the type of key is *time based*.)
+2. Type the code the app shows into **Code from the app** and click **Turn on two-step sign-in**.
+
+   ![Two-step sign-in setup: 1 Scan this code with your authenticator app, the QR code and the key to type instead; 2 Enter the code the app shows, with a code typed in, and Turn on two-step sign-in](img/11-account-setup.png)
 3. Pulse shows ten **recovery codes**, once. **Download** or **Copy** them and keep them somewhere
    safe, like a password manager. Each one lets you sign in once without your phone. Tick
    **I've saved my recovery codes** and click **Done**.
 
+   ![Save these recovery codes now: ten codes, Download, Copy, I've saved my recovery codes and Done](img/11-recovery-codes.png)
+
+(The key and the codes in these pictures are made up.)
+
 From then on, after your password the sign-in page asks **Enter your code**. Lost your phone? Type a
-recovery code in the same box. On **Your account** you can also:
+recovery code in the same box.
+
+<img src="img/11-signin-code.png" alt="The sign-in page's second step: Enter your code, Code from the app, Sign in, and Lost your phone? Type one of your recovery codes instead, or ask an admin to reset your two-step sign-in, with Start again" width="380">
+
+On **Your account** you can also:
 
 - **Use a new phone**: confirm it's you (a code from the current app, a recovery code, or your
   password), then scan a new QR code. The old phone keeps working until the new one is set up.
@@ -314,20 +327,28 @@ recovery code in the same box. On **Your account** you can also:
 **Require it for your team.** On **Settings → Sign-in & keys → Two-step sign-in** (full **Admin**
 role) choose:
 
+![Settings → Sign-in & keys → Two-step sign-in: Required for some roles or people, with the Admin role ticked, the People list, the line Required for Admin, the note that 1 person hasn't set it up yet, and Save two-step sign-in](img/11-two-step-policy.png)
+
 | Option | Who must use it |
 |---|---|
 | **Optional: each person decides** | Nobody (the default) |
 | **Required for everyone** | Everyone who signs in with a password |
 | **Required for some roles or people** | The roles and teammates you tick |
 
-Click **Save two-step sign-in**. The panel says how many of the people covered haven't set it up
-yet. They're not locked out: the next time they sign in with their password, Pulse walks them
-through the same setup (QR code, code, recovery codes) before they can use the app.
+With **Required for some roles or people**, tick **Roles** (the built-in ones and your own) and
+**People** (teammates who sign in with a password); a line under the lists says who it covers, e.g.
+*Required for Admin.* Click **Save two-step sign-in**. The panel says how many of the people covered
+haven't set it up yet. They're not locked out: the next time they sign in with their password, Pulse
+walks them through the same setup (QR code, code, recovery codes) before they can use the app.
 
 **A teammate lost their phone and their recovery codes?** On **Settings → Team** the **Two-step
-sign-in** column shows who has it **On**. Click **Reset two-step** on their row and confirm. They
-sign in with their password alone until they set it up again (straight away, if your workspace
-requires it). The reset is in the audit log, like every change.
+sign-in** column shows who has it **On** (**Not used** for teammates who sign in with SSO). Click
+**Reset two-step** on their row and confirm.
+
+![Settings → Team: the Two-step sign-in column with Off for the admin, On for Priya Shah with Reset two-step highlighted, and Not used for the two SSO teammates](img/11-team-two-step.png)
+
+After a reset they sign in with their password alone until they set it up again (straight away, if
+your workspace requires it). The reset is in the audit log, like every change.
 
 ## 10. Identity verification
 

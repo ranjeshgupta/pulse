@@ -155,7 +155,13 @@ export default async function (browser) {
   await clearHighlights(page);
   await schedule.click();
   await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}`)).broadcast.status === "testing", { timeout: 60_000, what: "the A/B test to go out" });
-  await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}/report`)).totals.sent >= 2, { timeout: 60_000, what: "the test sends" });
+  // The test group is drawn by a hash of each contact and the campaign, so with six testers it may
+  // be one, two or three people: wait for as many as the run says.
+  await until(async () => {
+    const { runs } = await api(context, "GET", `/v1/broadcasts/${id}`);
+    const want = Math.max(1, runs?.[0]?.test_recipients ?? 1);
+    return (await api(context, "GET", `/v1/broadcasts/${id}/report`)).totals.sent >= want;
+  }, { timeout: 60_000, what: "the test sends" });
   await go(page, `/broadcasts/${id}`);
   await settle(page, { quiet: 6000 });
   await shot(page, AREA, "07-testing", { clip: page.locator(".page-head, .alert.info"), pad: 8 });

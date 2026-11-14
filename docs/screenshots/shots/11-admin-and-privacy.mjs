@@ -3,7 +3,11 @@
 // delete window is filled in, then cancelled), Data & privacy, the audit log, single sign-on with
 // the local Keycloak (turned on for the pictures, then back to how it was: removed again if it wasn't
 // set up before), identity verification and keys
-// (nothing replaced), and the "Delete contact" journey step (in a draft journey, deleted again).
+// (nothing replaced), the "Delete contact" journey step (in a draft journey, deleted again), and
+// two-step sign-in. Two-step sign-in is never turned on and the policy never saved: the server's
+// answers to the setup, the turn-on and the sign-in are stood in for in the browser (page.route),
+// so the pictures show the real screens with a made-up key and made-up recovery codes, and nothing
+// changes for docs.admin@pulse.test (the account every script signs in with).
 import { api, clearHighlights, go, highlight, runId, session, settle, shot } from "../lib.mjs";
 
 const AREA = "tutorials";
@@ -28,6 +32,7 @@ export default async function (browser) {
     await dataAndAudit(page);
     await signIn(browser, context, page, sso);
     await deleteStep(context, page, journeys);
+    await twoStep(browser, page);
   } finally {
     for (const id of journeys) await api(context, "DELETE", `/v1/journeys/${id}`).catch(() => {});
     // Single sign-on back to how it was: removed if it wasn't set up, else off again.
@@ -194,4 +199,96 @@ async function deleteStep(context, page, journeys) {
   await insp.waitFor();
   await settle(page);
   await shot(page, AREA, "11-delete-step", { clip: insp, pad: 12 });
+}
+
+// A made-up authenticator key (base32), never stored anywhere: the setup answer is stood in for.
+const FAKE_KEY = "PULSEDOCSEXAMPLEKEYNOTREAL234567";
+const FAKE_SETUP = {
+  secret: FAKE_KEY.match(/.{4}/g).join(" "),
+  uri: `otpauth://totp/Pulse:docs.admin%40pulse.test%20(Acme%20Retail)?algorithm=SHA1&digits=6&issuer=Pulse&period=30&secret=${FAKE_KEY}`,
+  issuer: "Pulse",
+  account: "docs.admin@pulse.test (Acme Retail)",
+};
+const FAKE_CODES = ["k7wq2-mx9dp", "h3rtn-a8vze", "p2c6y-wq4kd", "e9mzs-t3hvb", "n5jxr-c7pfa", "u4bgk-z8qme", "y6dfw-r2nts", "s8vqa-m5kxh", "c3tpe-j9wzr", "x2hmn-b6dqu"];
+
+async function twoStep(browser, page) {
+  // Your account → Two-step sign-in: Off, then the setup with the QR code (the answer to "Set up
+  // the app" stood in for, so no key is made), then the recovery codes (the turn-on stood in for).
+  await page.route("**/v1/account/two-factor/setup", (r) => r.fulfill({ json: FAKE_SETUP }));
+  await page.route("**/v1/account/two-factor/enable", (r) => r.fulfill({ json: { recovery_codes: FAKE_CODES } }));
+  try {
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await go(page, "/account");
+    const tf = panel(page, "Two-step sign-in");
+    await highlight(page.getByRole("link", { name: "Your account" }));
+    await highlight(tf.getByRole("button", { name: "Set up the app" }));
+    await shot(page, AREA, "11-account", { clip: { x: 0, y: 0, width: 1440, height: 1200 } });
+    await clearHighlights(page);
+    await tf.getByRole("button", { name: "Set up the app" }).click();
+    await tf.getByRole("button", { name: /Can't scan it/ }).click();
+    await tf.getByLabel("Code from the app").fill("492039");
+    await page.evaluate(() => document.activeElement?.blur());
+    await settle(page);
+    await shot(page, AREA, "11-account-setup", { clip: tf, pad: 8 });
+    await tf.getByRole("button", { name: "Turn on two-step sign-in" }).click();
+    await tf.getByText("Save these recovery codes now").waitFor();
+    await page.evaluate(() => document.querySelectorAll(".toast").forEach((t) => t.remove()));
+    await settle(page);
+    await shot(page, AREA, "11-recovery-codes", { clip: tf, pad: 8 });
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+  const status = await page.request.get("/v1/account/two-factor").then((r) => r.json());
+  if (status.enabled) throw new Error("two-step sign-in is on for the docs admin: turn it off on Your account");
+
+  // The sign-in page's code step: the answer to the password stood in for ("a code is needed"), so
+  // no password is sent.
+  const { context: out, page: login } = await session(browser, { signIn: null });
+  try {
+    await login.route("**/v1/auth/login", (r) => r.fulfill({ json: { two_factor: "code" } }));
+    await go(login, "/login");
+    await field(login, "Workspace ID").fill("acme-retail");
+    await field(login, "Email").fill("asha@acme-retail.test");
+    await field(login, "Password").fill("not-sent-anywhere");
+    await login.getByRole("button", { name: "Sign in", exact: true }).click();
+    await login.getByRole("heading", { name: "Enter your code" }).waitFor();
+    await login.getByLabel("Code from the app").fill("492039");
+    await login.evaluate(() => document.activeElement?.blur());
+    await settle(login);
+    await shot(login, AREA, "11-signin-code", { clip: login.locator(".auth-form > *"), pad: 24 });
+  } finally {
+    await out.close();
+  }
+
+  // Settings → Sign-in & keys → Two-step sign-in: "Required for some roles or people" with the
+  // Admin role ticked, on screen only (not saved).
+  await page.setViewportSize({ width: 1440, height: 1600 });
+  await go(page, "/settings/access");
+  const policy = panel(page, "Two-step sign-in");
+  await policy.getByLabel("Required for some roles or people").check();
+  await policy.getByRole("checkbox", { name: "Admin", exact: true }).check();
+  await settle(page);
+  await shot(page, AREA, "11-two-step-policy", { clip: policy, pad: 8 });
+  await go(page, "/settings/access"); // drop the unsaved choice
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Settings → Team: the Two-step sign-in column. Nobody in the docs workspace has it on, so the
+  // list shows Priya with a password and two-step sign-in on (in the browser only) for the
+  // Reset two-step button.
+  await page.route("**/v1/users", async (r) => {
+    if (r.request().method() !== "GET") return r.continue();
+    const res = await r.fetch();
+    const body = await res.json();
+    for (const u of body.users) if (/^Priya/.test(u.name ?? "")) Object.assign(u, { password: true, two_factor: true });
+    return r.fulfill({ response: res, json: body });
+  });
+  try {
+    await go(page, "/settings/team");
+    await highlight(page.getByRole("button", { name: "Reset two-step" }));
+    await shot(page, AREA, "11-team-two-step", { clip: page.locator(".page > .panel"), pad: 8 });
+    await clearHighlights(page);
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
 }

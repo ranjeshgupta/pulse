@@ -64,6 +64,11 @@ For **WhatsApp** and **RCS** a further field appears: **If it can't be delivered
 instead**. It is used when a number isn't on WhatsApp or RCS, or delivery fails, at most once per
 contact.
 
+When the channel has more than one provider, **Send through** picks the one that delivers this
+campaign. The channel's default is preselected; choose another, such as a standby route, to send this
+campaign through it ([tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)).
+With a single provider the field isn't shown.
+
 Pulse skips contacts it can't or mustn't reach on the channel: no address, unsubscribed from that
 channel (or from everything), or an email address or phone number that bounced. Frequency caps and
 quiet hours (**Settings → Channels**, **Delivery rules**) apply to one-time campaigns as well.

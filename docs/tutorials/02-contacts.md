@@ -16,11 +16,12 @@ or **Editor** role). For the import, use the sample file
 Go to **Contacts** (under *Audience*). Everyone Pulse has seen an event or a profile for is here,
 newest first, 50 at a time (**Load more** at the bottom fetches the next 50).
 
-![The Contacts page: the search box, Columns and Export CSV, the list, and the Import button highlighted](img/02-contacts-list.png)
+![The Contacts page: the search box with Add filter next to it, Columns and Export CSV, the list, and the Import button highlighted](img/02-contacts-list.png)
 
 | Part | What it does |
 |---|---|
 | Search box | Filters and quick find (step 7) |
+| **Add filter** | Narrow the list by answering a plain question: who they are, what they did and when, which campaigns they got (step 7) |
 | **Duplicates** | Contacts that share an email or phone number (step 10) |
 | **Import** | Import a CSV (step 5). Only for roles that can edit contacts |
 | **Columns** | Choose the columns of the list (step 9) |
@@ -318,7 +319,38 @@ top, and each is in the segment **Pune store opening guests**.
 
 ## 7. Filter your contacts
 
-Type in the search box. Words like `key:value` become **filters**, shown as chips; anything else is a
+### Add filter: filters as plain questions
+
+Next to the search box, click **Add filter**:
+
+![The search box and the Add filter button next to it, highlighted](img/02-add-filter-button.png)
+
+The **Add a filter** window lists every filter as a plain question, in three groups:
+
+| Group | Filters |
+|---|---|
+| **Who they are** | **Contact type** (identified, anonymous, unsubscribed, bounced, Do Not Contact), **In a segment**, **Not in a segment**, **Has a tag**, **Lifecycle stage**, **Works at a company**, **Owner**, **Points** (more than, less than, exactly, at least), **Email contains**, **Name contains** |
+| **What they did** | **Did an event** and **Didn't do an event** (between two dates; *Did an event* optionally for one **Product code**), **Was active** (anywhere, on the website, Android or iOS, for the first time or coming back, between two dates, optionally from one `utm_source`), **Submitted a form** (between two dates) |
+| **Campaigns and channels** | **Got a campaign** and what happened (was in the audience, was sent it, got it, opened it, clicked in it, unsubscribed, bounced, marked it as spam, failed or was skipped), optionally between two dates; **In a triggered or automation campaign** (entered it, still in it, finished it, reached its goal, left it early); **Can be reached by**, **Not unsubscribed from** and **Not held back by the frequency cap** on a channel |
+
+Pick a question on the left and fill in its fields on the right. Dates start at the last 30 days.
+For example, everyone who bought in the first two weeks of November: **Did an event**, **Event**
+`purchase`, **From** 1 Nov, **To** 14 Nov.
+
+![Add a filter: Did an event chosen under What they did, with Event purchase, From 1 Nov 2026, To 14 Nov 2026 and an empty Product code (optional)](img/02-add-filter.png)
+
+Click **Add filter**. The filter appears in the search box as chips in words, here **Did purchase**
+and **Between 1 Nov and 14 Nov 2026**, and the list and its count change at once:
+
+![Contacts filtered to Did purchase and Between 1 Nov and 14 Nov 2026: 85 contacts, with Create segment from this list](img/02-add-filter-chips.png)
+
+Add more filters the same way: they all have to match. A filter that can be used only once per list
+(the dates, a campaign and what happened, a channel) replaces the earlier one. Remove a filter with
+**×** on its chip.
+
+### Type filters in the search box
+
+You can also type filters. Type in the search box. Words like `key:value` become **filters**, shown as chips; anything else is a
 quick search. As you type, suggestions appear: type `is:` and pick one with the arrow keys and
 **Enter**, or click it.
 

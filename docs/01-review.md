@@ -1,6 +1,7 @@
 # Review: Mautic 7 and Listmonk 6
 
-Findings from the local installs in `../mautic` and `../listmonk` (inspected November 2026),
+Findings from local reference installs of Mautic and Listmonk (inspected November 2026, in `../mautic` and
+`../listmonk` next to this repository; they were never part of it and are not needed to build or run Pulse),
 plus WebEngage as a feature reference. The goal is to explain *why* Mautic is slow and Listmonk is fast,
 so Pulse keeps Mautic's features without its batch architecture.
 

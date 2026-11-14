@@ -50,7 +50,7 @@ export default async function (browser) {
     const dialog = page.getByRole("dialog", { name: "Add SMS provider" });
     await dialog.waitFor();
     await dialog.getByRole("combobox").first().selectOption("http_sms");
-    await dialog.getByLabel("Name in Pulse").fill("Our SMS gateway");
+    await dialog.getByLabel("Provider name").fill("Our SMS gateway");
     await dialog.getByLabel("Endpoint URL").fill("https://sms-gateway.example.com/pulse");
     await dialog.getByLabel(/^Signing secret/).fill("placeholder-not-a-secret");
     await dialog.getByLabel("Use for all SMS messages").uncheck();

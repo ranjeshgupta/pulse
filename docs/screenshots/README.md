@@ -105,6 +105,14 @@ developer guide (`dev-04-snippet.png` from `dev-04-web-sdk.mjs`). Embed them wit
   The pipeline is asynchronous (events reach contacts and segments within seconds).
 - **Don't change the docs workspace for good.** Open forms and fill them in for a picture, then
   **Cancel**; if a guide needs to save something, give it a `runId()` name. Never touch `demo-retail`.
+- **Never turn on two-step sign-in** for `docs.admin@pulse.test` (every script signs in with it, with a
+  password only) and never save the workspace's two-step policy away from **Optional**. Tutorial 11's
+  script shows the setup, the recovery codes, the sign-in code step and the Team column by standing in
+  for the server's answers in the browser (`page.route`), with a made-up key and codes, so nothing is
+  turned on; it stops with an error if two-step sign-in is on afterwards.
+- **A choice that needs more data, added for the picture and removed again:** the **Send through**
+  list only shows when a channel has two providers, so tutorial 14's script adds a standby SMS
+  sandbox (never the default) and deletes it in a `finally`.
 - Scripts that sign up create a new workspace on every run (as tutorial 1 does); that's expected in
   a local database.
 

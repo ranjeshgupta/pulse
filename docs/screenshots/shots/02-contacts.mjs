@@ -230,6 +230,28 @@ async function filters(page) {
   await highlight(exp);
   await shot(page, AREA, "02-export", { clip: page.locator(".cv-search-wrap, .cv-bar"), pad: 12 });
   await clearHighlights(page);
+
+  // Add filter: "Did an event" purchase in the last two weeks, then the chips it makes.
+  await go(page, "/contacts");
+  const addBtn = page.getByRole("button", { name: "Add filter", exact: true });
+  await highlight(addBtn);
+  await shot(page, AREA, "02-add-filter-button", { clip: page.locator(".cv-search-row"), pad: 12 });
+  await clearHighlights(page);
+  await addBtn.click();
+  const menu = page.getByRole("dialog", { name: "Add a filter" });
+  await menu.getByRole("button", { name: "Did an event", exact: true }).click();
+  const fieldOf = (label) => menu.locator("label").filter({ has: page.locator(`xpath=./span[normalize-space(.)=${JSON.stringify(label)}]`) }).locator("input, select").first();
+  await fieldOf("Event").selectOption("purchase");
+  const day = (n) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  await fieldOf("From").fill(day(13));
+  await fieldOf("To").fill(day(0));
+  await page.evaluate(() => document.activeElement?.blur());
+  await settle(page);
+  await shot(page, AREA, "02-add-filter", { clip: menu, pad: 0 });
+  await menu.getByRole("button", { name: "Add filter", exact: true }).click();
+  await page.getByText(/^(About )?[\d,]+ contacts?$/).waitFor();
+  await settle(page, { quiet: 800 });
+  await shot(page, AREA, "02-add-filter-chips", { clip: top(page, 300) });
 }
 
 async function duplicates(page) {

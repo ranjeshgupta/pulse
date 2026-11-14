@@ -26,7 +26,7 @@ Each provider row shows:
 | Column | Meaning |
 |---|---|
 | Name, and the kind of provider under it | e.g. **Sandbox** / *Sandbox (test inbox)* |
-| **Default** or **Standby** | Every message on that channel goes through its default provider. A standby provider is saved but unused until you make it the default |
+| **Default** or **Standby** | Every message on that channel goes through its default provider, unless a campaign, a campaign step or a test send picks another one under **Send through** ([step 7](#choose-the-provider-for-a-campaign-send-through)). A standby provider is used only when it is picked that way |
 | Limits and today's count | e.g. *20/s · 1 of 5,000 today*, or *No limits* (step 9) |
 | **Delivery reports (give this address to the provider):** a URL | This provider's Pulse webhook URL. Give it to the provider for delivery receipts and incoming replies |
 | **Limits**, **Send test**, **Edit** | Sending limits (step 9); check the connection (step 7); change the settings or **Remove** the provider |
@@ -48,10 +48,15 @@ What happens when a channel has no provider:
 1. In the channel's panel, click **Add provider**.
 2. Pick a **Provider** (the choices are in the table below). The line under it says what it does, and
    some providers show a blue note with what to set up at the provider.
-3. **Name in Pulse** (next to it): how it is listed, e.g. `Amazon SES (Mumbai)`. Empty means the
-   provider's name.
-4. Fill in its settings. Fields marked *(optional)* can stay empty. Secret fields (passwords, tokens,
-   keys) are **stored encrypted and never shown again**.
+3. **Provider name** (next to it): how campaigns and reports name it, e.g. `Amazon SES (Mumbai)`.
+   Empty means the provider's own name.
+4. Fill in its settings. Most providers show them in short numbered steps: **1 Connection** (where
+   and as whom Pulse sends), **2 Sign-in** (the password, key or token), and **More settings**, folded
+   away, for the rare ones. Some start with a short how-to, and SMTP has **Fill in for:** buttons
+   that fill in a well-known service for you. Pulse only shows the fields that apply to your
+   choices: pick **No login**, and the username and password disappear. Fields marked *(optional)*
+   can stay empty. Secret fields (passwords, tokens, keys) are **stored encrypted and never shown
+   again**.
 5. **Sending limits**, at the end of the form: how fast and how much your account at the provider may
    send. Leave them empty if it has no limits; [step 9](#9-sending-limits-and-daily-quotas) explains
    them.
@@ -62,11 +67,12 @@ What happens when a channel has no provider:
 The provider and channel can't be changed after saving. To switch provider, add the new one as the
 default (or edit the old one and **Remove** it).
 
-The list offers the usual services first, then **Custom HTTP gateway**, then **Sandbox (test inbox)**:
+The list offers the usual services first (for email, **SMTP** comes first: with its **Fill in for:**
+buttons it covers most sending services), then **Custom HTTP gateway**, then **Sandbox (test inbox)**:
 
 | Channel | Providers |
 |---|---|
-| Email | **Gmail (SMTP)**, **Google Workspace (SMTP)**, **Google Workspace SMTP relay**, **SMTP**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
+| Email | **SMTP**, **Gmail (SMTP)**, **Google Workspace (SMTP)**, **Google Workspace SMTP relay**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
 | SMS | **Gupshup SMS (Enterprise)**, **MSG91**, **Twilio**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
 | WhatsApp | **Gupshup WhatsApp**, **Meta WhatsApp Cloud API**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
 | RCS | **Google RCS Business Messaging**, **Gupshup RCS**, **Custom HTTP gateway**, **Sandbox (test inbox)** |
@@ -93,31 +99,52 @@ Sender names and numbers, pool sizes and DLT IDs can change without the secrets.
 
 ### Email: SMTP
 
-**SMTP** works with any SMTP relay: Amazon SES SMTP, SendGrid, Postmark, Mailgun, SparkPost, your
-own mail server.
+**SMTP** works with any mail server or sending service: Amazon SES, SendGrid, Mailgun, Postmark,
+Mailjet, Brevo, SparkPost, Microsoft 365, Zoho Mail, your own mail server.
 
-| Field | Example |
+**Fill in for:** saves you looking up the server details. Click your service (**Amazon SES**,
+**SendGrid**, **Mailgun**, **Postmark**, **Mailjet**, **Brevo**, **SparkPost**, **Microsoft 365**,
+**Zoho Mail** or **Gmail**) and Pulse fills in the host, port, encryption and login type, and picks the
+right **Sending service** for delivery reports. A blue note under the buttons says what goes in the
+username and password for that service, e.g. for SendGrid *The username is literally apikey; the
+password is your SendGrid API key.* Check the host afterwards: Amazon SES fills in the Mumbai region
+(`ap-south-1`), Mailgun its US server and Zoho Mail its Indian one, and the note says what to change.
+
+<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP named Amazon SES (Mumbai), the Fill in for buttons with Amazon SES chosen and its note about the SES region and SMTP credentials, 1 Connection with the SES host, port 587, Encryption STARTTLS, Login type PLAIN and a From address, 2 Sign-in with Username and Password, and More settings open with Max connections, Messages per connection, HELO hostname, Skip TLS certificate check, Sending service Amazon SES and Custom headers" width="460">
+
+**1 Connection**
+
+| Field | What to enter |
 |---|---|
-| **Host** | `email-smtp.ap-south-1.amazonaws.com` |
-| **Port** | `587` |
-| **From address** | `Acme Retail <hello@acme-retail.example.com>`: the sender every email shows |
-| **Sending service (for delivery reports) (optional)** | Empty works it out from the host: `sendgrid`, `mailgun`, `postmark`, `ses`, `sparkpost`, or `other`. Pulse marks each email in the way that service expects, so its delivery reports, bounces and complaints are matched to the campaign that sent the email |
-| **Username (optional)**, **Password (optional)** | The relay's SMTP credentials (for SES, the SMTP user, not your AWS keys) |
+| **Host** | The server's address, e.g. `email-smtp.ap-south-1.amazonaws.com` |
+| **Port** | Usually `587` (STARTTLS) or `465` (SSL/TLS) |
+| **Encryption** | **Automatic** (the default: SSL/TLS on port 465, otherwise STARTTLS when the server offers it), **STARTTLS** (refuse to send if the server doesn't offer it), **SSL/TLS** (on any port), or **None** (only for a server on your own network) |
+| **Login type** | **PLAIN** works with most servers; Microsoft 365 also takes **LOGIN**; some older servers want **CRAM-MD5**. **No login**: the server lets your Pulse server in by its IP address |
+| **From address** | `Acme Retail <hello@acme-retail.example.com>`: the sender every email shows, an address the server lets you send from |
 
-<img src="img/04-add-smtp.png" alt="Add Email provider: SMTP and the name Amazon SES (Mumbai) side by side, host, port 587 and a From address filled in, the optional connection settings, Sending service and login, then Sending limits left empty with the note that the server sends at most 200 email messages a second per workspace" width="420">
+**2 Sign-in**: the server's **Username** and **Password** (for Amazon SES, the SES SMTP credentials,
+not your AWS keys). They aren't shown with **No login**.
 
-Two optional fields tune how Pulse talks to the relay. Each Pulse server keeps a pool of open
-connections to it (TLS stays on: STARTTLS whenever the server offers it, and implicit TLS on port
-465) and reuses them, which is many times faster than connecting for every email:
+**More settings** (click to open; it opens by itself when one of them has a value, as after **Fill in
+for:**):
 
 | Field | Default | What it does |
 |---|---|---|
-| **Max connections** | 4 | Open connections per Pulse server (1 to 50). Ask your relay how many it allows |
-| **Messages per connection** | 100 | Emails sent on one connection before it is closed and a new one opened (1 to 10,000) |
+| **Max connections** | 4 | Connections each Pulse server keeps open to the mail server (1 to 50). Pulse reuses them, which is many times faster than connecting for every email. Ask your service how many it allows |
+| **Messages per connection** | 100 | Emails sent on one connection before Pulse opens a new one |
+| **HELO hostname** | `localhost` | The name Pulse gives when it says hello. Some servers want your domain here, e.g. `acme.com` |
+| **Skip TLS certificate check** | Off | Only for a server with a self-signed certificate on your own network: anyone in between could read the mail |
+| **Sending service (for delivery reports)** | Detect from the host | **Amazon SES**, **SendGrid**, **Mailgun**, **Postmark**, **SparkPost** or **Other**. Pulse marks each email the way that service expects, so its delivery reports, bounces and complaints are matched to the campaign that sent the email |
+| **Custom headers** | None | Headers added to every email, one per line as `Name: value`, e.g. `X-SES-CONFIGURATION-SET: marketing`. At most 20. Headers Pulse sets itself (From, To, Subject, Date, Message-ID, the content headers, `X-Pulse-Ref` and the unsubscribe headers) can't be replaced |
 
-A plain SMTP relay tells Pulse about bounces but not about deliveries, so campaign reports show
+A plain SMTP server tells Pulse about bounces but not about deliveries, so campaign reports show
 **Delivered** as "—" (*not reported by this provider*) for it. Sending services (SendGrid, Mailgun,
 Postmark, Amazon SES, SparkPost) report deliveries through their webhook (step 5).
+
+To check the settings before saving, click **Test connection**: Pulse connects to the server, logs in
+(unless **No login**) and disconnects, and says *Connected to* or *Logged in to* the server, or what
+went wrong. Then save the provider and use **Send test** on its row to check a real email arrives
+(step 7).
 
 > Before sending to real people, set up SPF, DKIM and DMARC for the From domain at your email
 > service, and point its webhook at Pulse (step 5).
@@ -135,29 +162,38 @@ For small volumes from a Google account:
 Google limits how many people an account may email a day, and Pulse sets that as the provider's
 daily quota. Bulk mail belongs on the Workspace relay or a sending service (SES, SendGrid, Postmark).
 
-<img src="img/04-add-gmail.png" alt="Add Email provider: Gmail (SMTP) with the note about Google's daily limit, the Google account, From address, Port 587 (STARTTLS, recommended), Sign in with An app password (simplest), Test connection, and Sending limits already set to 1 message per second and 500 per day" width="420">
+<img src="img/04-add-gmail.png" alt="Add Email provider: Gmail (SMTP) named Gmail (Asha), the note about Google's daily limit, the three steps to make an app password, 1 Connection with the Google account, From address and Sign in with An app password (simplest), 2 Sign-in with the App password, More settings folded, Test connection, and Sending limits already set to 1 message per second and 500 per day" width="460">
 
-For **Gmail (SMTP)** and **Google Workspace (SMTP)**:
+For **Gmail (SMTP)** and **Google Workspace (SMTP)** the form starts with three short steps for
+getting an **app password** from Google:
 
-1. **Google account (sign-in email)** and **From address** (the account's own address, or an alias
-   added to it in Gmail settings).
-2. **Port**: **587 (STARTTLS, recommended)** or **465 (TLS)**.
-3. **Sign in with**:
-   - **An app password (simplest)**: in your Google account, turn on 2-step verification, create an
-     app password (16 characters) and paste it in **App password (app password only)**. Click
-     **Test connection** to check that Pulse can log in to Gmail with it.
+1. Turn on 2-Step Verification for the Google account (myaccount.google.com → Security).
+2. Create an app password at myaccount.google.com/apppasswords, named e.g. Pulse.
+3. Enter the account, the From address and the app password below, then Test connection.
+
+Then fill in:
+
+1. **1 Connection**: **Google account** (the address you sign in to Google with), **From address**
+   (the account's own address, or an alias added to it in Gmail settings) and **Sign in with**:
+   - **An app password (simplest)**: under **2 Sign-in**, paste the 16 letters Google showed you into
+     **App password** (spaces don't matter).
    - **A Google OAuth client (for IT teams)**: your IT team creates an OAuth client with access to
-     Gmail (`https://mail.google.com/`) and gives you the **OAuth client ID (OAuth client only)**,
-     **OAuth client secret (OAuth client only)** and **OAuth refresh token (OAuth client only)**. Click
-     **Test connection** to check that Pulse gets a token from Google.
+     Gmail (`https://mail.google.com/`) and gives you the **OAuth client ID** (under **1 Connection**),
+     the **OAuth client secret** and the **OAuth refresh token** (under **2 Sign-in**).
+
+   Only the fields for the way you chose are shown.
+2. Click **Test connection** to check that Pulse can sign in to Gmail (with an app password) or get a
+   token from Google (with an OAuth client).
+3. **More settings** holds the **Port** (**587 (STARTTLS, recommended)** or **465 (SSL/TLS)**; both are
+   secure, keep 587 unless your network blocks it) and **Max connections**.
 4. Save, then check the account with **Send test** (step 7).
 
 For **Google Workspace SMTP relay**, your Google admin first turns on the relay (Google Admin
 console → Apps → Google Workspace → Gmail → Routing → SMTP relay service), allowing your Pulse
 server's IP address or SMTP sign-in. Then fill in the **From address** (an address in your Workspace
-domain), **Your domain (sent in EHLO)** (needed when the relay allows you by IP address), the
-**Port** (587, 465 or 25) and, only with SMTP sign-in, **SMTP auth user** and **SMTP auth
-password**.
+domain), **Your domain (sent in EHLO)** (Google needs a real domain name here when it allows you by IP
+address) and, only with SMTP sign-in, **SMTP auth user (optional)** and **SMTP auth password
+(optional)**. **More settings** holds the **Port** (587, 465 or 25) and **Max connections**.
 
 None of the three report deliveries to Pulse (like any plain SMTP relay).
 
@@ -399,6 +435,20 @@ its settings. Nothing is recorded on any contact.
 To send a real template to a real contact, personalised, use **Send a test** in the template editor
 instead (tutorial 5). That one goes through the normal delivery path, so consent, quiet hours and caps
 apply unless the template is transactional.
+
+### Choose the provider for a campaign: Send through
+
+When a channel has more than one provider, the places that send show a **Send through** list:
+one-time campaigns (the editor and the New campaign wizard), the message steps of triggered and
+automation campaigns, and every **Send a test** dialog. The channel's default comes first and
+is preselected (e.g. *Sandbox (default)*); pick another provider to send that campaign, step or test
+through it, for example a standby route you keep for transactional messages.
+
+![Send through, set to Sandbox (backup route) instead of the SMS default](img/14-send-through.png)
+
+- With only one provider on the channel there is nothing to choose, so the list isn't shown.
+- If the chosen provider is removed later, messages go through the channel's default instead.
+- A WhatsApp or RCS message that falls back to SMS always uses the SMS default.
 
 ## 8. Use the test inbox
 

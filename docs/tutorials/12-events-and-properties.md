@@ -45,7 +45,7 @@ it, in UTC) and every described event is listed, busiest first:
 | Column | What it shows |
 |---|---|
 | **Event** | The name your code sends, and the label from its schema (e.g. **Purchase**). Click it to open the event |
-| **Last 30 days** | How many events, and from how many contacts. Click the number of contacts to list them ([tutorial 18](18-contacts-behind-a-number.md)) |
+| **Last 30 days** | How many events, and from how many contacts. Click either number to list those contacts ([tutorial 18](18-contacts-behind-a-number.md)) |
 | **Last seen** | When the latest one arrived |
 | **Schema** | **Not described**, **Off**, **Warn** or **Enforce**, and how many properties the schema describes |
 | **Problems (7 days)** | For checked events: how many of the events in the last 7 days didn't fit, e.g. **1 of 19 events** |

@@ -1,8 +1,42 @@
 # Pulse
 
-Real-time, multi-tenant marketing automation in Go on Kafka, ClickHouse, Postgres and Redis.
-It aims for Mautic/WebEngage features at Listmonk speed: events move contacts into segments
-and campaigns within seconds, not on a 15-minute cron.
+Pulse is a real-time, multi-tenant marketing automation app: contacts, segments, one-time, triggered
+and automation campaigns over email, SMS, WhatsApp, RCS, push and an in-app inbox, website and app
+messages, forms and landing pages, and analytics, for many workspaces on one installation. It is one
+Go binary with a React web app built in, on Kafka, ClickHouse, Postgres and Redis. It aims for
+Mautic/WebEngage features at Listmonk speed: events move contacts into segments and campaigns within
+seconds, not on a 15-minute cron, and it is designed for 10 to 100 million contacts.
+
+## Run it
+
+Only Docker is required: Go runs inside the `golang` image when it isn't installed. From the root of
+this repository (the folder this README is in):
+
+```bash
+make up        # Kafka, ClickHouse, Postgres, Redis, Mailpit, Keycloak + pulse (all roles, web app included)
+make seed      # demo workspace with data (credentials: deploy/dev-seed.md)
+```
+
+Then open http://localhost:7080 and sign in with the demo workspace's details from
+[deploy/dev-seed.md](deploy/dev-seed.md), or create your own workspace at http://localhost:7080/signup.
+[Installation](docs/developer/01-installation.md) covers production deployments.
+
+```bash
+make docs-seed # the "Acme Retail" workspace for documentation screenshots; make docs-shots retakes them
+make test      # Go unit tests (no infrastructure)
+make it        # SQL-vs-Go segment agreement test against ClickHouse (needs `make up`)
+make e2e       # end-to-end (needs `make up`); webhook tests run in a container on the compose network
+make load ARGS="-rate 10000 -duration 45s"   # load test; results in docs/03-load-test.md
+make down      # stop the stack
+cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies the API), and its unit tests
+```
+
+| Service | URL |
+|---|---|
+| Pulse web app and API | http://localhost:7080 |
+| Mailpit (sent mail) | http://localhost:18025 |
+| Keycloak (dev SSO) | http://localhost:8180 |
+| ClickHouse HTTP | http://localhost:18123 (user/password `pulse`) |
 
 ## Documentation
 
@@ -306,30 +340,29 @@ Design notes:
     automation campaigns"; "On-site & in-app" is "Website & app messages".
   - One word per status (Live, Finished, Sending, Draft, Scheduled, Paused, Cancelled, Archived), "Send again" for a
     finished one-time campaign, provider options in words, and plainer settings.
+- **After M7 (batch N, done):**
+  - **Filters as questions:** Contacts has an **Add filter** dialog (Who they are / What they did / Campaigns and
+    channels: did an event between dates, got a campaign and opened it, reachable by a channel…) that adds the
+    search box's chips; the segment builder lists the workspace's own events ("Did Cart abandoned", "Your
+    events"); on Events the whole count cell opens those contacts.
+  - **Provider set-up in easy steps:** provider forms in numbered steps (Connection, Sign-in, More settings folded
+    away) that show only the fields your choices need. SMTP like Listmonk's: **Fill in for:** Amazon SES, SendGrid,
+    Mailgun, Postmark, Mailjet, Brevo, SparkPost, Microsoft 365, Zoho Mail or Gmail, each with a note on the username
+    and password; Encryption (Automatic, STARTTLS, SSL/TLS, None), Login type (PLAIN, LOGIN, CRAM-MD5, No login),
+    max connections, messages per connection, HELO hostname, skipping the TLS certificate check and custom headers.
+    Gmail and Google Workspace show a three-step app-password guide. The catalog (`GET /v1/channels/catalog`)
+    describes it with `show_if`, `advanced`, `type`, `guide` and `presets`.
+  - **Paste the gateway's examples:** the custom HTTP gateway's "Connect to a gateway's existing API" fills itself
+    from curl or Postman examples (send request, login request, example login answer), e.g. RML Connect's RCS API.
+  - **Send through:** one-time campaigns, journey message steps and test sends can choose which of the channel's
+    providers sends (`provider_id`; migration 027); the default otherwise, and when the chosen one is removed.
+  - **Overview:** Needs attention, Audience, Revenue and One-time campaigns from `GET /v1/stats/summary`, built once a
+    minute per workspace (migration 028).
+  - **Two-step sign-in:** an authenticator app with recovery codes on **Your account** (`/account`), the code step at
+    sign-in, a workspace policy (optional, everyone, or some roles or people) and **Reset two-step** on Team
+    (migration 026).
 - **Tutorials:** [docs/tutorials](docs/tutorials/README.md), step by step, all 18 written. Remaining gaps:
   [docs/05-feature-parity.md](docs/05-feature-parity.md#known-gaps).
-
-## Run it
-
-Only Docker is required. Go runs inside the `golang` image when it isn't installed.
-
-```bash
-make up        # Kafka, ClickHouse, Postgres, Redis, Mailpit, Keycloak + pulse (all roles, web app included)
-make seed      # demo workspace with data (credentials: deploy/dev-seed.md)
-make docs-seed # the "Acme Retail" workspace for documentation screenshots; make docs-shots retakes them
-make test      # Go unit tests (no infrastructure)
-make it        # SQL-vs-Go segment agreement test against ClickHouse (needs `make up`)
-make e2e       # end-to-end (needs `make up`); webhook tests run in a container on the compose network
-make load ARGS="-rate 10000 -duration 45s"   # load test; results in docs/03-load-test.md
-cd web && npm install && npm run dev && npm test   # web app on :5173 (proxies the API), and its unit tests
-```
-
-| Service | URL |
-|---|---|
-| Pulse web app and API | http://localhost:7080 |
-| Mailpit (sent mail) | http://localhost:18025 |
-| Keycloak (dev SSO) | http://localhost:8180 |
-| ClickHouse HTTP | http://localhost:18123 (user/password `pulse`) |
 
 ## Reserved attribute names
 
@@ -444,7 +477,10 @@ sdks/               Flutter, Android (Kotlin) and iOS (Swift) SDKs
 internal/api/       HTTP API
 internal/store/     Postgres and ClickHouse stores
 migrations/         embedded SQL
+web/                the web app (React + TypeScript, Vite), embedded in the binary; the web SDK
 test/e2e/           end-to-end tests against the running stack
+deploy/             docker-compose.yml for the dev stack, the Keycloak realm, dev-seed.md (test accounts)
+docs/               design notes, tutorials, developer guides, and the screenshot scripts (docs/screenshots)
 ```
 
 ## Known Phase 1 limits

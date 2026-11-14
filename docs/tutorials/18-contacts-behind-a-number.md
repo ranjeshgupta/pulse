@@ -82,8 +82,9 @@ Chips you may meet, depending on where you clicked:
 - Click **×** on a chip to remove that filter. The list and count change at once. Removing
   **Opened** above leaves everyone the campaign sent to.
 - **Clear** removes every filter.
-- You can add your own filters next to them, such as `tag:vip` or `segment:"Repeat buyers in Pune"`
-  ([tutorial 2](02-contacts.md#7-filter-your-contacts)).
+- You can add your own filters next to them: click **Add filter** next to the search box and answer a
+  question (**Has a tag**, **In a segment**, **Did an event** between two dates…), or type one such as
+  `tag:vip` ([tutorial 2](02-contacts.md#7-filter-your-contacts)).
 - The address bar keeps the whole list (`/contacts?q=…`): bookmark it or send it to a teammate.
   They see it only if their role may open it (step 7).
 

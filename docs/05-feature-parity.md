@@ -1,6 +1,6 @@
 # Feature parity: Mautic 7 + WebEngage → Pulse
 
-Sources: the Mautic 7.2.2 install in `../mautic` (its bundles, plugins and console commands) and WebEngage's product surface.
+Sources: a local Mautic 7.2.2 reference install in `../mautic`, next to this repository and not part of it (its bundles, plugins and console commands), and WebEngage's product surface.
 Status: ✅ built and tested · 🟡 partial · ⬜ not built. Priority: **P0** blocks real-world use (compliance, tracking),
 **P1** core marketer workflow, **P2** advanced or nice to have. Everything planned is built; what is still missing or
 approximate is listed once under [Known gaps](#known-gaps).
@@ -109,6 +109,7 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 | Exact audience estimate (exclusions, consent, reachability, caps) | ⬜ | 🟡 | ✅ M3: Redis `BITOP` over segment and reachability bitmaps, step by step; frequency caps exact up to 50,000 contacts, sampled above; cached 30 s, 60 a minute per workspace | |
 | Send deadline | 🟡 | 🟡 | ✅ M3: time of day and/or hours late (local time for local-time broadcasts); late messages dropped and counted in the report | |
 | Duplicate a broadcast | ✅ | ✅ | ✅ M3: a draft copy, with its own copy of a message written in the campaign | |
+| Choose the provider per campaign | 🟡 (one transport per instance) | ✅ | ✅ after M7: a **Send through** picker on one-time campaigns, journey send steps (and each rule of Send message) and test sends; the channel's default otherwise, and again if the chosen provider is removed | |
 | Report funnel and failure reasons | 🟡 | ✅ | ✅ M4: audience at send time → targeted → skipped by reason → sent → delivered → opened → clicked (downloads), bounced, complaints, failed, unsubscribed; reasons table; each number opens its contacts (M7) | |
 
 ## Channels
@@ -127,8 +128,9 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 | Bounce and complaint handling | ✅ | ✅ | ✅ SendGrid, Postmark, Mailgun, Amazon SES (SNS), SparkPost and generic webhooks; hard bounces stop email, complaints unsubscribe; an IMAP bounce mailbox read every 5 minutes for DSN (RFC 3464) and ARF (RFC 5965) reports; M4: linked to the message and campaign by a signed message reference; webhooks verified (SNS, SendGrid signature, Mailgun HMAC, basic auth) and failing closed once a key is saved | Non-standard plain-text bounces aren't read; one mailbox per workspace; bounces from before M4 aren't linked to campaigns |
 | Delivered status, complaints in reports | ✅ | ✅ | ✅ M4: `email_delivered` from SendGrid, Postmark, Mailgun, SES and SparkPost; complaints counted per campaign | Plain SMTP relays, Gmail, FCM and web push report no delivery ("—") |
 | Failure reasons | 🟡 | ✅ | ✅ M4: a reason code on every failed, skipped, capped, bounced or complained message (invalid number, not on WhatsApp, possibly blocked, spam policy, consent, deadline…), in reports and on the contact page | |
-| Custom provider authentication and requests | 🟡 | 🟡 | ✅ M5: the custom HTTP gateway with basic, bearer, API key, OAuth2 or a login request (token by JSON path, header or regex, with expiry; cached and refreshed on 401), and a custom request (method, URL, headers, templated body, success rule, id path, receipt mapping, verified receipts); Preview request and Test connection | |
-| Gmail, Google Workspace, Workspace SMTP relay | ✅ (SMTP) | ⬜ | ✅ M5: presets with Google's limits, app password or XOAUTH2, relay by IP with an EHLO domain | |
+| Custom provider authentication and requests | 🟡 | 🟡 | ✅ M5: the custom HTTP gateway with basic, bearer, API key, OAuth2 or a login request (token by JSON path, header or regex, with expiry; cached and refreshed on 401), and a custom request (method, URL, headers, templated body, success rule, id path, receipt mapping, verified receipts); Preview request and Test connection; after M7 the form fills itself from the API's pasted curl or Postman examples (send and login) | |
+| Gmail, Google Workspace, Workspace SMTP relay | ✅ (SMTP) | ⬜ | ✅ M5: presets with Google's limits, app password or XOAUTH2, relay by IP with an EHLO domain; a three-step app-password guide and only the chosen sign-in method's fields | |
+| SMTP set-up like Listmonk: presets, encryption, login type, custom headers | ✅ | n/a | ✅ after M7: "Fill in for:" Amazon SES, SendGrid, Mailgun, Postmark, Mailjet, Brevo, SparkPost, Microsoft 365, Zoho Mail, Gmail; encryption automatic / STARTTLS / SSL/TLS / none; login PLAIN / LOGIN / CRAM-MD5 / none; More settings for connections, HELO, skip certificate check, sending service, custom headers | |
 | Gupshup SMS, WhatsApp and RCS | ⬜ | ✅ | ✅ M5: SMS with DLT template and entity ids, WhatsApp templates and session messages, RCS with SMS fallback; delivery reports and inbound | Built from public docs, tested against mocks; RCS formats inferred |
 | Workspace settings for automatic behaviour (retention, retries, schedules, default limits) | 🟡 | 🟡 | ✅ M5: Settings → Automation & limits, each value with its default and range, plus what stays fixed by the platform | |
 | AMP email (interactive) | ⬜ | 🟡 | ✅ M6: block builder (carousel, gallery, accordion, poll, form…) or code, validated with line numbers, script-free preview, send test; polls and forms post back as `amp_poll_answered` / `amp_form_submitted` (form answers may update contact fields); poll results | Postmark doesn't send AMP; Gmail shows AMP only to registered senders; the preview is an approximation |
@@ -162,6 +164,7 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
+| Home overview: what needs attention, audience, revenue, campaigns | 🟡 | ✅ | ✅ after M7: the Overview's Needs attention (quota, failing channels, bounce spikes, failing campaigns), Audience (added, unsubscribed, week on week), Revenue and One-time campaigns (sending, coming up, recent), from a summary cached a minute | |
 | Live dashboard, message outcomes | 🟡 | ✅ | ✅ M4: Analytics → Live events (the workspace's latest events, polled every 2 s) | |
 | DAU / WAU / MAU, new vs returning | ⬜ | ✅ | ✅ M4: Analytics → Users, by platform and UTM source, pre-aggregated in ClickHouse (`active_users_daily`, `first_active`) | Deleted contacts still count in past days |
 | Campaign and product dashboards | 🟡 | ✅ | ✅ M4: Analytics → Campaign performance (funnel and revenue per campaign) and Products (views, carts, purchases, abandoned, segment of buyers) | |
@@ -178,6 +181,7 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 |---|---|---|---|---|
 | Multi-tenant workspaces | ⬜ | ✅ | ✅ | |
 | Password sign-in, SSO (OIDC: Keycloak, Entra ID, Okta, Google) | 🟡 SAML | ✅ | ✅ tested against Keycloak; settings can be removed (`DELETE /v1/settings/sso`) | |
+| Two-step sign-in (authenticator app) | ⬜ (plugins) | ✅ | ✅ after M7: TOTP with a QR code and 10 recovery codes on Your account; workspace policy (optional, everyone, some roles or people); admins reset a teammate's | Password sign-ins only (SSO leaves it to the identity provider) |
 | Roles | ✅ granular | ✅ | ✅ admin, editor, viewer and custom roles: none/view/edit/publish per area, enforced on every route | |
 | Audit log | 🟡 | ✅ | ✅ every change through the app or API (secrets redacted) and every sign-in; retention setting; CSV / JSON export with person, type and date filters | |
 | REST API with keys | ✅ | ✅ | ✅ | |
@@ -269,6 +273,9 @@ The build order as it happened; every step below is done.
      "Website & app messages", plain wording.
    - ✅ **Docs:** README, architecture, this document, the developer guides and 18 tutorials updated in one final
      pass, with every screenshot retaken.
+   - ✅ **After M7 (batch N, 2026-11-14):** the Contacts **Add filter** dialog and the workspace's own events in the
+     segment picker, simpler provider set-up (SMTP presets, Gmail guide, pasted API examples for the custom
+     gateway), the provider chosen per send, the new Overview, and two-step sign-in.
 
 ## Contact views (batch 9)
 

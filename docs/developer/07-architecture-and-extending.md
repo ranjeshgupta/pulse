@@ -102,7 +102,7 @@ store function takes the tenant ([architecture, identity and tenancy](../02-arch
 | `cmd/seed`, `cmd/loadgen` | Demo and docs data (`make seed`, `make docs-seed`); the load generator (`make load`) |
 | `internal/config` | `PULSE_*` variables |
 | `internal/api` | HTTP: routing (`server.go`), permissions (`perms.go`), one file per area. Handlers depend on narrow store interfaces. The Contacts list's filters are `contactview.go` (rules) and `contactsets.go` (the sets behind numbers: bitmaps and ClickHouse outcome queries) |
-| `internal/auth` | Passwords (argon2id), tokens, the AES-GCM `Box` that seals secrets, roles and permissions |
+| `internal/auth` | Passwords (argon2id), tokens, the AES-GCM `Box` that seals secrets, roles and permissions, two-step sign-in codes (`totp.go`: RFC 6238 and recovery codes) |
 | `internal/event` | The event envelope, reserved names, topic names |
 | `internal/eventschema` | Event schemas (types, allowed values, dependent properties), checks and the starter schemas |
 | `internal/kafka` | Producer, consumer loops, DLQ and its replay, topic creation |
@@ -164,7 +164,12 @@ adapter needs no UI code.
    `Config` values are stored as-is and shown in the app; `Secrets` are sealed with
    `PULSE_SECRET_KEY` and never returned. `New` validates the settings (return an error for bad
    ones: saving fails with it). A `Field` with `Options` should give them `OptionLabels` (words
-   people understand); `Notes` shows advice on the form; `DefaultLimits` sets the sending limits a
+   people understand); `Type` (`bool`, `number`, `textarea`) changes how a free value is entered,
+   `Advanced: true` folds a rarely changed field under **More settings**, and `ShowIf` shows it only
+   while another config setting has one of the listed values (a hidden field is never required, see
+   `Field.Shown`); `Notes` shows advice on the form, `Guide` numbered how-to steps at its top (Gmail's
+   app password) and `Presets` one-click settings for well-known services with a `Note` each (the
+   SMTP form's "Fill in for:" list); `DefaultLimits` sets the sending limits a
    new provider of this kind starts with; `Auth: true` adds the custom authentication settings
    (build the client with `authFor`, as `gateway.go` does). Name URL settings `url` or `…_url`
    (and an SMTP server `host`): `Endpoints` (`endpoints.go`) reads them, so a changed host clears
@@ -257,8 +262,10 @@ Two different things are called "filter".
 an event with property filters) is web-only: add it to `web/src/segmentCatalog.ts` (group, label,
 how it builds the rule) and `web/src/segmentRules.ts` if it needs a new editor, with tests in
 `segmentCatalog.test.ts` and `segmentRules.test.ts`. A Contacts search filter (`tag:`, `is:`…) is
-`internal/api/contactview.go` (`viewKeys`), which compiles to an ordinary rule. A filter for the
-contacts behind a number (`in:`, `campaign:`, `outcome:`…) is `internal/api/contactsets.go`
+`internal/api/contactview.go` (`viewKeys`), which compiles to an ordinary rule; to offer it in the
+Contacts page's **Add filter** dialog too, add a question to `web/src/contactFilterMenu.ts` (tests in
+`contactFilterMenu.test.ts`). The segment builder's "Did …" entries for the workspace's own events come from
+`buildCatalog`'s `events` (`segmentCatalog.ts`). A filter for the contacts behind a number (`in:`, `campaign:`, `outcome:`…) is `internal/api/contactsets.go`
 (`specialKeys`, `parseSpecial`, with its permission in `viewFilterNeeds` in `perms.go` and the
 app's link in `web/src/contactLinks.ts`); its list must equal the number it opens from, which the
 e2e test `m7_test.go` checks.
@@ -287,7 +294,7 @@ Migrations are SQL files embedded into the binary (`migrations/embed.go`) and ap
 `pulse migrate` (and `pulse all` at start), Postgres first, then ClickHouse, under a Postgres
 advisory lock.
 
-**Postgres** (`migrations/postgres/NNN_name.sql`, next number after the highest, today `025`):
+**Postgres** (`migrations/postgres/NNN_name.sql`, next number after the highest, today `028`):
 
 - Applied once each, in file-name order, each in a transaction, and recorded in `schema_migrations`.
   **Never edit a file that has been applied** anywhere: add a new one.

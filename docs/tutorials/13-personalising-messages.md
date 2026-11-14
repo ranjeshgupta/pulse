@@ -162,7 +162,9 @@ Rules are checked in order:
    **is** `IN`.
 2. The first rule that applies sends; the others are skipped.
 3. A rule **without conditions** always applies: put it last as **Otherwise**. WhatsApp and RCS rules
-   can name an SMS fallback, sent if the message can't be delivered.
+   can name an SMS fallback, sent if the message can't be delivered. When a rule's channel has more
+   than one provider, its **Send through** list picks which one sends it (the channel's default unless
+   you change it).
 4. If no rule applies, the contact goes on without a message, recorded as `message_skipped` with the
    reason (`message_unreachable` when rules matched but the contact had no address on any of them).
 

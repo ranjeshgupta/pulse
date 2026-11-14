@@ -24,7 +24,7 @@ numbers come first and refresh every 5 seconds; the summary below them fills in 
 refreshes once a minute (only while the page is open in a visible tab). You see only the parts your
 role can view: for example, a role without access to reports sees no revenue.
 
-![Overview: Live events this minute with the last hour's trace, the counts, Most frequent events and Messages by channel](img/10-overview.png)
+![Overview: Live events this minute with the last hour's trace, the counts, Audience (contacts added and unsubscribed against the week before), Revenue, One-time campaigns sending now, coming up and recently sent, Most frequent events and Messages by channel](img/10-overview.png)
 
 | Part | Shows |
 |---|---|

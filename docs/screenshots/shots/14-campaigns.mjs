@@ -92,5 +92,31 @@ export default async function (browser) {
   await highlight(step);
   await shot(page, AREA, "14-editor-header", { clip: page.locator("main .page-head"), pad: 8 });
   await clearHighlights(page);
+  await sendThrough(context, page);
   await context.close();
+}
+
+// "Send through" shows only when a channel has more than one provider: a standby SMS sandbox is
+// added for the picture (never the default, so nothing is sent through it) and removed again.
+async function sendThrough(context, page) {
+  const { id } = await api(context, "POST", "/v1/channels/providers", {
+    channel: "sms", provider: "sandbox_sms", name: "Sandbox (backup route)", config: {}, secrets: {}, is_default: false,
+  });
+  try {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await go(page, "/campaigns/new/sms");
+    await page.getByLabel("Campaign name").fill("Weekend flash sale");
+    await page.getByLabel("Send to members of").selectOption({ label: "Pro plan" });
+    await page.getByRole("button", { name: "Next: Content" }).click();
+    await page.getByLabel("Message", { exact: true }).fill("Our weekend flash sale is on: 30% off decor till Sunday midnight. https://acme.example.com/flash");
+    const pick = page.locator("label.field", { has: page.getByRole("combobox", { name: "SMS provider" }) });
+    await pick.getByRole("combobox").selectOption({ label: "Sandbox (backup route)" });
+    await page.evaluate(() => document.activeElement?.blur());
+    await settle(page, { quiet: 400 });
+    await highlight(pick.getByRole("combobox"));
+    await shot(page, AREA, "14-send-through", { clip: pick, pad: 12 });
+    await clearHighlights(page);
+  } finally {
+    await api(context, "DELETE", `/v1/channels/providers/${id}`).catch((e) => console.log(`  spare provider not removed: ${e}`));
+  }
 }

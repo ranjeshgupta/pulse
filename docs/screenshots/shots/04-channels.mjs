@@ -33,12 +33,14 @@ export default async function (browser) {
   let dialog = page.getByRole("dialog", { name: "Add Email provider" });
   await dialog.waitFor();
   await dialog.getByRole("combobox").first().selectOption("smtp");
-  await dialog.getByLabel("Name in Pulse").fill("Amazon SES (Mumbai)");
-  await dialog.getByLabel("Host").fill("email-smtp.ap-south-1.amazonaws.com");
-  await dialog.getByLabel(/^Port/).fill("587");
-  await dialog.getByLabel("From address").fill("Acme Retail <hello@acme-retail.example.com>");
+  await dialog.getByLabel("Provider name").fill("Amazon SES (Mumbai)");
+  // "Fill in for:" Amazon SES fills host, port, encryption, login type and sending service.
+  await dialog.getByRole("group", { name: "Fill in for a service" }).getByRole("button", { name: "Amazon SES" }).click();
+  await dialog.getByLabel(/^From address/).fill("Acme Retail <hello@acme-retail.example.com>");
   await page.setViewportSize({ width: 1440, height: 1700 });
   await settle(page);
+  // More settings opens by itself: the preset filled its Sending service.
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-smtp", { clip: dialog, pad: 0 });
   // Its Sending limits: an SES account allowed 300 a second, above the server's 200 for email.
   const limitsPart = dialog.getByRole("region", { name: "Sending limits" });
@@ -48,15 +50,17 @@ export default async function (browser) {
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  // Gmail: the preset's notes and the daily quota it starts with (placeholders, not saved).
+  // Gmail: the three-step app password guide, only the fields of the chosen sign-in method, and the
+  // daily quota it starts with (placeholders, not saved).
   await emailPanel.getByRole("button", { name: "Add provider" }).click();
   dialog = page.getByRole("dialog", { name: "Add Email provider" });
   await dialog.getByRole("combobox").first().selectOption("gmail_smtp");
-  await dialog.getByLabel("Name in Pulse").fill("Gmail (Asha)");
+  await dialog.getByLabel("Provider name").fill("Gmail (Asha)");
   await dialog.getByLabel(/^Google account/).fill("asha.acme.retail@gmail.example.com");
   await dialog.getByLabel(/^From address/).fill("Asha at Acme <asha.acme.retail@gmail.example.com>");
   await page.setViewportSize({ width: 1440, height: 2300 });
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-gmail", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -66,12 +70,13 @@ export default async function (browser) {
   await smsPanel.getByRole("button", { name: "Add provider" }).click();
   dialog = page.getByRole("dialog", { name: "Add SMS provider" });
   await dialog.getByRole("combobox").first().selectOption("msg91");
-  await dialog.getByLabel("Name in Pulse").fill("MSG91 (India)");
+  await dialog.getByLabel("Provider name").fill("MSG91 (India)");
   await dialog.getByLabel(/^Flow template ID/).fill("64f1c2e5d6a7b8c9d0e1f2a3");
   await dialog.getByLabel(/^Sender ID/).fill("ACMEIN");
   await dialog.getByLabel("Use for all SMS messages").uncheck();
   await page.setViewportSize({ width: 1440, height: 1300 });
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-msg91", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -80,11 +85,12 @@ export default async function (browser) {
   await waPanel.getByRole("button", { name: "Add provider" }).click();
   dialog = page.getByRole("dialog", { name: "Add WhatsApp provider" });
   await dialog.getByRole("combobox").first().selectOption("meta_whatsapp");
-  await dialog.getByLabel("Name in Pulse").fill("WhatsApp (Acme Retail)");
+  await dialog.getByLabel("Provider name").fill("WhatsApp (Acme Retail)");
   await dialog.getByLabel(/^Phone number ID/).fill("106540352242922");
   await dialog.getByLabel(/^WhatsApp Business account ID/).fill("102290129340398");
   await page.setViewportSize({ width: 1440, height: 1500 });
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-whatsapp", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -94,10 +100,11 @@ export default async function (browser) {
   await pushPanel.getByRole("button", { name: "Add provider" }).click();
   dialog = page.getByRole("dialog", { name: "Add Push provider" });
   await dialog.getByRole("combobox").first().selectOption("fcm");
-  await dialog.getByLabel("Name in Pulse").fill("Firebase (Acme app)");
+  await dialog.getByLabel("Provider name").fill("Firebase (Acme app)");
   await dialog.getByLabel(/^Firebase project ID/).fill("acme-retail-app");
   await page.setViewportSize({ width: 1440, height: 1300 });
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-fcm", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
 

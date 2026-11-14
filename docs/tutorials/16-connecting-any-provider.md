@@ -3,7 +3,9 @@
 In about 25 minutes you will connect an SMS company Pulse has no ready-made connection for, using
 only its API documentation. The form walks you through it in six numbered steps: where Pulse sends
 messages, how it signs in, what it sends, how it knows a message was sent, how the company's delivery
-reports come back, and a check of the login and the exact request before you save.
+reports come back, and a check of the login and the exact request before you save. If the
+documentation has ready-made `curl` or Postman examples, paste them and Pulse fills in most of the
+steps for you.
 
 The same steps work for email, WhatsApp, RCS and push gateways: every channel offers the **Custom
 HTTP gateway**.
@@ -34,7 +36,7 @@ can help with the words.
 ## 2. Add the gateway
 
 1. Go to **Settings → Channels** and click **Add provider** in the **SMS** panel.
-2. **Provider**: **Custom HTTP gateway**. Next to it, **Name in Pulse**: `SMSCo`.
+2. **Provider**: **Custom HTTP gateway**. Next to it, **Provider name**: `SMSCo`.
 3. Click the card **Connect to a gateway's existing API**.
 
    <img src="img/16-mode.png" alt="Add SMS provider: Custom HTTP gateway named SMSCo, and the two cards Your developers build an endpoint for Pulse and Connect to a gateway's existing API, with the second one chosen" width="480">
@@ -44,7 +46,54 @@ write for Pulse: Pulse posts each message as JSON in its own format to one **End
 with a **Signing secret**, and you only enter those two (the developer docs describe the format).
 Everything below is about **Connect to a gateway's existing API**.
 
-Under the cards the form shows six numbered steps. The sections below follow them.
+Under the cards comes a box for pasting the gateway's examples (next part), then six numbered steps.
+The sections after that follow the steps.
+
+### The quick way: paste the gateway's examples
+
+Many gateways' documentation (or their Postman collection) shows ready-made examples: a `curl …` or
+`postman request …` command that sends a message, and often one that logs in. Paste them into the box
+at the top, **Have examples from the gateway's docs or Postman?**, and Pulse fills in the steps for
+you:
+
+| Box | What to paste |
+|---|---|
+| **Send-message request** | The command that sends one message |
+| **Login request (optional)** | The command that logs in, if the gateway first gives you a token from a login address |
+| **Login answer (optional)** | An example of what that login returns, so Pulse knows where the token is |
+
+Click **Fill in the form**. Pulse reads the method, address, headers and body of each command:
+
+- A login example becomes a **Login request** sign-in (step 2). The username and password in it go into
+  the **Username** and **Password** fields, stored encrypted, and the login body gets
+  `{{secrets.username}}` and `{{secrets.password}}` in their place. The token is read from where the
+  example answer has it, and sent as `Authorization: Bearer <token>`.
+- Without a login, a fixed `Bearer` token, basic auth or an API-key header in the send example becomes
+  the sign-in, and its value goes into the secret field.
+- In the body, the phone number (or address) becomes `{{message.to}}` and a message text
+  `{{message.text}}`.
+
+A green note says **Filled in** and lists anything left for you to do. Then check the steps below, and
+use **Test connection** and **Preview request** (section 8).
+
+**Example: RML Connect RCS.** Its documentation logs in with
+`POST https://apis.rmlconnect.net/auth/v1/login/` and a username and password, answers
+`{"JWTAUTH": "eyJ…", "user_data": {…}}`, and then sends an approved RCS template with
+`POST https://apis.rmlconnect.net/rcs/v1/message` and the header `Authorization: Bearer <token>`.
+Add an **RCS** provider, choose **Custom HTTP gateway** and **Connect to a gateway's existing API**,
+and paste the three examples:
+
+![The paste box filled with RML Connect's send-message curl command, its Postman login request and an example login answer with JWTAUTH, after Fill in the form: Filled in, with the note that this gateway sends approved templates, so the template's sample variables should become placeholders such as {{contact.first_name}}](img/16-paste.png)
+
+Step 2 now reads *Pulse signs in at the login address with username and password, reads the token from
+JWTAUTH, and sends it as Authorization: Bearer <token>*, with the details folded under **Login
+details**:
+
+![Step 2 after pasting: Login request, POST to the RML login URL, the one-sentence summary, Login details folded, and the Username and Password fields filled in and hidden](img/16-paste-signin.png)
+
+In step 3 the body keeps RML's template message, with `"phone_no": "{{message.to}}"`. As the note
+says, replace the template's sample values (`"name": "Asha"`) with placeholders such as
+`{{contact.first_name}}`, then check the rest of the steps as described below.
 
 ## 3. Where to send (step 1)
 
@@ -74,25 +123,30 @@ where a message goes, only the path and query after it.
 Pulse adds the sign-in to every request. If you save without a password, key or token the type needs,
 Pulse tells you which, e.g. *enter the API key*.
 
-For SMSCo, choose **Login request** and fill in:
+For SMSCo, choose **Login request**. Under the **Login URL** Pulse sums up in one sentence what the
+sign-in does (*Pulse signs in at the login address with username and password, reads the token from
+data.access_token, and sends it as Authorization: Bearer <token>…*); the rest is folded under **Login
+details**. Fill in:
 
-![Step 2, How Pulse signs in: Login request to /v1/login with a JSON body using {{secrets.username}} and {{secrets.password}}, the token read from the JSON path data.access_token, expiry from data.expires_in, the token going in a header, and the two secret fields filled in and hidden](img/16-auth.png)
+![Step 2, How Pulse signs in: Login request to /v1/login, the one-sentence summary, Login details open with a JSON body using {{secrets.username}} and {{secrets.password}}, the token read from the JSON path data.access_token, expiry from data.expires_in, the token going in a header, and the Username and Password fields filled in and hidden](img/16-auth.png)
 
 1. **Method** and **Login URL**: `POST` and `https://api.smsco.example/v1/login`.
-2. **Headers** if the login needs any, and the **Content type**.
-3. **Body**: the login request's body. Write each password or key as `{{secrets.name}}`: Pulse
-   starts you with
-   `{"username": "{{secrets.username}}", "password": "{{secrets.password}}"}`. Every secret you name
-   gets its own field at the end of the step (`Secret "password"`, `Secret "username"`), stored
-   encrypted and never shown again. Don't type passwords into the body itself.
-4. **Read the token from**: **JSON path** (`data.access_token` here), **A response header** (its
-   name; a leading `Bearer ` is removed), or **A regular expression** (the first group in brackets).
-5. **Expiry**: when the token runs out. **From a JSON path** (`data.expires_in`: seconds left, a Unix
-   time or a date), **Fixed lifetime** in seconds, or **Unknown (1 hour, renewed on 401)**.
-6. **Token goes in**: **A header** (the default: `Authorization: Bearer <token>`), **A query
-   parameter** or **A body field**, with its **Name** and a **Value template** in which `{{token}}`
-   is the token. Leave them empty for `Authorization: Bearer {{token}}`.
-7. Fill in the secrets: `Secret "username"` and `Secret "password"`.
+2. **Username** and **Password**, at the end of the step: SMSCo's username and password, stored
+   encrypted and never shown again.
+3. Click **Login details** to open the rest:
+   - **Headers** if the login needs any, and the **Content type**.
+   - **Body**: the login request's body. Write each password or key as `{{secrets.name}}`: Pulse
+     starts you with
+     `{"username": "{{secrets.username}}", "password": "{{secrets.password}}"}`. Every secret you
+     name gets its own field at the end of the step (`{{secrets.api_key}}` becomes **Api key**),
+     stored encrypted. Don't type passwords into the body itself.
+   - **Read the token from**: **JSON path** (`data.access_token` here), **A response header** (its
+     name; a leading `Bearer ` is removed), or **A regular expression** (the first group in brackets).
+   - **Expiry**: when the token runs out. **From a JSON path** (`data.expires_in`: seconds left, a
+     Unix time or a date), **Fixed lifetime** in seconds, or **Unknown (1 hour, renewed on 401)**.
+   - **Token goes in**: **A header** (the default: `Authorization: Bearer <token>`), **A query
+     parameter** or **A body field**, with its **Name** and a **Value template** in which `{{token}}`
+     is the token. Leave them empty for `Authorization: Bearer {{token}}`.
 
 What Pulse does with it: it logs in before the first message, keeps the token (encrypted, shared by
 all Pulse servers) and logs in again shortly before it expires. If the provider answers a message
@@ -199,14 +253,15 @@ token>`.
 Click **Test connection**. Pulse runs the login now, with the settings and secrets you just typed
 (empty secret fields use the saved ones), and shows the result:
 
-<img src="img/16-test-connection.png" alt="Test connection: Logged in. Token smsc…8e88, expires 12/11/2026, 18:02:50." width="480">
+<img src="img/16-test-connection.png" alt="Test connection: Logged in. Token smsc…, with the token's first and last four characters and when it expires" width="480">
 
 - **Logged in. Token …, expires …**: the login works. Only the token's first and last four
   characters are shown.
 - **Nothing to log in to: the credentials are sent with each request.**: for **Basic**, **Bearer
   token** and **API key**, which have no login step.
-- **Logged in to smtp.example.com:587.**: for an email (SMTP) provider, Pulse connected to the mail
-  server and logged in, then disconnected. **Send test** then checks that a real message arrives.
+- **Logged in to smtp.example.com:587.** (or **Connected to …** with **No login**): for an email
+  provider (SMTP, Gmail, Google Workspace; tutorial 4), Pulse connected to the mail server and logged
+  in, then disconnected. **Send test** then checks that a real message arrives.
 - A red box with the reason and the provider's answer: a wrong address, a wrong password, or a token
   that isn't where **Read the token from** says. Passwords never appear in it.
 
@@ -235,7 +290,8 @@ step 9](04-channels.md#9-sending-limits-and-daily-quotas) explains both.
 ## 10. Save, test, and change it later
 
 1. Leave **Use for all SMS messages** ticked to make it the channel's default (or untick it to save
-   it as a standby), and click **Save provider**. New sends use it within 30 seconds.
+   it as a standby, which campaigns can still pick under **Send through**; tutorial 4, step 7), and
+   click **Save provider**. New sends use it within 30 seconds.
 2. On the provider's row, click **Send test** and enter a test number (tutorial 4, step 7). You see
    **Accepted by the provider** with the provider's message ID, or **Not sent:** with the reason.
 3. Send a template to yourself with **Send a test** in the template editor (tutorial 5): that one is

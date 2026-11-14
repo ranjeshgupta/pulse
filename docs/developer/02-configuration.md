@@ -166,6 +166,7 @@ Not configurable today; listed so you know what to expect.
 | Events per `POST /v1/web/events` (site key) | 1-50, and 600 events per minute per client IP and workspace | `internal/api/web.go` |
 | Form submissions | 10 per minute per client IP and workspace; faster than 2 s after the form was shown (or without the time it was shown: `_ts` on the hosted page, `shown` from the SDK), or with the honeypot filled, is treated as a bot | `internal/api/forms.go` |
 | Sign-in attempts | 10 per workspace and email in 15 minutes (successful ones count too) | `internal/api/auth.go` |
+| Two-step sign-in codes | 5 tries per person per minute (each also counts as a sign-in attempt); the sign-in's code step is valid 10 minutes | `internal/api/twofactor.go` |
 | Session lifetime | 14 days (`pulse_session` cookie) | `internal/api/server.go` |
 | API key cache | Each `api` instance caches a key's workspace for up to 1 minute, so a replaced key keeps working for up to a minute | `authCacheTTL` |
 | Outbound webhook retries | 30 s, 2 min, 10 min, 1 h, 6 h after the first attempt (about 7 hours), then given up | `Backoff` in `internal/webhooks/webhooks.go` |
@@ -175,6 +176,7 @@ Not configurable today; listed so you know what to expect.
 | Journeys | 500 steps, waits up to 365 days, 25 jumps per enrollment | `internal/journey` |
 | Audience estimates | Cached 30 s; 60 uncached a minute per workspace; frequency-cap check exact up to 50,000 contacts | `internal/api` (`segments/estimate`) |
 | Contact lists behind numbers (`in:`, `campaign:`, `outcome:`…) | Bitmaps cached a minute; 120 new views a minute per workspace; counts exact up to 10,000 candidates, sampled above; "Create segment from this list" up to 500,000 contacts, 10 a minute, 2 at a time | `internal/api/contactsets.go` |
+| Overview summary (`/v1/stats/summary`) | Built once a minute per workspace (15 s when a part was missing); 20 uncached builds a minute per workspace | `internal/api/overview.go` |
 | Dashboards (Users, Campaign performance, Products) | Answers cached a minute; 60 uncached a minute per workspace; ranges up to 366 days | `internal/api/dashboards.go` |
 | Live event feed | Newest 1,000 events per workspace (Settings → Automation & limits: 100-10,000), at most 50 a second, properties over 4 KB dropped; 120 polls a minute | `internal/live` |
 | Provider tools | Test connection 20 a minute, test sends 30 a minute per workspace | `internal/api` |
@@ -186,7 +188,7 @@ Not configurable today; listed so you know what to expect.
 Workspace-level settings are not environment variables: admins change them in the app under
 **Settings**, or through the API (`/v1/settings/*`, see the [API guide](03-api.md)). Delivery rules
 (frequency caps, quiet hours, keywords) are in Settings → Channels; anonymous tracking and visitor
-location in Settings → Data & privacy; identity verification in Settings → Sign-in & keys; the web
+location in Settings → Data & privacy; identity verification and the two-step sign-in policy in Settings → Sign-in & keys; the web
 push prompt in Settings → Web push; and in **Settings → Automation & limits**: how long each kind of
 data is kept (events, message events, page views, per event name, anonymous visitors, audit log,
 import history, webhook and integration logs, the test inbox, the live feed), send retries, the

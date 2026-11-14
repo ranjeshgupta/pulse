@@ -4,7 +4,7 @@ This guide gets Pulse running on your machine in a few minutes, explains what ea
 for, and then covers running it in production: one server with Docker Compose, or Pulse's roles
 spread over several machines with managed databases.
 
-All commands run from the `pulse/` directory of the repository.
+All commands run from the root of the repository (the folder with the `Makefile`).
 
 ---
 
@@ -188,7 +188,7 @@ dev compose file turns them on for the local Keycloak and the end-to-end tests.
 ### Build the image
 
 ```bash
-docker build -t pulse:latest .     # from pulse/; tag it with your version and push it to your registry
+docker build -t pulse:latest .     # from the repository root; tag it with your version and push it to your registry
 ```
 
 The image (`alpine:3.22`, about 50 MB) runs as user `pulse`, listens on port 7070 (`PULSE_HTTP_ADDR`)
@@ -466,8 +466,10 @@ is skipped by its idempotency key.
 | `http://localhost:7080` doesn't answer right after `make up` | Pulse starts only once Kafka, ClickHouse, Postgres and Redis are healthy; that takes up to a minute on the first start |
 | Signing in seems to work but you're sent back to the sign-in page | `PULSE_PUBLIC_URL` is `https://…` (so the cookie is `Secure`) but you opened Pulse over `http://`, or the reverse proxy changes the host. Use the public address |
 | "too many attempts, try again later" when signing in | 10 attempts per workspace and email within 15 minutes; wait, or check the workspace ID |
+| Sign-in asks for a code and the phone is lost | Enter one of the recovery codes in the code box, or ask an admin to use **Reset two-step** on Settings → Team; the person sets it up again at the next sign-in if the workspace requires it |
+| The sign-in code step answers 503, "two-step sign-in needs the server's secret key" | `PULSE_SECRET_KEY` isn't set on the `api` role: the authenticator secrets are sealed with it. Set it (the same key as before) and restart |
 | Emails don't arrive | Locally, look in Mailpit (`http://localhost:18025`). In production, check `PULSE_SMTP_ADDR` or the workspace's email provider (**Settings → Channels**, **Send test** on the provider), and the contact's consent |
-| Log warns `PULSE_SECRET_KEY not set` | SSO and stored provider credentials are off, emails aren't tracked. Set the key and restart |
+| Log warns `PULSE_SECRET_KEY not set` | SSO, two-step sign-in and stored provider credentials are off, emails aren't tracked. Set the key and restart |
 | SSO fails with an address error | The provider's discovery URL resolves to a private address. Use a public one, or set `PULSE_ALLOW_PRIVATE_SSO=true` for a provider on your internal network |
 | Events are accepted (202) but contacts or segments don't change | A consumer role is down or behind: check every role's log, and the consumer groups' lag (`pulse-profile`, `pulse-segments`, `pulse-journeys`, …) with your Kafka tools |
 | Landing pages or forms redirect to a host that doesn't answer | `PULSE_PAGES_URL` is set but its DNS or proxy isn't. Point the pages host at Pulse too |

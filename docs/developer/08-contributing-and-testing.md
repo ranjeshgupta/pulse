@@ -3,7 +3,7 @@
 How the repository is laid out, how to run each kind of test, how to work on the web app, the
 conventions the code follows, and how to keep these docs (and their screenshots) in step with it.
 
-Everything runs from the `pulse/` directory. You need Docker (with Compose) and `make`; Go and
+Everything runs from the root of the repository. You need Docker (with Compose) and `make`; Go and
 Node.js on the host are optional (see below).
 
 ---

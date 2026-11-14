@@ -46,13 +46,14 @@ In this picture the ID ends in a short suffix (`acme-retail-…`): another works
 
 On `http://localhost:7080/login` enter **Workspace ID**, **Email** and **Password**, then **Sign in**.
 If your workspace uses single sign-on, choose **Sign in with SSO** instead and enter the workspace ID
-(set up in tutorial 11).
+(set up in tutorial 11). If you (or your workspace) turned on two-step sign-in, Pulse then asks for
+the code from your authenticator app ([tutorial 11](11-admin-and-privacy.md#9-two-step-sign-in-with-an-authenticator-app)).
 
 ## 3. Find your way around
 
 The sidebar groups everything into:
 
-<img src="img/01-navigation.png" alt="The sidebar: Overview, then Audience, Campaigns, Content and Analytics, and Settings at the bottom" width="232" align="right">
+<img src="img/01-navigation.png" alt="The sidebar: Overview, then Audience, Campaigns, Content and Analytics, Settings, and at the bottom your name, role, Your account and Sign out" width="232" align="right">
 
 | Group | Pages | For |
 |---|---|---|
@@ -62,6 +63,7 @@ The sidebar groups everything into:
 | **Content** | Message templates, Landing pages, Forms, Assets | What your campaigns are made of |
 | **Analytics** | Users, Campaign performance, Products, Live events, Reports, Funnels, Cohorts, Revenue | How it is going |
 | | **Settings** (bottom) | Team, sign-in, contact data, channels, connections |
+| | **Your account**, **Sign out** (under your name) | Your own details and two-step sign-in |
 
 <br clear="right">
 
@@ -196,9 +198,11 @@ Using the test page (or your site):
 
    <img src="img/01-contact-profile.png" alt="The cust-0001 profile panel, from segments down to its activity" width="420">
 
-6. **Overview** now shows the events under **Live**.
+6. **Overview** now shows the events under **Live**, the contact in the counts, and the events under
+   **Most frequent events**. The parts below the counts (**Audience**, **One-time campaigns**) are
+   refreshed once a minute, so the new contact shows under **contacts added** a minute later.
 
-   ![Overview with the first events under Live and Most frequent events](img/01-overview-live.png)
+   ![Overview with the first events under Live, 1 contact in the counts, Audience still at 0 contacts added, nothing in One-time campaigns yet, and the first events under Most frequent events](img/01-overview-live.png)
 
 Anonymous tracking is on by default. To turn it off, go to **Settings → Data & privacy**. To delete
 anonymous visitors after a period without activity (off by default), go to **Settings → Automation &

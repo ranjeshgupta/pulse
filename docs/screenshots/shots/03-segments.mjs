@@ -88,11 +88,17 @@ async function builder(context, page) {
   await picker.locator(".fp-item", { has: page.locator(".fp-item-label", { hasText: /^City$/ }) }).first().click();
   await root.getByLabel("Value").first().fill("Pune");
 
-  // 2. Did the event purchase at least 2 times in the last 30 days.
+  // The workspace's own events are "Did …" filters: searched for "abandon", a shot of its own.
   await root.locator(":scope > .fb-add").getByRole("button", { name: "+ Add filter" }).click();
-  await pickFilter(page, "did an event", "Did an event");
+  const picker2 = page.getByRole("dialog", { name: "Add a filter" });
+  await picker2.getByRole("combobox", { name: "Search filters" }).fill("abandon");
+  await settle(page);
+  await shot(page, AREA, "03-picker-events", { clip: picker2, pad: 8 });
+
+  // 2. Did Purchase (the workspace's purchase event) at least 2 times in the last 30 days.
+  await picker2.getByRole("combobox", { name: "Search filters" }).fill("purchase");
+  await picker2.locator(".fp-item", { has: page.locator(".fp-item-label", { hasText: /^Did Purchase$/ }) }).first().click();
   const ev = root.locator(".fb-sentence").last();
-  await ev.getByLabel("Event name").fill("purchase");
   await ev.getByLabel("Number of times").fill("2");
 
   // 3. A nested ANY group: tagged vip, or opened the Welcome email in the last 30 days.

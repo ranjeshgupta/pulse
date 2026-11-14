@@ -7,7 +7,7 @@ with the [tutorials](../tutorials/README.md) instead.
 |---|---|---|
 | 1 | [Installation](01-installation.md) | Local quick start, what each container does, production deployment, upgrades, backups, troubleshooting |
 | 2 | [Configuration reference](02-configuration.md) | Every `PULSE_*` setting, workspace settings (Automation & limits), limits |
-| 3 | [API guide](03-api.md) | Authentication, events, contacts and the contacts behind every number, segments, templates and AMP, campaigns (journeys and broadcasts), reports and dashboards, providers, settings, web push, errors, every route |
+| 3 | [API guide](03-api.md) | Authentication (sessions, two-step sign-in, keys), events, contacts and the contacts behind every number, segments, templates and AMP, campaigns (journeys and broadcasts), reports and dashboards, providers, settings, web push, errors, every route |
 | 4 | [Web SDK](04-web-sdk.md) | `pulse.js`: install, identify, track, identity verification, on-site content (variants, order), forms, web push (opt-in prompt, install check) |
 | 5 | [Mobile SDKs](05-mobile-sdks.md) | Flutter, Android (Kotlin) and iOS (Swift): push, in-app, app inbox |
 | 6 | [Webhooks & integrations](06-webhooks-and-integrations.md) | Outbound webhooks, provider webhooks and their verification, reason codes, the custom gateway (custom requests and authentication), Gmail and Gupshup, Zapier / Make, CRM, Shopify, ad audiences |

@@ -71,13 +71,20 @@ the row removes it.
 
 Behaviour filters count events: "did *this* at least *N* times in the last *N* days".
 
-6. Click **+ Add filter**, search `did an event` and pick **Did an event**.
-7. The row reads like a sentence. In the event list, keep **Another event…** and type `purchase` in
-   the box next to it. Then **at least** · `2` · **times in the last** · `30` · **days**.
+6. Click **+ Add filter** and search `purchase`. Your workspace's own events (sent in the last 90 days,
+   or described on **Audience → Events**) are listed as **Did …**, with the label from their schema if
+   they have one: pick **Did Purchase**. For example, searching `abandon` finds **Did Cart abandoned**
+   and **Did Checkout abandoned**:
+
+   ![The Add a filter picker searched for abandon: Did Cart abandoned and Did Checkout abandoned under Behaviour: any event](img/03-picker-events.png)
+
+   (**Did an event** gives the same row with no event chosen yet.)
+7. The row reads like a sentence, with `purchase` in the event list. Then **at least** · `2` ·
+   **times in the last** · `30` · **days**.
 
    | Part | Choices |
    |---|---|
-   | Event | Ready-made events grouped as Email; SMS, WhatsApp, RCS; Push, inbox and in-app; Web; Forms, assets, journeys, consent. **Another event…** for your own events such as `purchase` |
+   | Event | Ready-made events grouped as Email; SMS, WhatsApp, RCS; Push, inbox and in-app; Web; Forms, assets, journeys, consent; then **Your events** (your workspace's own, such as `purchase` and `cart_abandoned`). **Another event…** for a name Pulse hasn't seen yet |
    | How often | **at least**, **more than**, **exactly**, **fewer than**, **at most**, **never** |
    | When | **in the last** 1 to 365 **days**, **between** two days, or **since** a day (section 8) |
 

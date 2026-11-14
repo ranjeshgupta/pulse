@@ -25,7 +25,7 @@ Gupshup gets SMS, WhatsApp and RCS.
   through the relay or a sending service.
 - "Blocked" on WhatsApp is reported as "undeliverable (possibly blocked)": the APIs only give error codes.
 
-## Status of the sheet's rows (checked against the code at 8b22c78)
+## Status of the sheet's rows (checked against the code at 2eb443f)
 
 | # | Requirement | Status | Milestone |
 |---|---|---|---|
@@ -351,7 +351,7 @@ Built as designed, with these choices:
 - **Receipts fail closed.** Custom-mode receipts need the provider's `receipt_token`: as a header, a query parameter,
   or the key of an HMAC-SHA256 of the body (hex or base64, `sha256=` prefix allowed). Without a saved token every
   receipt is refused. Gupshup webhooks need the provider's `webhook_token` (`?token=` or `X-Pulse-Token`), required
-  when saving; the coordinator's fail-closed rule (91a365e) applies.
+  when saving; the coordinator's fail-closed rule (9edfff3) applies.
 - **Preview and Test connection.** `POST /v1/channels/providers/preview` returns the exact request (method, URL,
   headers, body) a provider would send for Pulse's test message, or for a template rendered for a contact
   (`template_id`, `external_id`, `event`; a contact's data needs contacts view); secrets are masked (••••, the whole
@@ -600,17 +600,46 @@ Built as designed, with these choices:
   vitest `contactLinks.test.ts` (link building, chips round trip, who may open a list, goals, redirects, nav
   highlighting); e2e `test/e2e/m7_test.go`.
 
+## Batch N as built
+
+Asked for on 2026-11-14, after M7 and its docs pass; each part is described where it lives, here only the summary.
+
+- **N1 Filters and event links.** Contacts has an **Add filter** dialog that offers every filter the list understands
+  as a plain question (Who they are / What they did / Campaigns and channels; `web/src/contactFilterMenu.ts`,
+  `web/src/pages/ContactFilterMenu.tsx`), turned into the search box's chips. The segment builder lists the
+  workspace's own events (sent in the last 90 days or described under Events): "Did …" in the filter picker,
+  "Your events" in the event dropdown. On Events, the whole count cell (events and contacts) opens those contacts.
+  (The wiring was lost from the first commit, 340694b, and restored in b14f622.)
+- **N2 Provider forms in easy steps.** Catalog fields with `show_if`, `advanced` and `type`; kinds with `guide` and
+  `presets`. SMTP like Listmonk's form: "Fill in for:" ten services, Encryption, Login type, More settings (max
+  connections, messages per connection, HELO, skip TLS certificate check, sending service, custom headers). Gmail and
+  Google Workspace: a three-step app-password guide, only the chosen sign-in method's fields. SMTP first in the email
+  list; "Provider name". Not built from the request: SMTP retry counts and idle / wait timeouts (retries are the
+  workspace's, in Settings → Automation & limits; pooled connections close after 60 s idle).
+- **N3 Pasted API examples.** The custom gateway's "Connect to a gateway's existing API" mode fills itself from curl
+  or Postman examples (send, login, example login answer), e.g. RML Connect's RCS API
+  ([developer guide](developer/06-webhooks-and-integrations.md#custom-request-mode)).
+- **N4 Provider per send** (migration pg 027): **Send through** on one-time campaigns, journey send steps and test
+  sends; the default when the chosen provider is gone.
+- **N5 Overview**: Needs attention, Audience, Revenue and One-time campaigns from `GET /v1/stats/summary`, cached a
+  minute per workspace (migration pg 028).
+- **N6 Two-step sign-in** (migration pg 026): authenticator app with recovery codes on Your account, the code step at
+  sign-in, the workspace policy in Settings → Sign-in & keys, **Reset two-step** on Team.
+
+Architecture notes: [After M7](02-architecture.md#after-m7-overview-summary-two-step-sign-in-provider-per-send).
+
 ## Docs: final pass done
 
 The documentation for M4–M7 (deferred from M4 on, by the owner's decision of 2026-11-11) was updated in one
-pass after M7 (be1294f): README, [architecture](02-architecture.md), [feature parity](05-feature-parity.md), every
+pass after M7 (467c446): README, [architecture](02-architecture.md), [feature parity](05-feature-parity.md), every
 [developer guide](developer/README.md) and [tutorial](tutorials/README.md), with every screenshot retaken. Tutorials 6,
 7 and 8 were renamed for the M7 names ([triggered and automation campaigns](tutorials/06-triggered-and-automation-campaigns.md),
 [one-time campaigns](tutorials/07-one-time-campaigns.md), [website & app messages](tutorials/08-website-and-app-messages.md));
 new tutorials 15 [Delivery and dashboards](tutorials/15-delivery-and-dashboards.md), 16
 [Connecting any provider](tutorials/16-connecting-any-provider.md), 17 [Interactive AMP emails](tutorials/17-interactive-amp-emails.md)
 and 18 [Finding the contacts behind a number](tutorials/18-contacts-behind-a-number.md). `make docs-check` reports no
-problems.
+problems. Batch N's docs were reviewed in a second pass on 2026-11-14, after the repository root moved to
+this folder (commit hashes in this document are those of the moved history).
 
 ## Risks
 

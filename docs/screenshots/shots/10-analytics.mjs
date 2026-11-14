@@ -17,9 +17,14 @@ export default async function (browser) {
 
 async function run(context, page) {
   // ---- Overview ----
+  // Tall enough for the whole page: Live, the counts, Audience, Revenue, One-time campaigns, events
+  // and messages. The summary (GET /v1/stats/summary) fills in after the live numbers.
+  await page.setViewportSize({ width: 1440, height: 2000 });
   await go(page, "/");
+  await page.getByRole("heading", { name: "One-time campaigns" }).waitFor();
   await settle(page, { quiet: 2000 });
   await shot(page, AREA, "10-overview", { clip: page.locator(".page"), pad: 0 });
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // ---- Reports ----
   await go(page, "/reports");

@@ -430,7 +430,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - `events.product_code` and `events.product_category`: MATERIALIZED columns from the props (migration
   005), for product reports.
 
-Migrations: `migrations/postgres/001`–`025` and `028` and `migrations/clickhouse/001`–`006`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
+Migrations: `migrations/postgres/001`–`028` and `migrations/clickhouse/001`–`006`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
 migrate one at a time.
 
 ## Public pages and origins
@@ -710,6 +710,7 @@ These run on raw events today and are fine into the hundreds of millions of rows
   gives each channel's numbers for one segment (segment builder, journey Start panel), with the same cache and limit.
 - **Per-provider limits** (`channel_providers.limits`: `rate_per_second`, `daily_quota`, `timezone`;
   `PUT /v1/channels/providers/{id}/limits`, channels edit). The dispatcher caches each workspace's default provider
+  (and each provider a message chose, see [Provider per send](#after-m7-overview-summary-two-step-sign-in-provider-per-send))
   with its limits for 30 s. Before sending it takes one message from the provider's quota with a Lua script on
   `quota:{provider}:{yyyymmdd}` (the day in the provider's zone; expires after 3 days; shared by every dispatcher), then
   waits for the workspace's channel bucket and the provider's own bucket (`rlp:{provider}`). Over the quota, the
@@ -725,7 +726,10 @@ These run on raw events today and are fine into the hundreds of millions of rows
 - **Pooled SMTP** (`internal/providers/smtppool.go`). Connections are pooled per relay, login (password hashed) and
   limits in a process-wide registry, so adapters rebuilt every 30 s share them: at most `max_connections` (default 4)
   open per process, each used for `messages_per_connection` (default 100) messages, idle ones closed after 60 s.
-  STARTTLS whenever offered (implicit TLS on port 465); PLAIN auth only over TLS or to localhost. A reply error is
+  Encryption follows the provider's `tls` setting: automatic (STARTTLS whenever offered, implicit TLS on port 465),
+  `starttls` (refused if the server doesn't offer it), `ssl` (implicit TLS on any port) or `none`; `skip_tls_verify`
+  accepts any certificate. The login type (`auth_protocol`) is PLAIN, LOGIN or CRAM-MD5 (or none); PLAIN and LOGIN send
+  the password only over TLS or to localhost. All of these are part of the pool's key, with the HELO name. A reply error is
   `RSET` and the connection kept; a network error or 421 closes it; a dropped idle connection is retried once on a new
   one before anything was sent. 5xx replies stay permanent failures. The benchmark against a fake relay with a 3 ms
   greeting: about 7,800 messages/s pooled against 260 with a connection per message.
@@ -976,3 +980,44 @@ These run on raw events today and are fine into the hundreds of millions of rows
   `/broadcasts/:id` are unchanged. Role areas keep their keys (`broadcasts`, `journeys`) and are labelled "One-time
   campaigns" and "Triggered & automation campaigns".
 - **Events catalog.** "Last 30 days" is 30 whole UTC days, today included, so its contact count equals the list it opens.
+
+## After M7: Overview summary, two-step sign-in, provider per send
+
+- **Overview summary** (`internal/api/overview.go`, `store/pg/overview.go`, `store/ch/overview.go`; migration pg 028).
+  `GET /v1/stats/summary` (anyone signed in) builds the Overview's slower part: contacts added (today, last 7 days, the
+  7 before) and unsubscribes, revenue from the workspace's revenue event, one-time campaigns sending, coming up and
+  recently sent with their counts, and "Needs attention" warnings (a provider near its daily quota, a channel failing in
+  the last hour, an email bounce spike, a campaign run with many failures). It is built once a minute per workspace
+  (`dash:{tenant}:summary` in Redis, 15 s when a part was missing), concurrent misses in a process wait for one build
+  (10 s timeout), and uncached builds are limited to 20 a minute per workspace (`rlsum`, 429). Each caller gets only
+  the sections its role may view. Queries read one workspace's index ranges: `contacts_created`
+  (`(tenant_id, created_at)`, partial on not-merged contacts) and `broadcasts_tenant` (`(tenant_id, status)`) in
+  Postgres, a few event names in ClickHouse `events`, a few broadcast runs in `message_events`. The page shows the live
+  numbers first and polls the summary every minute while its tab is visible.
+- **Two-step sign-in** (`internal/auth/totp.go`, `internal/api/twofactor.go`, `store/pg/twofactor.go`; migration pg
+  026). RFC 6238 codes (HMAC-SHA1, 30 s, 6 digits, ±1 step, each step accepted once via `user_two_factor.last_step`).
+  The secret (and a pending one shown as a QR code until confirmed) is sealed with `PULSE_SECRET_KEY`; ten recovery
+  codes are kept as SHA-256 hashes and removed as used. Password sign-in of a user who has it on, or must set it up
+  under the workspace policy (`tenant_settings.two_factor`: `optional`, `everyone`, or `some` roles / people), answers
+  `two_factor: code|setup` with a sealed 10-minute `pulse_2fa` cookie bound to the user's two-step state and good for
+  one sign-in; the session is created only by `/v1/auth/two-factor/verify` or `/enable`. Wrong codes are limited per
+  person and count toward the sign-in limit. SSO sign-ins skip it (the identity provider decides). Admins with settings
+  edit reset a teammate's setup (`DELETE /v1/users/{id}/two-factor`); the policy needs full admin. Web:
+  `web/src/pages/Account.tsx` (Your account, `/account`), the code step in `Login.tsx`, the policy in Settings →
+  Sign-in & keys, the Team column and **Reset two-step**.
+- **Provider per send** (migration pg 027). `model.Message.ProviderID` sends through one of the channel's providers
+  instead of the default: set from `broadcasts.provider_id` (`ON DELETE SET NULL`), a send step's or `send_message`
+  rule's `provider_id`, `notify_user`'s (email) and `POST /v1/channels/test`'s. The API checks on save that the provider
+  is the workspace's and of the right channel; the dispatcher (`buildVia`) loads it with `ProviderToSend`, caches a
+  sender per `tenant:channel:provider`, and falls back to the default with a logged warning if it is gone or of another
+  channel. An SMS fallback always uses the SMS default. Web: the **Send through** picker (`web/src/ProviderPick.tsx`,
+  the default preselected, hidden when the channel has one provider) in the one-time campaign editor and New campaign
+  wizard, the journey step inspector and the test-send dialog.
+- **Guided provider forms.** Catalog fields carry `type` (`bool`, `number`, `textarea`), `advanced` (folded under "More
+  settings") and `show_if` (shown only for some values of another setting; a hidden field is never required, see
+  `Field.Shown`); kinds carry `guide` (numbered steps, e.g. Gmail's app password) and `presets` (the SMTP form's "Fill in
+  for:" Amazon SES, SendGrid, Mailgun, Postmark, Mailjet, Brevo, SparkPost, Microsoft 365, Zoho Mail and Gmail, each
+  with a note). SMTP's custom headers (`headers`, `Name: value` per line, at most 20) can't replace Pulse's own. The
+  custom HTTP gateway's "Connect to a gateway's existing API" mode can be filled from pasted curl or `postman request`
+  examples (`web/src/curlImport.ts`, in the browser only): the send request, optionally a login request and an example
+  login answer, from which the token path is found.

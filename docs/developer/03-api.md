@@ -825,9 +825,10 @@ curl -s -X POST $PULSE/v1/templates/preview -H "Authorization: Bearer $KEY" -H "
 # A sample event: the contact's latest of that name (personal properties removed), else the schema's example
 curl -s "$PULSE/v1/templates/sample-event?event=cart_abandoned&external_id=cust-1001" -H "Authorization: Bearer $KEY"
 # {"source":"latest","at":"2026-11-11T09:30:00Z","props":{"product_name":"Brass table lamp",…}}   (or "schema", "none")
-# Send it to that contact now, through the channel's provider (202), with the sample event
+# Send it to that contact now (202), with the sample event, through the channel's default provider
+# or another of its providers (provider_id; 400 if it isn't one of the workspace's for that channel)
 curl -s -X POST $PULSE/v1/channels/test -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"template_id":31,"external_id":"cust-1001","event":{"product_name":"Brass table lamp"}}'
+  -d '{"template_id":31,"external_id":"cust-1001","provider_id":12,"event":{"product_name":"Brass table lamp"}}'
 ```
 
 Locally every email lands in Mailpit (http://localhost:18025), and the seeded sandbox providers put
@@ -899,12 +900,12 @@ The step types (each one's fields are in `journey.Node`, `internal/journey/graph
 
 | Kind | Types |
 |---|---|
-| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`). Every send step and `send_message` takes `deadline` (`{"at": "HH:MM", "hours": N, "timezone": …}`, counted from when the step runs): a message held back past it is dropped as `<channel>_failed`, `reason: "deadline"` |
+| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template; optional `provider_id`, one of the workspace's providers for the step's channel, else the default), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, provider_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`). Every send step and `send_message` takes `deadline` (`{"at": "HH:MM", "hours": N, "timezone": …}`, counted from when the step runs): a message held back past it is dropped as `<channel>_failed`, `reason: "deadline"`. A chosen `provider_id` that has since been removed falls back to the channel's default (the dispatcher logs a warning) |
 | Wait | `wait` (`seconds`, up to 365 days), `wait_until` (`until`, or `time_of_day` + `timezone`) |
 | Decision (wait for something, then `yes` / `no`) | `wait_for_event` (`event`, `seconds`), `message_decision` (`step`, `outcome`: opened, clicked, delivered, read, replied; `seconds` ≥ 60; optional `url`), `on_form`, `on_asset`, `on_page`, `on_device`, `on_dwc` |
 | Condition (checked now, `yes` / `no`) | `condition` (`segment_id`), `check` (`rule`: any segment rule), `if_journey`, `if_form_field`, `if_notification`, `if_valid_email`, `if_dnc`, `if_before`, `if_visited` |
 | Split | `split` (`variants`: 2-5 `{weight, next, label}`; optional `winner` for an automatic A/B winner) |
-| Action | `update_attr` (`attrs`), `update_tags`, `adjust_points`, `update_list`, `change_stage`, `webhook` (`url`, `body`: a JSON template with variables, e.g. `{"cart": {{event.cart_id | json}}}`), `notify_user`, `show_focus`, `push_dwc`, `update_owner`, `update_company`, `add_company`, `company_points`, `change_journey`, `dnc_add`, `dnc_remove`, `push_integration` |
+| Action | `update_attr` (`attrs`), `update_tags`, `adjust_points`, `update_list`, `change_stage`, `webhook` (`url`, `body`: a JSON template with variables, e.g. `{"cart": {{event.cart_id | json}}}`), `notify_user` (optional `provider_id`: an email provider), `show_focus`, `push_dwc`, `update_owner`, `update_company`, `add_company`, `company_points`, `change_journey`, `dnc_add`, `dnc_remove`, `push_integration` |
 | End | `exit`, `jump` (`target`), `delete_contact` (`confirm: "DELETE"`) |
 
 `PUT /v1/journeys/{id}` replaces name, graph and schedule; it answers 409 while the journey is active,
@@ -942,6 +943,7 @@ curl -s -X POST $PULSE/v1/broadcasts/6/schedule -H "Authorization: Bearer $KEY"
 | `start_at`, `end_at` | First run; for repeating broadcasts, an optional end |
 | `repeat` | `none` (default), `daily`, `weekly`, `monthly` |
 | `fallback_template_id` | WhatsApp or RCS broadcasts: an SMS template for contacts they can't reach |
+| `provider_id` | Send through this provider of the channel (the app's **Send through**) instead of the channel's default; it must be one of the workspace's providers for `channel` (400 otherwise). If the provider is removed later, the field is cleared and runs use the default |
 | `ab` | A/B test: `{"variants":[{"label":"A","template_id":31},{"label":"B","template_id":33}], "test_percent":20, "metric":"opens", "wait_hours":4}`. `metric` `opens` or `clicks` (email) picks a winner after `wait_hours` (1-72) and sends it to the rest; `manual` waits for `POST /v1/broadcasts/{id}/runs/{run}/winner` with `{"variant":"B"}`; `test_percent: 100` is a plain split |
 | `conversion_event`, `conversion_days` | Reports count recipients who do the event within 1-30 days (default 3) |
 | `exclude_segment_ids` | Up to 10 segments whose members are left out, even if they are in `segment_id` |
@@ -1157,8 +1159,14 @@ For raw data, ClickHouse holds every event (table `events`); see
 A provider connects a channel to a sending service. `GET /v1/channels/catalog` lists the channels,
 every provider type with its fields (`config` and `secrets`, always lists, each with `label`, `hint`,
 `options` and, for options shown in words, `option_labels`, e.g. `{"app_password": "An app password
-(simplest)"}`), and `send_rates`: the server's own per-workspace send rate for each channel, in
-messages per second (`PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`… in the
+(simplest)"}`; `type` is `bool`, `number` or `textarea` for fields that aren't a line of text;
+`advanced: true` folds a field under **More settings**; `show_if: {"key": "auth_protocol", "values":
+["", "plain", "login", "cram-md5"]}` shows it only while another setting has one of those values,
+`""` meaning left empty, and a hidden field is never required), each type's `guide` (numbered how-to
+steps, e.g. creating a Gmail app password) and `presets` (`{name, values, note}`: one-click settings
+for well-known services, e.g. the SMTP type's Amazon SES, SendGrid, Mailgun, Postmark, Mailjet, Brevo,
+SparkPost, Microsoft 365, Zoho Mail and Gmail), and `send_rates`: the server's own per-workspace send
+rate for each channel, in messages per second (`PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`… in the
 [configuration](02-configuration.md#workers)). A provider's own `rate_per_second` never makes a
 workspace send faster than that. Adding, changing and removing providers needs channels edit **and**
 settings edit.
@@ -1175,8 +1183,25 @@ curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H 
   "config": {"username": "news@acme.example", "from": "Acme <news@acme.example>", "auth_method": "app_password"},
   "secrets": {"password": "<app password>"}}'
 # 200 {"id":12,"webhook_url":"http://localhost:7080/v1/webhooks/providers/12","secrets_cleared":false}
+
+# Any SMTP server: encryption auto | starttls | ssl | none; login type plain | login | cram-md5 | none
+curl -s -X POST $PULSE/v1/channels/providers -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "channel": "email", "provider": "smtp", "name": "Amazon SES",
+  "config": {"host": "email-smtp.ap-south-1.amazonaws.com", "port": "587", "tls": "starttls", "auth_protocol": "plain",
+             "from": "Acme <news@acme.example>", "headers": "X-SES-CONFIGURATION-SET: marketing"},
+  "secrets": {"username": "<SMTP user name>", "password": "<SMTP password>"}}'
 ```
 
+The SMTP type's other settings are `max_connections` (1-50), `messages_per_connection`, `helo`,
+`skip_tls_verify` (`"true"` to accept a self-signed certificate), `service` (which delivery-report
+header to add; detected from the host when empty) and `headers` (custom headers, one `Name: value`
+per line, at most 20; Pulse's own headers such as `From`, `Subject`, `List-Unsubscribe` and
+`X-Pulse-Ref` can't be replaced).
+
+- **The default provider.** `is_default: true` (the form's **Use for all … messages**) makes a provider
+  the channel's default: it sends every message that didn't choose another one with `provider_id`
+  (one-time campaigns, journey send steps, test sends; the app's **Send through**). A message whose
+  chosen provider has been removed since goes through the default.
 - **Secrets are merged key by key** on `PUT /v1/channels/providers/{id}`: a secret left out or
   empty keeps its saved value. Secrets are never returned.
 - **Changing where credentials go needs them again.** When a change points the provider at another
@@ -1655,7 +1680,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/settings/web-push/check` | Fetch the site and its service worker and check the set-up; 10 a minute | channels edit |
 | `POST` | `/v1/settings/web-push/check-token` | A 30-minute `?pulse_check=` link for the browser self-check | channels edit |
 | `GET` | `/v1/settings/web-push/diagnosis` | What the browser reported for that link (`?token=`) | channels view |
-| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `event` properties for `{{event.x}}`); 202; 30 a minute per workspace (429) | content edit |
+| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `provider_id` and `event` properties for `{{event.x}}`); 202; 30 a minute per workspace (429) | content edit |
 | `GET` | `/v1/sandbox/messages` | Messages the sandbox providers recorded (test inbox) | content view |
 | `POST` | `/v1/sandbox/receipts` | Simulate a delivery report for a sandbox message | content edit |
 | `POST` | `/v1/sandbox/inbound` | Simulate a reply from a phone number (e.g. STOP) | content edit |

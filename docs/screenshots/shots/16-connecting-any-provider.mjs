@@ -29,35 +29,41 @@ export default async function (browser) {
 
   // Choose the gateway and "Connect to a gateway's existing API".
   await dialog.getByRole("combobox").first().selectOption("http_sms");
-  await dialog.getByLabel("Name in Pulse").fill("SMSCo");
+  await dialog.getByLabel("Provider name").fill("SMSCo");
   const existing = dialog.getByRole("radio", { name: /Connect to a gateway's existing API/ });
   await existing.click();
   await settle(page);
   await highlight(existing);
   await shot(page, AREA, "16-mode", { clip: dialog.locator(".panel-body > .grid-2, .panel-body > .choice-cards"), pad: 12 });
   await clearHighlights(page);
+  // The paste box is open at the top; this walk-through fills the steps by hand, so fold it.
+  await dialog.locator("details.pf-paste > summary").click();
 
   // 1 Where to send.
   const where = step("Where to send");
   await where.getByLabel(/^Address \(URL\)/).fill(`${API}/v1/messages`);
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "16-where", { clip: where, pad: 8 });
 
   // 2 How Pulse signs in: a login request.
   const auth = step("How Pulse signs in");
   await auth.getByLabel(/^Type/).selectOption("login");
   await auth.getByLabel(/^Login URL/).fill(`${API}/v1/login`);
+  await auth.getByLabel(/^Username/).fill("acme-docs");
+  await auth.getByLabel(/^Password/).fill("test-password-123");
+  await auth.locator("details.pf-more > summary", { hasText: "Login details" }).click();
   await auth.getByLabel(/^JSON\ path/).fill("data.access_token");
   await auth.getByLabel(/^Expiry JSON path/).fill("data.expires_in");
-  await auth.getByLabel('Secret "username"').fill("acme-docs");
-  await auth.getByLabel('Secret "password"').fill("test-password-123");
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "16-auth", { clip: auth, pad: 8 });
 
   // 3 What to send.
   const what = step("What to send");
   await what.getByLabel(/^Body/).fill(BODY);
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "16-request", { clip: what, pad: 8 });
 
   // 4 How Pulse knows it was sent, with "Change this" open.
@@ -67,6 +73,7 @@ export default async function (browser) {
   await result.getByLabel(/^Equals/).fill("queued");
   await result.getByLabel(/^The gateway's message ID is at/).fill("message_id");
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "16-result", { clip: result, pad: 8 });
 
   // 5 Delivery reports, and the receipt token that appears with them.
@@ -79,6 +86,7 @@ export default async function (browser) {
   await reports.getByLabel(/^Failure reason at/).fill("error");
   await reports.getByLabel(/^Receipt token/).fill("a-long-random-receipt-token");
   await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "16-receipts", { clip: reports, pad: 8 });
 
   // 6 Check it. Test connection logs in now and shows the token, masked.
@@ -98,5 +106,52 @@ export default async function (browser) {
   await shot(page, AREA, "16-preview", { clip: tools.locator("pre"), pad: 8 });
 
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await pasteExamples(page);
   await context.close();
+}
+
+// The RML Connect RCS API as its documentation and Postman show it (placeholder values): a login
+// that returns {"JWTAUTH": …}, then a template message sent with that token.
+const RML_SEND = `curl --location 'https://apis.rmlconnect.net/rcs/v1/message' \\
+--header 'Authorization: Bearer xxxxxtokenxxxx' \\
+--header 'Content-Type: application/json' \\
+--data '{
+    "type": "template",
+    "phone_no": "919812345678",
+    "bot_name": "acme_promo",
+    "template": {
+        "name": "weekend_sale",
+        "variables": { "name": "Asha" }
+    }
+}'`;
+const RML_LOGIN = `postman request POST 'https://apis.rmlconnect.net/auth/v1/login/' \\
+  --header 'Content-Type: application/json' \\
+  --body '{
+    "username": "acme-docs",
+    "password": "test-password-123"
+}'`;
+const RML_ANSWER = `{"JWTAUTH": "eyJhbGciOi.example.token", "user_data": {"email": "ops@acme-retail.test", "is_active": true}}`;
+
+// Pasting a gateway's examples: an RCS provider filled in from them (cancelled, not saved).
+async function pasteExamples(page) {
+  await go(page, "/settings/channels");
+  const rcs = page.locator("section.panel").nth(3); // Email, SMS, WhatsApp, RCS, Push
+  await rcs.getByRole("button", { name: "Add provider" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add RCS provider" });
+  await dialog.waitFor();
+  await dialog.getByRole("combobox").first().selectOption("http_rcs");
+  await dialog.getByLabel("Provider name").fill("RML Connect RCS");
+  await dialog.getByRole("radio", { name: /Connect to a gateway's existing API/ }).click();
+  const paste = dialog.locator("details.pf-paste");
+  await paste.getByLabel(/^Send-message request/).fill(RML_SEND);
+  await paste.getByLabel(/^Login request/).fill(RML_LOGIN);
+  await paste.getByLabel(/^Login answer/).fill(RML_ANSWER);
+  await paste.getByRole("button", { name: "Fill in the form" }).click();
+  await paste.locator(".alert").waitFor();
+  await settle(page);
+  await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
+  await shot(page, AREA, "16-paste", { clip: paste, pad: 8 });
+  const auth = dialog.getByRole("region", { name: "How Pulse signs in", exact: true });
+  await shot(page, AREA, "16-paste-signin", { clip: auth, pad: 8 });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
 }

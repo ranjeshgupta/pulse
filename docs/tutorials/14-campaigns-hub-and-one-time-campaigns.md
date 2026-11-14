@@ -169,6 +169,13 @@ preview with sample values.
   ([tutorial 4](04-channels.md)).
 - WhatsApp and RCS campaigns can name an SMS to send instead when the message can't be delivered
   (**If it can't be delivered, send this SMS instead (optional)**).
+- **Send through** (only when the channel has more than one provider) picks the provider that delivers
+  this campaign. The channel's default is preselected:
+
+  ![Send through, set to Sandbox (backup route) instead of the SMS default](img/14-send-through.png)
+
+  If that provider is removed before the campaign sends, it goes through the channel's default
+  ([tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)).
 
 ## 5. Schedule and a send deadline
 
