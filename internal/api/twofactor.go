@@ -16,6 +16,8 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -40,8 +42,11 @@ const (
 
 type TwoFactorStore interface {
 	TwoFactor(ctx context.Context, tenant, user int64) (model.TwoFactor, error)
-	StartTwoFactor(ctx context.Context, tenant, user int64, sealed []byte) error
-	EnableTwoFactor(ctx context.Context, tenant, user int64, pending []byte, step int64, recovery []string) error
+	// StartTwoFactor and EnableTwoFactor change a confirmed secret only with replace (the caller
+	// checked a current code or the password); without it they fail with pg.ErrConflict when two-step
+	// sign-in is on.
+	StartTwoFactor(ctx context.Context, tenant, user int64, sealed []byte, replace bool) error
+	EnableTwoFactor(ctx context.Context, tenant, user int64, pending []byte, step int64, recovery []string, replace bool) error
 	UseTwoFactorStep(ctx context.Context, tenant, user, step int64) (bool, error)
 	UseRecoveryCode(ctx context.Context, tenant, user int64, hash string) (bool, error)
 	SetRecoveryCodes(ctx context.Context, tenant, user int64, hashes []string) error
@@ -57,6 +62,7 @@ var (
 	errNotAPerson  = errUser("two-step sign-in is for people who sign in, not for the API key")
 	errNotSetUp    = errUser("set up the authenticator app first")
 	errTooManyCode = errors.New("too many codes tried, wait a minute and try again")
+	errAlreadyOn   = errUser("two-step sign-in is already on")
 )
 
 func (s *Server) twoFactorRoutes(mux *http.ServeMux) {
@@ -81,39 +87,56 @@ func (s *Server) twoFactor() (TwoFactorStore, bool) {
 	return ts, ok
 }
 
-// twoFactorNext says what a password sign-in still needs: "" (nothing), pendingCode or pendingSetup.
-func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, error) {
+// twoFactorNext says what a password sign-in still needs: "" (nothing), pendingCode or pendingSetup,
+// and the user's current setup (for the pending cookie's fingerprint).
+func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, model.TwoFactor, error) {
 	ts, ok := s.twoFactor()
 	if !ok {
-		return "", nil
+		return "", model.TwoFactor{}, nil
 	}
 	tf, err := ts.TwoFactor(ctx, u.TenantID, u.ID)
 	if err != nil && !errors.Is(err, pg.ErrNotFound) {
-		return "", err
+		return "", tf, err
 	}
 	if tf.Enabled() {
 		if s.Box == nil {
-			return "", errNoBox // fail closed: a code can't be checked without the key
+			return "", tf, errNoBox // fail closed: a code can't be checked without the key
 		}
-		return pendingCode, nil
+		return pendingCode, tf, nil
 	}
 	if s.Box == nil {
-		return "", nil // the policy can't be saved without the key either
+		return "", tf, nil // the policy can't be saved without the key either
 	}
 	pol, err := ts.TwoFactorPolicy(ctx, u.TenantID)
 	if err != nil {
-		return "", err
+		return "", tf, err
 	}
 	if pol.Requires(u.ID, u.Role) {
-		return pendingSetup, nil
+		return pendingSetup, tf, nil
 	}
-	return "", nil
+	return "", tf, nil
 }
 
-// setPending sets the cookie that carries a half-finished sign-in: tenant|user|purpose|expiry.
-func (s *Server) setPending(w http.ResponseWriter, u model.User, purpose string) {
+// pendingPrint fingerprints what a half-finished sign-in was started against: the password, the
+// confirmed secret, the last code step and the recovery codes left. Any successful use (a code, a
+// recovery code, finishing a setup) or change (a reset, a new phone, a new password) changes it, so
+// a pending cookie works for one sign-in only, and never after the state it saw has changed.
+func pendingPrint(u model.User, tf model.TwoFactor) string {
+	var at int64
+	if tf.EnabledAt != nil {
+		at = tf.EnabledAt.UnixNano()
+	}
+	h := auth.HashToken(strings.Join([]string{u.PasswordHash, hex.EncodeToString(tf.Secret), strconv.FormatInt(at, 10),
+		strconv.FormatInt(tf.LastStep, 10), strconv.Itoa(tf.RecoveryLeft)}, "|"))
+	return h[:32]
+}
+
+// setPending sets the cookie that carries a half-finished sign-in:
+// tenant|user|purpose|expiry|fingerprint.
+func (s *Server) setPending(w http.ResponseWriter, u model.User, purpose string, tf model.TwoFactor) {
 	exp := s.now().Add(twoFactorTTL).Unix()
-	v := strings.Join([]string{strconv.FormatInt(u.TenantID, 10), strconv.FormatInt(u.ID, 10), purpose, strconv.FormatInt(exp, 10)}, "|")
+	v := strings.Join([]string{strconv.FormatInt(u.TenantID, 10), strconv.FormatInt(u.ID, 10), purpose, strconv.FormatInt(exp, 10),
+		pendingPrint(u, tf)}, "|")
 	http.SetCookie(w, &http.Cookie{
 		Name: twoFactorCookie, Value: s.Box.SealString(v), Path: twoFactorPath, MaxAge: int(twoFactorTTL.Seconds()),
 		HttpOnly: true, Secure: s.secureCookies(), SameSite: http.SameSiteStrictMode,
@@ -126,7 +149,7 @@ func (s *Server) clearPending(w http.ResponseWriter) {
 }
 
 // pending reads the half-finished sign-in for purpose and loads its user; it answers the request
-// itself when there is none (or it expired).
+// itself when there is none, it expired, or the user's two-step state changed since it was made.
 func (s *Server) pending(w http.ResponseWriter, r *http.Request, purpose string) (model.User, bool) {
 	if r.Header.Get(csrfHeader) == "" {
 		writeErr(w, http.StatusForbidden, errCSRF.Error())
@@ -140,7 +163,7 @@ func (s *Server) pending(w http.ResponseWriter, r *http.Request, purpose string)
 	}
 	v, err := s.Box.OpenString(c.Value)
 	parts := strings.Split(v, "|")
-	if err != nil || len(parts) != 4 || parts[2] != purpose {
+	if err != nil || len(parts) != 5 || parts[2] != purpose {
 		writeErr(w, http.StatusUnauthorized, expired)
 		return model.User{}, false
 	}
@@ -157,6 +180,17 @@ func (s *Server) pending(w http.ResponseWriter, r *http.Request, purpose string)
 		return model.User{}, false
 	} else if err != nil {
 		s.fail(w, err)
+		return model.User{}, false
+	}
+	ts, _ := s.twoFactor()
+	tf, err := ts.TwoFactor(r.Context(), u.TenantID, u.ID)
+	if err != nil && !errors.Is(err, pg.ErrNotFound) {
+		s.fail(w, err)
+		return model.User{}, false
+	}
+	// Setting up at sign-in is only for people who don't have it on: never a way to replace a secret.
+	if (purpose == pendingSetup && tf.Enabled()) || subtle.ConstantTimeCompare([]byte(parts[4]), []byte(pendingPrint(u, tf))) != 1 {
+		writeErr(w, http.StatusUnauthorized, expired)
 		return model.User{}, false
 	}
 	return u, true
@@ -235,7 +269,8 @@ func (s *Server) failCode(w http.ResponseWriter, err error) {
 }
 
 // beginSetup makes a new secret for u, keeps it as pending and returns what the app needs.
-func (s *Server) beginSetup(ctx context.Context, u model.User) (map[string]any, error) {
+// With replace false it refuses when two-step sign-in is already on.
+func (s *Server) beginSetup(ctx context.Context, u model.User, replace bool) (map[string]any, error) {
 	if s.Box == nil {
 		return nil, errNoBox
 	}
@@ -248,7 +283,9 @@ func (s *Server) beginSetup(ctx context.Context, u model.User) (map[string]any, 
 	}
 	secret := auth.NewTOTPSecret()
 	ts, _ := s.twoFactor()
-	if err := ts.StartTwoFactor(ctx, u.TenantID, u.ID, s.Box.Seal(secret)); err != nil {
+	if err := ts.StartTwoFactor(ctx, u.TenantID, u.ID, s.Box.Seal(secret), replace); errors.Is(err, pg.ErrConflict) {
+		return nil, errAlreadyOn
+	} else if err != nil {
 		return nil, err
 	}
 	account := u.Email
@@ -261,7 +298,8 @@ func (s *Server) beginSetup(ctx context.Context, u model.User) (map[string]any, 
 
 // confirmSetup checks a code from the app against the pending secret and turns two-step sign-in
 // on with new recovery codes, which it returns (shown once).
-func (s *Server) confirmSetup(ctx context.Context, u model.User, code string) ([]string, error) {
+// With replace false it refuses when two-step sign-in is already on.
+func (s *Server) confirmSetup(ctx context.Context, u model.User, code string, replace bool) ([]string, error) {
 	if s.Box == nil {
 		return nil, errNoBox
 	}
@@ -281,7 +319,12 @@ func (s *Server) confirmSetup(ctx context.Context, u model.User, code string) ([
 		return nil, errBadCode
 	}
 	codes, hashes := newRecovery()
-	if err := ts.EnableTwoFactor(ctx, u.TenantID, u.ID, tf.Pending, step, hashes); errors.Is(err, pg.ErrNotFound) {
+	if !replace && tf.Enabled() {
+		return nil, errAlreadyOn
+	}
+	if err := ts.EnableTwoFactor(ctx, u.TenantID, u.ID, tf.Pending, step, hashes, replace); errors.Is(err, pg.ErrConflict) {
+		return nil, errAlreadyOn
+	} else if errors.Is(err, pg.ErrNotFound) {
 		return nil, errUser("start again: scan a new QR code")
 	} else if err != nil {
 		return nil, err
@@ -358,7 +401,7 @@ func (s *Server) signInSetup(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	out, err := s.beginSetup(r.Context(), u)
+	out, err := s.beginSetup(r.Context(), u, false)
 	if err != nil {
 		s.failCode(w, err)
 		return
@@ -379,7 +422,7 @@ func (s *Server) signInEnable(w http.ResponseWriter, r *http.Request) {
 		s.failCode(w, errTooManyCode)
 		return
 	}
-	codes, err := s.confirmSetup(r.Context(), u, req.Code)
+	codes, err := s.confirmSetup(r.Context(), u, req.Code, false)
 	if err != nil {
 		s.failCode(w, err)
 		return
@@ -438,7 +481,18 @@ func (s *Server) setupMyTwoFactor(w http.ResponseWriter, r *http.Request, p mode
 	if !ok {
 		return
 	}
-	out, err := s.beginSetup(r.Context(), u)
+	// Moving an existing setup to a new phone replaces the secret: that needs a current code or the
+	// password, like turning it off, so an open session alone can't take over someone's sign-in.
+	ts, _ := s.twoFactor()
+	tf, err := ts.TwoFactor(r.Context(), u.TenantID, u.ID)
+	if err != nil && !errors.Is(err, pg.ErrNotFound) {
+		s.fail(w, err)
+		return
+	}
+	if tf.Enabled() && !s.reconfirm(w, r, u) {
+		return
+	}
+	out, err := s.beginSetup(r.Context(), u, tf.Enabled())
 	if err != nil {
 		s.failCode(w, err)
 		return
@@ -446,6 +500,9 @@ func (s *Server) setupMyTwoFactor(w http.ResponseWriter, r *http.Request, p mode
 	writeJSON(w, http.StatusOK, out)
 }
 
+// enableMyTwoFactor confirms the pending secret. While two-step sign-in is on, a pending secret can
+// only exist through setupMyTwoFactor with proof (the store refuses one without replace), so
+// confirming it replaces the old phone's secret.
 func (s *Server) enableMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	u, ok := s.person(w, r, p)
 	if !ok {
@@ -459,7 +516,7 @@ func (s *Server) enableMyTwoFactor(w http.ResponseWriter, r *http.Request, p mod
 		s.failCode(w, errTooManyCode)
 		return
 	}
-	codes, err := s.confirmSetup(r.Context(), u, req.Code)
+	codes, err := s.confirmSetup(r.Context(), u, req.Code, true)
 	if err != nil {
 		s.failCode(w, err)
 		return

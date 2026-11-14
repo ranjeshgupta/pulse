@@ -26,24 +26,35 @@ func (s *Store) TwoFactor(ctx context.Context, tenant, user int64) (model.TwoFac
 }
 
 // StartTwoFactor stores a new, unconfirmed secret. A confirmed one stays in use until the new one
-// is confirmed (moving to a new phone).
-func (s *Store) StartTwoFactor(ctx context.Context, tenant, user int64, sealed []byte) error {
-	_, err := s.db.Exec(ctx, `
+// is confirmed (moving to a new phone). Without replace (the caller checked a current code or the
+// password) it refuses with ErrConflict when two-step sign-in is already on.
+func (s *Store) StartTwoFactor(ctx context.Context, tenant, user int64, sealed []byte, replace bool) error {
+	tag, err := s.db.Exec(ctx, `
 		INSERT INTO user_two_factor (user_id, tenant_id, pending_enc) VALUES ($2, $1, $3)
 		ON CONFLICT (user_id) DO UPDATE SET pending_enc = EXCLUDED.pending_enc, updated_at = now()
-		WHERE user_two_factor.tenant_id = EXCLUDED.tenant_id`, tenant, user, sealed)
+		WHERE user_two_factor.tenant_id = EXCLUDED.tenant_id AND ($4 OR user_two_factor.secret_enc IS NULL)`,
+		tenant, user, sealed, replace)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrConflict
+	}
 	return err
 }
 
 // EnableTwoFactor makes the pending secret (the one the caller checked a code against) the one in
 // use, with step as the last code used and fresh recovery codes. ErrNotFound when the pending
-// secret changed meanwhile.
-func (s *Store) EnableTwoFactor(ctx context.Context, tenant, user int64, pending []byte, step int64, recovery []string) error {
+// secret changed meanwhile; without replace, ErrConflict when two-step sign-in is already on.
+func (s *Store) EnableTwoFactor(ctx context.Context, tenant, user int64, pending []byte, step int64, recovery []string, replace bool) error {
 	tag, err := s.db.Exec(ctx, `
 		UPDATE user_two_factor SET secret_enc = pending_enc, pending_enc = NULL, enabled_at = now(),
 			last_step = $4, recovery_hashes = $5, updated_at = now()
-		WHERE tenant_id = $1 AND user_id = $2 AND pending_enc = $3`, tenant, user, pending, step, recovery)
+		WHERE tenant_id = $1 AND user_id = $2 AND pending_enc = $3 AND ($6 OR secret_enc IS NULL)`,
+		tenant, user, pending, step, recovery, replace)
 	if err == nil && tag.RowsAffected() == 0 {
+		var on bool
+		if s.db.QueryRow(ctx, `SELECT secret_enc IS NOT NULL FROM user_two_factor WHERE tenant_id = $1 AND user_id = $2`,
+			tenant, user).Scan(&on) == nil && on && !replace {
+			return ErrConflict
+		}
 		err = ErrNotFound
 	}
 	return err

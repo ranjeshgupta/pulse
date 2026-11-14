@@ -148,11 +148,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	// Two-step sign-in: no session until a code from the app (twofactor.go). The attempt count
 	// isn't cleared yet, so wrong codes keep counting toward the sign-in limit.
-	if next, err := s.twoFactorNext(r.Context(), u); err != nil {
+	if next, tf, err := s.twoFactorNext(r.Context(), u); err != nil {
 		s.failCode(w, err)
 		return
 	} else if next != "" {
-		s.setPending(w, u, next)
+		s.setPending(w, u, next, tf)
 		writeJSON(w, http.StatusOK, map[string]any{"two_factor": next})
 		return
 	}

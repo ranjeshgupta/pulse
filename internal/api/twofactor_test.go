@@ -41,15 +41,21 @@ func (m *tfMem) TwoFactor(_ context.Context, _, user int64) (model.TwoFactor, er
 	out.RecoveryLeft = len(m.codes[user])
 	return out, nil
 }
-func (m *tfMem) StartTwoFactor(_ context.Context, _, user int64, sealed []byte) error {
+func (m *tfMem) StartTwoFactor(_ context.Context, _, user int64, sealed []byte, replace bool) error {
 	if m.tf[user] == nil {
 		m.tf[user] = &model.TwoFactor{}
+	}
+	if m.tf[user].Enabled() && !replace {
+		return pg.ErrConflict
 	}
 	m.tf[user].Pending = sealed
 	return nil
 }
-func (m *tfMem) EnableTwoFactor(_ context.Context, _, user int64, pending []byte, step int64, recovery []string) error {
+func (m *tfMem) EnableTwoFactor(_ context.Context, _, user int64, pending []byte, step int64, recovery []string, replace bool) error {
 	t := m.tf[user]
+	if t != nil && t.Enabled() && !replace {
+		return pg.ErrConflict
+	}
 	if t == nil || string(t.Pending) != string(pending) {
 		return pg.ErrNotFound
 	}
@@ -456,5 +462,90 @@ func TestTwoFactorRoutePermissions(t *testing.T) {
 		if got := tc.perms.Allows(n.area, n.level); got != tc.want {
 			t.Errorf("%s: allowed = %v, want %v", tc.pattern, got, tc.want)
 		}
+	}
+}
+
+// An open session alone can't move someone's two-step sign-in to another phone: starting a new
+// secret while it's on needs a current code or the password.
+func TestTwoFactorNewPhoneNeedsProof(t *testing.T) {
+	e := newTFEnv(t)
+	old := e.setup("/v1/account", e.admin)
+	recoveryCodes(t, e.req("POST", "/v1/account/two-factor/enable", codeBody(e.code(old)), e.admin))
+	for _, body := range []string{"{}", `{"password":"not the password"}`, codeBody("000000")} {
+		if w := e.req("POST", "/v1/account/two-factor/setup", body, e.admin); w.Code != 401 {
+			t.Errorf("new secret with %s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	// The store refuses too, whatever the handler does.
+	if err := e.st.StartTwoFactor(context.Background(), 10, 100, []byte("x"), false); err == nil {
+		t.Error("store started a new secret over an enabled one without replace")
+	}
+	e.mr.FlushAll()
+	w := e.req("POST", "/v1/account/two-factor/setup", `{"password":"long enough pw"}`, e.admin)
+	var out struct{ Secret string }
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if w.Code != 200 {
+		t.Fatalf("new phone with the password: %d %s", w.Code, w.Body)
+	}
+	fresh, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ReplaceAll(out.Secret, " ", ""))
+	e.now = e.now.Add(30 * time.Second)
+	recoveryCodes(t, e.req("POST", "/v1/account/two-factor/enable", codeBody(e.code(fresh)), e.admin))
+	// The old phone's codes stop working; the new phone's work.
+	e.now = e.now.Add(30 * time.Second)
+	_, pend := e.login("a@acme.io", "long enough pw")
+	if w := e.req("POST", "/v1/auth/two-factor/verify", codeBody(e.code(old)), pend); w.Code != 401 {
+		t.Errorf("old phone: %d", w.Code)
+	}
+	if w := e.req("POST", "/v1/auth/two-factor/verify", codeBody(e.code(fresh)), pend); w.Code != 200 {
+		t.Errorf("new phone: %d %s", w.Code, w.Body)
+	}
+}
+
+// A pending sign-in cookie is bound to the two-step state it saw: once used, or once that state
+// changed, it stops working; and setting up at sign-in never replaces an enabled secret.
+func TestTwoFactorPendingCookieIsOneTime(t *testing.T) {
+	e := newTFEnv(t)
+	if w := e.req("PUT", "/v1/settings/two-factor", `{"mode":"everyone"}`, e.admin); w.Code != 200 {
+		t.Fatalf("policy: %d", w.Code)
+	}
+	_, first := e.login("e@acme.io", "editor password")
+	_, second := e.login("e@acme.io", "editor password")
+	secret := e.setup("/v1/auth", first)
+	if w := e.req("POST", "/v1/auth/two-factor/enable", codeBody(e.code(secret)), first); w.Code != 200 {
+		t.Fatalf("enrol: %d %s", w.Code, w.Body)
+	}
+	// Two-step sign-in is on now: neither the used cookie nor the other one can start a new secret.
+	for name, c := range map[string]*http.Cookie{"used": first, "stale": second} {
+		if w := e.req("POST", "/v1/auth/two-factor/setup", "", c); w.Code != 401 {
+			t.Errorf("%s setup cookie: %d %s", name, w.Code, w.Body)
+		}
+		e.now = e.now.Add(30 * time.Second)
+		if w := e.req("POST", "/v1/auth/two-factor/enable", codeBody(e.code(secret)), c); w.Code != 401 || hasSession(w) {
+			t.Errorf("%s enable cookie: %d %s", name, w.Code, w.Body)
+		}
+	}
+	if err := e.st.EnableTwoFactor(context.Background(), 10, 200, nil, 0, nil, false); err == nil {
+		t.Error("store enabled over an enabled secret without replace")
+	}
+
+	// A code cookie works for one sign-in: after it's used, even a fresh valid code is refused.
+	e.mr.FlushAll()
+	_, pend := e.login("e@acme.io", "editor password")
+	e.now = e.now.Add(30 * time.Second)
+	if w := e.req("POST", "/v1/auth/two-factor/verify", codeBody(e.code(secret)), pend); w.Code != 200 {
+		t.Fatalf("verify: %d %s", w.Code, w.Body)
+	}
+	e.now = e.now.Add(30 * time.Second)
+	if w := e.req("POST", "/v1/auth/two-factor/verify", codeBody(e.code(secret)), pend); w.Code != 401 || hasSession(w) {
+		t.Errorf("reused code cookie: %d %s", w.Code, w.Body)
+	}
+	// And an admin reset makes an outstanding code cookie useless.
+	_, pend = e.login("e@acme.io", "editor password")
+	if w := e.req("DELETE", "/v1/users/200/two-factor", "", e.admin); w.Code != 204 {
+		t.Fatalf("reset: %d", w.Code)
+	}
+	e.now = e.now.Add(30 * time.Second)
+	if w := e.req("POST", "/v1/auth/two-factor/verify", codeBody(e.code(secret)), pend); w.Code != 401 {
+		t.Errorf("code cookie after a reset: %d", w.Code)
 	}
 }
