@@ -39,7 +39,7 @@ describe("funnelSteps", () => {
     expect(steps[1].ofPrevious).toBe("90%");
     expect(steps[5].ofSent).toBe(""); // sent itself
     expect(steps[6].ofPrevious).toBe("83%");
-    expect(steps[6].ofSent).toBe("83%");
+    expect(steps[6].ofSent).toBe(""); // its share of the step before is already of sent
     expect(steps[7].ofPrevious).toBe("50%"); // of delivered
     expect(steps[7].ofSent).toBe("42%");
     expect(steps[8].ofPrevious).toBe("20%"); // of opened
@@ -140,5 +140,15 @@ describe("funnelSteps targeted", () => {
     expect(t.ofPrevious).toBe("95%");
     expect(t.ofLabel).toBe("of after exclusions");
     expect(funnelSteps(f, ["email"]).find((s) => s.key === "sent")!.ofLabel).toBeUndefined();
+  });
+});
+
+describe("share of sent", () => {
+  it("isn't repeated when the step's own share is already of sent", () => {
+    const steps = funnelSteps({ audience: 0, after_exclude: 0, reachable: 0, targeted: 10, sent: 9, delivered: 0, opened: 3, read: 0, clicked: 1, skipped: [] } as never, ["email"]);
+    const opened = steps.find((s) => s.key === "opened")!;
+    expect(opened.ofPrevious).toBe("33%");
+    expect(opened.ofSent).toBe("");
+    expect(steps.find((s) => s.key === "clicked")!.ofSent).not.toBe("");
   });
 });

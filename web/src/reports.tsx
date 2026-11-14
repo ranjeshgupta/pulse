@@ -63,6 +63,9 @@ export function ReportFigures({ totals, keys, link }: { totals: MessageCounts; k
           <strong>{pct(totals[k], totals.sent)}</strong>
           <span>{COUNT_LABELS[k].toLowerCase()} <small><ContactCount value={totals[k]} live filters={listable(k) ? link?.(k) ?? null : null} /></small></span>
         </div>
+      ) : k === "delivered" && totals.delivered === 0 && totals.sent > 0 ? (
+        // Like the funnel: no delivery reports came back (e.g. a plain SMTP relay), so "0" would mislead.
+        <div key={k} title="This provider doesn't report deliveries"><strong className="faint">—</strong><span>delivered (not reported)</span></div>
       ) : (
         <div key={k}><strong><ContactCount value={totals[k]} live filters={listable(k) ? link?.(k) ?? null : null} /></strong><span>{COUNT_LABELS[k].toLowerCase()}</span></div>
       ))}

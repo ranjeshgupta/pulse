@@ -77,13 +77,15 @@ export function funnelSteps(f: FunnelData, channels?: string[]): FunnelStep[] {
   const sentIdx = raw.findIndex((s) => s.key === "sent");
   return raw.map((s, i) => {
     let prev: number | null | undefined;
+    let parentKey = s.parent;
     if (s.parent) prev = counts.get(s.parent);
-    else for (let j = i - 1; j >= 0 && prev == null; j--) prev = raw[j].count;
+    else for (let j = i - 1; j >= 0 && prev == null; j--) { prev = raw[j].count; parentKey = raw[j].key; }
     return {
       key: s.key, label: s.label, count: s.count, hint: s.hint, before: s.before,
       ofPrevious: i === 0 || s.count == null || prev == null ? "" : share(s.count, prev),
       ofLabel: s.parent && s.parent !== raw[i - 1]?.key ? `of ${(raw.find((x) => x.key === s.parent)?.label ?? "").toLowerCase()}` : undefined,
-      ofSent: i > sentIdx && s.count != null ? share(s.count, f.sent) : "",
+      // Not repeated when the share of the step before is already the share of sent.
+      ofSent: i > sentIdx && s.count != null && parentKey !== "sent" ? share(s.count, f.sent) : "",
     };
   });
 }
