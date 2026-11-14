@@ -106,7 +106,7 @@ func TestRoutePermissions(t *testing.T) {
 		{"POST /v1/test-contacts", viewer, false},
 		{"POST /v1/test-contacts", auth.Perms{auth.AreaContent: auth.Edit}, true},
 		{"DELETE /v1/test-contacts/{id}", auth.Perms{auth.AreaContent: auth.Edit}, true},
-		{"GET /v1/campaigns", auth.Perms{}, true}, // the handler shows only what the role may view
+		{"GET /v1/campaigns", auth.Perms{}, true},     // the handler shows only what the role may view
 		{"GET /v1/stats/summary", auth.Perms{}, true}, // the Overview: the handler keeps the role's sections
 		{"GET /v1/stats/overview", auth.Perms{auth.AreaContacts: auth.Edit}, false},
 		// M4 delivery and dashboards
