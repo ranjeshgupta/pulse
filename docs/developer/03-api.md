@@ -1036,10 +1036,10 @@ curl -s "$PULSE/v1/stats/summary" -H "Authorization: Bearer $KEY"
 
 `/v1/stats/summary` is what the Overview page shows under the live numbers. Anyone signed in may
 call it; the answer has only the parts the role may view: `audience` needs contacts view,
-`campaigns` one-time campaigns view (`recent`, with each run's counts, also reports view),
+`campaigns` one-time campaigns view (outcome counts beyond `sent`, and `recent`, also need reports view),
 `revenue` reports view, and each warning in `attention` the view access of what it is about
 (channels for provider quotas and failing channels, reports or channels for bounce spikes,
-one-time campaigns for a campaign's failures). Days are UTC: the last 7 days are `week_from` to
+one-time campaigns and reports for a campaign's failures). Days are UTC: the last 7 days are `week_from` to
 `today`. `revenue` is left out when there were no revenue events in either week; a part that
 couldn't be read is left out and named in `unavailable`. Warnings: a provider at 90% or more of its
 daily quota; a channel where at least 20 messages and 10% failed in the last hour; at least 50 email

@@ -192,9 +192,13 @@ func TestOverviewSummaryByRole(t *testing.T) {
 	if raw["audience"] != nil || raw["revenue"] != nil || sum.Campaigns == nil || sum.Campaigns.Recent != nil || len(sum.Campaigns.Sending) != 1 {
 		t.Errorf("one-time campaigns only: %v", raw)
 	}
-	if len(sum.Attention) != 1 || sum.Attention[0].Kind != "campaign_failed" {
-		t.Errorf("one-time campaigns only, warnings: %+v", sum.Attention)
+	if len(sum.Attention) != 0 {
+		t.Errorf("one-time campaigns only, warnings (a campaign's failures are reports): %+v", sum.Attention)
 	}
+	if got := sum.Campaigns.Sending[0].Counts; got == nil || *got != (model.MessageCounts{Sent: 1000}) {
+		t.Errorf("one-time campaigns only, sending counts: %+v", got)
+	}
+
 	sum, raw = summaryAs(t, s, auth.Perms{auth.AreaReports: auth.View})
 	if raw["audience"] != nil || raw["campaigns"] != nil || sum.Revenue == nil || len(sum.Attention) != 0 {
 		t.Errorf("reports only: %v", raw)
@@ -205,8 +209,11 @@ func TestOverviewSummaryByRole(t *testing.T) {
 		t.Errorf("channels only: %+v", sum.Attention)
 	}
 	sum, raw = summaryAs(t, s, auth.Perms{auth.AreaBroadcasts: auth.View, auth.AreaReports: auth.View})
-	if sum.Campaigns == nil || len(sum.Campaigns.Recent) != 1 {
+	if sum.Campaigns == nil || len(sum.Campaigns.Recent) != 1 || sum.Campaigns.Sending[0].Counts.Opened != 250 {
 		t.Errorf("campaigns and reports: %v", raw)
+	}
+	if len(sum.Attention) != 1 || sum.Attention[0].Kind != "campaign_failed" || sum.Attention[0].Needs != nil || sum.Attention[0].Requires != nil {
+		t.Errorf("campaigns and reports, warnings: %+v", sum.Attention)
 	}
 	if st.builds.Load() != 1 {
 		t.Errorf("built %d times, want once for every role", st.builds.Load())

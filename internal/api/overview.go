@@ -14,8 +14,9 @@ package api
 //
 // Permissions: everyone signed in may call it, and each caller gets only the sections their role
 // can view (summaryFor): new contacts and unsubscribes need contacts view; campaigns sending and
-// coming up need one-time campaigns view; recent results need that and reports view; revenue
-// needs reports view; each warning names the areas that may see it.
+// coming up need one-time campaigns view (outcome counts, beyond "sent so far", also reports view);
+// recent results need that and reports view; revenue needs reports view; each warning names the
+// areas that may see it (a campaign's failures: one-time campaigns and reports view).
 
 import (
 	"context"
@@ -132,7 +133,8 @@ type RevenueTotals struct {
 }
 
 // Attention is one "Needs attention" warning. Needs lists the areas whose view access shows it
-// (any one of them); it stays in the cache and is removed from answers.
+// (any one of them), Requires areas whose view access it needs as well (all of them); both stay in
+// the cache and are removed from answers.
 type Attention struct {
 	Kind     string   `json:"kind"`  // quota | failing | bounces | campaign_failed
 	Level    string   `json:"level"` // problem | warning
@@ -140,6 +142,7 @@ type Attention struct {
 	Link     string   `json:"link,omitempty"`
 	LinkText string   `json:"link_text,omitempty"`
 	Needs    []string `json:"needs,omitempty"`
+	Requires []string `json:"requires,omitempty"`
 }
 
 var errSummaryBusy = errors.New("too many overview requests; try again in a minute")
@@ -453,7 +456,7 @@ func attentionItems(providers []model.Provider, health map[string]ch.SendCounts,
 				if b.Counts == nil || !failedTooMany(b.Counts.Sent, b.Counts.Failed) {
 					continue
 				}
-				add(Attention{Kind: "campaign_failed", Level: "warning", Needs: []string{auth.AreaBroadcasts}, Link: "/broadcasts/" + strconv.FormatInt(b.ID, 10), LinkText: "Open the campaign",
+				add(Attention{Kind: "campaign_failed", Level: "warning", Needs: []string{auth.AreaBroadcasts}, Requires: []string{auth.AreaReports}, Link: "/broadcasts/" + strconv.FormatInt(b.ID, 10), LinkText: "Open the campaign",
 					Text: fmt.Sprintf("“%s”: %s of %s messages failed (%s).", b.Name, num(int64(b.Counts.Failed)), num(int64(b.Counts.Sent+b.Counts.Failed)), pct(b.Counts.Failed, b.Counts.Sent+b.Counts.Failed))})
 			}
 		}
@@ -497,8 +500,17 @@ func summaryFor(p auth.Perms, full OverviewSummary) OverviewSummary {
 	if !p.Allows(auth.AreaBroadcasts, auth.View) {
 		out.Campaigns = nil
 	} else if full.Campaigns != nil && !p.Allows(auth.AreaReports, auth.View) {
+		// Outcomes are reports: keep only how many were sent so far (the Campaigns hub shows that
+		// to one-time campaigns view too), and no recent results.
 		c := *full.Campaigns
 		c.Recent = nil
+		c.Sending = make([]CampaignBrief, len(full.Campaigns.Sending))
+		for i, b := range full.Campaigns.Sending {
+			if b.Counts != nil {
+				b.Counts = &model.MessageCounts{Sent: b.Counts.Sent}
+			}
+			c.Sending[i] = b
+		}
 		out.Campaigns = &c
 	}
 	if !p.Allows(auth.AreaReports, auth.View) {
@@ -506,13 +518,29 @@ func summaryFor(p auth.Perms, full OverviewSummary) OverviewSummary {
 	}
 	out.Attention = []Attention{}
 	for _, a := range full.Attention {
-		for _, area := range a.Needs {
-			if p.Allows(area, auth.View) {
-				a.Needs = nil
-				out.Attention = append(out.Attention, a)
-				break
-			}
+		if !allowsAny(p, a.Needs) || !allowsAll(p, a.Requires) {
+			continue
 		}
+		a.Needs, a.Requires = nil, nil
+		out.Attention = append(out.Attention, a)
 	}
 	return out
+}
+
+func allowsAny(p auth.Perms, areas []string) bool {
+	for _, a := range areas {
+		if p.Allows(a, auth.View) {
+			return true
+		}
+	}
+	return false
+}
+
+func allowsAll(p auth.Perms, areas []string) bool {
+	for _, a := range areas {
+		if !p.Allows(a, auth.View) {
+			return false
+		}
+	}
+	return true
 }
