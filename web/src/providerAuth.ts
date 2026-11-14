@@ -71,7 +71,12 @@ export function authSecretFields(a: AuthConfig): { key: string; label: string }[
     case "bearer": return [{ key: "auth_token", label: "Token" }];
     case "api_key": return [{ key: "auth_api_key", label: "API key" }];
     case "oauth2": return [{ key: "auth_client_secret", label: "Client secret" }];
-    case "login": return secretsUsed(a.login).map((k) => ({ key: k, label: `Secret "${k}"` }));
+    case "login": {
+      // Usernames before passwords; names read as words ("api_key" → "Api key").
+      const rank = (k: string) => (/user|login|email|client_?id/i.test(k) ? 0 : /pass|secret/i.test(k) ? 2 : 1);
+      return secretsUsed(a.login).sort((x, y) => rank(x) - rank(y) || x.localeCompare(y))
+        .map((k) => ({ key: k, label: k.replace(/[_-]+/g, " ").replace(/^./, (c) => c.toUpperCase()) }));
+    }
   }
   return [];
 }

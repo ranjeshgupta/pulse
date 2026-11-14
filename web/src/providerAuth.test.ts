@@ -17,7 +17,8 @@ describe("auth config", () => {
   it("lists the secrets a login request names", () => {
     const l = { ...newLogin(), url: "https://a.example.com/{{secrets.tenant}}/login", headers: [{ name: "X-K", value: "{{ secrets.api_key }}" }] };
     expect(secretsUsed(l)).toEqual(["api_key", "password", "tenant", "username"]);
-    expect(authSecretFields({ type: "login", login: l }).map((f) => f.key)).toEqual(["api_key", "password", "tenant", "username"]);
+    expect(authSecretFields({ type: "login", login: l }).map((f) => f.key)).toEqual(["username", "api_key", "tenant", "password"]);
+    expect(authSecretFields({ type: "login", login: l }).map((f) => f.label)).toEqual(["Username", "Api key", "Tenant", "Password"]);
     expect(authSecretFields({ type: "basic" }).map((f) => f.key)).toEqual(["auth_username", "auth_password"]);
   });
 });

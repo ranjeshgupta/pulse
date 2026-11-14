@@ -5,8 +5,8 @@ import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { BounceMailboxPanel } from "./BounceMailbox";
-import { AuthEditor, ConfigField, GatewayModeChoice, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
-import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, presetOf, sameLimits } from "../providerAuth";
+import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
+import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, parseRequest, presetOf, sameLimits, serializeAuth, serializeRequest } from "../providerAuth";
 
 export function Channels() {
   const admin = useIsAdmin();
@@ -175,6 +175,10 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
             </>
           ) : (
             <>
+              <PasteExamples onApply={(r) => {
+                setConfig((c) => ({ ...c, request: serializeRequest({ ...parseRequest(c.request, channel), ...r.request }), auth: serializeAuth(r.auth) }));
+                setSecrets((x) => ({ ...x, ...r.secrets }));
+              }} />
               <Step n={1} title="Where to send" hint="The gateway's send-message address, from its API documentation.">
                 <RequestTarget channel={channel} config={config} setConfig={setKey} />
                 {movedNote}

@@ -2,8 +2,9 @@ import { useMutation } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { api, type Channel, type ProviderField } from "../api";
 import { ErrorNote, Field } from "../ui";
+import { importExamples, type Imported } from "../curlImport";
 import {
-  AUTH_TYPES, MESSAGE_VARS, RECEIPT_STATUSES, authSecretFields, formatStatuses, newLogin, parseAuth, parseRequest, parseStatuses,
+  AUTH_TYPES, MESSAGE_VARS, secretsUsed, RECEIPT_STATUSES, authSecretFields, formatStatuses, newLogin, parseAuth, parseRequest, parseStatuses,
   serializeAuth, serializeRequest, type AuthConfig, type CustomRequest, type Header, type LoginRequest,
 } from "../providerAuth";
 
@@ -65,6 +66,14 @@ function HeadersEditor({ headers, onChange, hint }: { headers: Header[]; onChang
   );
 }
 
+/** loginSummary says in one sentence what a login request does. */
+function loginSummary(l: LoginRequest, inject: { in: string; name?: string; template?: string }): string {
+  const names = secretsUsed(l);
+  const where = l.token_from === "header" ? `the ${l.token_path || "?"} header` : l.token_from === "regex" ? "the answer (by a pattern)" : (l.token_path || "?");
+  const goes = inject.in === "header" ? `as ${inject.name || "Authorization"}: ${(inject.template || "Bearer {{token}}").replace("{{token}}", "<token>")}` : `in the ${inject.in === "query" ? "query parameter" : "body field"} ${inject.name || "?"}`;
+  return `Pulse signs in at the login address${names.length ? ` with ${names.join(" and ")}` : ""}, reads the token from ${where}, and sends it ${goes}. It signs in again when the token expires or is refused.`;
+}
+
 /** AuthEditor edits config.auth and the secrets it needs. */
 export function AuthEditor({ config, setConfig, secrets, setSecret, saved }: {
   config: Record<string, string>; setConfig: Setter; secrets: Record<string, string>; setSecret: Setter; saved: boolean;
@@ -75,6 +84,14 @@ export function AuthEditor({ config, setConfig, secrets, setSecret, saved }: {
   const setLogin = (p: Partial<LoginRequest>) => set({ login: { ...login, ...p } });
   const tokenBased = a.type === "oauth2" || a.type === "login" || a.type === "bearer";
   const inject = a.inject ?? { in: "header" as const };
+  const injectFields = (
+        <div className="grid-2">
+          <Field label="Token goes in"><select className="select" value={inject.in} onChange={(e) => set({ inject: { ...inject, in: e.target.value as "header" | "query" | "body" } })}>
+            <option value="header">A header</option><option value="query">A query parameter</option><option value="body">A body field</option></select></Field>
+          <Field label="Name"><input className="input" value={inject.name ?? ""} placeholder={inject.in === "header" ? "Authorization" : "access_token"} onChange={(e) => set({ inject: { ...inject, name: e.target.value } })} /></Field>
+          <Field label="Value template" hint="{{token}} is the token."><input className="input code" value={inject.template ?? ""} placeholder={inject.in === "header" && !inject.name ? "Bearer {{token}}" : "{{token}}"} onChange={(e) => set({ inject: { ...inject, template: e.target.value } })} /></Field>
+        </div>
+  );
   return (
     <fieldset className="fieldset">
       <legend>Authentication</legend>
@@ -106,6 +123,9 @@ export function AuthEditor({ config, setConfig, secrets, setSecret, saved }: {
             <Field label="Method"><select className="select" value={login.method ?? "POST"} onChange={(e) => setLogin({ method: e.target.value })}>{["POST", "GET", "PUT"].map((m) => <option key={m}>{m}</option>)}</select></Field>
             <div style={{ flex: 1 }}><Field label="Login URL" hint="Changing its host clears the saved secrets."><input className="input" value={login.url} placeholder="https://api.example.com/auth/login" onChange={(e) => setLogin({ url: e.target.value })} /></Field></div>
           </div>
+          <p className="small" style={{ margin: "0 0 8px" }}>{loginSummary(login, inject)}</p>
+          <details className="pf-more">
+          <summary>Login details</summary>
           <HeadersEditor headers={login.headers ?? []} onChange={(headers) => setLogin({ headers })} hint="Values may use {{secrets.name}}." />
           <Field label="Content type"><select className="select" value={login.content_type ?? "application/json"} onChange={(e) => setLogin({ content_type: e.target.value })}>
             {["application/json", "application/x-www-form-urlencoded", "text/plain"].map((c) => <option key={c}>{c}</option>)}</select></Field>
@@ -122,22 +142,58 @@ export function AuthEditor({ config, setConfig, secrets, setSecret, saved }: {
             {login.expiry_from === "json" && <Field label="Expiry JSON path" hint="Seconds left, a Unix time or an ISO date."><input className="input code" value={login.expiry_path ?? ""} onChange={(e) => setLogin({ expiry_path: e.target.value })} /></Field>}
             {login.expiry_from === "fixed" && <Field label="Lifetime (seconds)"><input className="input" type="number" min={10} value={login.expiry_seconds ?? 3600} onChange={(e) => setLogin({ expiry_seconds: Number(e.target.value) })} /></Field>}
           </div>
+          {injectFields}
+          </details>
         </>
       )}
-      {tokenBased && (
-        <div className="grid-2">
-          <Field label="Token goes in"><select className="select" value={inject.in} onChange={(e) => set({ inject: { ...inject, in: e.target.value as "header" | "query" | "body" } })}>
-            <option value="header">A header</option><option value="query">A query parameter</option><option value="body">A body field</option></select></Field>
-          <Field label="Name"><input className="input" value={inject.name ?? ""} placeholder={inject.in === "header" ? "Authorization" : "access_token"} onChange={(e) => set({ inject: { ...inject, name: e.target.value } })} /></Field>
-          <Field label="Value template" hint="{{token}} is the token."><input className="input code" value={inject.template ?? ""} placeholder={inject.in === "header" && !inject.name ? "Bearer {{token}}" : "{{token}}"} onChange={(e) => set({ inject: { ...inject, template: e.target.value } })} /></Field>
-        </div>
-      )}
+      {tokenBased && a.type !== "login" && injectFields}
       {authSecretFields(a).map((f) => <SecretInput key={f.key} label={f.label} saved={saved} value={secrets[f.key] ?? ""} onChange={(v) => setSecret(f.key, v)} />)}
     </fieldset>
   );
 }
 
 // ---- the custom HTTP gateway, step by step ----
+
+/** PasteExamples: paste the gateway's curl or Postman examples (send, and its login if it has one)
+ * and Pulse fills the steps below; the notes say what's left to check. */
+export function PasteExamples({ onApply }: { onApply: (r: Imported) => void }) {
+  const [send, setSend] = useState("");
+  const [login, setLogin] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [result, setResult] = useState<{ notes: string[] } | { error: string } | null>(null);
+  const fill = () => {
+    const r = importExamples(send, login, answer);
+    setResult(r);
+    if (!("error" in r)) onApply(r);
+  };
+  return (
+    <details className="pf-paste" open>
+      <summary><strong>Have examples from the gateway's docs or Postman?</strong> Paste them and Pulse fills in the steps below.</summary>
+      <Field label="Send-message request" hint="The curl or postman request command for sending one message.">
+        <textarea className="textarea code" rows={5} value={send} onChange={(e) => setSend(e.target.value)} placeholder={"curl --location 'https://api.example.com/v1/message' \\\n--header 'Authorization: Bearer …' \\\n--data '{\"to\": \"…\", \"text\": \"…\"}'"} spellCheck={false} />
+      </Field>
+      <div className="grid-2">
+        <Field label="Login request (optional)" hint="If the gateway first gives you a token from a login address.">
+          <textarea className="textarea code" rows={4} value={login} onChange={(e) => setLogin(e.target.value)} placeholder={"curl 'https://api.example.com/auth/login' --data '{\"username\": \"…\", \"password\": \"…\"}'"} spellCheck={false} />
+        </Field>
+        <Field label="Login answer (optional)" hint="An example of what the login returns, so Pulse finds the token.">
+          <textarea className="textarea code" rows={4} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder={'{"JWTAUTH": "eyJ…", "user_data": {…}}'} spellCheck={false} />
+        </Field>
+      </div>
+      <div className="row" style={{ alignItems: "center" }}>
+        <button type="button" className="btn" disabled={!send.trim()} onClick={fill}>Fill in the form</button>
+        <span className="xs muted">Passwords, keys and tokens in the examples go into the secret fields (stored encrypted).</span>
+      </div>
+      {result && "error" in result && <div className="alert error" style={{ marginTop: 10 }}>{result.error}</div>}
+      {result && !("error" in result) && (
+        <div className="alert ok" style={{ marginTop: 10 }}>
+          Filled in. Check the steps below{result.notes.length ? ":" : ", then Preview request."}
+          {result.notes.length > 0 && <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>{result.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+        </div>
+      )}
+    </details>
+  );
+}
 
 /** Step: one numbered part of the gateway form. */
 export function Step({ n, title, hint, children }: { n: number; title: string; hint?: ReactNode; children: ReactNode }) {
