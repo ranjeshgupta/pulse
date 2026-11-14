@@ -449,3 +449,18 @@ select.btn-like { font-weight: 560; background-color: var(--cobalt); color: #fff
 .pf-more { margin: 0 0 12px; }
 .pf-more summary { cursor: pointer; font-size: var(--fs-sm); color: var(--cobalt); margin-bottom: 8px; }
 .pf-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; }
+
+/* Two-step sign-in (TwoFactorUI.tsx, Account.tsx) */
+.sidebar-foot-links { display: flex; gap: 14px; align-items: center; }
+.sidebar-foot-links a { color: #a9b5c9; text-decoration: none; }
+.sidebar-foot-links a:hover, .sidebar-foot-links a.active { color: #fff; }
+.tf-steps { padding-left: 20px; margin: 0 0 16px; max-width: 62ch; }
+.tf-steps li { margin-bottom: 16px; font-size: var(--fs-sm); }
+.tf-steps li strong { display: inline; }
+.tf-qr { margin: 12px 0; }
+.qr { display: block; border: 1px solid var(--line, #e3e7ee); border-radius: var(--r-sm); }
+.tf-key code { display: inline-block; margin: 6px 0; font-size: 1.05em; letter-spacing: .04em; user-select: all; }
+.tf-codes { list-style: none; padding: 0; margin: 0 0 12px; display: grid; grid-template-columns: repeat(2, max-content); gap: 6px 28px; }
+.tf-codes code { font-size: 1.05em; letter-spacing: .04em; }
+.code-input { font-family: var(--mono, ui-monospace, monospace); font-size: 1.2em; letter-spacing: .12em; max-width: 220px; }
+.tf-people { max-height: 220px; overflow: auto; }

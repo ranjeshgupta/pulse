@@ -38,7 +38,7 @@ Design notes:
   waits, and the ClickHouse event log.
 - **Phase 2:**
   - Web app (React + TypeScript, embedded in the Go binary).
-  - Sign-in with passwords and workspace SSO (OIDC; tested against Keycloak).
+  - Sign-in with passwords and workspace SSO (OIDC; tested against Keycloak), with optional or required two-step sign-in through an authenticator app (Google Authenticator, Microsoft Authenticator, Authy…) for password sign-ins.
   - Channels: email, SMS, WhatsApp and RCS with SMS fallback, and FCM push. Each has a preview with a real contact,
     test sends, and provider connection tests.
   - Scheduled journeys, broadcasts and on-site content: start required, end optional (empty means it never ends),

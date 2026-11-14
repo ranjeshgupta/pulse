@@ -80,9 +80,44 @@ publish. The API's area names are the internal ones; the app's Roles page shows 
 **One-time campaigns** and `journeys` as **Triggered & automation campaigns**. Built-in roles:
 admin (everything), editor (publish everywhere, view on channels and settings), viewer (view
 everywhere except settings). Admins can define custom roles. A few
-settings that amount to all access (SSO, the API key, identity verification, webhooks) need
+settings that amount to all access (SSO, the two-step sign-in policy, the API key, identity verification, webhooks) need
 **every** admin permission ("full admin" in the index). A route that isn't in the permission table
 needs settings edit, so a new route is never open to everyone by accident.
+
+#### Two-step sign-in
+
+When a person has two-step sign-in on (or the workspace requires it and they haven't set it up),
+a correct password doesn't create a session. `POST /v1/auth/login` answers
+`200 {"two_factor":"code"}` (or `"setup"`) and sets a short-lived `pulse_2fa` cookie (`HttpOnly`,
+`SameSite=Strict`, path `/v1/auth/two-factor`, 10 minutes, sealed with `PULSE_SECRET_KEY`). The
+session comes from the next step, which needs the `X-Pulse-CSRF` header too:
+
+```bash
+# "code": six digits from the authenticator app, or a recovery code
+curl -s -c jar -b jar -X POST $PULSE/v1/auth/two-factor/verify -H "X-Pulse-CSRF: 1" \
+  -H "Content-Type: application/json" -d '{"code":"492039"}'
+# 200 {"user":{…}}   (with a recovery code also "recovery_codes_left": 9)
+
+# "setup": a new secret for the app, then a code from it; answers the recovery codes once
+curl -s -c jar -b jar -X POST $PULSE/v1/auth/two-factor/setup -H "X-Pulse-CSRF: 1"
+# {"secret":"JBSW Y3DP …","uri":"otpauth://totp/Pulse:…","issuer":"Pulse","account":"asha@example.com (Acme Retail)"}
+curl -s -c jar -b jar -X POST $PULSE/v1/auth/two-factor/enable -H "X-Pulse-CSRF: 1" \
+  -H "Content-Type: application/json" -d '{"code":"492039"}'
+# 200 {"user":{…},"recovery_codes":["k7wq2-mx9dp",…]}
+```
+
+Codes are RFC 6238 (HMAC-SHA1, 30-second steps, 6 digits); a code from the step before or after
+is accepted, and each step works once. Wrong codes answer `401`; five tries per person per minute
+(then `429`), and each counts toward the sign-in limit above. The `pulse_2fa` cookie is good for
+one sign-in: it stops working once used, after an admin reset or a new phone, and setting up at
+sign-in never replaces a secret that's already on. SSO sign-ins skip all this. The secret is
+stored encrypted with `PULSE_SECRET_KEY`; recovery codes only as hashes. Without the key, two-step
+sign-in can't be set up or required, and people who have it can't sign in (`503`).
+
+People manage their own under `/v1/account/two-factor` (the session's user; the API key gets
+`400`). Starting a new secret while it's on, turning it off and new recovery codes need
+`{"code": "…"}` (an app or recovery code) or `{"password": "…"}`. Bodies sent to `/v1/account/*`
+are never written to the audit log.
 
 ### Site key
 
@@ -1364,6 +1399,14 @@ the path, a signature, or nothing).
 | `GET` | `/v1/auth/sso` | Whether a workspace has SSO (`?workspace=`), for the sign-in page | none |
 | `GET` | `/v1/auth/sso/start` | Start an OIDC sign-in (browser redirect) | none |
 | `GET` | `/v1/auth/sso/callback` | OIDC redirect target | none |
+| `POST` | `/v1/auth/two-factor/verify` | Second sign-in step: `{"code"}` (app or recovery code); creates the session | `pulse_2fa` cookie |
+| `POST` | `/v1/auth/two-factor/setup` | Required setup at sign-in: a new app secret (`secret`, `uri` for the QR code) | `pulse_2fa` cookie |
+| `POST` | `/v1/auth/two-factor/enable` | Confirm it with `{"code"}`; creates the session, returns `recovery_codes` once | `pulse_2fa` cookie |
+| `GET` | `/v1/account/two-factor` | Your two-step sign-in: `enabled`, `recovery_codes_left`, `required`, `password`, `available` | signed in |
+| `POST` | `/v1/account/two-factor/setup` | A new app secret (`secret`, `uri`); while it's on, needs `{"code"}` or `{"password"}` | signed in |
+| `POST` | `/v1/account/two-factor/enable` | Confirm the new secret with `{"code"}`; returns `recovery_codes` once | signed in |
+| `POST` | `/v1/account/two-factor/disable` | Turn it off (`{"code"}` or `{"password"}`); refused when the workspace requires it | signed in |
+| `POST` | `/v1/account/two-factor/recovery-codes` | Replace your recovery codes (`{"code"}` or `{"password"}`) | signed in |
 
 ### Team, roles and workspace settings
 
@@ -1384,6 +1427,9 @@ the path, a signature, or nothing).
 | `GET` | `/v1/users` | List teammates | settings view |
 | `POST` | `/v1/users` | Add a teammate (`email`, `name`, `role`, optional `password`) | settings edit |
 | `DELETE` | `/v1/users/{id}` | Remove a teammate | settings edit |
+| `DELETE` | `/v1/users/{id}/two-factor` | Reset a teammate's two-step sign-in (lost phone); not your own | settings edit |
+| `GET` | `/v1/settings/two-factor` | Two-step sign-in policy: `{"mode":"optional"\|"everyone"\|"some","roles":[…],"users":[…]}` | settings view |
+| `PUT` | `/v1/settings/two-factor` | Change it (roles and teammates must exist; `some` needs at least one) | full admin |
 | `GET` | `/v1/settings/sso` | Single sign-on settings (client secret never returned) | full admin |
 | `PUT` | `/v1/settings/sso` | Change single sign-on settings | full admin |
 | `DELETE` | `/v1/settings/sso` | Remove single sign-on (settings and client secret) | full admin |

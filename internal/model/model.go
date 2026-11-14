@@ -28,8 +28,8 @@ type User struct {
 	Role         string     `json:"role"`
 	PasswordHash string     `json:"-"`
 	SSOSubject   string     `json:"-"`
-	SSO          bool       `json:"sso"`      // has signed in through SSO
-	Password     bool       `json:"password"` // has a password
+	SSO          bool       `json:"sso"`        // has signed in through SSO
+	Password     bool       `json:"password"`   // has a password
 	TwoFactor    bool       `json:"two_factor"` // has two-step sign-in with an authenticator app
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`

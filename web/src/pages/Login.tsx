@@ -4,6 +4,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { HEARTBEAT, PulseTrace } from "../PulseTrace";
 import { Logo } from "../Shell";
+import { CodeField, RecoveryCodes, SetupApp } from "../TwoFactorUI";
+import { codeReady } from "../twoFactor";
 import { ErrorNote, Field } from "../ui";
 
 const SSO_ERRORS: Record<string, string> = {
@@ -40,21 +42,91 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(params.get("error") ? new Error(SSO_ERRORS[params.get("error")!] ?? "Sign-in failed.") : null);
   const [busy, setBusy] = useState(false);
+  // Two-step sign-in: after the password, a code from the app ("code"), or setting the app up
+  // first when the workspace requires it ("setup"). The server holds the half-finished sign-in
+  // in a short-lived cookie.
+  const [step, setStep] = useState<"password" | "code" | "setup">("password");
+  const [code, setCode] = useState("");
+  const [codes, setCodes] = useState<string[] | null>(null);
+
+  async function signedIn() {
+    localStorage.setItem("pulse.workspace", workspace);
+    await qc.invalidateQueries({ queryKey: ["me"] });
+    nav(params.get("next") ?? "/", { replace: true });
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.post("/v1/auth/login", { workspace, email, password });
-      localStorage.setItem("pulse.workspace", workspace);
-      await qc.invalidateQueries({ queryKey: ["me"] });
-      nav(params.get("next") ?? "/", { replace: true });
+      const res = await api.post<{ two_factor?: "code" | "setup" }>("/v1/auth/login", { workspace, email, password });
+      if (res.two_factor) {
+        setPassword("");
+        setStep(res.two_factor);
+        return;
+      }
+      await signedIn();
     } catch (err) {
       setError(err);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function verify(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post("/v1/auth/two-factor/verify", { code });
+      await signedIn();
+    } catch (err) {
+      setError(err);
+      setCode("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startOver() {
+    setStep("password");
+    setCode("");
+    setError(null);
+  }
+
+  if (step === "code") {
+    return (
+      <AuthLayout>
+        <h1>Enter your code</h1>
+        <p>Open your authenticator app and type the six-digit code it shows for Pulse.</p>
+        <ErrorNote error={error} />
+        <form onSubmit={verify}>
+          <CodeField value={code} onChange={setCode} recovery />
+          <button className="btn primary block" disabled={busy || !codeReady(code)}>{busy ? "Checking…" : "Sign in"}</button>
+        </form>
+        <p className="small muted" style={{ marginTop: 22 }}>
+          Lost your phone? Type one of your recovery codes instead, or ask an admin to reset your two-step sign-in. <button type="button" className="btn ghost sm" onClick={startOver}>Start again</button>
+        </p>
+      </AuthLayout>
+    );
+  }
+
+  if (step === "setup") {
+    return (
+      <AuthLayout>
+        <h1>Set up two-step sign-in</h1>
+        <p>Your workspace asks you to confirm each sign-in with a code from an authenticator app on your phone. Setting it up takes a minute.</p>
+        {codes ? (
+          <RecoveryCodes codes={codes} workspace={workspace} email={email} onDone={signedIn} doneLabel="Open Pulse" />
+        ) : (
+          <>
+            <ErrorNote error={error} />
+            <SetupApp base="/v1/auth" onDone={setCodes} onCancel={startOver} />
+          </>
+        )}
+      </AuthLayout>
+    );
   }
 
   async function sso() {
