@@ -18,16 +18,27 @@ Everything under **Analytics** updates as you change it: there is no "Run" butto
 
 ## 1. The Overview
 
-**Overview** (top of the sidebar) is the live view of your workspace. It refreshes every 5 seconds.
+**Overview** (top of the sidebar) is the first page you see after signing in: what needs your
+attention, what your contacts are doing right now, and how your campaigns are going. The live
+numbers come first and refresh every 5 seconds; the summary below them fills in a moment later and
+refreshes once a minute (only while the page is open in a visible tab). You see only the parts your
+role can view: for example, a role without access to reports sees no revenue.
 
 ![Overview: Live events this minute with the last hour's trace, the counts, Most frequent events and Messages by channel](img/10-overview.png)
 
 | Part | Shows |
 |---|---|
+| **Needs attention** | Shown only when something's wrong, with a link to fix it: an email or SMS provider that used up (or nearly used up) its daily quota, a channel where at least 1 in 10 messages failed in the last hour, a spike in email bounces today, or a one-time campaign where at least 1 in 10 messages failed |
 | **Live** | Events this minute, the last 60 minutes as a line, and totals for the last hour and today |
 | Counts | **contacts**, **segments**, **campaigns running** (triggered and automation campaigns that are live) and **templates**. Click the number of contacts to open the Contacts list |
+| **Audience** | **Contacts added** in the last 7 days (and today), and the contacts who **unsubscribed** from any channel, each with the change against the 7 days before. Click the number of unsubscribes to see those contacts |
+| **Revenue** | Revenue, orders and buyers of the last 7 days against the 7 before, from your revenue event (set on the **Revenue** page). Hidden until there are revenue events |
+| **One-time campaigns** | **Sending now** (with how many were sent so far), **Coming up** (the next scheduled sends, and how often a repeating one runs) and **Recently sent** (the last 30 days, with the open rate for email or the click rate for other channels). Click a campaign to open it, or **Campaign performance** to compare them all |
 | **Most frequent events** | The top events of the last 14 days |
 | **Messages** (14 days) | Per channel: **Sent**, **Delivered**, **Opened**, **Clicked**, **Failed**, **Opted out** and **To SMS** (WhatsApp messages that fell back to SMS). **Test inbox** opens the messages sent through sandbox providers |
+
+Days in the summary are UTC days, like the Analytics dashboards. The summary's numbers can be up to
+a minute old; open a campaign or a dashboard for the exact figures.
 
 ## 2. Build a report
 

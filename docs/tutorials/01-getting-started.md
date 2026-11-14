@@ -56,7 +56,7 @@ The sidebar groups everything into:
 
 | Group | Pages | For |
 |---|---|---|
-| | **Overview** | Live activity: events this minute, contacts, campaigns running, messages of the last 14 days |
+| | **Overview** | What needs attention, live activity, new contacts and unsubscribes, revenue, and one-time campaigns sending, coming up and just sent |
 | **Audience** | Contacts, Companies, Segments, Events | Who your contacts are, how you group them, and what they do |
 | **Campaigns** | Campaigns, Website & app messages | What you send them, and what you show on your website and in your app |
 | **Content** | Message templates, Landing pages, Forms, Assets | What your campaigns are made of |

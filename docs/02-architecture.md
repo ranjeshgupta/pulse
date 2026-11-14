@@ -430,7 +430,7 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
 - `events.product_code` and `events.product_category`: MATERIALIZED columns from the props (migration
   005), for product reports.
 
-Migrations: `migrations/postgres/001`–`025` and `migrations/clickhouse/001`–`006`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
+Migrations: `migrations/postgres/001`–`025` and `028` and `migrations/clickhouse/001`–`006`, applied by `pulse migrate` (and `pulse all`) under a Postgres advisory lock, so processes that start together
 migrate one at a time.
 
 ## Public pages and origins
