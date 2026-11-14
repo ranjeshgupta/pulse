@@ -174,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/auth/sso", s.ssoInfo)
 	mux.HandleFunc("GET /v1/auth/sso/start", s.ssoStart)
 	mux.HandleFunc("GET /v1/auth/sso/callback", s.ssoCallback)
+	s.twoFactorRoutes(mux) // two-step sign-in, your own setup, the workspace policy
 
 	// workspace settings (admins)
 	mux.HandleFunc("GET /v1/users", s.authed(s.listUsers))

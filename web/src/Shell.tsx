@@ -153,7 +153,10 @@ export default function Shell() {
           <div className="sidebar-foot">
             <div>{me?.user?.name || me?.user?.email}</div>
             <div className="xs" style={{ color: "#8e9bb3", margin: "2px 0 8px" }}>{roleName(me?.role, roles.data)}</div>
-            <button onClick={signOut}>Sign out</button>
+            <div className="sidebar-foot-links">
+              {me?.user && <NavLink to="/account">Your account</NavLink>}
+              <button onClick={signOut}>Sign out</button>
+            </div>
           </div>
         </div>
       </nav>

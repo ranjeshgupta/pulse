@@ -77,7 +77,13 @@ export const CHANNEL_NAMES: Record<Channel, string> = {
 export interface Workspace { id: number; name: string; slug: string; site_key: string }
 /** A user's role: a built-in one or "role:<id>" for a custom role. */
 export type RoleKey = "admin" | "editor" | "viewer" | `role:${number}`;
-export interface User { id: number; email: string; name: string; role: RoleKey; sso: boolean; password: boolean; created_at: string; last_login_at?: string }
+export interface User { id: number; email: string; name: string; role: RoleKey; sso: boolean; password: boolean; two_factor: boolean; created_at: string; last_login_at?: string }
+/** Two-step sign-in (authenticator app) of the signed-in person: GET /v1/account/two-factor. */
+export interface TwoFactorStatus { enabled: boolean; enabled_at?: string | null; recovery_codes_left: number; required: boolean; password: boolean; available: boolean }
+/** A new authenticator-app secret: the QR code holds uri; secret is for typing in. */
+export interface TwoFactorSetup { secret: string; uri: string; issuer: string; account: string }
+/** Who must use two-step sign-in (password sign-ins only). */
+export interface TwoFactorPolicy { mode: "optional" | "everyone" | "some"; roles: RoleKey[]; users: number[] }
 export type Area = "contacts" | "segments" | "journeys" | "broadcasts" | "content" | "reports" | "channels" | "settings";
 export type Level = "none" | "view" | "edit" | "publish";
 export const LEVELS: Level[] = ["none", "view", "edit", "publish"];

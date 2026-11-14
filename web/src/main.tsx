@@ -30,6 +30,7 @@ import { OnSiteList } from "./pages/OnSiteHub";
 import { SegmentEdit, SegmentList } from "./pages/Segments";
 import { EventDetail, EventList } from "./pages/Events";
 import { Access, Attributes, Scoring, Team } from "./pages/Settings";
+import { Account } from "./pages/Account";
 import { Roles } from "./pages/Roles";
 import { AuditLog } from "./pages/Audit";
 import { WebhookEdit, WebhookList } from "./pages/Webhooks";
@@ -118,6 +119,7 @@ const router = createBrowserRouter([
       { path: "analytics/campaigns", element: <CampaignsDashboard /> },
       { path: "analytics/products", element: <ProductsDashboard /> },
       { path: "analytics/live", element: <LiveFeed /> },
+      { path: "account", element: <Account /> }, // Your account: everyone signed in
       {
         path: "settings",
         element: <SettingsLayout />,

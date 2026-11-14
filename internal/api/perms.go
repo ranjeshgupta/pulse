@@ -31,7 +31,16 @@ var areaByPrefix = map[string]string{
 
 // special lists routes whose need differs from the method rule.
 var special = map[string]need{
-	"GET /v1/auth/me":                                 {"", auth.None}, // everyone signed in
+	"GET /v1/auth/me": {"", auth.None}, // everyone signed in
+	// Two-step sign-in: everyone signed in manages their own (twofactor.go). The policy is read
+	// with settings view (the "settings" prefix); changing it needs full admin, checked by its
+	// wrapper, and resetting a teammate's setup settings edit.
+	"GET /v1/account/two-factor":                      {"", auth.None},
+	"POST /v1/account/two-factor/setup":               {"", auth.None},
+	"POST /v1/account/two-factor/enable":              {"", auth.None},
+	"POST /v1/account/two-factor/disable":             {"", auth.None},
+	"POST /v1/account/two-factor/recovery-codes":      {"", auth.None},
+	"DELETE /v1/users/{id}/two-factor":                {auth.AreaSettings, auth.Edit},
 	"GET /v1/events/names":                            {auth.AreaReports, auth.View},
 	"POST /v1/segments/preview":                       {auth.AreaSegments, auth.View},
 	"POST /v1/templates/preview":                      {auth.AreaContent, auth.View},

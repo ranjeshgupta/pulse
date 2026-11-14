@@ -3,7 +3,7 @@
 In about 30 minutes you will see how Pulse keeps track of what each contact agreed to, give contacts
 their own unsubscribe and preference pages, decide what Pulse records and for how long (and the other
 things it does on its own), answer a request to see or erase someone's data, check who changed what,
-and set up single sign-on for your team.
+and set up single sign-on and two-step sign-in for your team.
 
 **You need:** an admin account. Most pages here are under **Settings**, and several (Sign-in & keys,
 Audit log, Webhooks) need the full **Admin** role, not just settings access.
@@ -286,7 +286,50 @@ SSO**; Pulse sends them to your provider and back.
 
 Every change here is in the audit log as *Changed single sign-on* or *Removed single sign-on*.
 
-## 9. Identity verification
+## 9. Two-step sign-in with an authenticator app
+
+Two-step sign-in protects accounts even if a password leaks: after the password, Pulse asks for the
+six-digit code an authenticator app on the person's phone shows (Google Authenticator, Microsoft
+Authenticator, Authy, 1Password and others). It applies to password sign-ins only; people who sign
+in with SSO get whatever extra checks your identity provider asks for.
+
+**Turn it on for yourself.** At the bottom of the menu, click **Your account**. Under
+**Two-step sign-in** click **Set up the app**, then:
+
+1. In the authenticator app, add an account and scan the QR code. (Can't scan it? Click **Can't
+   scan it? Type a key instead** and type the key into the app.)
+2. Type the code the app shows and click **Turn on two-step sign-in**.
+3. Pulse shows ten **recovery codes**, once. **Download** or **Copy** them and keep them somewhere
+   safe, like a password manager. Each one lets you sign in once without your phone. Tick
+   **I've saved my recovery codes** and click **Done**.
+
+From then on, after your password the sign-in page asks **Enter your code**. Lost your phone? Type a
+recovery code in the same box. On **Your account** you can also:
+
+- **Use a new phone**: confirm it's you (a code from the current app, a recovery code, or your
+  password), then scan a new QR code. The old phone keeps working until the new one is set up.
+- **New recovery codes**: makes ten new ones; the old ones stop working.
+- **Turn off**: needs a code or your password (not offered when your workspace requires it).
+
+**Require it for your team.** On **Settings → Sign-in & keys → Two-step sign-in** (full **Admin**
+role) choose:
+
+| Option | Who must use it |
+|---|---|
+| **Optional: each person decides** | Nobody (the default) |
+| **Required for everyone** | Everyone who signs in with a password |
+| **Required for some roles or people** | The roles and teammates you tick |
+
+Click **Save two-step sign-in**. The panel says how many of the people covered haven't set it up
+yet. They're not locked out: the next time they sign in with their password, Pulse walks them
+through the same setup (QR code, code, recovery codes) before they can use the app.
+
+**A teammate lost their phone and their recovery codes?** On **Settings → Team** the **Two-step
+sign-in** column shows who has it **On**. Click **Reset two-step** on their row and confirm. They
+sign in with their password alone until they set it up again (straight away, if your workspace
+requires it). The reset is in the audit log, like every change.
+
+## 10. Identity verification
 
 Your website's site key (`sk_…`) is public, so anyone could call `Pulse.identify()` with someone
 else's user ID and read or pollute their profile. Identity verification stops that.
@@ -306,7 +349,7 @@ else's user ID and read or pollute their profile. Identity verification stops th
 **Replace secret** makes a new one; hashes made with the old one stop working at once, so update
 your server first.
 
-## 10. Replace the server API key
+## 11. Replace the server API key
 
 The server API key (`pk_…`) lets your servers send events and manage data; it acts as an admin.
 Replace it if it leaks or someone who knew it leaves:
@@ -321,7 +364,7 @@ Replace it if it leaks or someone who knew it leaves:
 Zapier / Make connectors have their own keys, rotated on their integration page
 ([tutorial 9](09-integrations.md#7-connect-zapier-or-make)); webhooks have their own signing secrets.
 
-## 11. Roles, a recap
+## 12. Roles, a recap
 
 Who can do what is set on **Settings → Team** and **Settings → Roles**
 ([tutorial 1](01-getting-started.md#4-add-your-teammates)). For the pages in this tutorial:
@@ -336,7 +379,9 @@ schedule and cancel them, and pick A/B winners.
 | Change a contact's consent, export contacts, **Download data** and **Delete contact** on a profile, the **Delete contact** and **Remove Do Not Contact** campaign steps | **Contacts: Edit** |
 | See **Data & privacy** and **Automation & limits** | **Settings: View** (changing them: **Settings: Edit**) |
 | **Web push** settings (tutorial 4) | **Channels: View** (changing them: **Channels: Edit**) |
-| **Sign-in & keys**, **Audit log**, **Webhooks** | The full **Admin** role |
+| **Sign-in & keys** (including the two-step sign-in policy), **Audit log**, **Webhooks** | The full **Admin** role |
+| **Reset two-step** on **Settings → Team** | **Settings: Edit** (and at least the teammate's access) |
+| **Your account** (your own two-step sign-in) | Everyone |
 | **Integrations** | Seen with **Settings: View**; connected and changed by admins |
 | Revenue settings | **Settings: Edit** |
 
@@ -351,7 +396,7 @@ they have themselves.
 - Retries, segment schedules and default provider limits that fit your workspace
 - A repeatable way to export or erase one person's data
 - An audit trail you can filter and export
-- Single sign-on, identity verification and a fresh API key
+- Single sign-on, two-step sign-in, identity verification and a fresh API key
 
 That's the end of the tutorials. For installing, configuring and integrating Pulse, see the
 [developer docs](../developer/README.md).

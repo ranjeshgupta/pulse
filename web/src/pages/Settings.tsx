@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type AttributeDef, type AttrOption, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type User } from "../api";
+import { api, type AttributeDef, type AttrOption, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type TwoFactorPolicy, type User } from "../api";
+import { policySummary } from "../twoFactor";
 import { useIsAdmin, useMe } from "../auth";
 import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { RoleOptions, roleName, useRoles } from "./Roles";
@@ -14,6 +15,12 @@ export function Team() {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
   const remove = useMutation({ mutationFn: (id: number) => api.del(`/v1/users/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }) });
+  // A lost phone: turn the teammate's two-step sign-in off (recorded in the audit log).
+  const resetTwoFactor = useMutation({
+    mutationFn: (u: User) => api.del(`/v1/users/${u.id}/two-factor`),
+    onSuccess: (_, u) => { qc.invalidateQueries({ queryKey: ["users"] }); toast({ text: `Two-step sign-in reset for ${u.name || u.email}` }); },
+    onError: (e) => toast({ text: e.message, error: true }),
+  });
   const setRole = useMutation({
     mutationFn: (v: { user: User; role: RoleKey }) => api.put(`/v1/users/${v.user.id}/role`, { role: v.role }),
     onSuccess: (_, v) => {
@@ -29,7 +36,7 @@ export function Team() {
       <ErrorNote error={q.error ?? remove.error ?? setRole.error} />
       <div className="panel">
         <table className="table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Signs in with</th><th>Last sign-in</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Signs in with</th><th title="A code from an authenticator app after the password">Two-step sign-in</th><th>Last sign-in</th><th /></tr></thead>
           <tbody>{q.data?.users.map((u) => (
             <tr key={u.id}>
               <td>{u.name || <span className="faint">not set</span>}</td>
@@ -49,8 +56,15 @@ export function Team() {
                 ) : roleName(u.role, roles)}
               </td>
               <td>{signsInWith(u)}</td>
+              <td>{!u.password ? <span className="faint" title="SSO sign-ins use your identity provider's checks">Not used</span> : u.two_factor ? <span className="badge ok">On</span> : <span className="badge">Off</span>}</td>
               <td className="muted">{timeAgo(u.last_login_at)}</td>
-              <td className="num">{admin && u.id !== me?.user?.id && <button className="btn ghost sm" onClick={() => confirm(`Remove ${u.email}? They're signed out everywhere.`) && remove.mutate(u.id)}>Remove</button>}</td>
+              <td className="num">
+                {admin && u.id !== me?.user?.id && u.two_factor && (
+                  <button className="btn ghost sm" disabled={resetTwoFactor.isPending}
+                    onClick={() => confirm(`Reset two-step sign-in for ${u.email}? Use this when they've lost their phone. They sign in with just their password until they set it up again (straight away, if your workspace requires it).`) && resetTwoFactor.mutate(u)}>Reset two-step</button>
+                )}
+                {admin && u.id !== me?.user?.id && <button className="btn ghost sm" onClick={() => confirm(`Remove ${u.email}? They're signed out everywhere.`) && remove.mutate(u.id)}>Remove</button>}
+              </td>
             </tr>
           ))}</tbody>
         </table>
@@ -139,6 +153,8 @@ export function Access() {
         </div>
       </section>
 
+      <TwoFactorPolicyPanel />
+
       <section className="panel section">
         <div className="panel-head"><h3>Your website</h3><a className="small" href={`/sdk/demo.html?key=${me?.workspace.site_key}`} target="_blank" rel="noreferrer">Open the test page</a></div>
         <div className="panel-body">
@@ -168,6 +184,71 @@ export function Access() {
         </div>
       </section>
     </div>
+  );
+}
+
+// TwoFactorPolicyPanel: who must confirm password sign-ins with an authenticator app. People turn
+// it on for themselves under Your account; this makes it required for everyone, or for some roles
+// and people. Changing it needs every admin permission, like single sign-on.
+function TwoFactorPolicyPanel() {
+  const me = useMe().data;
+  const qc = useQueryClient();
+  const toast = useToast();
+  const roles = useRoles().data;
+  const q = useQuery({ queryKey: ["two-factor-policy"], queryFn: () => api.get<TwoFactorPolicy>("/v1/settings/two-factor") });
+  const users = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: User[] }>("/v1/users") });
+  const [p, setP] = useState<TwoFactorPolicy | null>(null);
+  useEffect(() => { if (q.data && !p) setP(q.data); }, [q.data, p]);
+  const save = useMutation({
+    mutationFn: () => api.put<TwoFactorPolicy>("/v1/settings/two-factor", p),
+    onSuccess: (v) => { qc.setQueryData(["two-factor-policy"], v); setP(v); toast({ text: "Two-step sign-in policy saved" }); },
+  });
+  const team = (users.data?.users ?? []).filter((u) => u.password);
+  const roleKeys: RoleKey[] = [...(roles?.builtin.map((r) => r.key) ?? ["admin", "editor", "viewer"]), ...(roles?.custom.map((r) => `role:${r.id}` as RoleKey) ?? [])];
+  const userName = (id: number) => { const u = users.data?.users.find((x) => x.id === id); return u ? u.name || u.email : `teammate ${id}`; };
+  const toggle = <T,>(xs: T[], x: T) => (xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x]);
+  const notSetUp = p && p.mode !== "optional" ? team.filter((u) => !u.two_factor && (p.mode === "everyone" || p.roles.includes(u.role) || p.users.includes(u.id))) : [];
+  const meCovered = notSetUp.some((u) => u.id === me?.user?.id);
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Two-step sign-in</h3>{q.data && <span className={`badge${q.data.mode === "optional" ? "" : " ok"}`}>{q.data.mode === "optional" ? "Optional" : "Required"}</span>}</div>
+      <div className="panel-body">
+        <p className="small muted" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          After their password, people enter a code from an authenticator app on their phone (Google Authenticator, Microsoft Authenticator, Authy, 1Password and others). Anyone can turn it on for themselves under <strong>Your account</strong>. This applies to password sign-ins only: people who sign in with SSO get whatever extra checks your identity provider asks for.
+        </p>
+        <ErrorNote error={q.error ?? save.error} />
+        {p && (
+          <>
+            <div role="radiogroup" aria-label="Two-step sign-in" style={{ marginBottom: 8 }}>
+              <label className="check"><input type="radio" name="tf-mode" checked={p.mode === "optional"} onChange={() => setP({ ...p, mode: "optional" })} />Optional: each person decides</label>
+              <label className="check"><input type="radio" name="tf-mode" checked={p.mode === "everyone"} onChange={() => setP({ ...p, mode: "everyone" })} />Required for everyone</label>
+              <label className="check"><input type="radio" name="tf-mode" checked={p.mode === "some"} onChange={() => setP({ ...p, mode: "some" })} />Required for some roles or people</label>
+            </div>
+            {p.mode === "some" && (
+              <div className="grid-2" style={{ marginBottom: 12 }}>
+                <Field label="Roles" group>
+                  <div>{roleKeys.map((k) => (
+                    <label key={k} className="check" style={{ marginBottom: 6 }}><input type="checkbox" checked={p.roles.includes(k)} onChange={() => setP({ ...p, roles: toggle(p.roles, k) })} />{roleName(k, roles)}</label>
+                  ))}</div>
+                </Field>
+                <Field label="People" group hint={team.length === 0 ? "Nobody signs in with a password." : "Teammates who sign in with a password."}>
+                  <div className="tf-people">{team.map((u) => (
+                    <label key={u.id} className="check" style={{ marginBottom: 6 }}><input type="checkbox" checked={p.users.includes(u.id)} onChange={() => setP({ ...p, users: toggle(p.users, u.id) })} />{u.name || u.email}{u.name && <span className="xs muted">&nbsp;{u.email}</span>}</label>
+                  ))}</div>
+                </Field>
+              </div>
+            )}
+            <p className="small" style={{ marginBottom: 10 }}>{policySummary(p, (r) => roleName(r, roles), userName)}</p>
+            {notSetUp.length > 0 && (
+              <div className="alert info">
+                {notSetUp.length === 1 ? "1 person hasn't" : `${notSetUp.length} people haven't`} set it up yet{meCovered ? ", you among them" : ""}. They'll be asked to the next time they sign in with their password, before they can use Pulse.
+              </div>
+            )}
+            <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save two-step sign-in</button>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 

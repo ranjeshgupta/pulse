@@ -28,11 +28,24 @@ type User struct {
 	Role         string     `json:"role"`
 	PasswordHash string     `json:"-"`
 	SSOSubject   string     `json:"-"`
-	SSO          bool       `json:"sso"`      // has signed in through SSO
-	Password     bool       `json:"password"` // has a password
+	SSO          bool       `json:"sso"`        // has signed in through SSO
+	Password     bool       `json:"password"`   // has a password
+	TwoFactor    bool       `json:"two_factor"` // has two-step sign-in with an authenticator app
 	CreatedAt    time.Time  `json:"created_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
+
+// TwoFactor is a user's authenticator-app setup. The secrets are sealed with the server key.
+type TwoFactor struct {
+	Secret       []byte // confirmed secret (sealed); nil until set up
+	Pending      []byte // a new secret not yet confirmed (sealed)
+	EnabledAt    *time.Time
+	LastStep     int64 // the last 30-second step accepted
+	RecoveryLeft int   // unused recovery codes
+}
+
+// Enabled reports whether two-step sign-in is on.
+func (t TwoFactor) Enabled() bool { return len(t.Secret) > 0 }
 
 // Principal is who is calling: a signed-in user (UserID > 0) or a server holding the API key.
 type Principal struct {
