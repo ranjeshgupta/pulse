@@ -218,3 +218,13 @@ suite("group nesting reducer", () => {
       "(city (from IP) is Pune and device type is mobile and opened the email “Welcome” in the last 30 days) or (tagged vip and points is at least 50)");
   });
 });
+
+suite("workspace events in the picker", () => {
+  it("offers each as a Did … filter, found by its name", () => {
+    const items = buildCatalog({ defs: [], seen: [], events: [{ name: "cart_abandoned", label: "Cart abandoned" }, { name: "webinar_joined" }] });
+    const found = searchCatalog(items, "abandon");
+    expect(found.map((i) => i.label)).toContain("Did Cart abandoned");
+    const node = items.find((i) => i.id === "event:webinar_joined")!.make();
+    expect(node).toMatchObject({ kind: "event", event: "webinar_joined", days: 30 });
+  });
+});

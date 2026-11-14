@@ -101,3 +101,9 @@
 .table.ev-new-props td:nth-child(4) { padding-top: 18px; }
 .ev-new-props .select { min-width: 140px; }
 .ev-new-values { margin-top: 6px; }
+
+/* Events list: the count and its contacts are one link to those contacts. */
+.ev-count { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+a.count-link .ev-count .muted { color: inherit; opacity: .8; }
+a.count-link .ev-count > * { text-decoration: inherit; text-decoration-line: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+a.count-link:hover .ev-count > * { text-decoration-style: solid; }

@@ -34,3 +34,20 @@
 .seg-why-rows li.yes .seg-why-mark { color: var(--ok, #1f7a4d); }
 .seg-why-rows li.no .seg-why-mark { color: var(--danger); }
 .seg-why-group { font-weight: 600; }
+
+/* Search box with the Add filter button beside it. */
+.cv-search-row { display: flex; gap: 8px; align-items: flex-start; }
+.cv-search-row .cv-search-wrap { flex: 1; min-width: 0; }
+.cv-search-row > .btn { height: 40px; flex: none; }
+
+/* Add filter dialog: the questions on the left, the chosen one's fields on the right. */
+.cfm { display: grid; grid-template-columns: 230px 1fr; gap: 18px; min-height: 340px; }
+.cfm-list { border-right: 1px solid var(--rule); padding-right: 12px; }
+.cfm-group { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 10px 0 4px; }
+.cfm-list > div:first-child .cfm-group { margin-top: 0; }
+.cfm-list button { display: block; width: 100%; text-align: left; font: inherit; font-size: var(--fs-sm); background: none; border: 0; border-radius: var(--r-sm); padding: 6px 8px; cursor: pointer; color: var(--text); }
+.cfm-list button:hover { background: var(--wash, #f3f4f8); }
+.cfm-list button.on { background: var(--cobalt-wash); color: var(--cobalt-dark); font-weight: 560; }
+.cfm-fields h4 { margin: 0 0 6px; font-size: var(--fs-base); }
+.cfm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 12px; margin-top: 10px; }
+@media (max-width: 640px) { .cfm { grid-template-columns: 1fr; } .cfm-list { border-right: 0; border-bottom: 1px solid var(--rule); padding: 0 0 8px; } }

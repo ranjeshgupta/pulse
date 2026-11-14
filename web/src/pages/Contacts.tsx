@@ -1,6 +1,8 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { addFilters } from "../contactFilterMenu";
+import { FilterMenu } from "./ContactFilterMenu";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Contact, type EventRow, type Rule, type Segment, type User } from "../api";
 import { contactCompany, isAccountAttr } from "../accounts";
 import { useCan } from "../auth";
@@ -96,6 +98,7 @@ export default function Contacts() {
   const [choosing, setChoosing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [snapshot, setSnapshot] = useState(false);
+  const [filtering, setFiltering] = useState(false);
   // Lists opened from a number elsewhere (a funnel step, a journey step…) can't be a dynamic
   // segment's rule; they can become a static segment of who is in them now.
   const linkList = chips.some(isLinkFilter);
@@ -113,13 +116,17 @@ export default function Contacts() {
     <div className="page">
       <PageHead
         title="Contacts"
-        intro="Everyone Pulse has seen an event or profile for. Filter with is:, segment:, tag:, stage:, company:, owner:, points:, email: and name:, or type to find someone."
+        intro="Everyone Pulse has seen an event or profile for. Use Add filter to narrow the list (who they are, what they did and when, which campaigns they got), or type to find someone."
         actions={<>
           <Link className="btn" to="/contacts/duplicates">Duplicates</Link>
           {canExport && <Link className="btn primary" to="/contacts/import">Import</Link>}
         </>}
       />
-      <ContactSearch chips={chips} text={text} labels={labels} onText={setText} onChips={(c, t) => applyNow(c, t)} />
+      <div className="cv-search-row">
+        <ContactSearch chips={chips} text={text} labels={labels} onText={setText} onChips={(c, t) => applyNow(c, t)} />
+        <button className="btn" onClick={() => setFiltering(true)}>Add filter</button>
+      </div>
+      {filtering && <FilterMenu onClose={() => setFiltering(false)} onAdd={(add) => { setFiltering(false); applyNow(addFilters(chips, add), text); }} />}
       <div className="cv-bar">
         <span className="small muted" aria-live="polite">
           {list.isFetching && !list.isFetchingNextPage ? "Searching…" : filtered ? countText : ""}

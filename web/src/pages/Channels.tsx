@@ -131,7 +131,7 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
   const secretOf = (key: string) => kind?.secrets?.find((f) => f.key === key);
   const auth = kind?.auth && <AuthEditor config={config} setConfig={setKey} secrets={secrets} setSecret={(k, v) => setSecrets({ ...secrets, [k]: v })} saved={!!provider?.has_secrets && !moved} />;
   const movedNote = provider && moved && <div className="alert info" style={{ marginBottom: 12 }}>An endpoint's host changed: the saved secrets will be cleared, so enter every secret again.</div>;
-  const tools = kind && <ProviderTools draft={{ provider_id: provider?.id, provider: kind.id, config, secrets }} canAuth={!!kind.auth || kind.id.endsWith("_smtp")} canPreview={!!kind.auth || kind.id.startsWith("gupshup_")} />;
+  const tools = kind && <ProviderTools draft={{ provider_id: provider?.id, provider: kind.id, config, secrets }} canAuth={!!kind.auth || kind.id === "smtp" || kind.id.endsWith("_smtp")} canPreview={!!kind.auth || kind.id.startsWith("gupshup_")} />;
   const urlField = kind?.config?.find((f) => f.key === "url");
 
   return (

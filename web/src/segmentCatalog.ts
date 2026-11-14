@@ -149,7 +149,11 @@ function groupOfKey(key: string): GroupId {
 }
 
 /** The attribute definitions and other keys seen on contacts (GET /v1/attributes). */
-export type AttrSource = { defs: (AttrDefLike & { label?: string; description?: string })[]; seen: string[] };
+export type AttrSource = {
+  defs: (AttrDefLike & { label?: string; description?: string })[]; seen: string[];
+  // The workspace's own events (sent recently or described under Events), each a "Did …" filter.
+  events?: { name: string; label?: string }[];
+};
 
 /** buildCatalog lists every filter: Pulse's own fields, every attribute the workspace defined or its
  * contacts carry (typed by its definition), and the behaviour filters. */
@@ -176,6 +180,12 @@ export function buildCatalog(src: AttrSource = { defs: [], seen: [] }): CatalogI
     });
   }
   for (const it of FIXED) out.push({ ...it, icon: fixedIcon(it) });
+  for (const e of src.events ?? []) {
+    out.push({
+      id: `event:${e.name}`, group: "events", label: `Did ${e.label || e.name}`, hint: `The ${e.name} event, in the last N days or between dates`,
+      icon: "bolt", keywords: e.name.replace(/_/g, " "), make: () => ev(e.name, 30),
+    });
+  }
   return out;
 }
 

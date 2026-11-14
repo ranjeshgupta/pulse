@@ -4,7 +4,7 @@ import { api, type Channel, type ProviderField } from "../api";
 import { ErrorNote, Field } from "../ui";
 import { importExamples, type Imported } from "../curlImport";
 import {
-  AUTH_TYPES, MESSAGE_VARS, secretsUsed, RECEIPT_STATUSES, authSecretFields, formatStatuses, newLogin, parseAuth, parseRequest, parseStatuses,
+  AUTH_TYPES, MESSAGE_VARS, RECEIPT_STATUSES, authSecretFields, formatStatuses, newLogin, parseAuth, parseRequest, parseStatuses,
   serializeAuth, serializeRequest, type AuthConfig, type CustomRequest, type Header, type LoginRequest,
 } from "../providerAuth";
 
@@ -68,7 +68,7 @@ function HeadersEditor({ headers, onChange, hint }: { headers: Header[]; onChang
 
 /** loginSummary says in one sentence what a login request does. */
 function loginSummary(l: LoginRequest, inject: { in: string; name?: string; template?: string }): string {
-  const names = secretsUsed(l);
+  const names = authSecretFields({ type: "login", login: l }).map((f) => f.label.toLowerCase());
   const where = l.token_from === "header" ? `the ${l.token_path || "?"} header` : l.token_from === "regex" ? "the answer (by a pattern)" : (l.token_path || "?");
   const goes = inject.in === "header" ? `as ${inject.name || "Authorization"}: ${(inject.template || "Bearer {{token}}").replace("{{token}}", "<token>")}` : `in the ${inject.in === "query" ? "query parameter" : "body field"} ${inject.name || "?"}`;
   return `Pulse signs in at the login address${names.length ? ` with ${names.join(" and ")}` : ""}, reads the token from ${where}, and sends it ${goes}. It signs in again when the token expires or is refused.`;

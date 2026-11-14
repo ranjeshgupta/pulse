@@ -37,7 +37,12 @@ const pk = (p: Path) => p.join(".");
 /** GroupEditor edits a whole rule (the top group). It keeps no copy of the rule: every edit calls onChange. */
 export function GroupEditor({ group, onChange, self }: { group: Group; onChange: (g: Group) => void; depth?: number; onRemove?: () => void; self?: number }) {
   const attrs = useAttributes().data;
-  const items = useMemo(() => buildCatalog({ defs: attrs?.attributes ?? [], seen: attrs?.undefined ?? [] }), [attrs]);
+  const eventNames = useEventNames().data?.names;
+  const schemas = useEventSchemas().data?.schemas;
+  const items = useMemo(() => buildCatalog({
+    defs: attrs?.attributes ?? [], seen: attrs?.undefined ?? [],
+    events: (eventNames ?? []).filter((n) => !KNOWN_EVENTS[n]).map((n) => ({ name: n, label: schemas?.find((x) => x.name === n)?.label })),
+  }), [attrs, eventNames, schemas]);
   const [recent, setRecent] = useState(loadRecent);
   const [open, setOpen] = useState<string | null>(null);
   const latest = useRef(group);
@@ -426,8 +431,11 @@ const OTHER = "__other";
 function EventFields({ node, set, field }: { node: EventCond; set: (n: Node) => void; field: (t: ReactNode, i?: CatalogItem["icon"]) => ReactNode }) {
   const ev = node.event.trim();
   const known = KNOWN_EVENTS[ev];
+  // The workspace's own events (sent in the last 90 days, or described under Events) are listed
+  // in the dropdown too; "Another event…" is for a name not seen yet.
+  const own = (useEventNames().data?.names ?? []).filter((n) => !KNOWN_EVENTS[n]);
   const [otherChosen, setOther] = useState(false);
-  const other = otherChosen || !known;
+  const other = otherChosen || (!known && !own.includes(ev));
   const setWhere = (i: number, w: Where) => set({ ...node, where: node.where.map((x, j) => (j === i ? w : x)) });
   const removeWhere = (i: number) => set({ ...node, where: node.where.filter((_, j) => j !== i) });
   const inline = node.where.map((w, i) => ({ w, i })).filter(({ w }) => PICK_PROPS[w.prop.trim()] && (w.op === "eq" || w.op === "ne"));
@@ -452,6 +460,7 @@ function EventFields({ node, set, field }: { node: EventCond; set: (n: Node) => 
           {EVENT_GROUPS.map((g) => (
             <optgroup key={g.label} label={g.label}>{g.events.map((e) => <option key={e} value={e}>{KNOWN_EVENTS[e].label}</option>)}</optgroup>
           ))}
+          {own.length > 0 && <optgroup label="Your events">{own.map((e) => <option key={e} value={e}>{e}</option>)}</optgroup>}
           <option value={OTHER}>Another event…</option>
         </select>
         {other && <input className="input fb-key" list="fb-event-names" placeholder="event name, e.g. purchase" value={node.event} onChange={(e) => set({ ...node, event: e.target.value })} aria-label="Event name" />}

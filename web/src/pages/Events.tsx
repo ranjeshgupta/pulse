@@ -73,8 +73,13 @@ export function EventList() {
                       {e.label && <div className="xs muted">{e.label}</div>}
                     </td>
                     <td className="num">
-                      <LiveNumber value={e.count} />
-                      <div className="xs muted"><ContactCount value={e.contacts} filters={[["event", e.name], period(addDays(todayUTC(), -29), todayUTC())]} /> contacts</div>
+                      {/* The whole cell opens the contacts who sent it in these 30 days. */}
+                      <ContactCount value={e.contacts} filters={[["event", e.name], period(addDays(todayUTC(), -29), todayUTC())]} label={`contacts who sent ${e.name}`}>
+                        <span className="ev-count">
+                          <LiveNumber value={e.count} />
+                          <span className="xs muted">{e.contacts.toLocaleString("en-IN")} {e.contacts === 1 ? "contact" : "contacts"}</span>
+                        </span>
+                      </ContactCount>
                     </td>
                     <td className="small">{e.last_seen ? timeAgo(e.last_seen) : <span className="faint">not in 30 days</span>}</td>
                     <td>
