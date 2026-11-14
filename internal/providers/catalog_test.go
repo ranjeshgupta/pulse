@@ -37,6 +37,7 @@ func TestNewWithRequiredSettings(t *testing.T) {
 	sa := testServiceAccount(t, "https://oauth2.googleapis.com/token")
 	extra := map[string]map[string]string{
 		"twilio":          {"from": "+14155550123"}, // one of from / messaging_service_sid is needed
+		"smtp":            {"port": "587"},
 		"gmail_smtp":      {"username": "me@gmail.com", "password": "app-pass"},
 		"gworkspace_smtp": {"username": "me@acme.com", "password": "app-pass"},
 	}

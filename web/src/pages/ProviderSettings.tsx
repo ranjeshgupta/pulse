@@ -12,17 +12,30 @@ import {
 
 type Setter = (key: string, value: string) => void;
 
-/** ConfigField renders one catalog setting: a select when it has options, else an input. */
+/** ConfigField renders one catalog setting: a select when it has options, a switch, a number, a
+ * text area or a line of text. */
 export function ConfigField({ f, value, onChange }: { f: ProviderField; value: string; onChange: (v: string) => void }) {
-  const label = f.label + (f.required || f.options ? "" : " (optional)"); // a choice always has a value
+  const label = f.label + (f.required || f.options || f.type === "bool" ? "" : " (optional)"); // a choice always has a value
+  if (f.type === "bool") {
+    return (
+      <div className="field">
+        <label className="check" style={{ marginBottom: 2 }}>
+          <input type="checkbox" checked={value === "true"} onChange={(e) => onChange(e.target.checked ? "true" : "")} />{f.label}
+        </label>
+        {f.hint && <small>{f.hint}</small>}
+      </div>
+    );
+  }
   return (
     <Field label={label} hint={f.hint}>
       {f.options ? (
         <select className="select" value={value || f.default || f.options[0]} onChange={(e) => onChange(e.target.value)}>
           {f.options.map((o) => <option key={o} value={o}>{f.option_labels?.[o] ?? o}</option>)}
         </select>
+      ) : f.type === "textarea" ? (
+        <textarea className="textarea code" rows={3} value={value} placeholder={f.placeholder ?? f.default} onChange={(e) => onChange(e.target.value)} />
       ) : (
-        <input className="input" value={value} placeholder={f.placeholder ?? f.default} onChange={(e) => onChange(e.target.value)} />
+        <input className="input" inputMode={f.type === "number" ? "numeric" : undefined} value={value} placeholder={f.placeholder ?? f.default} onChange={(e) => onChange(e.target.value)} />
       )}
     </Field>
   );

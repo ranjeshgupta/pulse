@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,6 +143,37 @@ type Field struct {
 	Options []string `json:"options,omitempty"`
 	// OptionLabels name options for people (M7: the form showed raw values like "oauth2").
 	OptionLabels map[string]string `json:"option_labels,omitempty"`
+	// Type is how the form shows a free value: "" (a line of text), "bool" (a switch: "true" or
+	// empty), "number" or "textarea".
+	Type string `json:"type,omitempty"`
+	// Advanced settings are folded under "More settings": most people never change them.
+	Advanced bool `json:"advanced,omitempty"`
+	// ShowIf shows the field only while another setting (by key, among config) has one of these
+	// values; "" stands for the setting left empty (its default).
+	ShowIf *ShowIf `json:"show_if,omitempty"`
+}
+
+// Shown reports whether the field applies with these settings (its ShowIf); a hidden field is
+// never required.
+func (f Field) Shown(config map[string]string) bool {
+	if f.ShowIf == nil {
+		return true
+	}
+	return slices.Contains(f.ShowIf.Values, strings.TrimSpace(config[f.ShowIf.Key]))
+}
+
+// ShowIf ties a field to another setting's value (see Field.ShowIf).
+type ShowIf struct {
+	Key    string   `json:"key"`
+	Values []string `json:"values"`
+}
+
+// Preset fills a kind's settings for a well-known service (the SMTP form's "Amazon SES", "SendGrid"…).
+type Preset struct {
+	Name   string            `json:"name"`
+	Values map[string]string `json:"values"`
+	// Note is shown once the preset is picked (e.g. SendGrid's user name is literally "apikey").
+	Note string `json:"note,omitempty"`
 }
 
 // Kind is one provider type in the catalog.
@@ -154,6 +186,10 @@ type Kind struct {
 	Secrets     []Field `json:"secrets"`
 	// Notes is guidance shown with the form (limits, what the preset is for, unconfirmed endpoints).
 	Notes string `json:"notes,omitempty"`
+	// Guide is a short numbered how-to shown at the top of the form (e.g. creating a Gmail app password).
+	Guide []string `json:"guide,omitempty"`
+	// Presets fill the settings for well-known services.
+	Presets []Preset `json:"presets,omitempty"`
 	// DefaultLimits are the M3 rate and daily quota a new provider of this kind starts with
 	// (e.g. Gmail's ~500 messages a day); the workspace may change them.
 	DefaultLimits *model.ProviderLimits `json:"default_limits,omitempty"`
@@ -219,13 +255,13 @@ func Lookup(id string) (Kind, bool) {
 // Validate checks that the required settings are present (secrets may be omitted on update to keep the stored ones).
 func (k Kind) Validate(config, secrets map[string]string, requireSecrets bool) error {
 	for _, f := range k.Config {
-		if f.Required && config[f.Key] == "" {
+		if f.Required && f.Shown(config) && config[f.Key] == "" {
 			return fmt.Errorf("%s is required", f.Label)
 		}
 	}
 	if requireSecrets {
 		for _, f := range k.Secrets {
-			if f.Required && secrets[f.Key] == "" {
+			if f.Required && f.Shown(config) && secrets[f.Key] == "" {
 				return fmt.Errorf("%s is required", f.Label)
 			}
 		}

@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type ProviderField, type SandboxMessage } from "../api";
 import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { BounceMailboxPanel } from "./BounceMailbox";
 import { AuthEditor, ConfigField, GatewayModeChoice, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
-import { cleanLimits, hostsChanged, limitsNote, sameLimits } from "../providerAuth";
+import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, presetOf, sameLimits } from "../providerAuth";
 
 export function Channels() {
   const admin = useIsAdmin();
@@ -77,7 +77,8 @@ export function Channels() {
 
 /** orderKinds lists provider kinds as the form offers them: services first, the custom gateway, then the sandbox. */
 export function orderKinds<T extends { id: string }>(kinds: T[]): T[] {
-  const rank = (k: T) => (k.id.startsWith("sandbox") ? 2 : k.id.startsWith("http_") ? 1 : 0);
+  // Plain SMTP first for email: with its presets it covers most sending services.
+  const rank = (k: T) => (k.id === "smtp" ? -1 : k.id.startsWith("sandbox") ? 2 : k.id.startsWith("http_") ? 1 : 0);
   return [...kinds].sort((a, b) => rank(a) - rank(b));
 }
 
@@ -152,7 +153,7 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
             </select>
           </Field>
         )}
-        <Field label="Name in Pulse"><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Provider name" hint="How campaigns and reports name it, e.g. Amazon SES (Mumbai)."><input className="input" value={name} placeholder={kind?.name} onChange={(e) => setName(e.target.value)} /></Field>
       </div>
       {kind && !gateway && <p className="small muted" style={{ marginBottom: 14 }}>{kind.description}</p>}
       {kind?.notes && <div className="alert info" style={{ marginBottom: 14 }}>{kind.notes}</div>}
@@ -195,13 +196,9 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
             </>
           )}
         </>
-      ) : (
-        <>
-          {kind?.config?.map((f) => <ConfigField key={f.key} f={requiredNow(f)} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />)}
-          {auth}
-          {movedNote}
-          {kind?.secrets?.map(secretField)}
-        </>
+      ) : kind && (
+        <SimpleProviderFields kind={kind} config={config} setConfig={setConfig} requiredNow={requiredNow}
+          secrets={(kind.secrets ?? []).filter((f) => fieldShown(f, config)).map(secretField)} extra={<>{auth}{movedNote}</>} />
       )}
       {!gateway && tools}
 
@@ -211,6 +208,46 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
       </section>
       <label className="check"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />Use for all {CHANNEL_NAMES[channel]} messages</label>
     </Modal>
+  );
+}
+
+/** SimpleProviderFields: a service's settings in easy steps — an optional how-to, one-click presets,
+ * the connection, the sign-in, then "More settings" folded away. Only the fields that apply to the
+ * choices made are shown (the catalog's show_if). */
+function SimpleProviderFields({ kind, config, setConfig, requiredNow, secrets, extra }: {
+  kind: ProviderKind; config: Record<string, string>; setConfig: (c: Record<string, string>) => void;
+  requiredNow: (f: ProviderField) => ProviderField; secrets: ReactNode[]; extra: ReactNode;
+}) {
+  const shown = (kind.config ?? []).filter((f) => fieldShown(f, config));
+  const basic = shown.filter((f) => !f.advanced);
+  const more = shown.filter((f) => f.advanced);
+  const preset = presetOf(kind.presets, config);
+  const field = (f: ProviderField) => <ConfigField key={f.key} f={requiredNow(f)} value={config[f.key] ?? ""} onChange={(v) => setConfig({ ...config, [f.key]: v })} />;
+  let n = 0;
+  return (
+    <>
+      {kind.guide && (
+        <ol className="pf-guide" aria-label="Before you start">{kind.guide.map((g) => <li key={g}>{g}</li>)}</ol>
+      )}
+      {kind.presets && (
+        <div className="pf-presets" role="group" aria-label="Fill in for a service">
+          <span className="xs muted">Fill in for:</span>
+          {kind.presets.map((p) => (
+            <button key={p.name} type="button" className={`btn sm${preset?.name === p.name ? " on" : ""}`} aria-pressed={preset?.name === p.name}
+              onClick={() => setConfig(applyPreset(config, p.values))}>{p.name}</button>
+          ))}
+        </div>
+      )}
+      {preset?.note && <div className="alert info" style={{ marginBottom: 12 }}>{preset.note}</div>}
+      {basic.length > 0 && <Step n={++n} title="Connection"><div className="pf-fields">{basic.map(field)}</div></Step>}
+      {(secrets.length > 0 || extra) && <Step n={++n} title="Sign-in"><div className="pf-fields">{secrets}</div>{extra}</Step>}
+      {more.length > 0 && (
+        <details className="pf-more" open={more.some((f) => (config[f.key] ?? "") !== "") || undefined}>
+          <summary>More settings</summary>
+          <div className="pf-fields">{more.map(field)}</div>
+        </details>
+      )}
+    </>
   );
 }
 

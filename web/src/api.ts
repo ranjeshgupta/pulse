@@ -339,10 +339,23 @@ export interface Journey {
 }
 export type Stats = { status: Record<string, number>; node: Record<string, number> };
 
-export interface ProviderField { key: string; label: string; placeholder?: string; required: boolean; default?: string; hint?: string; options?: string[]; option_labels?: Record<string, string> }
+export interface ProviderField {
+  key: string; label: string; placeholder?: string; required: boolean; default?: string; hint?: string; options?: string[]; option_labels?: Record<string, string>;
+  /** "" (text), "bool" (a switch), "number" or "textarea". */
+  type?: "" | "bool" | "number" | "textarea";
+  /** Folded under "More settings". */
+  advanced?: boolean;
+  /** Shown only while config[key] is one of values ("" = left empty). */
+  show_if?: { key: string; values: string[] };
+}
+export interface ProviderPreset { name: string; values: Record<string, string>; note?: string }
 export interface ProviderKind {
   id: string; channel: Channel; name: string; description: string; config: ProviderField[]; secrets: ProviderField[];
   notes?: string; default_limits?: ProviderLimits; auth?: boolean; custom_request?: boolean;
+  /** A short numbered how-to shown at the top of the form. */
+  guide?: string[];
+  /** One-click settings for well-known services. */
+  presets?: ProviderPreset[];
 }
 /** Per-provider sending limits: messages per second and a daily quota whose day runs in timezone (0 = none). */
 export interface ProviderLimits { rate_per_second?: number; daily_quota?: number; timezone?: string }

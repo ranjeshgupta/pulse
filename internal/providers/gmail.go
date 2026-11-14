@@ -36,34 +36,41 @@ const gmailScope = "https://mail.google.com/"
 const bulkNote = " Gmail and Workspace accounts are for low volume: send bulk mail through the Workspace SMTP relay or a sending service (SES, SendGrid, Postmark…)."
 
 func init() {
+	appPw := &ShowIf{Key: "auth_method", Values: []string{"", "app_password"}}
+	oauth := &ShowIf{Key: "auth_method", Values: []string{"oauth2"}}
 	common := []Field{
-		{Key: "username", Label: "Google account (sign-in email)", Placeholder: "news@acme.com", Required: true},
+		{Key: "username", Label: "Google account", Placeholder: "news@acme.com", Required: true, Hint: "The email address you sign in to Google with."},
 		{Key: "from", Label: "From address", Placeholder: "Acme <news@acme.com>", Required: true,
 			Hint: "The account's own address, or an alias added to it in Gmail settings."},
-		{Key: "port", Label: "Port", Options: []string{"587", "465"}, Default: "587", Hint: "Both are secure; keep 587 unless your network blocks it.",
-			OptionLabels: map[string]string{"587": "587 (STARTTLS, recommended)", "465": "465 (TLS)"}},
 		{Key: "auth_method", Label: "Sign in with", Options: []string{"app_password", "oauth2"}, Default: "app_password",
-			OptionLabels: map[string]string{"app_password": "An app password (simplest)", "oauth2": "A Google OAuth client (for IT teams)"},
-			Hint:         "App password: 16 characters from your Google account's security page (needs 2-step verification). OAuth client: a client ID, secret and refresh token for the https://mail.google.com/ scope (Google calls this XOAUTH2)."},
-		{Key: "client_id", Label: "OAuth client ID (OAuth client only)", Placeholder: "1234-abc.apps.googleusercontent.com"},
-		{Key: "max_connections", Label: "Max connections", Placeholder: "2"},
+			OptionLabels: map[string]string{"app_password": "An app password (simplest)", "oauth2": "A Google OAuth client (for IT teams)"}},
+		{Key: "client_id", Label: "OAuth client ID", Placeholder: "1234-abc.apps.googleusercontent.com", Required: true, ShowIf: oauth,
+			Hint: "From Google Cloud console → APIs & Services → Credentials, for the https://mail.google.com/ scope."},
+		{Key: "port", Label: "Port", Options: []string{"587", "465"}, Default: "587", Advanced: true, Hint: "Both are secure; keep 587 unless your network blocks it.",
+			OptionLabels: map[string]string{"587": "587 (STARTTLS, recommended)", "465": "465 (SSL/TLS)"}},
+		{Key: "max_connections", Label: "Max connections", Placeholder: "2", Type: "number", Advanced: true},
 	}
 	secrets := []Field{
-		{Key: "password", Label: "App password (app password only)"},
-		{Key: httpauth.SecretClientSecret, Label: "OAuth client secret (OAuth client only)"},
-		{Key: httpauth.SecretRefreshToken, Label: "OAuth refresh token (OAuth client only)"},
+		{Key: "password", Label: "App password", Placeholder: "abcd efgh ijkl mnop", Required: true, ShowIf: appPw, Hint: "The 16 letters Google showed you (spaces don't matter)."},
+		{Key: httpauth.SecretClientSecret, Label: "OAuth client secret", Required: true, ShowIf: oauth},
+		{Key: httpauth.SecretRefreshToken, Label: "OAuth refresh token", Required: true, ShowIf: oauth},
+	}
+	guide := []string{
+		"Turn on 2-Step Verification for the Google account (myaccount.google.com → Security).",
+		"Create an app password at myaccount.google.com/apppasswords, named e.g. Pulse.",
+		"Enter the account, the From address and the app password below, then Test connection.",
 	}
 	register(Kind{ID: "gmail_smtp", Channel: channel.Email, Name: "Gmail (SMTP)",
 		Description: "A personal Gmail account through smtp.gmail.com.",
 		Notes:       "Gmail allows about 500 recipients a day; Pulse sets that as this provider's daily quota." + bulkNote,
-		Config:      common, Secrets: secrets,
+		Config:      common, Secrets: secrets, Guide: guide,
 		DefaultLimits: &model.ProviderLimits{DailyQuota: 500, RatePerSecond: 1},
 		New:           func(d Deps, c, s map[string]string) (Provider, error) { return newGoogleSMTP(d, c, s, gmailSMTPHost) },
 	})
 	register(Kind{ID: "gworkspace_smtp", Channel: channel.Email, Name: "Google Workspace (SMTP)",
 		Description: "A Google Workspace account through smtp.gmail.com.",
 		Notes:       "A Workspace account allows about 2,000 recipients a day; Pulse sets that as this provider's daily quota." + bulkNote,
-		Config:      common, Secrets: secrets,
+		Config:      common, Secrets: secrets, Guide: guide,
 		DefaultLimits: &model.ProviderLimits{DailyQuota: 2000, RatePerSecond: 2},
 		New:           func(d Deps, c, s map[string]string) (Provider, error) { return newGoogleSMTP(d, c, s, gmailSMTPHost) },
 	})
@@ -76,12 +83,12 @@ func init() {
 			{Key: "from", Label: "From address", Placeholder: "Acme <news@acme.com>", Required: true, Hint: "An address in your Workspace domain."},
 			{Key: "helo_domain", Label: "Your domain (sent in EHLO)", Placeholder: "acme.com", Required: true,
 				Hint: "Google's relay needs a real domain name in EHLO when it allows you by IP address."},
-			{Key: "port", Label: "Port", Options: []string{"587", "465", "25"}, Default: "587"},
-			{Key: "max_connections", Label: "Max connections", Placeholder: "4"},
+			{Key: "port", Label: "Port", Options: []string{"587", "465", "25"}, Default: "587", Advanced: true},
+			{Key: "max_connections", Label: "Max connections", Placeholder: "4", Type: "number", Advanced: true},
 		},
 		Secrets: []Field{
-			{Key: "username", Label: "SMTP auth user (empty: allowed by IP address)"},
-			{Key: "password", Label: "SMTP auth password"},
+			{Key: "username", Label: "SMTP auth user (optional)", Hint: "Leave empty when the relay allows your server's IP address."},
+			{Key: "password", Label: "SMTP auth password (optional)"},
 		},
 		DefaultLimits: &model.ProviderLimits{DailyQuota: 10000},
 		New: func(_ Deps, c, s map[string]string) (Provider, error) {

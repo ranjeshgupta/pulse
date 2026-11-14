@@ -200,3 +200,23 @@ export function limitsNote(rate: number | undefined, serverRate: number | undefi
 }
 
 const rateSetting = (channel: string) => `PULSE_${channel.toUpperCase()}_RATE`;
+
+// ---- provider form fields ----
+
+type ShowField = { show_if?: { key: string; values: string[] } };
+
+/** fieldShown: whether a catalog field applies with these settings (its show_if, if any). */
+export function fieldShown(f: ShowField, config: Record<string, string>): boolean {
+  if (!f.show_if) return true;
+  return f.show_if.values.includes((config[f.show_if.key] ?? "").trim());
+}
+
+/** applyPreset: the settings after picking a preset (its values over the current ones). */
+export function applyPreset(config: Record<string, string>, values: Record<string, string>): Record<string, string> {
+  return { ...config, ...values };
+}
+
+/** presetOf: the preset the settings match (every value it sets), if any, to show it as chosen. */
+export function presetOf<T extends { values: Record<string, string> }>(presets: T[] | undefined, config: Record<string, string>): T | undefined {
+  return presets?.find((p) => Object.entries(p.values).every(([k, v]) => (config[k] ?? "") === v));
+}

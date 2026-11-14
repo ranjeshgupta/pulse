@@ -17,6 +17,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,38 +29,175 @@ import (
 func init() {
 	register(Kind{
 		ID: "smtp", Channel: channel.Email, Name: "SMTP",
-		Description: "Any SMTP relay: Amazon SES SMTP, SendGrid, Postmark, your own MTA.",
+		Description: "Any SMTP server: Amazon SES, SendGrid, Mailgun, Postmark, Brevo, Microsoft 365, your own mail server.",
+		Presets:     smtpPresets,
 		Config: []Field{
-			{Key: "host", Label: "Host", Placeholder: "email-smtp.ap-south-1.amazonaws.com", Required: true},
-			{Key: "port", Label: "Port", Placeholder: "587", Required: true},
-			{Key: "from", Label: "From address", Placeholder: "Acme <hello@acme.com>", Required: true},
-			{Key: "max_connections", Label: "Max connections", Placeholder: "4"},
-			{Key: "messages_per_connection", Label: "Messages per connection", Placeholder: "100"},
-			{Key: "service", Label: "Sending service (for delivery reports)", Placeholder: "auto: sendgrid, mailgun, postmark, ses, sparkpost or other"},
+			{Key: "host", Label: "Host", Placeholder: "email-smtp.ap-south-1.amazonaws.com", Required: true, Hint: "The SMTP server's address."},
+			{Key: "port", Label: "Port", Placeholder: "587", Required: true, Type: "number", Hint: "Usually 587 (STARTTLS) or 465 (SSL/TLS)."},
+			{Key: "tls", Label: "Encryption", Options: []string{"auto", "starttls", "ssl", "none"}, Default: "auto",
+				OptionLabels: map[string]string{"auto": "Automatic", "starttls": "STARTTLS", "ssl": "SSL/TLS", "none": "None"},
+				Hint:         "Automatic: SSL/TLS on port 465, otherwise STARTTLS when the server offers it."},
+			{Key: "auth_protocol", Label: "Login type", Options: []string{"plain", "login", "cram-md5", "none"}, Default: "plain",
+				OptionLabels: map[string]string{"plain": "PLAIN", "login": "LOGIN", "cram-md5": "CRAM-MD5", "none": "No login"},
+				Hint:         "PLAIN works with most servers; Microsoft 365 also takes LOGIN. No login: the server allows your IP address."},
+			{Key: "from", Label: "From address", Placeholder: "Acme <hello@acme.com>", Required: true, Hint: "An address the server lets you send from."},
+			{Key: "max_connections", Label: "Max connections", Placeholder: "4", Type: "number", Advanced: true, Hint: "Connections open to the server at once (1 to 50)."},
+			{Key: "messages_per_connection", Label: "Messages per connection", Placeholder: "100", Type: "number", Advanced: true, Hint: "Pulse reconnects after this many."},
+			{Key: "helo", Label: "HELO hostname", Placeholder: "localhost", Advanced: true, Hint: "Some servers want your domain here, e.g. acme.com."},
+			{Key: "skip_tls_verify", Label: "Skip TLS certificate check", Type: "bool", Advanced: true,
+				Hint: "Only for a server with a self-signed certificate on your own network: anyone in between could read the mail."},
+			{Key: "service", Label: "Sending service (for delivery reports)", Advanced: true,
+				Options: []string{"", ServiceSES, ServiceSendGrid, ServiceMailgun, ServicePostmark, ServiceSparkPost, ServiceOther},
+				OptionLabels: map[string]string{"": "Detect from the host", ServiceSES: "Amazon SES", ServiceSendGrid: "SendGrid", ServiceMailgun: "Mailgun",
+					ServicePostmark: "Postmark", ServiceSparkPost: "SparkPost", ServiceOther: "Other"}},
+			{Key: "headers", Label: "Custom headers", Type: "textarea", Advanced: true, Placeholder: "X-SES-CONFIGURATION-SET: marketing",
+				Hint: "Added to every email, one per line as Name: value."},
 		},
-		Secrets: []Field{{Key: "username", Label: "Username"}, {Key: "password", Label: "Password"}},
-		New: func(_ Deps, c, s map[string]string) (Provider, error) {
-			maxConns, err := intSetting(c, "max_connections", "Max connections", defaultSMTPMaxConns, 1, 50)
-			if err != nil {
-				return nil, err
-			}
-			perConn, err := intSetting(c, "messages_per_connection", "Messages per connection", defaultSMTPMessagesPerConn, 1, 10000)
-			if err != nil {
-				return nil, err
-			}
-			svc, err := smtpService(c["service"], c["host"])
-			if err != nil {
-				return nil, err
-			}
-			p := &SMTP{Addr: net.JoinHostPort(c["host"], c["port"]), From: c["from"], MaxConns: maxConns, MessagesPerConn: perConn, Service: svc}
-			if s["username"] != "" {
-				p.Auth = smtp.PlainAuth("", s["username"], s["password"], c["host"])
-				sum := sha256.Sum256([]byte(s["password"]))
-				p.username, p.passSum = s["username"], hex.EncodeToString(sum[:])
-			}
-			return p, nil
+		Secrets: []Field{
+			{Key: "username", Label: "Username", ShowIf: &ShowIf{Key: "auth_protocol", Values: []string{"", "plain", "login", "cram-md5"}}},
+			{Key: "password", Label: "Password", ShowIf: &ShowIf{Key: "auth_protocol", Values: []string{"", "plain", "login", "cram-md5"}}},
 		},
+		New: newSMTP,
 	})
+}
+
+// smtpPresets fill the SMTP form for well-known services (host names as each service documents them).
+var smtpPresets = []Preset{
+	{Name: "Amazon SES", Values: map[string]string{"host": "email-smtp.ap-south-1.amazonaws.com", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceSES},
+		Note: "Change ap-south-1 to your SES region. The username and password are SES SMTP credentials (SES console → SMTP settings), not your AWS keys."},
+	{Name: "SendGrid", Values: map[string]string{"host": "smtp.sendgrid.net", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceSendGrid},
+		Note: "The username is literally apikey; the password is your SendGrid API key."},
+	{Name: "Mailgun", Values: map[string]string{"host": "smtp.mailgun.org", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceMailgun},
+		Note: "Use smtp.eu.mailgun.org for an EU domain. The username is the domain's SMTP login, e.g. postmaster@mg.acme.com."},
+	{Name: "Postmark", Values: map[string]string{"host": "smtp.postmarkapp.com", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServicePostmark},
+		Note: "The username and password are both your Postmark server API token."},
+	{Name: "Mailjet", Values: map[string]string{"host": "in-v3.mailjet.com", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceOther},
+		Note: "The username is your Mailjet API key and the password its secret key."},
+	{Name: "Brevo", Values: map[string]string{"host": "smtp-relay.brevo.com", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceOther},
+		Note: "The username is your Brevo login and the password an SMTP key (Brevo → SMTP & API)."},
+	{Name: "SparkPost", Values: map[string]string{"host": "smtp.sparkpostmail.com", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceSparkPost},
+		Note: "The username is SMTP_Injection and the password an API key with sending rights."},
+	{Name: "Microsoft 365", Values: map[string]string{"host": "smtp.office365.com", "port": "587", "tls": "starttls", "auth_protocol": "login", "service": ServiceOther},
+		Note: "The mailbox needs SMTP AUTH turned on in the Microsoft 365 admin centre."},
+	{Name: "Zoho Mail", Values: map[string]string{"host": "smtp.zoho.in", "port": "465", "tls": "ssl", "auth_protocol": "plain", "service": ServiceOther},
+		Note: "Use smtp.zoho.com outside India; with two-factor sign-in on, use an app-specific password."},
+	{Name: "Gmail", Values: map[string]string{"host": "smtp.gmail.com", "port": "587", "tls": "starttls", "auth_protocol": "plain", "service": ServiceOther},
+		Note: "For a Gmail or Google Workspace account, the Gmail provider is simpler and sets Google's daily limit for you."},
+}
+
+// newSMTP builds the generic SMTP adapter from the form's settings.
+func newSMTP(_ Deps, c, s map[string]string) (Provider, error) {
+	host, port := strings.TrimSpace(c["host"]), strings.TrimSpace(c["port"])
+	if host == "" || strings.ContainsAny(host, " /:") {
+		return nil, errors.New("enter the SMTP server's host name, e.g. smtp.example.com")
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return nil, errors.New("the port must be a number from 1 to 65535, usually 587 or 465")
+	}
+	maxConns, err := intSetting(c, "max_connections", "Max connections", defaultSMTPMaxConns, 1, 50)
+	if err != nil {
+		return nil, err
+	}
+	perConn, err := intSetting(c, "messages_per_connection", "Messages per connection", defaultSMTPMessagesPerConn, 1, 10000)
+	if err != nil {
+		return nil, err
+	}
+	svc, err := smtpService(c["service"], host)
+	if err != nil {
+		return nil, err
+	}
+	mode := strings.TrimSpace(c["tls"])
+	switch mode {
+	case "", "auto", "starttls", "ssl", "none":
+	default:
+		return nil, errors.New("encryption must be automatic, STARTTLS, SSL/TLS or none")
+	}
+	helo := strings.TrimSpace(c["helo"])
+	if strings.ContainsAny(helo, " \r\n") {
+		return nil, errors.New("the HELO hostname can't contain spaces")
+	}
+	headers, err := parseHeaderLines(c["headers"])
+	if err != nil {
+		return nil, err
+	}
+	p := &SMTP{Addr: net.JoinHostPort(host, port), From: c["from"], MaxConns: maxConns, MessagesPerConn: perConn, Service: svc,
+		TLSMode: mode, SkipVerify: c["skip_tls_verify"] == "true", Helo: helo, Headers: headers}
+	proto := strings.TrimSpace(c["auth_protocol"])
+	if s["username"] != "" && proto != "none" {
+		switch proto {
+		case "", "plain":
+			p.Auth = smtp.PlainAuth("", s["username"], s["password"], host)
+		case "login":
+			p.Auth = &loginAuth{user: s["username"], pass: s["password"], host: host}
+		case "cram-md5":
+			p.Auth = smtp.CRAMMD5Auth(s["username"], s["password"])
+		default:
+			return nil, errors.New("the login type must be PLAIN, LOGIN, CRAM-MD5 or no login")
+		}
+		sum := sha256.Sum256([]byte(s["password"]))
+		p.username, p.passSum, p.authProto = s["username"], hex.EncodeToString(sum[:]), proto
+	}
+	return p, nil
+}
+
+// reservedHeaders are set by Pulse on every email; custom headers can't replace them.
+var reservedHeaders = map[string]bool{"From": true, "To": true, "Subject": true, "Date": true, "Message-Id": true, "Mime-Version": true,
+	"Content-Type": true, "Content-Transfer-Encoding": true, "X-Pulse-Ref": true, "List-Unsubscribe": true, "List-Unsubscribe-Post": true}
+
+// parseHeaderLines reads custom headers written one per line as "Name: value".
+func parseHeaderLines(text string) (map[string]string, error) {
+	out := map[string]string{}
+	for i, line := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, value, ok := strings.Cut(line, ":")
+		name = textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(name))
+		if !ok || !headerToken.MatchString(name) {
+			return nil, fmt.Errorf("custom headers, line %d: write it as Name: value", i+1)
+		}
+		if reservedHeaders[name] {
+			return nil, fmt.Errorf("custom headers: %s is set by Pulse", name)
+		}
+		out[name] = strings.TrimSpace(value)
+		if len(out) > 20 {
+			return nil, errors.New("custom headers: at most 20")
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+var headerToken = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`)
+
+// loginAuth is the LOGIN mechanism (Microsoft 365 and some older servers). Like net/smtp's
+// PlainAuth, it refuses to send the password over an unencrypted connection except to localhost.
+type loginAuth struct{ user, pass, host string }
+
+func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	if !server.TLS && server.Name != "localhost" && server.Name != "127.0.0.1" && server.Name != "::1" {
+		return "", nil, errors.New("smtp: won't send the password over an unencrypted connection")
+	}
+	if server.Name != a.host {
+		return "", nil, errors.New("smtp: wrong host name")
+	}
+	return "LOGIN", nil, nil
+}
+
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	switch prompt := strings.ToLower(strings.TrimSpace(string(fromServer))); {
+	case strings.Contains(prompt, "user"):
+		return []byte(a.user), nil
+	case strings.Contains(prompt, "pass"):
+		return []byte(a.pass), nil
+	}
+	return nil, fmt.Errorf("smtp: unexpected LOGIN prompt %q", fromServer)
 }
 
 // intSetting reads an optional whole-number setting within [lo, hi]; empty means def.
@@ -91,10 +229,17 @@ type SMTP struct {
 	// Helo is the name given in EHLO (default localhost); Google's SMTP relay wants the sending
 	// domain.
 	Helo string
+	// TLSMode: "" or "auto" (SSL/TLS on port 465, else STARTTLS when offered), "ssl", "starttls"
+	// (required: fail when the server doesn't offer it) or "none".
+	TLSMode string
+	// SkipVerify accepts any server certificate (a self-signed one on a private network).
+	SkipVerify bool
+	// Headers are added to every email (custom headers from the form).
+	Headers map[string]string
 
-	username, passSum string                                                            // identify the login in the pool key (passSum: SHA-256 of the password)
-	tlsConfig         *tls.Config                                                       // tests: trust a test CA (production uses the system roots)
-	dial              func(ctx context.Context, network, addr string) (net.Conn, error) // tests
+	username, passSum, authProto string                                                            // identify the login in the pool key (passSum: SHA-256 of the password)
+	tlsConfig                    *tls.Config                                                       // tests: trust a test CA (production uses the system roots)
+	dial                         func(ctx context.Context, network, addr string) (net.Conn, error) // tests
 }
 
 func (s *SMTP) Send(ctx context.Context, o Outbound) (Result, error) {
@@ -106,8 +251,18 @@ func (s *SMTP) Send(ctx context.Context, o Outbound) (Result, error) {
 	if s.Service == ServicePostmark {
 		ampPart = "" // Postmark doesn't send AMP (SupportsAMP)
 	}
+	headers := o.Headers
+	if len(s.Headers) > 0 {
+		headers = make(map[string]string, len(s.Headers)+len(o.Headers))
+		for k, v := range s.Headers {
+			headers[k] = v
+		}
+		for k, v := range o.Headers { // the message's own (List-Unsubscribe…) win
+			headers[k] = v
+		}
+	}
 	msg, err := BuildMessage(Mail{ID: o.MessageID, From: from, To: o.To, Subject: o.Rendered.Subject, HTML: o.Rendered.HTML,
-		AMP: ampPart, Text: o.Rendered.Content.Text, Headers: o.Headers, Attachments: o.Attachments, Date: time.Now(), Ref: o.Ref, Service: s.Service})
+		AMP: ampPart, Text: o.Rendered.Content.Text, Headers: headers, Attachments: o.Attachments, Date: time.Now(), Ref: o.Ref, Service: s.Service})
 	if err != nil {
 		return Result{}, Permanent(err.Error())
 	}

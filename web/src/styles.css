@@ -449,3 +449,8 @@ select.btn-like { font-weight: 560; background-color: var(--cobalt); color: #fff
 .pf-more { margin: 0 0 12px; }
 .pf-more summary { cursor: pointer; font-size: var(--fs-sm); color: var(--cobalt); margin-bottom: 8px; }
 .pf-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; }
+.pf-guide { margin: 0 0 14px; padding: 10px 14px 10px 32px; background: var(--cobalt-wash); border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 1.5; }
+.pf-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.pf-presets .btn.on { border-color: var(--cobalt); color: var(--cobalt-dark); background: var(--cobalt-wash); }
+.pf-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; }
+.pf-fields > .field:has(textarea) { grid-column: 1 / -1; }

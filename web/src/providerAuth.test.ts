@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authSecretFields, endpointHosts, formatStatuses, hostsChanged, newLogin, parseAuth, parseRequest, parseStatuses, secretsUsed, serializeAuth, serializeRequest, cleanLimits, limitsNote, sameLimits } from "./providerAuth";
+import { authSecretFields, endpointHosts, formatStatuses, hostsChanged, newLogin, parseAuth, parseRequest, parseStatuses, secretsUsed, serializeAuth, serializeRequest, cleanLimits, limitsNote, sameLimits, fieldShown, applyPreset, presetOf } from "./providerAuth";
 
 describe("auth config", () => {
   it("round-trips and drops fields the type doesn't use", () => {
@@ -67,5 +67,21 @@ describe("sending limits", () => {
     const under = limitsNote(50, 100, "sms", "SMS")!;
     expect(under.warn).toBe(false);
     expect(under.text).toContain("PULSE_SMS_RATE");
+  });
+});
+
+describe("provider form fields", () => {
+  it("shows a field only for the settings it applies to", () => {
+    const f = { show_if: { key: "auth_method", values: ["", "app_password"] } };
+    expect(fieldShown(f, {})).toBe(true);
+    expect(fieldShown(f, { auth_method: "oauth2" })).toBe(false);
+    expect(fieldShown({}, { auth_method: "oauth2" })).toBe(true);
+  });
+  it("fills a preset and recognises the one in use", () => {
+    const presets = [{ name: "SendGrid", values: { host: "smtp.sendgrid.net", port: "587" } }, { name: "Postmark", values: { host: "smtp.postmarkapp.com", port: "587" } }];
+    const c = applyPreset({ host: "x", from: "a@b.c" }, presets[0].values);
+    expect(c).toEqual({ host: "smtp.sendgrid.net", port: "587", from: "a@b.c" });
+    expect(presetOf(presets, c)?.name).toBe("SendGrid");
+    expect(presetOf(presets, { ...c, port: "465" })).toBeUndefined();
   });
 });

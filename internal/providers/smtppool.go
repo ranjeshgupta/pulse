@@ -48,6 +48,9 @@ type poolKey struct {
 	tlsConfig         *tls.Config // tests only: a custom root CA
 	dial              string      // tests only: a custom dialer
 	helo              string      // the name given in EHLO (default localhost)
+	tlsMode           string      // "" (automatic), "starttls" (required), "ssl" or "none"
+	skipVerify        bool        // accept any certificate
+	authProto         string      // the login type, with username/passSum identifying the login
 }
 
 type smtpConn struct {
@@ -102,9 +105,13 @@ func (s *SMTP) poolKey() (poolKey, string, error) {
 	if err != nil {
 		return poolKey{}, "", fmt.Errorf("smtp: address %q: %w", s.Addr, err)
 	}
-	k := poolKey{addr: s.Addr, serverName: host, implicitTLS: port == "465",
+	mode := s.TLSMode
+	if mode == "auto" {
+		mode = ""
+	}
+	k := poolKey{addr: s.Addr, serverName: host, implicitTLS: mode == "ssl" || (mode == "" && port == "465"),
 		username: s.username, passSum: s.passSum, maxConns: s.MaxConns, perConn: s.MessagesPerConn,
-		tlsConfig: s.tlsConfig, helo: s.Helo}
+		tlsConfig: s.tlsConfig, helo: s.Helo, tlsMode: mode, skipVerify: s.SkipVerify, authProto: s.authProto}
 	if k.maxConns <= 0 {
 		k.maxConns = defaultSMTPMaxConns
 	}
@@ -130,7 +137,7 @@ func (s *SMTP) acquirePool() (*smtpPool, error) {
 	defer smtpPools.Unlock()
 	p := smtpPools.m[k]
 	if p == nil {
-		cfg := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+		cfg := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, InsecureSkipVerify: k.skipVerify} //nolint:gosec // only when the form's "Skip TLS certificate check" is on
 		if s.tlsConfig != nil {
 			cfg = s.tlsConfig.Clone()
 			cfg.ServerName = host
@@ -342,8 +349,12 @@ func (p *smtpPool) handshake(ctx context.Context, sc *smtpConn) (*smtpConn, erro
 	if err := c.Hello(helo); err != nil {
 		return fail(err)
 	}
-	if !p.key.implicitTLS {
-		if ok, _ := c.Extension("STARTTLS"); ok {
+	if !p.key.implicitTLS && p.key.tlsMode != "none" {
+		ok, _ := c.Extension("STARTTLS")
+		if !ok && p.key.tlsMode == "starttls" {
+			return fail(errors.New("smtp: the server doesn't offer STARTTLS; choose SSL/TLS or Automatic encryption"))
+		}
+		if ok {
 			if err := c.StartTLS(p.tls); err != nil {
 				return fail(err)
 			}

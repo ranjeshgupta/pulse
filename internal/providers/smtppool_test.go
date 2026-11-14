@@ -512,7 +512,7 @@ func TestSMTPPoolConfigValidation(t *testing.T) {
 			t.Errorf("%s is required", f.Key)
 		}
 	}
-	if strings.Join(keys, ",") != "host,port,from,max_connections,messages_per_connection,service" {
+	if strings.Join(keys, ",") != "host,port,tls,auth_protocol,from,max_connections,messages_per_connection,helo,skip_tls_verify,service,headers" {
 		t.Errorf("config fields = %v", keys)
 	}
 }
@@ -618,4 +618,66 @@ func BenchmarkSMTPUnpooled(b *testing.B) {
 		}
 	}
 	b.ReportMetric(float64(b.N)/time.Since(start).Seconds(), "msgs/s")
+}
+
+func TestSMTPFormOptions(t *testing.T) {
+	base := map[string]string{"host": "smtp.example.com", "port": "587", "from": "a@example.com"}
+	with := func(kv ...string) map[string]string {
+		c := map[string]string{}
+		for k, v := range base {
+			c[k] = v
+		}
+		for i := 0; i < len(kv); i += 2 {
+			c[kv[i]] = kv[i+1]
+		}
+		return c
+	}
+	login := map[string]string{"username": "u", "password": "p"}
+	p, err := New("smtp", Deps{}, with("tls", "ssl", "auth_protocol", "login", "helo", "acme.com", "skip_tls_verify", "true",
+		"headers", "X-SES-CONFIGURATION-SET: marketing\nx-campaign-tag:  spring "), login)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := p.(*SMTP)
+	if s.TLSMode != "ssl" || !s.SkipVerify || s.Helo != "acme.com" || s.authProto != "login" {
+		t.Errorf("parsed %+v", s)
+	}
+	if _, ok := s.Auth.(*loginAuth); !ok {
+		t.Errorf("auth = %T, want LOGIN", s.Auth)
+	}
+	if s.Headers["X-Ses-Configuration-Set"] != "marketing" || s.Headers["X-Campaign-Tag"] != "spring" {
+		t.Errorf("headers = %v", s.Headers)
+	}
+	k, _, _ := s.poolKey()
+	if !k.implicitTLS || !k.skipVerify {
+		t.Errorf("pool key %+v: SSL/TLS on port 587 should be implicit TLS", k)
+	}
+	if p, _ := New("smtp", Deps{}, with("auth_protocol", "none"), login); p.(*SMTP).Auth != nil {
+		t.Error("no login still logs in")
+	}
+	if p, _ := New("smtp", Deps{}, with("auth_protocol", "cram-md5"), login); p.(*SMTP).Auth == nil {
+		t.Error("CRAM-MD5 not set")
+	}
+	for _, c := range []map[string]string{
+		with("tls", "maybe"), with("port", "x"), with("host", "smtp.example.com:25"), with("headers", "From: x@y.z"),
+		with("headers", "no colon here"), with("auth_protocol", "ntlm"), with("helo", "a b"),
+	} {
+		if _, err := New("smtp", Deps{}, c, login); err == nil {
+			t.Errorf("%v accepted", c)
+		}
+	}
+	// LOGIN answers the server's prompts and won't send the password unencrypted to another host.
+	a := &loginAuth{user: "u", pass: "p", host: "smtp.example.com"}
+	if _, _, err := a.Start(&smtp.ServerInfo{Name: "smtp.example.com", TLS: false}); err == nil {
+		t.Error("LOGIN over plain text accepted")
+	}
+	if mech, _, err := a.Start(&smtp.ServerInfo{Name: "smtp.example.com", TLS: true}); err != nil || mech != "LOGIN" {
+		t.Errorf("start = %q %v", mech, err)
+	}
+	if u, _ := a.Next([]byte("Username:"), true); string(u) != "u" {
+		t.Errorf("user = %q", u)
+	}
+	if pw, _ := a.Next([]byte("Password:"), true); string(pw) != "p" {
+		t.Errorf("password = %q", pw)
+	}
 }
