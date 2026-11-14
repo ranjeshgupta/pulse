@@ -37,6 +37,10 @@ const (
 	Phone = "phone"
 	SMS   = "sms"
 	Push  = "push"
+	// WhatsApp and RCS: a valid phone whose channel no bounce rule stopped (whatsapp_bounced,
+	// rcs_bounced).
+	WhatsApp = "whatsapp"
+	RCS      = "rcs"
 )
 
 // Key is the Redis key of one of a workspace's bitmaps.
@@ -45,8 +49,9 @@ func Key(tenant int64, name string) string { return fmt.Sprintf("rch:%d:%s", ten
 // OptOut is the bitmap name of contacts opted out of ch (or of everything).
 func OptOut(ch string) string { return "out:" + ch }
 
-// BuiltKey exists while a workspace's bitmaps are fresh (set by a rebuild, for a day).
-func BuiltKey(tenant int64) string { return fmt.Sprintf("rch:%d:built", tenant) }
+// BuiltKey exists while a workspace's bitmaps are fresh (set by a rebuild, for a day). v2: the
+// WhatsApp and RCS bitmaps were added, so every workspace rebuilds once.
+func BuiltKey(tenant int64) string { return fmt.Sprintf("rch:%d:built:v2", tenant) }
 
 // AddressOf is the bitmap of contacts with a working address for ch.
 func AddressOf(ch string) string {
@@ -55,8 +60,10 @@ func AddressOf(ch string) string {
 		return Email
 	case channel.SMS:
 		return SMS
-	case channel.WhatsApp, channel.RCS:
-		return Phone
+	case channel.WhatsApp:
+		return WhatsApp
+	case channel.RCS:
+		return RCS
 	case channel.Push:
 		return Push
 	}
@@ -65,7 +72,7 @@ func AddressOf(ch string) string {
 
 // ProfileNames are the bitmaps set from a profile (push comes from devices).
 func ProfileNames() []string {
-	out := []string{Known, Email, Phone, SMS}
+	out := []string{Known, Email, Phone, SMS, WhatsApp, RCS}
 	for _, ch := range channel.All {
 		out = append(out, OptOut(ch))
 	}
@@ -93,6 +100,8 @@ func Bits(attrs map[string]any) map[string]bool {
 	phone := e164.MatchString(attr.String(attrs["phone"]))
 	b[Phone] = !merged && phone
 	b[SMS] = !merged && phone && !truthy(attrs[consent.AttrSMSBounced])
+	b[WhatsApp] = !merged && phone && !truthy(attrs[consent.AttrWhatsAppBounced])
+	b[RCS] = !merged && phone && !truthy(attrs[consent.AttrRCSBounced])
 	for _, ch := range channel.All {
 		b[OptOut(ch)] = consent.OptedOut(attrs, ch)
 	}
@@ -104,6 +113,7 @@ func Relevant(changed []string) bool {
 	for _, a := range changed {
 		switch {
 		case a == "email", a == "phone", a == "merged_into", a == consent.AttrEmailBounced, a == consent.AttrSMSBounced,
+			a == consent.AttrWhatsAppBounced, a == consent.AttrRCSBounced,
 			strings.HasPrefix(a, "optout_"):
 			return true
 		}

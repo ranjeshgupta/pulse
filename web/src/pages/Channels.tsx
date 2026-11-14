@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type ProviderField, type SandboxMessage } from "../api";
 import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
-import { BounceMailboxPanel } from "./BounceMailbox";
 import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
 import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, parseRequest, presetOf, sameLimits, serializeAuth, serializeRequest } from "../providerAuth";
 
@@ -66,8 +66,13 @@ export function Channels() {
       </section>
       <TestContactsPanel canEdit={canTest} />
       <DeliveryRulesPanel admin={admin} />
-      {admin && <BouncesPanel />}
-      {admin && <BounceMailboxPanel />}
+      <section className="panel section">
+        <div className="panel-head"><h3>Bounces, complaints and unsubscribes</h3></div>
+        <div className="panel-body small">
+          What bounces and spam complaints do on each channel, the bounce webhook and mailboxes, and unsubscribe settings are under{" "}
+          <Link to="/settings/bounces">Settings → Bounces &amp; unsubscribes</Link>.
+        </div>
+      </section>
       {testing && <ProviderTest provider={testing} onClose={() => setTesting(null)} />}
       {limiting && <LimitsForm provider={limiting} sendRate={sendRates[limiting.channel]} onClose={() => setLimiting(null)} />}
       {editing && <ProviderForm channel={editing.channel} provider={editing.provider} kinds={kinds.filter((k) => k.channel === editing.channel)} sendRate={sendRates[editing.channel]} onClose={() => setEditing(null)} />}
@@ -439,7 +444,7 @@ const BOUNCE_SERVICES: Record<string, string> = {
 };
 
 // BouncesPanel shows where the email service should report bounces and complaints, and what each does.
-function BouncesPanel() {
+export function BouncesPanel() {
   const toast = useToast();
   const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<BounceSettings>("/v1/settings/bounces") });
   const copy = (text: string) =>

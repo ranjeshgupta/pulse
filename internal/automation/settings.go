@@ -30,6 +30,8 @@ type Settings struct {
 	Schedules     Schedules                       `json:"schedules"`
 	Messages      Messages                        `json:"messages"`
 	DefaultLimits map[string]model.ProviderLimits `json:"default_limits"` // by channel
+	// Bounces: what bounces and complaints do, per channel (bounces.go); DefaultBounces when unset.
+	Bounces map[string]ChannelBounces `json:"bounces"`
 }
 
 // Retention says how long each kind of log is kept, in days (0 keeps forever).
@@ -108,6 +110,7 @@ func Defaults() Settings {
 		Retries:   Retries{Attempts: DefaultAttempts, MaxBackoffSeconds: int(DefaultMaxBackoff / time.Second)},
 		Schedules: Schedules{ReachRebuildHour: -1, DailySegmentAt: DefaultDailyAt},
 		Messages:  Messages{InboxExpiryDays: DefaultInboxExpiry},
+		Bounces:   DefaultBounces(),
 	}
 }
 
@@ -124,7 +127,7 @@ func Load(raw []byte) (Settings, error) {
 }
 
 // Sections are the top-level parts of Settings; a PUT replaces the sections it sends.
-var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits"}
+var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces"}
 
 // Apply replaces the sections present in body (a JSON object) on top of cur; within a section,
 // fields left out take their defaults. Unknown sections and fields are refused.
@@ -137,6 +140,7 @@ func Apply(cur Settings, body []byte) (Settings, error) {
 	out := cur
 	out.Retention.EventOverrides = maps.Clone(cur.Retention.EventOverrides)
 	out.DefaultLimits = maps.Clone(cur.DefaultLimits)
+	out.Bounces = maps.Clone(cur.Bounces)
 	for k, v := range parts {
 		var dst any
 		switch k {
@@ -155,6 +159,21 @@ func Apply(cur Settings, body []byte) (Settings, error) {
 		case "default_limits":
 			out.DefaultLimits = nil
 			dst = &out.DefaultLimits
+		case "bounces":
+			// The channels sent replace theirs; the others keep theirs.
+			var b map[string]ChannelBounces
+			dec := json.NewDecoder(strings.NewReader(string(v)))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&b); err != nil {
+				return cur, fmt.Errorf("bounces: %v", err)
+			}
+			if out.Bounces == nil {
+				out.Bounces = DefaultBounces()
+			}
+			for ch, r := range b {
+				out.Bounces[ch] = r
+			}
+			continue
 		default:
 			return cur, fmt.Errorf("unknown section %q (sections: %s)", k, strings.Join(Sections, ", "))
 		}
@@ -291,7 +310,7 @@ func (s *Settings) Validate() error {
 	if len(s.DefaultLimits) == 0 {
 		s.DefaultLimits = nil
 	}
-	return nil
+	return validateBounces(s.Bounces)
 }
 
 // MessageEvents is the effective message-events retention.

@@ -12,6 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"pulse/internal/attr"
+	"pulse/internal/automation"
 	"pulse/internal/channel"
 	"pulse/internal/event"
 	"pulse/internal/eventschema"
@@ -187,6 +188,15 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 		var ev event.Event
 		if err := json.Unmarshal(r.Value, &ev); err != nil {
 			return fmt.Errorf("decode event: %w", err)
+		}
+		// A bounce rule that deletes contacts (package profile adds bounce_action): this role holds
+		// the deleter that the "delete contact" step uses.
+		if event.IsBounceAction(ev.Name) && attr.String(ev.Props["action"]) == automation.BounceDelete && ev.ContactID != 0 {
+			if e.exec.Deleter == nil {
+				e.log.Error("bounce rule says delete, but no deleter is set", "tenant", ev.TenantID, "contact", ev.ContactID)
+				return nil
+			}
+			return e.exec.Deleter.DeleteContacts(ctx, ev.TenantID, []uint32{ev.ContactID})
 		}
 		// Goals first: a contact who converts leaves before anything else reacts to this event.
 		if js := idx.goals[ev.TenantID][ev.Name]; len(js) > 0 {

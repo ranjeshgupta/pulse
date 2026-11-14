@@ -31,7 +31,8 @@ export const SETTINGS_NAV: { title: string; items: SettingsItem[] }[] = [
   {
     title: "Delivery",
     items: [
-      { to: "/settings/channels", label: "Channels", hint: "Providers, sending rules, bounces, reply tracking", need: ["channels", "view"] },
+      { to: "/settings/channels", label: "Channels", hint: "Providers, sending rules, reply tracking", need: ["channels", "view"] },
+      { to: "/settings/bounces", label: "Bounces & unsubscribes", hint: "Bounce rules, webhooks, mailboxes, unsubscribe options", need: ["channels", "view"] },
       { to: "/settings/test-inbox", label: "Test inbox", hint: "Messages sent through sandbox providers", need: ["channels", "view"] },
       { to: "/settings/web-push", label: "Web push", hint: "Opt-in prompt and install check", need: ["channels", "view"] },
     ],

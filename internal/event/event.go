@@ -84,9 +84,26 @@ func ServerOnly(name string) bool {
 	return false
 }
 
+// BounceActionName is the event a bounce rule adds for a channel (email_bounce_action…; package
+// profile). Only Pulse records it: it can stop a channel or delete the contact.
+func BounceActionName(ch string) string { return ch + "_bounce_action" }
+
+// IsBounceAction reports whether name is a BounceActionName.
+func IsBounceAction(name string) bool { return strings.HasSuffix(name, "_bounce_action") }
+
+var bounceReportRe = regexp.MustCompile(`^(email|sms|whatsapp|rcs|push)_(bounced|failed|complained|delivered|read)$`)
+
+// BounceReport reports whether name says what happened to a message (delivered, bounced, failed,
+// complained): they count towards the bounce rules, so browsers can't send them (servers may, to
+// report bounces from their own systems).
+func BounceReport(name string) bool { return bounceReportRe.MatchString(name) }
+
 // PlatformOnly reports whether an event is recorded by Pulse itself (or one of its own endpoints,
 // which validate it), so POST /v1/events refuses it.
 func PlatformOnly(name string) bool {
+	if IsBounceAction(name) {
+		return true
+	}
 	switch name {
 	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
 		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered:

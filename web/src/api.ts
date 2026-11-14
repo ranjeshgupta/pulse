@@ -715,7 +715,12 @@ export interface AutomationSettings {
   schedules: { sweep_minutes: number; reach_rebuild_hour: number; daily_segment_at: string; daily_segment_tz: string };
   messages: { inbox_expiry_days: number };
   default_limits: Record<string, ProviderLimits> | null;
+  /** Bounce rules per channel (email, sms, whatsapp, rcs). */
+  bounces?: Record<string, ChannelBounces>;
 }
+export type BounceAction = "record" | "stop" | "unsubscribe" | "leave_segments" | "do_not_contact" | "delete";
+export interface BounceRule { count: number; action: BounceAction }
+export interface ChannelBounces { hard: BounceRule; soft: BounceRule; complaint: BounceRule }
 export interface AutomationLimit { min: number; max: number; zero: boolean }
 export interface AutomationResponse {
   settings: AutomationSettings;

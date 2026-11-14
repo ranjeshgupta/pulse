@@ -24,7 +24,7 @@ func ToSQL(r Rule, tenantID int64, asOf time.Time) (Query, error) {
 	}
 	return Query{
 		// Contacts merged into another profile keep their row but never match anything.
-		SQL:  "SELECT id FROM contacts FINAL WHERE tenant_id = ? AND NOT mapContains(attrs, 'merged_into') AND " + where + " ORDER BY id",
+		SQL:  "SELECT id FROM contacts FINAL WHERE tenant_id = ? AND NOT mapContains(attrs, 'merged_into') AND attrs['segments_excluded'] != 'true' AND " + where + " ORDER BY id",
 		Args: append([]any{uint64(tenantID)}, args...),
 	}, nil
 }

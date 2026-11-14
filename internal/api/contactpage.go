@@ -80,7 +80,7 @@ func ContactReach(c model.Contact, devices []model.Device) []ChannelReach {
 			r.Bounced = attr.String(attrs[consent.AttrEmailBounced]) == "true"
 		case channel.SMS, channel.WhatsApp, channel.RCS:
 			r.Address, r.HasAddr = phone, bits[reach.Phone]
-			r.Bounced = chn == channel.SMS && attr.String(attrs[consent.AttrSMSBounced]) == "true"
+			r.Bounced = consent.Bounced(attrs, chn)
 		case channel.Push:
 			r.HasAddr = len(devices) > 0
 			if r.HasAddr {

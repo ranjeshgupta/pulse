@@ -423,3 +423,20 @@ func TestReachabilityFollowsEvents(t *testing.T) {
 		t.Fatal("opt-out not recorded")
 	}
 }
+
+// A bounce rule that sets segments_excluded takes the contact out of every segment, dynamic and
+// static; clearing it lets the rules decide again.
+func TestSegmentsExcludedLeavesEverySegment(t *testing.T) {
+	p := map[string]any{"city": "Delhi", "segments_excluded": true}
+	if !mergedAway(p) {
+		t.Error("excluded contact counted in segments")
+	}
+	p["segments_excluded"] = false
+	if mergedAway(p) {
+		t.Error("cleared exclusion still excludes")
+	}
+	ev := event.Event{ChangedAttrs: []string{"segments_excluded"}}
+	if !exclusionChanged(&ev) {
+		t.Error("exclusion change not seen")
+	}
+}

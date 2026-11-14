@@ -435,9 +435,7 @@ func formID(props map[string]any) int64 {
 // unsubscribed from it or from everything, or (email, SMS) bounced.
 func MarkedDNC(attrs map[string]any, ch string) bool {
 	if ch != "any" {
-		return consent.OptedOut(attrs, ch) ||
-			ch == channel.Email && truthy(attrs[consent.AttrEmailBounced]) ||
-			ch == channel.SMS && truthy(attrs[consent.AttrSMSBounced])
+		return consent.OptedOut(attrs, ch) || consent.Bounced(attrs, ch)
 	}
 	for _, c := range channel.All {
 		if MarkedDNC(attrs, c) {

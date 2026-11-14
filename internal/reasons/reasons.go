@@ -78,6 +78,35 @@ var skipGroup = map[string]string{
 // (consent, reachability, cap, missing_value, deadline), or "".
 func SkipGroup(code string) string { return skipGroup[code] }
 
+// Bounce types: what a failed message says about the contact's address on that channel, the same
+// for every channel. Provider-side failures (credentials, timeouts, templates, rate limits) and
+// skips are none of these: they aren't the contact's fault.
+const (
+	BounceHard      = "hard"      // permanent: the address or number doesn't exist or can't take messages
+	BounceSoft      = "soft"      // temporary: mailbox full, handset unreachable, not on the channel now
+	BounceComplaint = "complaint" // the person marked it as spam or blocked the sender
+)
+
+var bounceTypes = map[string]string{
+	InvalidNumber: BounceHard, InvalidEmail: BounceHard, InvalidToken: BounceHard, HardBounce: BounceHard,
+	SoftBounce: BounceSoft, NotOnChannel: BounceSoft,
+	Complaint: BounceComplaint, Blocked: BounceComplaint,
+}
+
+// BounceType is the bounce type of a reason code ("" when it isn't a bounce or a complaint).
+func BounceType(code string) string { return bounceTypes[code] }
+
+// BounceCodes lists the reason codes of one bounce type, for queries.
+func BounceCodes(bounceType string) []string {
+	var out []string
+	for _, c := range Codes {
+		if bounceTypes[c] == bounceType {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Meta WhatsApp Cloud API error codes.
 var metaCodes = map[int]string{
 	131026: Blocked, // message undeliverable: not on WhatsApp, old app, or the user blocked the business

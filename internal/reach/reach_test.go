@@ -23,10 +23,11 @@ func TestBits(t *testing.T) {
 	}{
 		"email only":         {map[string]any{"email": "a@x.com"}, []string{Known, Email}},
 		"bounced email":      {map[string]any{"email": "a@x.com", "email_bounced": true}, []string{Known}},
-		"phone":              {map[string]any{"phone": "+919800000001"}, []string{Known, Phone, SMS}},
-		"sms bounced":        {map[string]any{"phone": "+919800000001", "sms_bounced": "true"}, []string{Known, Phone}},
+		"phone":              {map[string]any{"phone": "+919800000001"}, []string{Known, Phone, SMS, WhatsApp, RCS}},
+		"sms bounced":        {map[string]any{"phone": "+919800000001", "sms_bounced": "true"}, []string{Known, Phone, WhatsApp, RCS}},
+		"whatsapp stopped":   {map[string]any{"phone": "+919800000001", "whatsapp_bounced": true}, []string{Known, Phone, SMS, RCS}},
 		"national number":    {map[string]any{"phone": "98000 00001"}, []string{Known}},
-		"opted out of sms":   {map[string]any{"phone": "+919800000001", "optout_sms": true}, []string{Known, Phone, SMS, OptOut(channel.SMS)}},
+		"opted out of sms":   {map[string]any{"phone": "+919800000001", "optout_sms": true}, []string{Known, Phone, SMS, WhatsApp, RCS, OptOut(channel.SMS)}},
 		"do not contact":     {map[string]any{"email": "a@x.com", "optout_all": "true"}, append([]string{Known, Email}, allOut()...)},
 		"merged away":        {map[string]any{"email": "a@x.com", "phone": "+919800000001", "merged_into": "u2"}, nil},
 		"resubscribed email": {map[string]any{"email": "a@x.com", "optout_email": false}, []string{Known, Email}},
@@ -45,7 +46,7 @@ func TestBits(t *testing.T) {
 	if !Relevant([]string{"last_seen", "optout_email"}) || Relevant([]string{"last_seen", "city"}) || !Relevant([]string{"phone"}) {
 		t.Error("Relevant")
 	}
-	if AddressOf(channel.WhatsApp) != Phone || AddressOf(channel.Inbox) != Known || AddressOf(channel.SMS) != SMS {
+	if AddressOf(channel.WhatsApp) != WhatsApp || AddressOf(channel.RCS) != RCS || AddressOf(channel.Inbox) != Known || AddressOf(channel.SMS) != SMS {
 		t.Error("AddressOf")
 	}
 }

@@ -59,3 +59,18 @@ func TestLabelsAndGroups(t *testing.T) {
 		t.Error("code maps")
 	}
 }
+
+func TestBounceTypes(t *testing.T) {
+	for code, want := range map[string]string{
+		InvalidNumber: BounceHard, HardBounce: BounceHard, InvalidToken: BounceHard, InvalidEmail: BounceHard,
+		SoftBounce: BounceSoft, NotOnChannel: BounceSoft, Complaint: BounceComplaint, Blocked: BounceComplaint,
+		ProviderError: "", Timeout: "", ProviderAuth: "", Template: "", Consent: "", Capped: "", "": "",
+	} {
+		if got := BounceType(code); got != want {
+			t.Errorf("BounceType(%q) = %q, want %q", code, got, want)
+		}
+	}
+	if got := BounceCodes(BounceComplaint); len(got) != 2 {
+		t.Errorf("complaint codes = %v", got)
+	}
+}

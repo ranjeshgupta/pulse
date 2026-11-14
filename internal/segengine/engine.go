@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"pulse/internal/attr"
+	"pulse/internal/consent"
 	"pulse/internal/event"
 	"pulse/internal/kafka"
 	"pulse/internal/model"
@@ -285,7 +287,7 @@ func (e *Engine) candidates(ev *event.Event) []*compiled {
 	if ti == nil {
 		return nil
 	}
-	if ev.NewContact || mergedAway(ev.Profile) {
+	if ev.NewContact || mergedAway(ev.Profile) || exclusionChanged(ev) {
 		return ti.all
 	}
 	seen := map[int64]bool{}
@@ -329,11 +331,19 @@ func listChange(ev *event.Event, ti *tenantIndex) (int64, bool) {
 	return 0, false
 }
 
-// mergedAway reports whether the profile was merged into another contact. Such contacts are in
-// no segment.
+// mergedAway reports whether the profile is in no segment: it was merged into another contact,
+// or a bounce rule took it out of every segment (segments_excluded) until its address changes.
 func mergedAway(profile map[string]any) bool {
-	_, ok := profile[event.AttrMergedInto]
-	return ok
+	if _, ok := profile[event.AttrMergedInto]; ok {
+		return true
+	}
+	return attr.String(profile[consent.AttrSegmentsExcluded]) == "true"
+}
+
+// exclusionChanged reports whether the event set or cleared segments_excluded: every segment is
+// checked again, and static segments are left when it was set.
+func exclusionChanged(ev *event.Event) bool {
+	return slices.Contains(ev.ChangedAttrs, consent.AttrSegmentsExcluded)
 }
 
 // lookup is the Counter (and segment lookup) for one contact in a batch: prefetched counters and
@@ -504,6 +514,17 @@ func (e *Engine) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 			}
 		}
 		gone := mergedAway(j.ev.Profile)
+		if gone && exclusionChanged(&j.ev) && idx[j.ev.TenantID] != nil {
+			// A bounce rule took the contact out of every segment: static ones too.
+			for _, list := range idx[j.ev.TenantID].static {
+				l.bits[list] = false
+				written[bkey{j.ev.TenantID, list, j.ev.ContactID}] = false
+				flips = append(flips, flip{
+					change: model.MembershipChange{TenantID: j.ev.TenantID, SegmentID: list, ContactID: j.ev.ContactID, Entered: false, Source: SourceStream, At: now},
+					old:    pipe.SetBit(ctx, segment.MemberKey(j.ev.TenantID, list), int64(j.ev.ContactID), 0),
+				})
+			}
+		}
 		if list, joined := listChange(&j.ev, idx[j.ev.TenantID]); list != 0 {
 			joined = joined && !gone
 			l.bits[list] = joined

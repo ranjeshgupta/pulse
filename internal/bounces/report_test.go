@@ -142,12 +142,12 @@ func TestPollerCheck(t *testing.T) {
 		}
 	}
 	// full@example.org isn't a contact: skipped.
-	want := "u1:email_bounced u2:email_complained u2:unsubscribed"
+	want := "u1:email_bounced u2:email_complained" // what follows is the bounce rules' (profile)
 	if strings.Join(names, " ") != want {
 		t.Errorf("events %v, want %s", names, want)
 	}
-	if pub.evs[0].Attrs[AttrEmailBounced] != true {
-		t.Error("a hard bounce must mark the address bounced")
+	if pub.evs[0].Props["same_address"] != true {
+		t.Error("a hard bounce of the contact's own address must say so (the rules then stop email)")
 	}
 	if len(sess.seen) != 3 {
 		t.Errorf("every read message is marked seen: %v", sess.seen)

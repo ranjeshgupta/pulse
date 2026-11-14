@@ -21,7 +21,56 @@ const (
 	AttrEmailBounced = "email_bounced"
 	// AttrSMSBounced is the same for SMS: a permanent failure of the phone number.
 	AttrSMSBounced = "sms_bounced"
+	// AttrWhatsAppBounced and AttrRCSBounced: a bounce rule stopped that channel to the number.
+	AttrWhatsAppBounced = "whatsapp_bounced"
+	AttrRCSBounced      = "rcs_bounced"
+	// AttrSegmentsExcluded: a bounce rule took the contact out of every segment (dynamic ones
+	// included) until its address changes or the bounce is cleared.
+	AttrSegmentsExcluded = "segments_excluded"
 )
+
+// BouncedAttr is the attribute that stops ch to the contact's address after bounces ("" for a
+// channel without one).
+func BouncedAttr(ch string) string {
+	switch ch {
+	case channel.Email:
+		return AttrEmailBounced
+	case channel.SMS:
+		return AttrSMSBounced
+	case channel.WhatsApp:
+		return AttrWhatsAppBounced
+	case channel.RCS:
+		return AttrRCSBounced
+	}
+	return ""
+}
+
+// BounceCountAttr counts a contact's bounces of one type (hard, soft, complaint) on ch, e.g.
+// email_hard_bounces, sms_complaints. Pulse keeps them; a new address on the channel resets them.
+func BounceCountAttr(ch, bounceType string) string {
+	if bounceType == "complaint" {
+		return ch + "_complaints"
+	}
+	return ch + "_" + bounceType + "_bounces"
+}
+
+// IsBounceCount reports whether an attribute is one of the BounceCountAttr counters.
+func IsBounceCount(k string) bool {
+	for _, ch := range channel.All {
+		for _, t := range []string{"hard", "soft", "complaint"} {
+			if k == BounceCountAttr(ch, t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Bounced reports whether ch to the contact's address was stopped by bounces.
+func Bounced(attrs map[string]any, ch string) bool {
+	a := BouncedAttr(ch)
+	return a != "" && truthy(attrs[a])
+}
 
 // Methods of an unsubscribe, recorded as props.method on unsubscribed events.
 const (
@@ -48,12 +97,13 @@ func Key(ch string) string { return "optout_" + ch }
 // company_name, company_<key>) are reserved the same way: they change only through their events.
 func IsReserved(attrName string) bool {
 	switch attrName {
-	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, AttrSMSBounced, "first_seen", "last_seen", "stage", "stage_changed_at",
+	case Key(All), "tags", "points", "merged_into", AttrEmailBounced, AttrSMSBounced, AttrWhatsAppBounced, AttrRCSBounced,
+		AttrSegmentsExcluded, "first_seen", "last_seen", "stage", "stage_changed_at",
 		"date_added", "date_identified", "date_modified", "email_domain", "phone_country", "owner_id", "owner_name",
 		"device_type", "device_os", "device_os_version", "device_brand", "device_model", "browser", "app_version":
 		return true
 	}
-	if strings.HasPrefix(attrName, "company_") {
+	if strings.HasPrefix(attrName, "company_") || IsBounceCount(attrName) {
 		return true
 	}
 	for _, ch := range channel.All {

@@ -39,6 +39,10 @@ var client = &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
 
 func main() {
 	flag.Parse()
+	if *scenario == "month" {
+		runMonth()
+		return
+	}
 	run := fmt.Sprint(time.Now().Unix())
 	key := setup(run)
 

@@ -642,7 +642,7 @@ func TestSMSBounceMarksAndSuppresses(t *testing.T) {
 	}
 	var e event.Event
 	_ = json.Unmarshal(f.pub.recs[0].Value, &e)
-	if e.Name != "sms_failed" || e.Props["bounce"] != true || e.Attrs["sms_bounced"] != true {
+	if e.Name != "sms_failed" || e.Props["bounce"] != true || len(e.Attrs) != 0 { // the bounce rules set sms_bounced (profile)
 		t.Errorf("bounce event = %+v", e)
 	}
 	f.pub.take()

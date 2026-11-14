@@ -17,7 +17,7 @@ func TestToSQLAttr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantSQL := "SELECT id FROM contacts FINAL WHERE tenant_id = ? AND NOT mapContains(attrs, 'merged_into') AND " +
+	wantSQL := "SELECT id FROM contacts FINAL WHERE tenant_id = ? AND NOT mapContains(attrs, 'merged_into') AND attrs['segments_excluded'] != 'true' AND " +
 		"(attrs[?] IN (?, ?) AND ifNull(toFloat64OrNull(attrs[?]) >= ?, 0)) ORDER BY id"
 	if q.SQL != wantSQL {
 		t.Errorf("SQL =\n%s\nwant\n%s", q.SQL, wantSQL)

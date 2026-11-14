@@ -99,11 +99,11 @@ func TestEventsLinkToTheMessage(t *testing.T) {
 		got = append(got, e.ExternalID+":"+e.Name+":"+e.ID)
 	}
 	want := []string{"u1:email_bounced:fb:bc5:100:11:hard:b", "u1:email_delivered:fb:bc5:100:11:delivered",
-		"u2:email_bounced:fb:44:send:1:hard:b", "u1:email_complained:", "u1:unsubscribed:"}
+		"u2:email_bounced:fb:44:send:1:hard:b", "u1:email_complained:"} // the bounce rules unsubscribe (profile)
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("events\n%v\nwant\n%v", got, want)
 	}
-	if evs[0].Props["broadcast_id"] != int64(5) || evs[0].Props["reason_code"] != "hard_bounce" || evs[0].Attrs[AttrEmailBounced] != true {
+	if evs[0].Props["broadcast_id"] != int64(5) || evs[0].Props["reason_code"] != "hard_bounce" || evs[0].Props["same_address"] != true || len(evs[0].Attrs) != 0 {
 		t.Errorf("linked hard bounce: %+v %+v", evs[0].Props, evs[0].Attrs)
 	}
 	if evs[1].Props["message_id"] != "bc5:100:11" || evs[1].Props["kind"] != nil {

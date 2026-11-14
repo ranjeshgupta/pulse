@@ -54,9 +54,11 @@ type Store interface {
 
 type Service struct {
 	store Store
-	rdb   redis.Cmdable
-	pub   kafka.Publisher
-	now   func() time.Time
+	// bounces caches each workspace's bounce rules (automation settings) for bounceRules.
+	bounces sync.Map // tenant -> cachedBounces
+	rdb     redis.Cmdable
+	pub     kafka.Publisher
+	now     func() time.Time
 
 	// Schemas, when set, checks events against their event schemas (counting problems) and
 	// applies their "add to list field" properties.
@@ -137,6 +139,9 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 		removes = companyUpdates(cur, e, updates)
 	case event.OwnerChanged:
 		removes = ownerUpdates(e, updates)
+	}
+	if event.IsBounceAction(e.Name) {
+		bounceActionUpdates(e, updates)
 	}
 	if event.CarriesDevice(e.Name) {
 		removes = append(removes, deviceUpdates(e.Props, updates)...)
@@ -774,6 +779,18 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 		merged, changed := MergeScored(cur, e, scoring[e.TenantID][e.Name])
 		merged, changed = StampSeen(merged, changed, e.Ts)
 		merged, changed = StampDates(merged, changed, e.Ts, c.CreatedAt, e.ExternalID)
+		// Bounces and complaints count on the contact; a rule that fires adds its action next.
+		merged, changed = resetBounces(cur, merged, changed)
+		var follows []event.Event
+		merged, changed, follows = countBounce(merged, changed, e, s.bounceRules(ctx))
+		for _, f := range follows {
+			NormalizeConsent(&f)
+			var applied []string
+			merged, applied = MergeScored(merged, &f, 0)
+			changed = mergeKeys(changed, applied)
+			f.ContactID, f.Profile = c.ID, merged
+			after[i] = append(after[i], f)
+		}
 		if st := StageForPoints(stages[e.TenantID], attr.String(merged[event.AttrStage]), pointsOf(before), pointsOf(merged)); st != "" {
 			from := attr.String(merged[event.AttrStage])
 			move := event.Event{ID: e.ID + ":stage", TenantID: e.TenantID, ExternalID: e.ExternalID, Name: event.StageChanged, Ts: e.Ts,

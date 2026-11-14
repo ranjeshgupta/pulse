@@ -129,7 +129,7 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "consent changes can't be sent from the browser")
 			return
 		}
-		if event.ServerOnly(e.Name) {
+		if event.ServerOnly(e.Name) || event.BounceReport(e.Name) || event.PlatformOnly(e.Name) {
 			writeErr(w, http.StatusBadRequest, e.Name+" can only be sent with an API key")
 			return
 		}

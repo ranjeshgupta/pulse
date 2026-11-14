@@ -247,9 +247,9 @@ type Resolver func(b Bounce) (Target, bool)
 var reasonCodes = map[string]string{Hard: "hard_bounce", Soft: "soft_bounce", Complaint: "complaint"}
 
 // Events turns reports into events on their contacts (resolve finds them; unknown addresses are
-// skipped): a hard bounce records email_bounced and marks the address bounced (no more email); a
-// soft bounce only records email_bounced; a complaint records email_complained and unsubscribes
-// the contact from email; a delivery report records email_delivered (linked reports only).
+// skipped): bounces record email_bounced (kind hard or soft; same_address false when the contact
+// has a new address since), complaints email_complained, delivery reports email_delivered (linked
+// reports only). The workspace's bounce rules decide what follows (package profile).
 // Linked reports carry the message's ids and get ids derived from the message, so a webhook the
 // service repeats records one event.
 func Events(bs []Bounce, resolve Resolver) ([]event.Event, error) {
@@ -279,18 +279,14 @@ func Events(bs []Bounce, resolve Resolver) ([]event.Event, error) {
 			}
 			return ""
 		}
+		// What a bounce or complaint does to the contact (stop email, unsubscribe, leave segments…)
+		// is the workspace's bounce rule, applied by the profile role when it counts the event.
 		switch b.Kind {
-		case Hard:
-			ev := event.Event{ID: id(":b"), ExternalID: t.ExternalID, Name: "email_bounced", Props: props}
-			if t.SameAddress {
-				ev.Attrs = map[string]any{AttrEmailBounced: true}
-			}
-			evs = append(evs, ev)
-		case Soft:
+		case Hard, Soft:
+			props["same_address"] = t.SameAddress || b.Kind == Soft
 			evs = append(evs, event.Event{ID: id(":b"), ExternalID: t.ExternalID, Name: "email_bounced", Props: props})
 		case Complaint:
-			evs = append(evs, event.Event{ID: id(":c"), ExternalID: t.ExternalID, Name: "email_complained", Props: props},
-				event.Event{ID: id(":u"), ExternalID: t.ExternalID, Name: consent.Unsubscribed, Props: map[string]any{"channel": "email", "source": "complaint"}})
+			evs = append(evs, event.Event{ID: id(":c"), ExternalID: t.ExternalID, Name: "email_complained", Props: props})
 		case Delivered:
 			delete(props, "kind")
 			evs = append(evs, event.Event{ID: id(""), ExternalID: t.ExternalID, Name: "email_delivered", Props: props})

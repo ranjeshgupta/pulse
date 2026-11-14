@@ -38,3 +38,15 @@ func TestNormalizeRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestBounceEventNames(t *testing.T) {
+	if !PlatformOnly("sms_bounce_action") || !IsBounceAction(BounceActionName("email")) {
+		t.Error("bounce actions are Pulse's own")
+	}
+	for name, want := range map[string]bool{"email_complained": true, "sms_failed": true, "whatsapp_delivered": true, "email_bounced": true,
+		"purchase": false, "email_opened": false, "sms_sent": false} {
+		if BounceReport(name) != want {
+			t.Errorf("BounceReport(%q) = %v", name, !want)
+		}
+	}
+}

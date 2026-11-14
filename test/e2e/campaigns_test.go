@@ -73,8 +73,9 @@ func TestBroadcastExclusionsAndLocalTime(t *testing.T) {
 
 	// Local time: repeating broadcasts can't use it.
 	jsonCall(t, c, "POST", "/v1/broadcasts", with(map[string]any{"local_time": true, "timezone": "UTC", "repeat": "daily"}), 400)
-	// Scheduled for 9:00 tomorrow (UTC), it starts when 9:00 comes in UTC+14.
-	nine := time.Now().UTC().Truncate(24 * time.Hour).Add(33 * time.Hour)
+	// Scheduled for 9:00 the day after tomorrow (UTC), it starts when 9:00 comes in UTC+14 (the
+	// day before at 19:00 UTC: always in the future, whatever the time of day the test runs).
+	nine := time.Now().UTC().Truncate(24 * time.Hour).Add(57 * time.Hour)
 	later := idOf(jsonCall(t, c, "POST", "/v1/broadcasts", with(map[string]any{"name": "tomorrow", "local_time": true, "timezone": "UTC",
 		"start_at": nine.Format(time.RFC3339)}), 200)["id"])
 	jsonCall(t, c, "POST", fmt.Sprintf("/v1/broadcasts/%d/schedule", later), nil, 200)

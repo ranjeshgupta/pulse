@@ -224,6 +224,9 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if m.Channel == channel.SMS && attr.String(c.Attrs[consent.AttrSMSBounced]) == "true" {
 		return d.finish(ctx, sentKey, m, c, "suppressed", "the phone number bounced")
 	}
+	if (m.Channel == channel.WhatsApp || m.Channel == channel.RCS) && consent.Bounced(c.Attrs, m.Channel) {
+		return d.finish(ctx, sentKey, m, c, "suppressed", "the "+m.Channel+" number bounced")
+	}
 	if t.Channel != m.Channel {
 		return d.finish(ctx, sentKey, m, c, "failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
 	}
@@ -723,8 +726,7 @@ func (d *Dispatcher) eventRecordCode(id string, m model.Message, c model.Contact
 	ev := event.Event{ID: id, TenantID: m.TenantID, ExternalID: c.ExternalID,
 		Name: name, Ts: d.now().UTC(), Props: props}
 	if bounce {
-		props["bounce"] = true
-		ev.Attrs = map[string]any{consent.AttrSMSBounced: true}
+		props["bounce"] = true // a permanent failure: the bounce rules (profile) decide what follows
 	}
 	return kafka.JSON(event.TopicRaw, ev.RawKey(), ev)
 }

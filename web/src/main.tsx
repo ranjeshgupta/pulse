@@ -6,6 +6,7 @@ import { ApiError } from "./api";
 import { RequireAuth } from "./auth";
 import { BroadcastEdit } from "./pages/Broadcasts";
 import { Channels, TestInbox } from "./pages/Channels";
+import { BounceSettings } from "./pages/BounceSettings";
 import { CampaignHub, OneTimeWizard } from "./pages/Campaigns";
 import { FormEdit, FormList } from "./pages/Forms";
 import { FunnelEdit, FunnelList } from "./pages/Funnels";
@@ -136,6 +137,7 @@ const router = createBrowserRouter([
           { path: "automation", element: <AutomationSettingsPage /> },
           { path: "channels", element: <Channels /> },
           { path: "test-inbox", element: <TestInbox /> },
+          { path: "bounces", element: <BounceSettings /> },
           { path: "web-push", element: <WebPushSettingsPage /> },
           { path: "integrations", element: <IntegrationList /> },
           { path: "integrations/:id", element: <IntegrationEdit /> },
