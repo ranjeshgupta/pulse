@@ -181,6 +181,12 @@ Every campaign respects these settings.
 > Subscribing a contact to one channel again also lifts an "everything" unsubscribe, so that
 > channel works.
 
+Unsubscribes from a **topic** (a list people can leave on their own, such as *Weekly offers*;
+[tutorial 4](04-channels.md#the-unsubscribes-panel)) aren't in this panel: they show as
+`unsubscribed` events in **Activity** and as the attribute `optout_topic_<key>` (e.g.
+`optout_topic_weekly_offers` = true) under **Attributes**. The bounce rules' counts are attributes
+too: `email_hard_bounces`, `sms_complaints` and so on.
+
 ## 5. Define your contact fields
 
 Pulse keeps any field you send, without setup. Defining a field gives it a label and a type, which
@@ -331,7 +337,7 @@ The **Add a filter** window lists every filter as a plain question, in three gro
 |---|---|
 | **Who they are** | **Contact type** (identified, anonymous, unsubscribed, bounced, Do Not Contact), **In a segment**, **Not in a segment**, **Has a tag**, **Lifecycle stage**, **Works at a company**, **Owner**, **Points** (more than, less than, exactly, at least), **Email contains**, **Name contains** |
 | **What they did** | **Did an event** and **Didn't do an event** (between two dates; *Did an event* optionally for one **Product code**), **Was active** (anywhere, on the website, Android or iOS, for the first time or coming back, between two dates, optionally from one `utm_source`), **Submitted a form** (between two dates) |
-| **Campaigns and channels** | **Got a campaign** and what happened (was in the audience, was sent it, got it, opened it, clicked in it, unsubscribed, bounced, marked it as spam, failed or was skipped), optionally between two dates; **In a triggered or automation campaign** (entered it, still in it, finished it, reached its goal, left it early); **Can be reached by**, **Not unsubscribed from** and **Not held back by the frequency cap** on a channel |
+| **Campaigns and channels** | **Got a campaign** and what happened (was in the audience, was sent it, got it, opened it, clicked in it, unsubscribed, bounced (hard or soft, or either), complained, failed or was skipped), optionally between two dates; **In a triggered or automation campaign** (entered it, still in it, finished it, reached its goal, left it early); **Bounced or complained on a channel** (any campaign's messages on **Email**, **SMS**, **WhatsApp**, **RCS**, **Push** or **App inbox** that were delivered, hard-bounced, soft-bounced, bounced, complained or failed, optionally between two dates); **Can be reached by**; **Unsubscribed from** (a channel, **Everything**, or one of your topics); **Not unsubscribed from** and **Not held back by the frequency cap** on a channel |
 
 Pick a question on the left and fill in its fields on the right. Dates start at the last 30 days.
 For example, everyone who bought in the first two weeks of November: **Did an event**, **Event**
@@ -343,6 +349,15 @@ Click **Add filter**. The filter appears in the search box as chips in words, he
 and **Between 1 Nov and 14 Nov 2026**, and the list and its count change at once:
 
 ![Contacts filtered to Did purchase and Between 1 Nov and 14 Nov 2026: 85 contacts, with Create segment from this list](img/02-add-filter-chips.png)
+
+Another example: everyone who left the topic *Weekly offers*. Choose **Unsubscribed from** under
+*Campaigns and channels*, then **Topic: Weekly offers** under **From** (the list has **Email**,
+**SMS**, **WhatsApp**, **RCS**, **Push**, **Everything**, then a **Topic:** entry for each of your
+topics):
+
+![Add a filter: Unsubscribed from chosen under Campaigns and channels, with From set to Topic: Weekly offers](img/02-add-filter-unsubscribed.png)
+
+The same list as a typed filter is `unsubscribed:weekly_offers` (next section).
 
 Add more filters the same way: they all have to match. A filter that can be used only once per list
 (the dates, a campaign and what happened, a channel) replaces the earlier one. Remove a filter with
@@ -361,8 +376,11 @@ quick search. As you type, suggestions appear: type `is:` and pick one with the 
 | `is:anonymous` | have no known ID or email yet (website visitors) |
 | `is:identified` | are known: an ID, email or phone |
 | `is:unsubscribed` | unsubscribed from any channel, or from everything |
-| `is:bounced` | had an email or SMS bounce |
+| `is:bounced` | a bounce rule stopped email, SMS, WhatsApp or RCS to their address or number |
 | `is:dnc` | are "Do Not Contact": unsubscribed or bounced |
+| `unsubscribed:email` (also `sms`, `whatsapp`, `rcs`, `push`, `inbox`) | unsubscribed from that channel, or from everything |
+| `unsubscribed:all` | unsubscribed from everything |
+| `unsubscribed:weekly_offers` | left that topic (use the topic's key) |
 | `segment:"Pune store opening guests"` | are in that segment, dynamic or static (by name or ID) |
 | `tag:vip` | have the tag |
 | `stage:Lead` | are in the stage |

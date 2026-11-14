@@ -41,7 +41,7 @@ func TestParseContactView(t *testing.T) {
 		{q: "owner:meera@example.com", rule: `{"all":[{"attr":"owner_id","op":"eq","value":"8"}]}`, labels: []string{"Owner: meera@example.com"}},
 		{q: "stage:Customer company:Acme company:12", rule: `{"all":[{"attr":"stage","op":"eq","value":"Customer"},{"attr":"company_name","op":"eq","value":"Acme"},{"attr":"company_id","op":"eq","value":"12"}]}`},
 		{q: "email:Gmail", rule: `{"all":[{"any":[{"attr":"email","op":"contains","value":"Gmail"},{"attr":"email","op":"contains","value":"gmail"}]}]}`},
-		{q: "is:bounced", rule: `{"all":[{"any":[{"attr":"email_bounced","op":"eq","value":"true"},{"attr":"sms_bounced","op":"eq","value":"true"}]}]}`},
+		{q: "is:bounced", rule: `{"all":[{"any":[{"attr":"email_bounced","op":"eq","value":"true"},{"attr":"sms_bounced","op":"eq","value":"true"},{"attr":"whatsapp_bounced","op":"eq","value":"true"},{"attr":"rcs_bounced","op":"eq","value":"true"}]}]}`},
 		// Unknown keys are text: IDs may contain colons.
 		{q: "shopify:123", rule: "null", text: "shopify:123"},
 	}

@@ -2,8 +2,9 @@
 
 In about 30 minutes you will see where each kind of message goes out, connect a provider for email,
 SMS, WhatsApp, RCS and push, check it with a test send, and set the rules that protect your contacts
-and your sender reputation: frequency caps, quiet hours, reply keywords, bounce handling and reply
-tracking. At the end you set up the web push prompt that asks your website's visitors to get
+and your sender reputation: frequency caps, quiet hours, reply keywords, what bounces and spam
+complaints do on each channel, how people unsubscribe (with topics they can leave on their own), and
+reply tracking. At the end you set up the web push prompt that asks your website's visitors to get
 notifications.
 
 **You need:** a workspace where you are an **Admin** (tutorial 1). Only admins can add providers, send
@@ -16,8 +17,9 @@ tutorial needs a real provider account: Pulse has a **sandbox** provider for eve
 
 Go to **Settings → Channels** (under *Delivery*). A **provider** is the service that delivers your
 messages: an SMTP server, an SMS gateway, WhatsApp. There is one panel per channel: **Email**,
-**SMS**, **WhatsApp**, **RCS** and **Push**, then **App inbox**, **Test contacts**, **Delivery
-rules**, **Bounces and complaints** and **Bounce mailbox (IMAP)**.
+**SMS**, **WhatsApp**, **RCS** and **Push**, then **App inbox**, **Test contacts** and **Delivery
+rules**. Bounces, complaints and unsubscribes have their own page, **Settings → Bounces &
+unsubscribes** (step 5); the last panel here links to it.
 
 ![Settings → Channels: the page's explanation, the Email panel (using the server's SMTP relay, at most 200 emails a second) with Add provider highlighted, and SMS and WhatsApp each with a Sandbox provider marked Default](img/04-channels.png)
 
@@ -321,12 +323,69 @@ The **Delivery rules** panel holds the workspace's sending limits. Templates mar
    **Reply webhook URL** (step 5).
 5. Click **Save delivery rules**. They apply within 30 seconds.
 
-## 5. Handle bounces and complaints
+## 5. Bounces and complaints
 
-The **Bounces and complaints** panel shows your workspace's email webhook URL and, below it, the
-**Reply webhook URL**. Click **Copy** and paste the first URL into your email service:
+Go to **Settings → Bounces & unsubscribes** (under *Delivery*). The page has four panels: **Bounce
+rules**, **Unsubscribes** (step 6), **Bounces and complaints** (the webhook your email service
+reports to) and **Bounce mailboxes (IMAP)**. Anyone who can see channels can open it; only admins
+change the rules and the unsubscribe settings, and only admins see the webhook and mailbox panels.
 
-![Bounces and complaints: the webhook URL and the reply webhook URL (their secret ends hidden), the services it works with, and what each kind of bounce does](img/04-bounces.png)
+### Bounce rules: what a bounce does, on each channel
+
+Every bounce and spam complaint, on email, SMS, WhatsApp and RCS, is counted on the contact. The
+rules say after how many of each kind which action runs. Pick a channel with the tabs (**Email**,
+**SMS**, **WhatsApp**, **RCS**); each has three rows:
+
+![Bounces & unsubscribes, Bounce rules on the Email tab: hard bounce after 1 stop sending on this channel, soft bounce changed to after 3 stop sending, spam complaint after 1 unsubscribe from this channel, each with its sentence in words, and Save bounce rules highlighted](img/04-bounce-rules.png)
+
+| Row | Email | SMS, WhatsApp, RCS |
+|---|---|---|
+| **Hard bounce** | The address doesn't exist or refuses mail for good | An invalid number, or one that can't take messages |
+| **Soft bounce** | Mailbox full, server busy, message too big | Phone off or unreachable, not on WhatsApp or RCS right now |
+| **Spam complaint** | Marked as spam (the service's feedback loop) | Reported or blocked the sender (on WhatsApp: blocked or reported the business) |
+
+For each, set **After this many** (1 to 100) and **Do this**:
+
+| Action | What happens to the contact |
+|---|---|
+| **Only count it** | Nothing more |
+| **Stop sending on this channel** | No more messages on this channel to that address or number |
+| **Unsubscribe from this channel** | Unsubscribed from the channel, as if they had clicked unsubscribe |
+| **Stop sending and leave all segments** | Stopped on the channel, and taken out of every segment (dynamic and static) |
+| **Do Not Contact (every channel)** | Unsubscribed from everything |
+| **Delete the contact** | The contact and their history are deleted |
+
+**In words** repeats each rule as a sentence (*After 3 soft bounces, Email to that address stops.*).
+Click **Save bounce rules**; they apply to the next bounce within 30 seconds. **Discard changes**
+undoes your edits, and **Back to the defaults** puts back the rules every workspace starts with:
+
+| Channel | Hard bounce | Soft bounce | Spam complaint |
+|---|---|---|---|
+| Email | After the first: stop sending | Only count it | After the first: unsubscribe from email |
+| SMS | After the first: stop sending | Only count it | Only count it |
+| WhatsApp, RCS | Only count it | Only count it | Only count it |
+
+<img src="img/04-bounce-rules-sms.png" alt="The SMS tab with the default rules: hard bounce after 1 stop sending on this channel, soft bounce and spam complaint after 1 only count it" width="640">
+
+How the counting works:
+
+- The action runs **once**, when the count reaches the number, not again for every bounce after it.
+- Counts are kept on the contact as `email_hard_bounces`, `email_soft_bounces`, `email_complaints`,
+  `sms_hard_bounces` and so on, so segments and the Contacts list can use them.
+- **A new email address or phone number starts the counts over** for that channel (a new phone
+  number for SMS, WhatsApp and RCS together), and undoes **Stop sending** and **Leave all segments**.
+  Changing back to the address that bounced stops it again.
+- Only problems with the address count. A provider that refuses Pulse's credentials, or is down,
+  isn't the contact's bounce.
+- Push has no rules: a device token that's gone is removed by itself.
+
+### Where bounces come from: the bounce webhook
+
+Email services report bounces and complaints to a webhook. The **Bounces and complaints** panel
+shows your workspace's email webhook URL and, below it, the **Reply webhook URL**. Click **Copy** and
+paste the first URL into your email service:
+
+![Bounces and complaints: the webhook URL and the reply webhook URL (their secret ends hidden), the services it works with, and what happens with each kind of bounce](img/04-bounces.png)
 
 | Service | Where |
 |---|---|
@@ -337,13 +396,10 @@ The **Bounces and complaints** panel shows your workspace's email webhook URL an
 | SparkPost | Bounce, Out of Band, Spam Complaint and Delivery events |
 | Anything else | POST JSON like `{"email": "…", "type": "hard"}` (or a list); `type` is `hard`, `soft` or `complaint` |
 
-What Pulse does with each:
-
-- **Hard bounce** (the address doesn't exist): the contact gets `email_bounced` = true and no more
-  email is sent to them.
-- **Soft bounce** (a full inbox): recorded as an `email_bounced` event; email keeps going.
-- **Complaint** (marked as spam): the contact is unsubscribed from email.
-- **Delivered** (from the sending services): recorded as `email_delivered`.
+Each report is recorded on the contact (`email_bounced` with the kind, `email_complained`, or
+`email_delivered`), and the bounce rules above decide what follows. The panel's **What happens**
+column describes the default email rules; if you change the rules, they win. SMS, WhatsApp and RCS
+bounces come from the providers' own delivery reports and errors (step 2), with no setup here.
 
 Each report is matched to the exact email it is about (Pulse marks every email it sends), so
 bounces, complaints and deliveries count in that campaign's report, with the reason
@@ -382,23 +438,42 @@ Click **Save keys**. Keys are never shown again; leave a field empty to keep wha
 Once you save any key, **every** report must pass a check, so set up each service you use before
 saving the first key.
 
-### No bounce webhook? Use a bounce mailbox
+### No bounce webhook? Use bounce mailboxes
 
 If your SMTP relay only sends bounce messages to a mailbox (your Return-Path or abuse address), Pulse
-can read that mailbox every 5 minutes, in **Bounce mailbox (IMAP)**:
+can read it every 5 minutes. **Bounce mailboxes (IMAP)** lists the mailboxes Pulse reads: one per
+sending domain, say, up to 20. Each shows its account, its folders, when it was last checked, how
+many bounces and complaints it recorded and how many other messages it skipped, and the last error:
 
-1. **IMAP server** (e.g. `imap.example.com`), **Encryption** (**TLS (port 993)**, **STARTTLS (port
-   143)**, or **None (development only)**), **Port**, **Username**, **Password**, **Folder** (`INBOX`).
-2. Click **Test connection**, then **Save**. **Check this mailbox every 5 minutes** is on by default.
-3. Once saved: **Check now** reads it straight away, and the panel shows when it last checked, how many
-   bounces and complaints it recorded, and the last error.
+![Bounce mailboxes (IMAP): two mailboxes, each Checked every 5 minutes with Edit, Check now and Remove; the first reads INBOX (bounces and complaints), the second the Gmail labels Bounces and Spam reports; last checked 2 and 4 minutes ago, with the counts](img/04-bounce-mailboxes.png)
 
-![Bounce mailbox (IMAP): server imap.example.com, TLS on port 993, a username, folder INBOX and the Check this mailbox every 5 minutes box](img/04-bounce-mailbox.png)
+(The picture shows two made-up mailboxes.) To add one:
+
+1. Click **Add mailbox**.
+2. **Name** (e.g. `Bounces for shop.acme-retail.example.com`), **IMAP server** (e.g.
+   `imap.example.com`), **Encryption** (**TLS (port 993)**, **STARTTLS (port 143)**, or **None
+   (development only)**), **Port**, **Username** and **Password**.
+3. **Folders to read**: a folder (or Gmail label) and what it holds, up to 10. Start with `INBOX`;
+   **Add folder** for more, **Remove** to drop one.
+
+   | Holds | Pulse |
+   |---|---|
+   | **Bounces and complaints (tell them apart)** | Reads each message to tell a bounce from a complaint |
+   | **Bounces** | Reads the bounce reports in it |
+   | **Spam complaints** | Counts every report in it as a spam complaint, e.g. a provider's spam report label |
+
+4. Click **Test connection** (it opens every folder), then **Save mailbox**. **Check this mailbox
+   every 5 minutes** is on by default; untick it to pause the mailbox.
+
+![Add a bounce mailbox: name, IMAP server imap.example.com, TLS on port 993, a username, the folders Bounces (Bounces) and Spam reports (Spam complaints), and Check this mailbox every 5 minutes](img/04-bounce-mailbox.png)
+
+Once saved, **Check now** reads a mailbox straight away, **Edit** changes it (a changed server, port,
+encryption or user needs the password typed again), and **Remove** deletes it (it asks first).
 
 Pulse reads standard delivery status notifications (RFC 3464) and spam complaint reports (RFC 5965 /
-ARF), and marks every message it reads as read. **Use a mailbox only for this**: other unread messages
-there are marked read too. One mailbox per workspace; password sign-in only (no Gmail / Microsoft 365
-OAuth); unusual plain-text bounces aren't recognised.
+ARF), and marks every message it reads as read. **Use these folders only for this**: other unread
+messages there are marked read too. A folder that fails doesn't stop the others. Password sign-in only
+(no Gmail / Microsoft 365 OAuth); unusual plain-text bounces aren't recognised.
 
 ## 6. How unsubscribes work on each channel
 
@@ -407,14 +482,61 @@ nothing on it, and the message shows as **suppressed**.
 
 | Channel | How a contact opts out |
 |---|---|
-| Email | The unsubscribe link Pulse adds to every email (or where you place `{{.UnsubscribeURL}}`), the preference center (`{{.PreferencesURL}}`), the mail app's one-click unsubscribe button (RFC 8058), or a spam complaint. A hard bounce stops email too |
-| SMS, WhatsApp, RCS | Replying with a reply keyword (step 4) |
+| Email | The unsubscribe link Pulse adds to every email (or where you place `{{links.unsubscribe}}`), the preference center (`{{links.preferences}}`), the mail app's one-click unsubscribe button (RFC 8058), or a spam complaint (with the default bounce rules). A hard bounce stops email too |
+| SMS, WhatsApp, RCS | Replying with a reply keyword (step 4); a bounce rule can also stop or unsubscribe them |
 | Push, app inbox | **Unsubscribe** on the contact's profile, an `unsubscribed` event from your server, or "unsubscribe from everything" on the email unsubscribe page |
 
-The email unsubscribe page lets the contact leave email only, or everything, and undo it. Teammates
-who can edit contacts can change any channel on the contact's profile (**Unsubscribe** /
+Teammates who can edit contacts can change any channel on the contact's profile (**Unsubscribe** /
 **Subscribe** per channel, or **Unsubscribe from everything**), and a form's consent box can opt
 people back in (tutorial 5).
+
+### The Unsubscribes panel
+
+On **Settings → Bounces & unsubscribes**, the **Unsubscribes** panel sets three things:
+
+![Unsubscribes: When someone clicks the unsubscribe link (Show a page to confirm, chosen; Unsubscribe in one click), the note about the List-Unsubscribe headers, People who unsubscribed from email (Never email them, chosen; Leave them out with segment filters), and Topics with Weekly offers, key weekly_offers, shown to people as Weekly deals and coupons](img/04-unsubscribes.png)
+
+**When someone clicks the unsubscribe link**
+
+- **Show a page to confirm** (the default): the link opens a page where they press **Unsubscribe**,
+  or choose a topic or other channels instead ([tutorial 11](11-admin-and-privacy.md#2-unsubscribe-links-and-the-preference-center)).
+- **Unsubscribe in one click**: the page unsubscribes them as soon as it opens, and says so. Email
+  security scanners that open every link in an email (without running the page) don't unsubscribe
+  anyone.
+
+Either way, every email carries the `List-Unsubscribe` and `List-Unsubscribe-Post:
+List-Unsubscribe=One-Click` headers, so Gmail, Yahoo and Outlook show their own **Unsubscribe**
+button, which works in one click.
+
+**People who unsubscribed from email**
+
+- **Never email them** (the default): Pulse skips them in every campaign.
+- **Leave them out with segment filters**: they stay in segments and campaigns, and get email unless
+  a campaign leaves out a segment of unsubscribed contacts (the filter *Unsubscribed from email*,
+  [step 7 of tutorial 2](02-contacts.md#7-filter-your-contacts)). Choosing it shows a warning:
+
+  ![The warning under Leave them out with segment filters: laws such as CAN-SPAM and GDPR require you to stop emailing people who unsubscribed; spam complainers are still never emailed, and SMS STOP replies and topic unsubscribes are always honoured](img/04-unsubscribe-segment-policy.png)
+
+  People who marked an email as spam are still never emailed, and SMS, WhatsApp and RCS opt-outs
+  and topic unsubscribes are always honoured. Campaigns then warn how many unsubscribed contacts are
+  in their audience ([tutorial 7](07-one-time-campaigns.md#5-when-to-send)).
+
+**Topics**
+
+Topics are products, newsletters or lists people can leave on their own, without leaving all your
+email: say *Weekly offers*. Click **+ Add a topic** and type its **Name**; the **Key** (e.g.
+`weekly_offers`) is made from the name when you first save it and doesn't change after. **Shown to
+people** is the line under the topic in the preference center. **×** removes a topic. Up to 30.
+
+Then choose the topic on a campaign (**Topic** on a one-time campaign, [tutorial 7](07-one-time-campaigns.md#2-create-the-campaign);
+on a send step of a triggered or automation campaign, [tutorial 6](06-triggered-and-automation-campaigns.md)):
+
+- people who unsubscribed from the topic are skipped (shown as *Opted out*);
+- its unsubscribe link and the one-click header unsubscribe them from **that topic only**; they keep
+  getting your other emails, and stay in every segment;
+- the preference center lists every topic with a switch.
+
+Click **Save unsubscribe settings**. Emails sent from then on use them.
 
 ## 7. Send a test through a provider
 
@@ -465,13 +587,13 @@ reaching anyone. The tabs filter by channel; the list refreshes every 2 seconds.
   a reply keyword such as `STOP` unsubscribes them. For RCS you can also simulate a tapped suggested
   reply or action.
 - **Simulate a bounce** reports a **Hard bounce**, **Soft bounce** or **Spam complaint** for an
-  **Email**, exactly as a bounce webhook would.
+  **Email**, exactly as a bounce webhook would; the bounce rules (step 5) decide what follows.
 
 ![Simulate a reply (SMS from +919812345678, message STOP) and Simulate a bounce (someone@example.com, hard bounce)](img/04-simulators.png)
 
 > Simulations change real contacts in your workspace: a `STOP` from a contact's number really
-> unsubscribes them from SMS, and a hard bounce really stops their email. Use test numbers and
-> addresses.
+> unsubscribes them from SMS, and a hard bounce really counts towards the bounce rules (with the
+> defaults, it stops their email). Use test numbers and addresses.
 
 ## 9. Sending limits and daily quotas
 
@@ -615,7 +737,9 @@ pages, which has the snippet but no service worker.
 - A provider (or the sandbox) on every channel you use, checked with a test send
 - Sending limits on providers that have them, and test contacts for everyone who checks messages
 - Delivery rules: caps, quiet hours, reply keywords and reply tracking
-- Bounces, complaints and deliveries flowing back from your email service, with checked signatures
+- Bounce rules for each channel, and bounces, complaints and deliveries flowing back from your email
+  service (or your bounce mailboxes), with checked signatures
+- Unsubscribe settings: the link's behaviour, your email unsubscribe policy, and topics
 - The test inbox, for trying everything without messaging anyone
 - A web push prompt and a site that passes the install check
 

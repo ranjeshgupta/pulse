@@ -160,7 +160,8 @@ export function totals(rows: CampaignDashRow[]): DashTotals {
   let revenue = 0;
   let buyers = 0;
   for (const r of rows) {
-    for (const k of Object.keys(counts) as (keyof MessageCounts)[]) counts[k] += r.counts[k] ?? 0;
+    const rc = rowCounts(r); // with bounces and complaints of every channel, like the rows
+    for (const k of Object.keys(counts) as (keyof MessageCounts)[]) counts[k] += rc[k] ?? 0;
     revenue += r.revenue;
     buyers += r.buyers;
   }

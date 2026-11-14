@@ -20,8 +20,9 @@ hovering shows **Show these contacts**. For example:
   **Funnel** (sent, delivered, opened, clicked…), the bounces, complaints and skips beside it, and
   each line of the reasons table.
 - The **Who it reaches** / **Exact audience now** box of a one-time campaign: each step (in the
-  segments, after exclusions, after consent, reachable, under the frequency cap) and the total that
-  will get it.
+  segments, after exclusions, after consent, reachable, under the frequency cap), the total that
+  will get it, and the number of email unsubscribers in its warning when your workspace leaves them
+  to segment filters.
 - **Reachable by channel** on a segment's page: who hasn't unsubscribed, and who can be reached.
 - A triggered or automation campaign's builder: the people at each step now, and the messages
   each step sent.
@@ -69,7 +70,9 @@ Chips you may meet, depending on where you clicked:
 | **Reachable by email** | Pulse can get a message to them on the channel now |
 | **Not held back by the email frequency cap** | Hasn't hit the channel's message limit |
 | **Campaign “…”** | Got a message from that campaign. **Send of …** narrows it to one send of a repeating campaign, **Step …** to one step |
-| **Sent**, **Delivered**, **Opened**, **Clicked**, **Bounced**, **Marked as spam**, **Failed**, **Unsubscribed**, **Skipped: unsubscribed**… | What happened to their message |
+| **Sent**, **Delivered**, **Opened**, **Clicked**, **Bounced**, **Bounced (hard)**, **Bounced (soft)**, **Complained (spam or blocked)**, **Failed**, **Unsubscribed**, **Skipped: unsubscribed**… | What happened to their message, on any channel |
+| **By email** (or **By SMS**, **By WhatsApp**…) | Only messages on that channel, with a campaign or what happened (for example the Contacts filter **Bounced or complained on a channel**) |
+| **Unsubscribed from email**, **Unsubscribed from everything**, **Unsubscribed from the topic weekly_offers** | Opted out of the channel (or of everything), or left that topic |
 | **Reason: Hard bounce** (or another reason) | Why a message didn't arrive |
 | **Entered “Welcome series”**, **Now at “…”**, **Still in the journey**, **Finished the journey**, **Reached the goal** | Where they are in a triggered or automation campaign |
 | **Did product_viewed**, **Didn't do purchase**, **Product …**, **Category …** | What they did (and, for products, which one) |

@@ -40,7 +40,7 @@ export const IS_OPTIONS: { value: string; label: string }[] = [
   { value: "anonymous", label: "Anonymous visitors (no known ID or email yet)" },
   { value: "identified", label: "Identified contacts" },
   { value: "unsubscribed", label: "Unsubscribed from any channel" },
-  { value: "bounced", label: "Email or SMS bounced" },
+  { value: "bounced", label: "Bounced (a channel stopped)" },
   { value: "dnc", label: "Do Not Contact (unsubscribed or bounced)" },
 ];
 

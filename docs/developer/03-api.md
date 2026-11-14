@@ -416,9 +416,41 @@ from everything. The `source` is recorded; sources such as `email_link`, `one_cl
 `preference_center`, `form` and `complaint` count as the contact's own choice, anything else as a
 manual change (`props.method` = `self` or `manual`, which segments can filter on).
 
-Hard bounces set `email_bounced` (or `sms_bounced` for a dead number), which suppresses that
-channel. Your server may clear them once the address is fixed, with an `identify` that sets the
-attribute to `false`; a new phone number clears `sms_bounced` by itself.
+**Topics.** With `props.topic` (a [subscription topic](#unsubscribe-settings-and-topics) key) instead
+of `channel`, the events leave or rejoin that topic only: the reserved attribute
+`optout_topic_<key>` becomes `true` or `false`. Messages of that topic (a broadcast's, a journey
+step's or a test send's `topic`) skip the contact; everything else still reaches them, and they stay
+in every segment.
+
+```bash
+curl -s -X POST $PULSE/v1/events -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{
+  "events": [{"external_id": "cust-1001", "name": "unsubscribed", "props": {"topic": "weekly_offers", "source": "crm"}}]}'
+```
+
+**Email policy.** By default (`email_policy: "enforce"`) an email opt-out (`optout_email` or
+`optout_all`) stops email by itself. With `"segment"`, email to opted-out contacts goes out unless a
+campaign leaves them out with a segment filter; contacts with an email spam complaint
+(`email_complaints` > 0) are still never emailed, and other channels' and topic opt-outs are always
+honoured.
+
+**Bounces.** Bounce and complaint reports are recorded as events (`email_bounced` with
+`props.kind` `hard` or `soft`, `email_complained`, and `<channel>_failed` / `<channel>_bounced` with a
+[reason code](06-webhooks-and-integrations.md#reason-codes)); the profile counts them per channel in
+the reserved attributes `<channel>_hard_bounces`, `<channel>_soft_bounces` and `<channel>_complaints`
+(`email`, `sms`, `whatsapp`, `rcs`). When a count reaches the workspace's
+[bounce rule](#bounce-rules) for it, the rule's action follows once: `unsubscribed` (`source`
+`bounce` or `complaint`, `channel` the channel or `all`) or `<channel>_bounce_action`
+(`{channel, type, count, action, address}`), which sets `<channel>_bounced` = true (email, SMS,
+WhatsApp, RCS; that channel is then suppressed) and `<channel>_bounced_address`, and for
+`leave_segments` also `segments_excluded` (the contact leaves every segment) and
+`segments_excluded_by`, or deletes the contact. A new `email` (or `phone`, for SMS, WhatsApp and
+RCS) resets that channel's counts and lifts the stop and `segments_excluded` (when that channel set
+it); changing back to the stopped address stops it again. Your server may also clear
+`<channel>_bounced` with an `identify` that sets it to `false`. All of these attributes and
+`<channel>_bounce_action` events are reserved: browsers can't set them, `POST /v1/events` refuses
+`<channel>_bounce_action`, and browsers (site key) and Zapier / Make hooks can't send the delivery and
+bounce report events (`<channel>_delivered`, `_bounced`, `_failed`, `_complained`, `_read`); your
+server may, to report bounces from its own systems.
 
 To send a contact a link to their preference center (needs `PULSE_SECRET_KEY`):
 
@@ -476,8 +508,11 @@ same filters as the Contacts search box in the app, ANDed, plus free text.
 |---|---|
 | `is:anonymous` / `is:identified` | Visitors without / with a known identity (an identified date, email or phone) |
 | `is:unsubscribed` | Opted out of any channel |
-| `is:bounced` | `email_bounced` or `sms_bounced` |
+| `is:bounced` | `email_bounced`, `sms_bounced`, `whatsapp_bounced` or `rcs_bounced` |
 | `is:dnc` | Do not contact: unsubscribed or bounced |
+| `unsubscribed:<channel>` | Opted out of the channel (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`) or of everything |
+| `unsubscribed:all` | Opted out of everything (`optout_all`) |
+| `unsubscribed:<topic key>` | Left that [subscription topic](#unsubscribe-settings-and-topics) (`optout_topic_<key>`) |
 | `segment:<name or id>` (also `list:`) | Members of a segment. Quote names with spaces: `segment:"VIP buyers"` |
 | `tag:<tag>` | Has the tag |
 | `stage:<name>` | In the lifecycle stage |
@@ -528,7 +563,8 @@ that set, so the list and the number agree. The same filters work in `q`:
 | `under_cap:<channel>` | Not held back by the channel's frequency cap right now |
 | `journey:<id or name>` | Contacts who entered the journey. With `at:<step id>`: now at that step. With `journey_status:` `in_progress`, `completed`, `converted`, `exited`, `active` or `waiting` |
 | `campaign:broadcast/<id>`, `campaign:journey/<id>` | A campaign's contacts. With `outcome:` (default `targeted`), `run:<unix seconds>` (broadcasts), `step:<step id>` (journeys), `reason:<code>` |
-| `outcome:<outcome>` | `targeted`, `sent`, `delivered`, `opened`, `read`, `clicked`, `downloaded`, `bounced`, `hard_bounced`, `soft_bounced`, `complained`, `failed`, `failed_all`, `unsubscribed`, `fallback`, `skipped`, `skipped_consent`, `skipped_reachability`, `skipped_cap`, `skipped_missing_value`, `skipped_deadline`. Without `campaign:` it covers every campaign |
+| `outcome:<outcome>` | `targeted`, `sent`, `delivered`, `opened`, `read`, `clicked`, `downloaded`, `bounced`, `hard_bounced`, `soft_bounced`, `complained`, `failed`, `failed_all`, `unsubscribed`, `fallback`, `skipped`, `skipped_consent`, `skipped_reachability`, `skipped_cap`, `skipped_missing_value`, `skipped_deadline`. Without `campaign:` it covers every campaign. `hard_bounced`, `soft_bounced`, `bounced` and `complained` work on every channel, by the reason's [bounce type](06-webhooks-and-integrations.md#reason-codes) (an SMS to an invalid number is `hard_bounced`, a blocked WhatsApp message `complained`) |
+| `via:<channel>` | Only messages on that channel (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`); needs `campaign:`, `outcome:` or `reason:`. `outcome:hard_bounced via:sms` = everyone whose SMS hard-bounced, in any campaign |
 | `reason:<code>` | A failure or skip [reason code](06-webhooks-and-integrations.md#reason-codes); `outcome:` is then the raw kind (`failed`, `bounced`, `complained`, `suppressed`, `capped`), like the reports' reasons table |
 | `event:<name>`, `no_event:<name>` | Did / didn't do the event (at most 5 event filters). `product:<code>` and `category:<name>` narrow them to one product or category |
 | `active:<any, web, android, ios, other, new, returning>` | Active in the period (the Users dashboard's definition); `utm:<source>` (or `utm:none`) narrows by campaign source. Needs `period:` |
@@ -826,9 +862,11 @@ curl -s -X POST $PULSE/v1/templates/preview -H "Authorization: Bearer $KEY" -H "
 curl -s "$PULSE/v1/templates/sample-event?event=cart_abandoned&external_id=cust-1001" -H "Authorization: Bearer $KEY"
 # {"source":"latest","at":"2026-11-11T09:30:00Z","props":{"product_name":"Brass table lamp",…}}   (or "schema", "none")
 # Send it to that contact now (202), with the sample event, through the channel's default provider
-# or another of its providers (provider_id; 400 if it isn't one of the workspace's for that channel)
+# or another of its providers (provider_id; 400 if it isn't one of the workspace's for that channel),
+# optionally as a message of a subscription topic (topic: its key; 400 if the workspace has no such
+# topic): a contact who left the topic is skipped, and the email's unsubscribe link leaves the topic
 curl -s -X POST $PULSE/v1/channels/test -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"template_id":31,"external_id":"cust-1001","provider_id":12,"event":{"product_name":"Brass table lamp"}}'
+  -d '{"template_id":31,"external_id":"cust-1001","provider_id":12,"topic":"weekly_offers","event":{"product_name":"Brass table lamp"}}'
 ```
 
 Locally every email lands in Mailpit (http://localhost:18025), and the seeded sandbox providers put
@@ -900,7 +938,7 @@ The step types (each one's fields are in `journey.Node`, `internal/journey/graph
 
 | Kind | Types |
 |---|---|
-| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template; optional `provider_id`, one of the workspace's providers for the step's channel, else the default), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, provider_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`). Every send step and `send_message` takes `deadline` (`{"at": "HH:MM", "hours": N, "timezone": …}`, counted from when the step runs): a message held back past it is dropped as `<channel>_failed`, `reason: "deadline"`. A chosen `provider_id` that has since been removed falls back to the channel's default (the dispatcher logs a warning) |
+| Send | `send_email`, `send_sms`, `send_whatsapp`, `send_rcs`, `send_push`, `send_inbox` (`template_id`; WhatsApp and RCS take `fallback_template_id`, an SMS template; optional `provider_id`, one of the workspace's providers for the step's channel, else the default; optional `topic`, a [subscription topic](#unsubscribe-settings-and-topics) key), `send_message` (`channels`: rules `{channel, template_id, fallback_template_id?, provider_id?, when?}` in order; `when` holds segment property filters on `contact.<field>` and `event.<property>`, e.g. `{"prop":"contact.phone_country","op":"eq","value":"IN"}`; the first rule that matches and whose channel the contact can receive sends; none: `message_skipped`; step stats count the choice as `ch:<channel>`; optional `topic` for every rule: a contact who left it is skipped on every channel). Every send step and `send_message` takes `deadline` (`{"at": "HH:MM", "hours": N, "timezone": …}`, counted from when the step runs): a message held back past it is dropped as `<channel>_failed`, `reason: "deadline"`. A chosen `provider_id` that has since been removed falls back to the channel's default (the dispatcher logs a warning) |
 | Wait | `wait` (`seconds`, up to 365 days), `wait_until` (`until`, or `time_of_day` + `timezone`) |
 | Decision (wait for something, then `yes` / `no`) | `wait_for_event` (`event`, `seconds`), `message_decision` (`step`, `outcome`: opened, clicked, delivered, read, replied; `seconds` ≥ 60; optional `url`), `on_form`, `on_asset`, `on_page`, `on_device`, `on_dwc` |
 | Condition (checked now, `yes` / `no`) | `condition` (`segment_id`), `check` (`rule`: any segment rule), `if_journey`, `if_form_field`, `if_notification`, `if_valid_email`, `if_dnc`, `if_before`, `if_visited` |
@@ -951,7 +989,7 @@ curl -s -X POST $PULSE/v1/broadcasts/6/schedule -H "Authorization: Bearer $KEY"
 | `conversion_event`, `conversion_days` | Reports count recipients who do the event within 1-30 days (default 3) |
 | `exclude_segment_ids` | Up to 10 segments whose members are left out, even if they are in `segment_id` |
 | `local_time`, `timezone` | One-time broadcasts: send at `start_at`'s clock time in `timezone` (an IANA zone such as `Asia/Kolkata`, the zone the time was chosen in) in each contact's own zone: their `timezone` attribute, else `geo_timezone`, else `timezone`. The run starts when that clock time comes in UTC+14 (`next_run_at` shows it), and each message is held until it is due (a `<channel>_deferred` event records the wait) |
-
+| `topic` | A [subscription topic](#unsubscribe-settings-and-topics) key (400 if the workspace has no such topic): contacts who left it are skipped (`<channel>_suppressed`, `reason_code: consent`), and its emails' unsubscribe link and one-click header leave that topic only. `""` for none |
 | `include_segment_ids` | More audience segments (members of any get it; at most 10 segments in all) |
 | `deadline` | `{"at": "21:00", "hours": 6, "timezone": "Asia/Kolkata"}`, either or both: messages that can't go out before the first `at` after the run started (in `timezone`, UTC when empty; in each contact's zone for a local-time broadcast) or within `hours` (1-168) of it are dropped as `<channel>_failed` with `reason: "deadline"`. The report's `late` counts them |
 | `tags` | Free labels (at most 20, 40 characters each); also `PUT /v1/broadcasts/{id}/tags` `{"tags": [...]}` in any status |
@@ -981,14 +1019,18 @@ Count exactly who a campaign would reach, step by step:
 ```bash
 curl -s -X POST $PULSE/v1/segments/estimate -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -d '{"include": [14, 15], "exclude": [9], "channel": "email"}'
-# 200 {"audience":1200,"after_exclude":1130,"after_consent":1102,"reachable":1080,"will_send":1074,
+# 200 {"audience":1200,"after_exclude":1130,"after_consent":1102,"reachable":1080,"opted_out":28,"will_send":1074,
 #      "capped":{"capped":6,"approximate":false,"checked":1080},"cap":{"max":3,"hours":24},
 #      "ready":true,"computed_at":"…","cached_until":"…"}
 ```
 
-`after_consent` leaves out contacts opted out of the channel or of everything; `reachable` keeps those
-with an address (an email that hasn't bounced, a valid E.164 phone, an SMS number that hasn't bounced,
-a push device); `capped` is how many a frequency cap of the channel would hold back now (not with
+`after_consent` leaves out contacts opted out of the channel or of everything (`opted_out` counts
+them); `reachable` keeps those with an address (an email that hasn't bounced, a valid E.164 phone, an
+SMS, WhatsApp or RCS number the bounce rules haven't stopped on that channel, a push device). For
+email in a workspace whose email policy is `segment` ([unsubscribe settings](#unsubscribe-settings-and-topics)),
+opted-out contacts stay in `after_consent` and `reachable` (they will be emailed), `opted_out` still
+counts them, and the answer carries `"unsubscribed_kept": true` (the app shows a warning). Topic
+unsubscribers aren't left out (the estimate takes no topic); they are skipped at send time; `capped` is how many a frequency cap of the channel would hold back now (not with
 `"transactional": true`), exact up to 50,000 reachable contacts and sampled above. `ready: false`
 means the workspace's reachability is still being built. Answers are cached for 30 seconds; other
 requests are limited to 60 a minute per workspace (429). `GET /v1/segments/{id}/reach` gives each
@@ -1292,6 +1334,10 @@ curl -s $PULSE/v1/settings/automation -H "Authorization: Bearer $KEY"
 | `schedules.daily_segment_at`, `daily_segment_tz` | `06:00`, the browser's zone | | Default time for new daily-refresh segments |
 | `messages.inbox_expiry_days` | 30 | 1-365 | App inbox messages expire after |
 | `default_limits.<channel>` | none | rate 0-100,000/s, quota 0-1,000,000,000/day | Limits new providers start with |
+| `bounces.<channel>.<hard\|soft\|complaint>` | see [Bounce rules](#bounce-rules) | count 1-100; action `record`, `stop`, `unsubscribe`, `leave_segments`, `do_not_contact`, `delete` | What bounces and complaints do (`email`, `sms`, `whatsapp`, `rcs`) |
+| `unsubscribe.link_mode` | `confirm` | `confirm`, `one_click` | What the unsubscribe link does ([below](#unsubscribe-settings-and-topics)) |
+| `unsubscribe.email_policy` | `enforce` | `enforce`, `segment` | Whether an email opt-out stops email by itself |
+| `unsubscribe.topics` | none | up to 30 `{key, name, description}` | Subscription topics |
 
 ```bash
 # A PUT replaces the sections it sends; fields left out of a section take their defaults
@@ -1313,6 +1359,74 @@ Unknown sections or fields and out-of-range values answer 400. Cleanup otherwise
 per workspace, in the UTC hour `retention_hour_utc`. `PUT /v1/settings/data` still changes the
 anonymous-visitor, event and audit retention (merged into these settings) along with anonymous
 tracking and GeoIP.
+
+### Bounce rules
+
+The `bounces` section (the app's **Settings → Bounces & unsubscribes → Bounce rules**) says, per
+channel, after how many hard bounces, soft bounces and spam complaints which action runs. Every
+bounce and complaint is counted on the contact (`<channel>_hard_bounces`, `<channel>_soft_bounces`,
+`<channel>_complaints`); when a count **reaches** its rule's `count`, the action runs once (what each
+action records: [Consent](#consent)). A new address on the channel starts the counts over.
+
+```bash
+# The defaults: what Pulse did before the rules existed
+# {"email":    {"hard":{"count":1,"action":"stop"},   "soft":{"count":1,"action":"record"},"complaint":{"count":1,"action":"unsubscribe"}},
+#  "sms":      {"hard":{"count":1,"action":"stop"},   "soft":{"count":1,"action":"record"},"complaint":{"count":1,"action":"record"}},
+#  "whatsapp": {"hard":{"count":1,"action":"record"}, "soft":{"count":1,"action":"record"},"complaint":{"count":1,"action":"record"}},
+#  "rcs":      {"hard":{"count":1,"action":"record"}, "soft":{"count":1,"action":"record"},"complaint":{"count":1,"action":"record"}}}
+
+# Stop email after 3 soft bounces. Each channel sent replaces that channel's three rules (send all
+# three); channels left out keep theirs
+curl -s -X PUT $PULSE/v1/settings/automation -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"bounces": {"email": {"hard": {"count": 1, "action": "stop"}, "soft": {"count": 3, "action": "stop"},
+       "complaint": {"count": 1, "action": "unsubscribe"}}}}'
+```
+
+| Action | Does |
+|---|---|
+| `record` | Only counts it |
+| `stop` | Stops the channel to that address (`<channel>_bounced`) |
+| `unsubscribe` | Unsubscribes the contact from the channel (`unsubscribed`, `source` `bounce` or `complaint`) |
+| `leave_segments` | `stop`, and the contact leaves every segment, dynamic and static (`segments_excluded`) |
+| `do_not_contact` | Unsubscribes from every channel (`unsubscribed` with `channel: all`) |
+| `delete` | Deletes the contact and their history (the journeys role does it, like a `delete_contact` step) |
+
+What counts as which kind is the reason's bounce type: hard = `invalid_number`, `invalid_email`,
+`invalid_token`, `hard_bounce`; soft = `soft_bounce`, `not_on_channel`; complaint = `complaint`,
+`blocked` ([reason codes](06-webhooks-and-integrations.md#reason-codes)). Failures on the provider's
+side (credentials, rate limits, timeouts, templates) never count. Rules are read through a 30-second
+cache.
+
+### Unsubscribe settings and topics
+
+The `unsubscribe` section (**Settings → Bounces & unsubscribes → Unsubscribes**):
+
+```bash
+curl -s -X PUT $PULSE/v1/settings/automation -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"unsubscribe": {"link_mode": "one_click", "email_policy": "enforce",
+       "topics": [{"key": "weekly_offers", "name": "Weekly offers", "description": "Weekly deals and coupons"}]}}'
+
+# Any teammate (or the API key) can read the topics, e.g. for a picker
+curl -s $PULSE/v1/unsubscribe-topics -H "Authorization: Bearer $KEY"
+# {"topics":[{"key":"weekly_offers","name":"Weekly offers","description":"Weekly deals and coupons"}],
+#  "email_policy":"enforce","link_mode":"one_click"}
+```
+
+- **`link_mode`**: `confirm` (default): `GET /u/{token}` shows a page that asks. `one_click`: the page
+  posts itself at once from the browser (a script allowed by a per-request CSP nonce), so a person who
+  opens the link is unsubscribed, while link scanners that fetch it without running scripts aren't.
+  Either way every email has `List-Unsubscribe: <…/u/{token}>` and `List-Unsubscribe-Post:
+  List-Unsubscribe=One-Click`; a `POST /u/{token}` with the body `List-Unsubscribe=One-Click`
+  (RFC 8058) unsubscribes from the email's topic, or from email when it has none (`source:
+  "one_click"`).
+- **`email_policy`**: `enforce` (default) or `segment` ([Consent](#consent)). With `segment`, the
+  estimate keeps email opt-outs and says so (`unsubscribed_kept`, `opted_out`).
+- **`topics`**: at most 30. `key`: lowercase letters, digits and `_`, at most 40, not a channel name
+  or `all`, unique; `name` at most 80 characters, `description` at most 300. Choose one with `topic`
+  on a broadcast, a journey send step or `send_message`, or `POST /v1/channels/test` (400 for a key
+  the workspace doesn't have). The message's tracking token carries the topic, so its unsubscribe
+  page offers the topic first, and the preference center lists every topic. A topic removed later
+  is ignored by old links (they unsubscribe from email instead).
 
 ---
 
@@ -1683,15 +1797,17 @@ the path, a signature, or nothing).
 | `POST` | `/v1/settings/web-push/check` | Fetch the site and its service worker and check the set-up; 10 a minute | channels edit |
 | `POST` | `/v1/settings/web-push/check-token` | A 30-minute `?pulse_check=` link for the browser self-check | channels edit |
 | `GET` | `/v1/settings/web-push/diagnosis` | What the browser reported for that link (`?token=`) | channels view |
-| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `provider_id` and `event` properties for `{{event.x}}`); 202; 30 a minute per workspace (429) | content edit |
+| `POST` | `/v1/channels/test` | Test-send a template to a contact (`template_id`, `external_id` or `test_contact_id`, optional `provider_id`, `topic` and `event` properties for `{{event.x}}`); 202; 30 a minute per workspace (429) | content edit |
 | `GET` | `/v1/sandbox/messages` | Messages the sandbox providers recorded (test inbox) | content view |
 | `POST` | `/v1/sandbox/receipts` | Simulate a delivery report for a sandbox message | content edit |
 | `POST` | `/v1/sandbox/inbound` | Simulate a reply from a phone number (e.g. STOP) | content edit |
-| `GET` | `/v1/settings/bounce-mailbox` | Bounce mailbox (IMAP) settings | settings edit |
-| `PUT` | `/v1/settings/bounce-mailbox` | Change them (password sealed) | settings edit |
-| `DELETE` | `/v1/settings/bounce-mailbox` | Remove the bounce mailbox | settings edit |
-| `POST` | `/v1/settings/bounce-mailbox/test` | Test the IMAP connection | settings edit |
-| `POST` | `/v1/settings/bounce-mailbox/check` | Read the mailbox now | settings edit |
+| `GET` | `/v1/settings/bounce-mailboxes` | The workspace's bounce mailboxes (IMAP): `{"mailboxes":[{"mailbox":{…},"password":"••••"}]}` | settings edit |
+| `POST` | `/v1/settings/bounce-mailboxes` | Add one (at most 20 per workspace; password sealed) | settings edit |
+| `PUT` | `/v1/settings/bounce-mailboxes/{id}` | Change one (an empty password keeps the saved one while server, port, encryption and user are unchanged) | settings edit |
+| `DELETE` | `/v1/settings/bounce-mailboxes/{id}` | Remove one; 204 | settings edit |
+| `POST` | `/v1/settings/bounce-mailboxes/test` | Test unsaved settings: connect, sign in and open every folder (`id` uses that mailbox's saved password); `{"ok":…,"message"\|"error":…}` | settings edit |
+| `POST` | `/v1/settings/bounce-mailboxes/{id}/check` | Read that mailbox now; 202 (404 while it's off) | settings edit |
+| `GET` | `/v1/unsubscribe-topics` | The workspace's subscription topics, `email_policy` and `link_mode` (for pickers) | any teammate or the server API key (no permission needed) |
 
 ### Reports and analytics
 

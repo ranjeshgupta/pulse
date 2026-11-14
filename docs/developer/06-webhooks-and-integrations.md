@@ -41,7 +41,9 @@ haven't sent yet:
 - events you send (`purchase`, `signup`, …) and the SDKs record (`page_view`, `identify`,
   `session_start`, `form_submitted`, `focus_clicked`, …);
 - events Pulse records: messages (`email_sent`, `email_opened`, `email_clicked`, `sms_delivered`,
-  `push_clicked`, …), consent (`unsubscribed`, `resubscribed`), `email_bounced`, `tag_added`,
+  `push_clicked`, …), consent (`unsubscribed`, `resubscribed`, with `props.channel`, or `props.topic`
+  for a subscription topic), `email_bounced`, `email_complained`, `<channel>_bounce_action` (a bounce
+  rule fired), `tag_added`,
   `points_changed`, `stage_changed`, `journey_entered`, `journey_completed` and others;
 - `segment_entered` and `segment_exited`, from segment membership changes;
 - `contact_created`, sent when a contact becomes known (a new identified contact, or an anonymous
@@ -298,9 +300,18 @@ Codes are derived in `internal/reasons` from the adapters' error texts and the p
 codes; a receipt may carry one directly (`code` in a sandbox receipt, `reason_code` in a gateway
 receipt).
 
+**Bounce types.** Some codes say something about the contact's address on that channel, the same
+on every channel (`reasons.BounceType`): **hard** = `invalid_number`, `invalid_email`,
+`invalid_token`, `hard_bounce`; **soft** = `soft_bounce`, `not_on_channel`; **complaint** =
+`complaint`, `blocked`. These count towards the workspace's
+[bounce rules](03-api.md#bounce-rules), in campaign funnels and Campaign performance as bounces
+and complaints on every channel, and in the Contacts filters `outcome:hard_bounced`,
+`soft_bounced`, `bounced` and `complained` (with `via:<channel>` for one channel). The other codes
+(provider-side failures and skips) never count as bounces.
+
 ### Bounces, complaints and deliveries (email)
 
-**Settings → Channels → Bounces and complaints** (or `GET /v1/settings/bounces`) shows the
+**Settings → Bounces & unsubscribes → Bounces and complaints** (or `GET /v1/settings/bounces`) shows the
 workspace's secret bounce URL, `{PULSE_PUBLIC_URL}/v1/bounces/{token}`. Point your email service's
 event webhook at it. The body format is detected:
 
@@ -349,21 +360,31 @@ Bounces from before references existed stay unlinked.
 
 What Pulse records:
 
-- A **hard** bounce records `email_bounced` and sets `email_bounced: true` (only while the contact
-  still has the bounced address), which stops email to the address until your server clears it.
-- A **soft** bounce is only recorded.
-- A **complaint** records `email_complained` and unsubscribes the contact from email
-  (`source: "complaint"`).
-- A **delivery** records `email_delivered`. Plain SMTP relays (and Gmail, the Workspace relay, FCM
+- A **hard** or **soft** bounce records `email_bounced` (`kind`: `hard` or `soft`, `reason_code`,
+  and `same_address`: whether the contact still has the bounced address).
+- A **complaint** records `email_complained`.
+- A **delivery** records `email_delivered`.
+
+What follows is up to the workspace's [bounce rules](03-api.md#bounce-rules): each bounce and
+complaint is counted on the contact (`email_hard_bounces`, `email_soft_bounces`,
+`email_complaints`), and when a count reaches its rule, the rule's action runs once (only for the
+contact's current address). With the defaults, the first hard bounce stops email to the address
+(`email_bounced: true` until the address changes or your server clears it), the first complaint
+unsubscribes the contact from email (`unsubscribed`, `source: "complaint"`), and soft bounces are
+only counted. SMS, WhatsApp and RCS failures and receipts count the same way, by their
+[reason code](#reason-codes)'s bounce type. Plain SMTP relays (and Gmail, the Workspace relay, FCM
   and web push) never report deliveries: reports show "—" ("not reported by this provider") for
   them.
 
 Addresses that match no contact are ignored. Keep the URL private.
 
 If your mail goes through a server that sends delivery status notifications (RFC 3464) and ARF
-complaints (RFC 5965) to a mailbox instead, add it under **Settings → Channels → Bounce mailbox**
-(IMAP; the `integrations` role reads it every 5 minutes, and needs `PULSE_SECRET_KEY`). They are
-linked from the quoted original's `X-Pulse-Ref` or `Message-ID`.
+complaints (RFC 5965) to a mailbox instead, add it under **Settings → Bounces & unsubscribes → Bounce
+mailboxes** (IMAP, up to 20 per workspace, each with up to 10 folders or Gmail labels marked as
+holding bounces, spam complaints, or both; `/v1/settings/bounce-mailboxes`). The `integrations` role
+reads them every 5 minutes, and needs `PULSE_SECRET_KEY`. Every report found in a folder marked
+**Spam complaints** counts as a complaint. They are linked from the quoted original's `X-Pulse-Ref`
+or `Message-ID`.
 
 ### Email replies
 
@@ -485,7 +506,7 @@ Pulse waits up to 15 seconds.
 | Your answer | Pulse records |
 |---|---|
 | `2xx`, optionally `{"id": "your-message-id"}` | Sent (`<channel>_sent`). Keep `id` to match the receipts you post later |
-| `404` or `410` | The recipient can't be reached on this channel: WhatsApp and RCS fall back to SMS when the message has an SMS template; an SMS number is marked `sms_bounced`; a push token is deleted |
+| `404` or `410` | The recipient can't be reached on this channel: WhatsApp and RCS fall back to SMS when the message has an SMS template; for SMS it's a hard bounce (the bounce rules decide; by default the number is stopped, `sms_bounced`); a push token is deleted |
 | other `4xx` | Permanent failure (`<channel>_failed`), not retried |
 | `429` or `5xx`, a timeout or a network error | Temporary failure: the dispatcher tries again, see the note below |
 
@@ -514,7 +535,7 @@ Post delivery receipts and inbound messages to the provider's webhook URL
 
 `status` is `delivered`, `failed`, `read`, `bounced` (email; `kind` `hard` or `soft`, `hard` when
 missing), `complained` (email) or `inbound`; `unreachable: true` on a failure triggers the
-SMS fallback for WhatsApp and RCS (and marks an SMS number bounced). `reason_code` is optional
+SMS fallback for WhatsApp and RCS (and is a hard bounce for an SMS number, for the bounce rules). `reason_code` is optional
 ([reason codes](#reason-codes)); without it Pulse derives one from `reason`. Receipts are matched to messages
 sent in the last 3 days; later or unknown IDs are ignored. Inbound messages are handled like any provider's
 ([above](#delivery-receipts-and-replies-sms-whatsapp-rcs-gateway)). Signing in Node.js:

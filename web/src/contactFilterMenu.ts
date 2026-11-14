@@ -56,7 +56,7 @@ export const FILTER_MENU: { group: string; items: MenuItem[] }[] = [
       { id: "is", label: "Contact type", hint: "Anonymous visitors, identified contacts, unsubscribed, bounced…",
         fields: [{ key: "is", label: "Is", kind: "select", options: [
           { value: "identified", label: "Identified contacts" }, { value: "anonymous", label: "Anonymous visitors" },
-          { value: "unsubscribed", label: "Unsubscribed from any channel" }, { value: "bounced", label: "Email or SMS bounced" },
+          { value: "unsubscribed", label: "Unsubscribed from any channel" }, { value: "bounced", label: "Bounced (a channel stopped)" },
           { value: "dnc", label: "Do Not Contact" },
         ] }],
         build: (v) => [["is", v.is]] },
@@ -138,6 +138,8 @@ export function defaults(item: MenuItem, today: string): Record<string, string> 
 export function missing(item: MenuItem, v: Record<string, string>): string {
   const f = item.fields.find((x) => !x.optional && !(v[x.key] ?? "").trim());
   if (f) return f.label;
+  // Date ranges: only items with From and To date fields ("Unsubscribed from" has a From choice).
+  if (!item.fields.some((x) => x.key === "to")) return "";
   if ((v.from && !v.to) || (!v.from && v.to)) return v.from ? "To" : "From";
   if (v.from && v.to && v.to < v.from) return "To (on or after From)";
   return "";

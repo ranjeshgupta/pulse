@@ -1,7 +1,7 @@
 package automation
 
 // Bounce rules: what happens to a contact whose address on a channel bounces or who complains,
-// after how many times (Settings → Channels → Bounces, the "bounces" section). The profile step
+// after how many times (Settings → Bounces & unsubscribes, the "bounces" section). The profile step
 // counts each contact's hard bounces, soft bounces and complaints per channel (the bounce types of
 // package reasons) and applies the rule when a count reaches it.
 

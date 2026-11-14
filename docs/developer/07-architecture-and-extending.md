@@ -118,7 +118,7 @@ store function takes the tenant ([architecture, identity and tenancy](../02-arch
 | `internal/providers` | Provider adapters and their catalog (SMTP with pooled connections and per-service reference headers, Gmail / Google Workspace / Workspace relay, Twilio, MSG91, Gupshup SMS / WhatsApp / RCS, Meta WhatsApp, Google RBM, FCM, web push, sandbox, the custom gateway in standard and custom-request mode); host pinning (`endpoints.go`) |
 | `internal/httpauth` | Custom HTTP authentication for providers (basic, bearer, API key, OAuth2, login flow), with the shared token cache |
 | `internal/amp` | AMP email: the validator, the block builder, post-back placeholders and the editor preview |
-| `internal/consent`, `internal/delivery` | Opt-outs; frequency caps, quiet hours, keywords |
+| `internal/consent`, `internal/delivery` | Opt-outs per channel and per topic, the suppression check (`SuppressReason`), bounce attributes; frequency caps, quiet hours, keywords |
 | `internal/tracking`, `internal/replies`, `internal/bounces` | Open/click/unsubscribe links, message references and AMP tokens; reply codes; delivery, bounce and complaint parsing, webhook verification and IMAP mailboxes |
 | `internal/reasons` | Reason codes for failed, skipped, bounced and complained messages |
 | `internal/live` | The live event feed (a capped Redis stream per workspace) |
@@ -185,7 +185,7 @@ adapter needs no UI code.
    | Return | Dispatcher does |
    |---|---|
    | `Unreachable(reason)` | Recipient not on this channel: WhatsApp/RCS fall back to SMS; push tokens are deleted |
-   | `BadNumber(reason)` | Permanent, and the SMS number is marked `sms_bounced` |
+   | `BadNumber(reason)` | Permanent, and a hard bounce for the workspace's bounce rules (with the defaults, the SMS number is then stopped: `sms_bounced`) |
    | `Permanent(reason)` | Records `<channel>_failed`; no retry |
    | `StatusError(name, code, body, header)` | 429 and 5xx stay transient (carrying the response's `Retry-After`, if any), other codes become permanent |
    | any other error | Transient: the message is retried later, for about two hours (30 s up to 1 h apart, at least the `Retry-After`), then `<channel>_failed` |

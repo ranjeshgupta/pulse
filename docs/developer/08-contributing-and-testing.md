@@ -211,7 +211,7 @@ The docs are part of the change. When behaviour changes, update in the same comm
 
 | Changed | Update |
 |---|---|
-| A `PULSE_*` variable (`internal/config/config.go`) | [2. Configuration](02-configuration.md), the settings table in the [README](../../README.md#settings), and [1. Installation](01-installation.md) if it matters in production |
+| A `PULSE_*` variable (`internal/config/config.go`) | [2. Configuration](02-configuration.md), and the short table in the [README](../../README.md#configuration) and [1. Installation](01-installation.md) if it matters in production |
 | A route, request or response (`internal/api`) | [3. API guide](03-api.md): the task section and the [route index](03-api.md#route-index) (list the router with `grep -rn 'mux.HandleFunc' internal/api`), and `perms.go` |
 | The web SDK (`web/src/sdk`, `web/public/sdk`) | [4. Web SDK](04-web-sdk.md) |
 | A mobile SDK | Its README first, then [5. Mobile SDKs](05-mobile-sdks.md) |

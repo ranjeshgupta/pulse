@@ -67,6 +67,13 @@ The comparisons follow the field's type, so define your fields first (tutorial 2
 To change a filter, click its field button (here **City**) and pick another one; **×** at the end of
 the row removes it.
 
+**Consent & deliverability** holds the ready-made consent filters (*Reachable by email*,
+*Unsubscribed recently*, *An email bounced recently*…) and, for each of your topics
+([tutorial 4](04-channels.md#the-unsubscribes-panel)), **Unsubscribed from topic:** *name* (a yes /
+no filter on `optout_topic_<key>`): people who left that topic, who still get your other messages.
+A segment of unsubscribed contacts to leave out of campaigns is one filter here too: **Unsubscribed
+from email** is **yes** (add **Unsubscribed from everything** is **yes** with ANY to catch both).
+
 ### Add a behaviour filter
 
 Behaviour filters count events: "did *this* at least *N* times in the last *N* days".

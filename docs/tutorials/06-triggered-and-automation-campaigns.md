@@ -140,7 +140,10 @@ Every line on the canvas has a **+** in the middle, and every free path has a **
 5. **Email template**: choose **Welcome email**. **Preview** shows it as a contact would get it;
    **Send a test** sends it to one contact (tutorial 4). If the channel has more than one provider,
    **Send through** picks the one this step sends with (the default is preselected; see
-   [tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)).
+   [tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)). When your
+   workspace has topics, **Topic** says which one the step's messages belong to: people who
+   unsubscribed from it are skipped, and the unsubscribe link in its emails leaves that topic only
+   ([tutorial 4](04-channels.md#the-unsubscribes-panel)). Leave it on **No topic** here.
 
    <img src="img/06-send-email.png" alt="The Send email step settings: Email template Welcome email, Preview and Send a test" width="300">
 
@@ -456,7 +459,7 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
 | **Send email**, **Send SMS**, **Send push**, **Send to app inbox** | Send a template on that channel |
 | **Send WhatsApp**, **Send RCS** | Send a template, with an optional SMS if it can't be delivered |
 | **Send email to user** | Email a teammate, the contact's owner or other addresses about this contact (not a marketing email) |
-| **Send marketing message** | Choose the channel by rules, e.g. an Indian number gets SMS, otherwise WhatsApp ([tutorial 13](13-personalising-messages.md#8-choose-the-channel-by-rule)); without conditions, send on the first channel in your order that the contact can receive and has agreed to |
+| **Send marketing message** | Choose the channel by rules, e.g. an Indian number gets SMS, otherwise WhatsApp ([tutorial 13](13-personalising-messages.md#8-choose-the-channel-by-rule)); without conditions, send on the first channel in your order that the contact can receive and has agreed to. Like the send steps, it takes a **Topic**: someone who left the topic is skipped on every channel |
 | **Send a webhook** | POST the contact as JSON to a public https:// address, or your own JSON body with variables (`{{contact.x \| json}}`) |
 | **Show focus item** | Show a pop-up, bar or slide-in on the contact's next page view ([tutorial 8](08-website-and-app-messages.md)) |
 | **Push dynamic content** | Set this contact's content for a dynamic web content slot, for some days |

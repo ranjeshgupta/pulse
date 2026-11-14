@@ -167,7 +167,7 @@ role is its own deployment and scales on its own Kafka consumer group.
 
 ### Settings that matter
 
-Every setting is an environment variable; the full table is in the [README](../../README.md#settings)
+Every setting is an environment variable; the full table is in [2. Configuration](02-configuration.md)
 and `internal/config/config.go`. For production, set at least:
 
 | Variable | Why |
@@ -473,7 +473,7 @@ is skipped by its idempotency key.
 | SSO fails with an address error | The provider's discovery URL resolves to a private address. Use a public one, or set `PULSE_ALLOW_PRIVATE_SSO=true` for a provider on your internal network |
 | Events are accepted (202) but contacts or segments don't change | A consumer role is down or behind: check every role's log, and the consumer groups' lag (`pulse-profile`, `pulse-segments`, `pulse-journeys`, …) with your Kafka tools |
 | Landing pages or forms redirect to a host that doesn't answer | `PULSE_PAGES_URL` is set but its DNS or proxy isn't. Point the pages host at Pulse too |
-| An email service's delivery webhooks answer 401 | A signing key or basic auth user is saved under **Settings → Channels → Bounces and complaints** and the service doesn't send it: once any key is saved, every format must pass a check ([webhooks](06-webhooks-and-integrations.md#bounces-complaints-and-deliveries-email)) |
+| An email service's delivery webhooks answer 401 | A signing key or basic auth user is saved under **Settings → Bounces & unsubscribes → Bounces and complaints** and the service doesn't send it: once any key is saved, every format must pass a check ([webhooks](06-webhooks-and-integrations.md#bounces-complaints-and-deliveries-email)) |
 | Reports show "—" for Delivered | The provider doesn't report deliveries (a plain SMTP relay, Gmail, FCM, web push), or its delivery webhook isn't set up |
 | Old data disappears | Retention in **Settings → Automation & limits**; cleanup runs once a day per workspace |
 

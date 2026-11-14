@@ -113,6 +113,13 @@ developer guide (`dev-04-snippet.png` from `dev-04-web-sdk.mjs`). Embed them wit
 - **A choice that needs more data, added for the picture and removed again:** the **Send through**
   list only shows when a channel has two providers, so tutorial 14's script adds a standby SMS
   sandbox (never the default) and deletes it in a `finally`.
+- **A setting changed for the picture and put back:** tutorial 7's `07-topic.mjs` switches the docs
+  workspace's email unsubscribe policy to "segment" for the estimate's warning and restores it in a
+  `finally`. Tutorial 4's `04-bounces-and-unsubscribes.mjs` doesn't add bounce mailboxes (a made-up
+  server would be polled and fail): it stands in for the mailbox list in the browser (`page.route`).
+  Both expect the docs workspace's unsubscribe settings as saved: link mode **confirm** (opening an
+  unsubscribe link then only asks; `11-unsubscribe-topic.mjs` stops otherwise) and the topic
+  *Weekly offers* (`weekly_offers`).
 - Scripts that sign up create a new workspace on every run (as tutorial 1 does); that's expected in
   a local database.
 

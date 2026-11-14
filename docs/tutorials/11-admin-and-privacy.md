@@ -13,8 +13,16 @@ Audit log, Webhooks) need the full **Admin** role, not just settings access.
 ## 1. What each contact agreed to
 
 Pulse keeps consent per channel: **Email**, **SMS**, **WhatsApp**, **RCS**, **Push** and **App
-inbox**, plus "everything". Every send checks it first; a message to someone who opted out is not
-sent and counts as *suppressed* in reports.
+inbox**, plus "everything", and per topic (lists people can leave on their own, such as *Weekly
+offers*; set up in [tutorial 4](04-channels.md#the-unsubscribes-panel)). Every send checks it first;
+a message to someone who opted out is not sent and counts as *suppressed* in reports.
+
+One exception, if you choose it: with **Settings → Bounces & unsubscribes → People who
+unsubscribed from email → Leave them out with segment filters**, an email unsubscribe doesn't stop
+email by itself, and your campaigns must leave those people out with a segment. Laws such as
+CAN-SPAM and GDPR require you to stop emailing them, so keep the default (**Never email them**)
+unless you have a reason. Spam complaints, SMS, WhatsApp and RCS opt-outs and topic unsubscribes are
+honoured either way.
 
 To see or change it for one person, open the contact (**Contacts**, click the row) and find
 **Messages they agreed to**:
@@ -25,13 +33,17 @@ To see or change it for one person, open the contact (**Contacts**, click the ro
 - **Unsubscribe from everything** (it asks you to confirm) stops every channel. Subscribing to one
   channel again lifts it.
 
-Each change is recorded as an `unsubscribed` or `resubscribed` event in the contact's **Activity**,
-so you can always see when and how consent changed. Changing consent needs **Contacts: Edit**. To
-list everyone who opted out, filter **Contacts** with `is:unsubscribed` (or `is:dnc` for
-unsubscribed or bounced), as in [tutorial 2](02-contacts.md#7-filter-your-contacts).
+Each change is recorded as an `unsubscribed` or `resubscribed` event in the contact's **Activity**
+(with the channel, or the topic), so you can always see when and how consent changed. Topics aren't
+in this panel: a topic unsubscribe shows in **Activity** and as the attribute `optout_topic_<key>`.
+Changing consent needs **Contacts: Edit**. To list everyone who opted out, filter **Contacts** with
+`is:unsubscribed` (or `is:dnc` for unsubscribed or bounced), `unsubscribed:email` for one channel or
+`unsubscribed:weekly_offers` for a topic, as in [tutorial 2](02-contacts.md#7-filter-your-contacts).
 
 How contacts opt out on each channel (unsubscribe links, SMS and WhatsApp reply keywords such as
-STOP, bounces and complaints) is in [tutorial 4](04-channels.md#6-how-unsubscribes-work-on-each-channel).
+STOP, bounces and complaints) is in [tutorial 4](04-channels.md#6-how-unsubscribes-work-on-each-channel);
+what bounces and complaints do is up to the workspace's bounce rules
+([tutorial 4, step 5](04-channels.md#bounce-rules-what-a-bounce-does-on-each-channel)).
 
 ## 2. Unsubscribe links and the preference center
 
@@ -49,15 +61,32 @@ link for each message.
 - After either, **Subscribe again** undoes it.
 - **Choose what you get instead** opens the preference center.
 
-**One-click unsubscribe.** Every email also carries the `List-Unsubscribe` and
-`List-Unsubscribe-Post` headers (RFC 8058), so Gmail, Yahoo and other mail apps show their own
-**Unsubscribe** button; it unsubscribes from email without opening any page. Nothing to set up.
+**An email with a topic.** When the campaign (or journey step) that sent the email has a topic, the
+page offers that topic first:
+
+<img src="img/11-unsubscribe-topic.png" alt="Unsubscribe from Weekly offers? You'll stop getting Weekly offers emails from Acme Retail. Other emails keep coming. With the buttons Unsubscribe from Weekly offers, Unsubscribe from all emails and Stop all messages, and the link Choose what you get instead" width="360">
+
+- **Unsubscribe from Weekly offers**: that topic only; other emails keep coming. **Subscribe
+  again** undoes it.
+- **Unsubscribe from all emails** and **Stop all messages** work as above.
+
+**Unsubscribe in one click.** If you chose **Unsubscribe in one click** under **Settings → Bounces &
+unsubscribes → Unsubscribes** ([tutorial 4](04-channels.md#the-unsubscribes-panel)), the link
+doesn't ask: the page unsubscribes the contact as it opens (from the email's topic if it has one,
+else from email) and says so, with **Subscribe again** and **Manage your preferences**. Security
+scanners that open every link in an email don't run the page, so they don't unsubscribe anyone.
+
+**The mail app's Unsubscribe button.** Every email also carries the `List-Unsubscribe` and
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers (RFC 8058), so Gmail, Yahoo, Outlook
+and other mail apps show their own **Unsubscribe** button; it unsubscribes without opening any page,
+from the email's topic if it has one, else from email. Nothing to set up.
 
 **The preference center** lists the channels Pulse can reach the contact on (email if it has an
-address, SMS / WhatsApp / RCS if it has a phone number, push if it has a device), each with a
-switch, then **Save preferences**, or **Unsubscribe from everything**:
+address, SMS / WhatsApp / RCS if it has a phone number, push if it has a device), the subscription
+lists (below), and your workspace's **Topics** with their description, each with a switch, then
+**Save preferences**, or **Unsubscribe from everything**:
 
-<img src="img/11-preference-center.png" alt="Your preferences: Email, SMS, WhatsApp and RCS ticked, with Save preferences and Unsubscribe from everything" width="400">
+<img src="img/11-preference-center.png" alt="Your preferences: Email, SMS, WhatsApp and RCS ticked under How we reach you, Weekly offers (Weekly deals and coupons) ticked under Topics, with Save preferences and Unsubscribe from everything" width="400">
 
 Ways to send contacts there:
 
@@ -411,7 +440,7 @@ they have themselves.
 
 ## What you have now
 
-- Per-channel consent, with unsubscribe and preference pages your contacts use themselves
+- Per-channel and per-topic consent, with unsubscribe and preference pages your contacts use themselves
 - Retention rules that clean up anonymous visitors, old events and old logs, with a preview of what
   a shorter setting deletes
 - Retries, segment schedules and default provider limits that fit your workspace

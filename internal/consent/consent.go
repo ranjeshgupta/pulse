@@ -17,10 +17,11 @@ const (
 	Resubscribed = "resubscribed"
 	All          = "all"
 
-	// AttrEmailBounced marks an address that hard-bounced: email to it is suppressed. Set by bounce
-	// webhooks; a server can clear it (false) once the address is fixed.
+	// AttrEmailBounced marks an address a bounce rule stopped (by default, after one hard bounce):
+	// email to it is suppressed. Set by the profile role; a server can clear it (false) once the
+	// address is fixed, and a new address clears it.
 	AttrEmailBounced = "email_bounced"
-	// AttrSMSBounced is the same for SMS: a permanent failure of the phone number.
+	// AttrSMSBounced is the same for SMS: a bounce rule stopped SMS to the phone number.
 	AttrSMSBounced = "sms_bounced"
 	// AttrWhatsAppBounced and AttrRCSBounced: a bounce rule stopped that channel to the number.
 	AttrWhatsAppBounced = "whatsapp_bounced"

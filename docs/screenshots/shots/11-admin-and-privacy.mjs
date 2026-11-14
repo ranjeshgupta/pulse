@@ -47,7 +47,9 @@ export default async function (browser) {
 }
 
 async function consent(context, page) {
-  const contacts = (await api(context, "GET", "/v1/contacts?limit=50")).contacts;
+  // Contacts reachable by SMS (so they have a phone), newest first: the newest contacts may be
+  // anonymous visitors other guides' scripts made.
+  const contacts = (await api(context, "GET", `/v1/contacts?q=${encodeURIComponent("reachable:sms")}&limit=100`)).contacts;
   const c = contacts.find((x) => x.email && x.attrs?.phone && !Object.keys(x.attrs).some((k) => k.startsWith("optout_") && String(x.attrs[k]) === "true")) ?? contacts[0];
 
   // The contact's "Messages they agreed to".

@@ -80,7 +80,10 @@ consent, tags and points directly (imports).
 | `locale` | the same events (`props.locale`) | not reserved: a server or import may set it, and an event's own `attrs.locale` wins over its props |
 | `owner_id`, `owner_name` | `owner_changed {owner_id, owner_name}` | only from `PUT /v1/contacts/{external_id}/owner {"user_id": N}` (0 unassigns); the user must belong to the workspace |
 | `phone_country` | any event that sets `phone` (or the next event of a contact whose phone predates it) | ISO 3166 code of the number's country code (`+91…` → IN, `0044…` → GB), from `github.com/nyaruka/phonenumbers`; only numbers written with `+` or `00` are placed, a national number removes it |
-| `sms_bounced` | `sms_failed` with `props.bounce` (attrs from the dispatcher) | like `email_bounced`: SMS to the contact is suppressed; sticky on merge; a server may clear it, and a new `phone` clears it |
+| `optout_topic_<key>` | `unsubscribed` / `resubscribed` with `props.topic` | left a subscription topic: messages of that topic skip the contact; it stays in every segment |
+| `<channel>_hard_bounces`, `<channel>_soft_bounces`, `<channel>_complaints` (email, sms, whatsapp, rcs) | bounce reports: `email_bounced {kind}`, `email_complained`, `<channel>_failed` / `_bounced` (by `reasons.BounceType` of `props.reason_code`; `props.bounce` = hard) | bounce rule counters (`profile/bounce.go`); a new `email` / `phone` resets that channel's |
+| `email_bounced`, `sms_bounced`, `whatsapp_bounced`, `rcs_bounced`, `<channel>_bounced_address` | `<channel>_bounce_action {action: stop\|leave_segments}` (added by the profile when a rule fires) | the channel is suppressed for that address; sticky on merge; a server may clear it; a new address lifts it, changing back to the stopped address restores it |
+| `segments_excluded`, `segments_excluded_by` | `<channel>_bounce_action {action: leave_segments}` | the contact leaves every dynamic segment (engine and backfill SQL) and every static one until a new address on that channel (or a server clears it) |
 
 - **Unsubscribe method.** The profile role adds `props.method` to every `unsubscribed` event that lacks a valid one:
   `self` for the contact's own actions (`source` email_link, one_click, preference_center, form, complaint, `*_keyword`),
@@ -326,8 +329,13 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   rate is higher (the slower of the two applies).
 - **SMS bounces.** A provider error for the number itself (`providers.BadNumber`: Twilio 21211/21214/21612/21614, or
   an unreachable recipient, e.g. the sandbox's unreachable suffix) or a failed receipt marked unreachable (Twilio
-  30003/30005/30006) records `sms_failed {bounce: true}` with `attrs.sms_bounced = true`; later SMS are
-  `sms_suppressed` until the number changes. A contact without a valid number is a plain failure, not a bounce.
+  30003/30005/30006) records `sms_failed {bounce: true}`: a hard bounce for the bounce rules, which decide what follows
+  (by default `sms_bounced`, so later SMS are `sms_suppressed` until the number changes). The dispatcher itself sets no
+  attribute. A contact without a valid number is a plain failure, not a bounce.
+- **Consent check** (`consent.SuppressReason`, the dispatcher and the journey send steps). A message is suppressed when
+  the contact left its topic (`model.Message.Topic`), or opted out of the channel or of everything; with the
+  workspace's email policy `segment`, email opt-outs don't suppress email (an email spam complaint,
+  `email_complaints` > 0, still does). Then `<channel>_bounced` suppresses the channel (`bounced_before`).
 - **SMS / RCS click tracking.** With `content.track_links` on the template (Content → Message templates, an SMS or RCS
   template, "Track link clicks"), the dispatcher replaces each http(s) link in the rendered text (and RCS `url` suggestions) with
   `{PULSE_PUBLIC_URL}/t/s/{code}`: 10 random base62 characters naming the message plus one naming the link (about 40
@@ -509,12 +517,15 @@ migrate one at a time.
   doesn't say which agent message a user message answers, so the dispatcher keeps the latest successful RCS message per
   contact in Redis (`lastmsg:{tenant}:rcs:{contact}`, 7 days, `replies.SaveLast`) and the inbound handler records
   `rcs_replied` with that message's ids (journey, step key, broadcast), which `message_decision` replied waits for.
-- **Bounce mailbox** (`internal/bounces`: `report.go`, `mailbox.go`, `imap.go`; `bounce_mailboxes`, migration 017).
-  One IMAP mailbox per workspace, edited at `/v1/settings/bounce-mailbox` (settings edit access; `test` connects with
-  unsaved settings, `check` makes it due now). The password is sealed with the server key and returned masked; a
+- **Bounce mailboxes** (`internal/bounces`: `report.go`, `mailbox.go`, `imap.go`; `bounce_mailboxes`, migrations 017
+  and 029). Up to 20 IMAP mailboxes per workspace (`id` primary key, `name`, `folders` jsonb: up to 10 `{name, kind}`,
+  kind `auto` = read each message to tell, `bounces`, or `complaints` = every report in it counts as a complaint),
+  edited at `/v1/settings/bounce-mailboxes[/{id}]` (settings edit access; `test` connects with unsaved settings and
+  opens every folder, `{id}/check` makes one due now). The password is sealed with the server key and returned masked; a
   changed host, port, encryption or user needs it typed again. Plain connections are refused unless
   `PULSE_ALLOW_PRIVATE_WEBHOOKS` (development); connections go through `safehttp.Dialer` (public addresses only). The
-  integrations role claims due mailboxes (`FOR UPDATE SKIP LOCKED`, every 5 minutes), reads up to 200 unseen messages
+  integrations role claims due mailboxes (`FOR UPDATE SKIP LOCKED`, every 5 minutes), reads its folders one after
+  another (a failing folder doesn't stop the others), up to 200 unseen messages per folder
   (`BODY.PEEK[]`), parses RFC 3464 reports (failed + 5.x.x = hard, 4.x.x or delayed = soft; nested reports and base64
   parts are read) and RFC 5965 feedback reports (complaint for `Original-Rcpt-To`, else the original message's `To`;
   `not-spam` skipped), records them through `bounces.Events` (the webhook path's code) with event ids derived from the
@@ -690,7 +701,7 @@ These run on raw events today and are fine into the hundreds of millions of rows
   server is wizard-specific. A broadcast may name extra audience segments (`include_segment_ids`, union with
   `segment_id`, at most 10 in all). Duplicating a broadcast copies a hidden template too.
 - **Reachability bitmaps** (`internal/reach`). Per workspace, Redis bitmaps like segment bitmaps (bit N = contact N):
-  `rch:{t}:known`, `email` (an address, not bounced), `phone` (valid E.164), `sms` (and not SMS-bounced), `push` (a
+  `rch:{t}:known`, `email` (an address, not bounced), `phone` (valid E.164), `sms`, `whatsapp`, `rcs` (and not bounced on that channel), `push` (a
   device), and `out:{channel}` (opted out of the channel or of everything). The segments role sets a contact's bits from
   the profile snapshot on every enriched event that creates the contact or changes `email`, `phone`, `optout_*`,
   `*_bounced` or `merged_into` (`reach.Bits`, the dispatcher's own checks), in the same pass as segment bits. Device
@@ -758,7 +769,8 @@ These run on raw events today and are fine into the hundreds of millions of rows
   return-path domain to set up, and every service echoes one of these.
 - **Linking** (`bounces.Link`). A reference signed by this server *for the workspace whose secret URL received the
   report* names the message and its contact (tenant ids in bodies are never trusted); otherwise the contact with that
-  address, unlinked. A hard bounce sets `email_bounced` only when the contact still has the bounced address. Linked
+  address, unlinked. A bounce report records `email_bounced` with `kind` and `same_address` (whether the contact still
+  has the bounced address); the bounce rules act only on the current address (`profile/bounce.go`). Linked
   events take ids from the message (`fb:{message}:{kind}`), so repeated webhooks record once; deliveries without a
   reference are dropped. Bounce emails (DSN) and feedback loops (ARF) are linked from the quoted original's
   `X-Pulse-Ref` or Message-ID. Bounces from before M4 stay unlinked.
@@ -1005,6 +1017,36 @@ These run on raw events today and are fine into the hundreds of millions of rows
   edit reset a teammate's setup (`DELETE /v1/users/{id}/two-factor`); the policy needs full admin. Web:
   `web/src/pages/Account.tsx` (Your account, `/account`), the code step in `Login.tsx`, the policy in Settings →
   Sign-in & keys, the Team column and **Reset two-step**.
+- **Bounce rules** (`internal/automation/bounces.go`, `internal/profile/bounce.go`; the `bounces` section of
+  `tenant_settings.automation`). Webhooks, mailboxes, provider receipts and the dispatcher only report what happened;
+  the profile role classifies each report (`bounceOf`: `email_bounced` by `kind`, `email_complained`,
+  `<channel>_failed|bounced` by `reasons.BounceType`), increments `<channel>_<type>` counters, and when a count equals
+  the rule's `count` (and the report is about the current address) appends one follow-up event right after it:
+  `unsubscribed {channel or all, source: bounce|complaint}` or `<channel>_bounce_action {channel, type, count, action,
+  address}`, which sets `<channel>_bounced` (+ `_bounced_address`) and, for `leave_segments`, `segments_excluded`
+  (+ `_by`). `delete` is done by the journeys role with the delete-contact step's deleter. A change of `email` / `phone`
+  (`resetBounces`) clears the channel's counters, stop and exclusion, or restores the stop when it is back to the
+  stopped address. Rules are read through a 30-second cache per workspace (defaults without a store). `whatsapp_bounced`
+  and `rcs_bounced` also feed the reach bitmaps (rebuilt once through a new built marker), the contact page and
+  `if_dnc`. `<channel>_bounce_action` is `event.PlatformOnly`; browsers and Zapier / Make hooks can't send
+  `event.BounceReport` events.
+- **Delivery by channel** (`store/ch/delivery.go`, `web/src/campaignDash.ts`). Funnels count hard / soft bounces and
+  complaints on every channel by bounce type (failed rows included, skip groups not), so `bounced` is at least
+  hard + soft; Campaign performance rows add complaints from failures (`rowCounts`) and the CSV has hard and soft
+  bounces. Contacts: `outcome:hard_bounced|soft_bounced|bounced|complained` match reason codes by bounce type on any
+  channel, and `via:<channel>` narrows `campaign:` / `outcome:` / `reason:` to one channel (`api/contactsets.go`).
+- **Unsubscribes** (`internal/automation/unsubscribe.go`, the `unsubscribe` section; `api/tracking.go`,
+  `api/preferences.go`; migration pg 030 adds `broadcasts.topic`). `link_mode` `confirm` or `one_click`: in one-click
+  mode `GET /u/{token}` renders a form that a nonce'd inline script (CSP `script-src 'nonce-…'`) submits, so fetching
+  the link alone changes nothing. RFC 8058 `POST /u/{token}` (`List-Unsubscribe=One-Click`) leaves the message's topic,
+  else email. `email_policy` `enforce` or `segment` (see the consent check under Dispatch; `reach.Count` with
+  `KeepOptedOut` keeps email opt-outs in the estimate and returns `opted_out`). Topics (at most 30, `key` not a channel
+  name): `topic` on broadcasts, journey send nodes and `send_message`, and test sends; the tracking token carries it,
+  so the unsubscribe page and one-click header leave the topic only; `consent.Updates` maps
+  `unsubscribed|resubscribed {topic}` to `optout_topic_<key>`. `GET /v1/unsubscribe-topics` (any principal) feeds the
+  web's `TopicPick`, the Contacts filter `unsubscribed:<channel|all|topic>` and the segment builder's "Unsubscribed from
+  topic" fields. Web: `web/src/pages/BounceSettings.tsx` (Settings → Bounces & unsubscribes: bounce rules,
+  unsubscribes, the bounce webhook panel, `BounceMailbox.tsx`).
 - **Provider per send** (migration pg 027). `model.Message.ProviderID` sends through one of the channel's providers
   instead of the default: set from `broadcasts.provider_id` (`ON DELETE SET NULL`), a send step's or `send_message`
   rule's `provider_id`, `notify_user`'s (email) and `POST /v1/channels/test`'s. The API checks on save that the provider

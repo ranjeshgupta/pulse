@@ -456,7 +456,7 @@ export function BouncesPanel() {
       <div className="panel-body">
         <ErrorNote error={q.error} />
         <p className="small muted" style={{ marginBottom: 12 }}>
-          In your email service, point the bounce and spam complaint webhook at this URL. Pulse then stops emailing addresses that don't work or that marked you as spam.
+          In your email service, point the bounce and spam complaint webhook at this URL. Pulse counts every bounce and complaint on the contact, and the bounce rules above decide what happens.
         </p>
         {q.data && (
           <div className="row" style={{ marginBottom: 16, flexWrap: "nowrap" }}>
@@ -483,9 +483,9 @@ export function BouncesPanel() {
           <div>
             <h4 className="small" style={{ marginBottom: 8 }}>What happens</h4>
             <dl className="kv" style={{ gridTemplateColumns: "110px 1fr" }}>
-              <dt>Hard bounce</dt><dd>The address doesn't exist. The contact gets <code>email_bounced</code> = true and no more email is sent to them.</dd>
-              <dt>Soft bounce</dt><dd>A passing problem, like a full inbox. Recorded as an <code>email_bounced</code> event; email keeps going.</dd>
-              <dt>Complaint</dt><dd>They marked you as spam. The contact is unsubscribed from email.</dd>
+              <dt>Hard bounce</dt><dd>The address doesn't exist. Counted in <code>email_hard_bounces</code>; by default, email to the address stops after the first.</dd>
+              <dt>Soft bounce</dt><dd>A passing problem, like a full inbox. Counted in <code>email_soft_bounces</code>; by default, email keeps going.</dd>
+              <dt>Complaint</dt><dd>They marked you as spam. Counted in <code>email_complaints</code>; by default, they're unsubscribed from email.</dd>
             </dl>
           </div>
         </div>
@@ -623,7 +623,7 @@ function SimulateBounce() {
   const [type, setType] = useState<"hard" | "soft" | "complaint">("hard");
   const send = useMutation({
     mutationFn: () => api.post("/v1/sandbox/bounce", { email: email.trim(), type }),
-    onSuccess: () => toast({ text: type === "hard" ? "Hard bounce recorded. Email to this address is now suppressed." : type === "soft" ? "Soft bounce recorded. Email keeps going." : "Complaint recorded. The contact is unsubscribed from email." }),
+    onSuccess: () => toast({ text: `${type === "hard" ? "Hard bounce" : type === "soft" ? "Soft bounce" : "Complaint"} recorded. Your bounce rules decide what happens next.` }),
   });
   return (
     <section className="panel section">

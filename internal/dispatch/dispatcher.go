@@ -575,8 +575,8 @@ func (d *Dispatcher) shortenLinks(ctx context.Context, m model.Message, c model.
 	return tracking.SaveShort(ctx, d.rdb, code, tracking.ShortLink{Token: tok, URLs: urls})
 }
 
-// bounce records an SMS that failed because of the phone number: sms_failed with props.bounce,
-// and sms_bounced on the contact, so later SMS are suppressed until the number changes.
+// bounce records an SMS that failed because of the phone number: sms_failed with props.bounce.
+// The profile role counts it, and the workspace's bounce rules decide whether SMS stops.
 func (d *Dispatcher) bounce(ctx context.Context, sentKey string, m model.Message, c model.Contact, reason string) error {
 	rec, err := d.eventRecordWith("msg:"+m.ID+":"+m.Channel+"_failed", m, c, "failed", reason, true)
 	if err != nil {
@@ -686,7 +686,7 @@ func (d *Dispatcher) eventRecord(id string, m model.Message, c model.Contact, ou
 	return d.eventRecordWith(id, m, c, outcome, reason, false)
 }
 
-// eventRecordWith is eventRecord; bounce marks an SMS bounce (props.bounce, attribute sms_bounced).
+// eventRecordWith is eventRecord; bounce marks an SMS bounce (props.bounce, counted by the bounce rules).
 func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact, outcome, reason string, bounce bool) (*kgo.Record, error) {
 	return d.eventRecordCode(id, m, c, outcome, reason, "", bounce)
 }

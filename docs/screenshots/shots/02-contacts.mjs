@@ -252,6 +252,18 @@ async function filters(page) {
   await page.getByText(/^(About )?[\d,]+ contacts?$/).waitFor();
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "02-add-filter-chips", { clip: top(page, 300) });
+
+  // Add filter: "Unsubscribed from" the workspace's topic Weekly offers (chosen, not added). The
+  // window is taller so the whole list and the fields fit without scrolling.
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await go(page, "/contacts");
+  await page.getByRole("button", { name: "Add filter", exact: true }).click();
+  await menu.getByRole("button", { name: "Unsubscribed from", exact: true }).click();
+  await fieldOf("From").selectOption({ label: "Topic: Weekly offers" });
+  await settle(page);
+  await shot(page, AREA, "02-add-filter-unsubscribed", { clip: menu, pad: 0 });
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1440, height: 900 });
 }
 
 async function duplicates(page) {

@@ -257,7 +257,7 @@ func isFilter(val string) (segment.Rule, string, error) {
 		}
 		return segment.Rule{Any: any}
 	}
-	bounced := []string{"email_bounced", "sms_bounced"}
+	bounced := []string{"email_bounced", "sms_bounced", "whatsapp_bounced", "rcs_bounced"}
 	switch val {
 	case "anonymous":
 		// date_identified is stamped at the first event with a known id or an email. Profiles from
@@ -270,7 +270,7 @@ func isFilter(val string) (segment.Rule, string, error) {
 	case "unsubscribed":
 		return eqTrue(optoutKeys...), "Unsubscribed (any channel)", nil
 	case "bounced":
-		return eqTrue(bounced...), "Bounced (email or SMS)", nil
+		return eqTrue(bounced...), "Bounced (a channel stopped)", nil
 	case "dnc":
 		return eqTrue(append(append([]string{}, optoutKeys...), bounced...)...), "Do not contact", nil
 	}

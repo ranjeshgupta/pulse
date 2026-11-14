@@ -678,7 +678,11 @@ func (s *Server) estimateAudience(w http.ResponseWriter, r *http.Request, tenant
 	}
 	norm := req
 	norm.Include, norm.Exclude = sortedIDs(req.Include), sortedIDs(req.Exclude)
-	kb, _ := json.Marshal(norm)
+	// The email policy changes what the estimate counts, so a change must not hit an old entry.
+	kb, _ := json.Marshal(struct {
+		EstimateRequest
+		Policy string
+	}{norm, s.unsubscribeSettings(ctx, tenant).EmailPolicy})
 	sum := sha1.Sum(kb)
 	cacheKey := "rchest:" + strconv.FormatInt(tenant, 10) + ":" + hex.EncodeToString(sum[:])
 	if b, err := s.RDB.Get(ctx, cacheKey).Bytes(); err == nil {

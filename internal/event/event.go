@@ -136,8 +136,8 @@ const (
 	AttrOwnerID        = "owner_id"        // the user who owns the contact
 	AttrOwnerName      = "owner_name"
 	AttrLocale         = "locale" // preferred locale, e.g. en-IN (SDKs send it; servers may set it)
-	// AttrSMSBounced marks a phone number that failed permanently: SMS to it is suppressed. Set by
-	// the dispatcher; a server can clear it, and a new phone number clears it.
+	// AttrSMSBounced marks a phone number whose SMS a bounce rule stopped: SMS to it is suppressed.
+	// Set by the profile role's bounce rules; a server can clear it, and a new phone number clears it.
 	AttrSMSBounced = "sms_bounced"
 )
 

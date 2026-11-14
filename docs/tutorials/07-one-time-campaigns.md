@@ -69,9 +69,20 @@ campaign. The channel's default is preselected; choose another, such as a standb
 campaign through it ([tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)).
 With a single provider the field isn't shown.
 
+When your workspace has topics (**Settings → Bounces & unsubscribes**, [tutorial 4](04-channels.md#the-unsubscribes-panel)),
+**Topic** says which one the campaign belongs to. **No topic** is the default; with no topics at
+all, the field isn't shown.
+
+![Topic: Weekly offers, with the hint People who unsubscribed from this topic are skipped, and the unsubscribe link in it leaves this topic only](img/07-topic.png)
+
+People who unsubscribed from that topic are skipped, and the unsubscribe link (and the mail app's
+one-click button) in this campaign's emails unsubscribes them from the topic only: they keep getting
+your other emails.
+
 Pulse skips contacts it can't or mustn't reach on the channel: no address, unsubscribed from that
-channel (or from everything), or an email address or phone number that bounced. Frequency caps and
-quiet hours (**Settings → Channels**, **Delivery rules**) apply to one-time campaigns as well.
+channel (or from everything), unsubscribed from the campaign's topic, or an address or number the
+bounce rules stopped. Frequency caps and quiet hours (**Settings → Channels**, **Delivery rules**)
+apply to one-time campaigns as well.
 
 ## 3. Preview and send a test
 
@@ -167,6 +178,20 @@ explains each step. Each number is a link to exactly those contacts:
 
 <img src="img/07-estimate.png" alt="Who it reaches now: 199 in the chosen segments, 163 after exclusions, 157 not unsubscribed from Email, 150 reachable on Email; 150 contacts will get it" width="460">
 
+The count doesn't leave out people who unsubscribed from the campaign's **Topic**: they are skipped
+when it sends, and show as *Opted out* in the results.
+
+If your workspace leaves email unsubscribers to segment filters (**People who unsubscribed from
+email** → **Leave them out with segment filters**, [tutorial 4](04-channels.md#the-unsubscribes-panel)),
+an email campaign keeps them in **Not unsubscribed from Email**, and a warning says how many there
+are:
+
+<img src="img/07-estimate-unsubscribed.png" alt="Who it reaches now: 199 in the chosen segments, 199 not unsubscribed from Email, 191 reachable; and the warning 8 of them unsubscribed from email, your workspace leaves them to segment filters, so they'll get it unless you exclude a segment of unsubscribed contacts" width="460">
+
+Click the number to see them. To leave them out, add a segment of unsubscribed contacts (the filter
+*Unsubscribed from email*, [tutorial 2](02-contacts.md#7-filter-your-contacts)) under **Leave out
+members of**.
+
 ## 6. Schedule it
 
 Click **Schedule** (top right).
@@ -220,7 +245,7 @@ yourself before then.*).
 |---|---|
 | Top figures | **sent** and **delivered** as counts; **opened**, **clicked**, **converted** as rates (out of messages sent) with the count under each; **unsubscribed** |
 | Revenue | With a conversion goal, once someone buys: **revenue from recipients**, **orders**, **buyers**, and the revenue per variant |
-| **Funnel** | Unique contacts at each step: **Audience at send time**, **After exclusions**, **After consent**, **Reachable** (the count taken when each send started), then **Targeted** (a message was tried: sent, skipped or failed), **Sent**, **Delivered**, **Opened** (or **Read** for WhatsApp and RCS) and **Clicked**, each with its share of the step before (Targeted's is of **After exclusions**, since it includes people skipped for consent or reachability) and of sent. Beside it: **Downloads** (file link clicks), **Bounced** (hard and soft), **Spam complaints**, **Failed**, **Unsubscribed**, and **Skipped** by reason group (consent, reachability, frequency cap, missing value, deadline) |
+| **Funnel** | Unique contacts at each step: **Audience at send time**, **After exclusions**, **After consent**, **Reachable** (the count taken when each send started), then **Targeted** (a message was tried: sent, skipped or failed), **Sent**, **Delivered**, **Opened** (or **Read** for WhatsApp and RCS) and **Clicked**, each with its share of the step before (Targeted's is of **After exclusions**, since it includes people skipped for consent or reachability) and of sent. Beside it: **Downloads** (file link clicks), **Bounced** (hard and soft) and **Spam complaints** on every channel (an SMS to an invalid number is a hard bounce, a blocked WhatsApp message a complaint), **Failed**, **Unsubscribed**, and **Skipped** by reason group (consent, reachability, frequency cap, missing value, deadline) |
 | **Why messages didn't go out** | Each reason (*Hard bounce*, *Opted out*, *Undeliverable (possibly blocked)*, *Send deadline passed*…), its kind (**Failed**, **Bounced**, **Spam complaint**, **Opted out**, **Over limit**), how many contacts and their share |
 | **Variants** | Each variant and the winner send: sent, opened, clicked and converted rates. The winning variant is highlighted, with how it was picked (*A won: picked by hand*) |
 | **By send** | For a repeating campaign, one row per send; choose a send in the list at the top right (**All sends**) to see only its results |

@@ -144,8 +144,8 @@ you have so far (it then shows on the Campaigns page as a **Draft**).
 |---|---|
 | **In the chosen segments** | Members of any segment you send to |
 | **After exclusions** | ...who are in none of the left-out segments (shown only when you leave some out) |
-| **Not unsubscribed from** *channel* | ...who haven't opted out of the channel, or of everything (Do Not Contact) |
-| **Reachable on** *channel* | ...who have somewhere to send it: an email address that hasn't bounced, a valid phone number with its country code (for SMS, one that hasn't bounced either), a push device for push |
+| **Not unsubscribed from** *channel* | ...who haven't opted out of the channel, or of everything (Do Not Contact). If your workspace leaves email unsubscribers to segment filters, they stay in for email and a warning says how many ([tutorial 7](07-one-time-campaigns.md#5-when-to-send)) |
+| **Reachable on** *channel* | ...who have somewhere to send it: an email address that hasn't bounced, a valid phone number with its country code (for SMS, WhatsApp and RCS, one the bounce rules haven't stopped on that channel), a push device for push |
 | **Under the frequency cap** | ...who haven't already had as many marketing messages on the channel as your cap allows (only when Settings → Channels → Delivery rules sets one). Above 50,000 contacts this step is estimated from a sample, and says so |
 
 ![Who it reaches: 199 in the chosen segments, 163 after exclusions (−36), 163 not unsubscribed from SMS, 163 reachable on SMS; 163 contacts will get it](img/14-estimate.png)
@@ -181,6 +181,9 @@ preview with sample values.
 
   If that provider is removed before the campaign sends, it goes through the channel's default
   ([tutorial 4](04-channels.md#choose-the-provider-for-a-campaign-send-through)).
+- **Topic** (only when your workspace has topics, [tutorial 4](04-channels.md#the-unsubscribes-panel))
+  says which topic the campaign belongs to, on any channel: people who left it are skipped, and
+  for email the unsubscribe link leaves that topic only. The count in step 3 doesn't leave them out.
 
 ## 5. Schedule and a send deadline
 

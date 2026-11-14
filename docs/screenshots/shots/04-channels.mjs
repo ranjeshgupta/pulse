@@ -7,15 +7,6 @@ import { api, BASE, clearHighlights, DOCS, go, highlight, session, settle, shot 
 
 const AREA = "tutorials";
 
-/** The bounce and reply webhook URLs end in a workspace token: hide it like a secret. */
-async function maskWebhookTokens(page) {
-  await page.evaluate(() => {
-    for (const el of document.querySelectorAll("code")) {
-      el.textContent = el.textContent.replace(/\/v1\/(bounces|replies)\/[0-9a-f]{16,}/g, "/v1/$1/••••••••••••••••");
-    }
-  });
-}
-
 const panel = (page, heading) => page.locator("section.panel", { has: page.getByRole("heading", { name: heading, exact: true }) });
 
 export default async function (browser) {
@@ -136,19 +127,7 @@ export default async function (browser) {
   await clearHighlights(page);
   await go(page, "/settings/channels"); // drop the unsaved changes
 
-  // 7. Bounces and complaints (token hidden), and the bounce mailbox.
-  await page.setViewportSize({ width: 1440, height: 1500 });
-  const bounces = panel(page, "Bounces and complaints");
-  await bounces.scrollIntoViewIfNeeded();
-  await maskWebhookTokens(page);
-  await shot(page, AREA, "04-bounces", { clip: bounces.locator(".panel-head, .panel-body > p, .panel-body > .row, .panel-body > .grid-2"), pad: 8 });
-  await shot(page, AREA, "04-webhook-signatures", { clip: bounces.locator("div", { has: page.getByRole("heading", { name: "Webhook signatures" }) }).last(), pad: 8 });
-  const mailbox = panel(page, "Bounce mailbox (IMAP)");
-  await mailbox.getByLabel("IMAP server").fill("imap.example.com");
-  await mailbox.getByLabel("Username").fill("bounces@acme-retail.example.com");
-  await settle(page);
-  await shot(page, AREA, "04-bounce-mailbox", { clip: mailbox, pad: 8 });
-  await page.setViewportSize({ width: 1440, height: 900 });
+  // 7. Bounces, complaints and unsubscribes have their own page: 04-bounces-and-unsubscribes.mjs.
 
   // 8. App inbox panel.
   await go(page, "/settings/channels");
