@@ -48,7 +48,8 @@ describe("contact filters", () => {
 describe("event and date filters in the search box", () => {
   const d = { segments: [], tags: [], stages: [], companies: [], users: [], events: ["purchase", "page_view"], today: "2026-11-14" };
   it("lists the Add filter questions when the box is empty, and finds them by word", () => {
-    expect(suggest("", d).slice(0, 6).map((s) => s.menu)).toEqual(["event", "no_event", "campaign", "journey", "active", "form"]);
+    expect(suggest("", d).slice(0, 7).map((s) => s.menu)).toEqual(["event", "no_event", "campaign", "journey", "delivery", "active", "form"]);
+    expect(suggest("bounce", d).map((s) => s.menu)).toContain("delivery");
     expect(suggest("date", d).map((s) => s.menu)).toContain("event");
     expect(suggest("camp", d)[0]).toMatchObject({ menu: "campaign" });
     expect(suggest("ev", d).some((s) => s.label === "event:")).toBe(true);

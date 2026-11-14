@@ -21,7 +21,15 @@ const CHANNELS = [
 export const OUTCOMES = [
   { value: "targeted", label: "Was in the audience" }, { value: "sent", label: "Was sent it" }, { value: "delivered", label: "Got it (delivered)" },
   { value: "opened", label: "Opened it" }, { value: "clicked", label: "Clicked in it" }, { value: "unsubscribed", label: "Unsubscribed from it" },
-  { value: "bounced", label: "Bounced" }, { value: "complained", label: "Marked it as spam" }, { value: "failed_all", label: "Failed or was skipped" },
+  { value: "bounced", label: "Bounced (hard or soft)" }, { value: "hard_bounced", label: "Hard-bounced" }, { value: "soft_bounced", label: "Soft-bounced" },
+  { value: "complained", label: "Complained (spam, blocked)" }, { value: "failed_all", label: "Failed or was skipped" },
+];
+
+/** What happened to messages on a channel, for "Bounced or complained on a channel". */
+export const DELIVERY_OUTCOMES = [
+  { value: "delivered", label: "Was delivered to" }, { value: "hard_bounced", label: "Hard-bounced" },
+  { value: "soft_bounced", label: "Soft-bounced" }, { value: "bounced", label: "Bounced (hard or soft)" },
+  { value: "complained", label: "Complained (spam, blocked)" }, { value: "failed", label: "Failed" },
 ];
 
 const JOURNEY_STATUS = [
@@ -96,6 +104,11 @@ export const FILTER_MENU: { group: string; items: MenuItem[] }[] = [
         { key: "journey", label: "Campaign", kind: "select", source: "journeys" },
         { key: "status", label: "And", kind: "select", options: [{ value: "", label: "Entered it" }, ...JOURNEY_STATUS], optional: true },
       ], build: (v) => [["journey", v.journey], ...(v.status ? [["journey_status", v.status] as ContactFilter] : [])] },
+      { id: "delivery", label: "Bounced or complained on a channel", hint: "Any campaign's messages: delivered, hard or soft bounce, complaint", fields: [
+        { key: "outcome", label: "Messages that", kind: "select", options: DELIVERY_OUTCOMES },
+        { key: "ch", label: "On", kind: "select", options: CHANNELS },
+        { ...FROM, optional: true }, { ...TO, optional: true },
+      ], build: (v) => [["outcome", v.outcome], ["via", v.ch], ...dates(v)] },
       { id: "reachable", label: "Can be reached by", hint: "Has an address on the channel and hasn't opted out", fields: [{ key: "ch", label: "Channel", kind: "select", options: CHANNELS }], build: (v) => [["reachable", v.ch]] },
       { id: "subscribed", label: "Not unsubscribed from", hint: "", fields: [{ key: "ch", label: "Channel", kind: "select", options: CHANNELS }], build: (v) => [["subscribed", v.ch]] },
       { id: "under_cap", label: "Not held back by the frequency cap", hint: "Can still get messages today", fields: [{ key: "ch", label: "Channel", kind: "select", options: CHANNELS }], build: (v) => [["under_cap", v.ch]] },

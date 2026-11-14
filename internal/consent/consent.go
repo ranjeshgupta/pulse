@@ -45,6 +45,14 @@ func BouncedAttr(ch string) string {
 	return ""
 }
 
+// BouncedAddressAttr keeps the address (email or phone) a bounce rule stopped ch for, so that
+// changing the address and back doesn't lift the stop.
+func BouncedAddressAttr(ch string) string { return ch + "_bounced_address" }
+
+// AttrSegmentsExcludedBy is the channel whose bounces set segments_excluded: only a new address on
+// that channel ends it.
+const AttrSegmentsExcludedBy = "segments_excluded_by"
+
 // BounceCountAttr counts a contact's bounces of one type (hard, soft, complaint) on ch, e.g.
 // email_hard_bounces, sms_complaints. Pulse keeps them; a new address on the channel resets them.
 func BounceCountAttr(ch, bounceType string) string {
@@ -103,7 +111,8 @@ func IsReserved(attrName string) bool {
 		"device_type", "device_os", "device_os_version", "device_brand", "device_model", "browser", "app_version":
 		return true
 	}
-	if strings.HasPrefix(attrName, "company_") || IsBounceCount(attrName) {
+	if strings.HasPrefix(attrName, "company_") || IsBounceCount(attrName) || strings.HasSuffix(attrName, "_bounced_address") ||
+		attrName == AttrSegmentsExcludedBy {
 		return true
 	}
 	for _, ch := range channel.All {

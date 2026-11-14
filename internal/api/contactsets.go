@@ -65,14 +65,14 @@ const (
 var specialKeys = map[string]bool{"in": true, "not_in": true, "subscribed": true, "reachable": true, "under_cap": true,
 	"journey": true, "at": true, "journey_status": true, "campaign": true, "run": true, "step": true, "outcome": true,
 	"reason": true, "event": true, "no_event": true, "product": true, "category": true, "active": true, "utm": true,
-	"amp_poll": true, "answer": true, "form": true, "period": true}
+	"amp_poll": true, "answer": true, "form": true, "period": true, "via": true}
 
 // Outcomes a campaign filter takes. With reason:, outcome: is the raw outcome kind of the reasons
 // table (failed, bounced, complained, suppressed, capped).
 var outcomeWords = map[string]string{
 	"targeted": "Targeted", "sent": "Sent", "delivered": "Delivered", "opened": "Opened", "read": "Read",
 	"clicked": "Clicked", "downloaded": "Downloaded a file", "bounced": "Bounced", "hard_bounced": "Bounced (hard)",
-	"soft_bounced": "Bounced (soft)", "complained": "Marked as spam", "failed": "Failed", "failed_all": "Failed or skipped when sending",
+	"soft_bounced": "Bounced (soft)", "complained": "Complained (spam or blocked)", "failed": "Failed", "failed_all": "Failed or skipped when sending",
 	"unsubscribed": "Unsubscribed",
 	"suppressed":   "Skipped (consent)", "capped": "Held back by the frequency cap", "fallback": "Sent as SMS instead",
 	"skipped": "Skipped", "skipped_consent": "Skipped: unsubscribed", "skipped_reachability": "Skipped: no address on the channel",
@@ -106,6 +106,7 @@ type viewSpecial struct {
 	Step           string
 	Outcome        string
 	Reason         string
+	Channel        string // via: the messages' channel (with campaign: / outcome:)
 	Events         []string
 	NoEvents       []string
 	Product        string
@@ -324,6 +325,16 @@ func parseSpecial(sp *viewSpecial, key, val string, lk viewLookup) (string, erro
 		}
 		sp.Outcome = v
 		return w, nil
+	case "via":
+		if err := once(sp.Channel != ""); err != nil {
+			return "", err
+		}
+		c := strings.ToLower(val)
+		if !channel.Valid(c) {
+			return "", fmt.Errorf("via:%s: use a channel: email, sms, whatsapp, rcs, push or inbox", val)
+		}
+		sp.Channel = c
+		return "By " + channelWords(c), nil
 	case "reason":
 		if err := once(sp.Reason != ""); err != nil {
 			return "", err
@@ -458,6 +469,8 @@ func finishSpecial(sp *viewSpecial, lk viewLookup, filters []viewFilter) ([]view
 		return nil, errors.New("at: and journey_status: need journey:<id>")
 	case sp.Step != "" && sp.Source != "journey":
 		return nil, errors.New("step: needs campaign:journey/<id>")
+	case sp.Channel != "" && !sp.Campaign && sp.Outcome == "" && sp.Reason == "":
+		return nil, errors.New("via: needs campaign: or outcome:")
 	case sp.Run != 0 && sp.Source != "broadcast":
 		return nil, errors.New("run: needs campaign:broadcast/<id>")
 	case sp.Answer != nil && sp.PollTemplate == 0:
@@ -681,10 +694,25 @@ func outcomeCond(outcome string, withReason bool) (string, []any) {
 		return "kind IN ('sent', 'failed', 'suppressed', 'capped', 'fallback', 'bounced')", nil
 	case "downloaded":
 		return "kind = 'clicked' AND match(url, ?)", []any{ch.DownloadURL}
-	case "hard_bounced":
-		return "kind = 'bounced' AND reason_code = ?", []any{reasons.HardBounce}
-	case "soft_bounced":
-		return "kind = 'bounced' AND reason_code != ?", []any{reasons.HardBounce}
+	// Bounces and complaints on every channel, by the reason codes' bounce type (the same the
+	// bounce rules count): an SMS to an invalid number is a hard bounce, a WhatsApp block a complaint.
+	case "hard_bounced", "soft_bounced", "bounced":
+		var codes []any
+		for _, t := range map[string][]string{"hard_bounced": {reasons.BounceHard}, "soft_bounced": {reasons.BounceSoft},
+			"bounced": {reasons.BounceHard, reasons.BounceSoft}}[outcome] {
+			for _, c := range reasons.BounceCodes(t) {
+				if reasons.SkipGroup(c) == "" { // the funnel shows those as skipped, not bounced
+					codes = append(codes, c)
+				}
+			}
+		}
+		return "kind IN ('bounced', 'failed') AND reason_code IN (" + marks(len(codes)) + ")", codes
+	case "complained":
+		var codes []any
+		for _, c := range reasons.BounceCodes(reasons.BounceComplaint) {
+			codes = append(codes, c)
+		}
+		return "(kind = 'complained' OR kind = 'failed' AND reason_code IN (" + marks(len(codes)) + "))", codes
 	case "failed_all": // every failed outcome, skips included (the reports' Failed column)
 		return "kind = 'failed'", nil
 	case "failed": // tried and failed: skips are their own step
@@ -733,6 +761,10 @@ func (sp *viewSpecial) chConds(tenant int64) (string, []any) {
 		c, cargs := outcomeCond(sp.Outcome, sp.Reason != "")
 		q += " AND " + c
 		args = append(args, cargs...)
+		if sp.Channel != "" {
+			q += " AND channel = ?"
+			args = append(args, sp.Channel)
+		}
 		if sp.Reason != "" {
 			q += " AND " + reasonExpr + " = ?"
 			args = append(args, sp.Reason)

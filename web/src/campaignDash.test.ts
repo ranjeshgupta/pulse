@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CampaignDashRow, MessageCounts, ReasonCount } from "./api";
 import {
   barWidth, campaignHref, csvRows, CSV_HEADER, dashQuery, deliveryReported, groupReasons, nextSort, rate, rates, sectionOf, sortRows, totals,
-  rowRates, totalsReported,
+  rowRates, totalsReported, bounceCounts, rowCounts,
 } from "./campaignDash";
 
 const zero: MessageCounts = {
@@ -161,5 +161,23 @@ describe("rowRates", () => {
     expect(rowRates(row(1, "Spring", { sent: 200, delivered: 178 }), reports).delivery).toBeCloseTo(0.89);
     expect(rowRates(row(2, "Plain SMTP", { sent: 200 }), reports).delivery).toBeNull();
     expect(totalsReported([row(1, "Spring", { sent: 200, delivered: 178 })], reports)).toBe(true);
+  });
+});
+
+describe("bounces on every channel", () => {
+  it("counts SMS and WhatsApp bounces and complaints like email's", () => {
+    const rs: ReasonCount[] = [
+      { kind: "failed", code: "invalid_number", label: "Invalid phone number", contacts: 4 },
+      { kind: "failed", code: "blocked", label: "Undeliverable", contacts: 2 },
+      { kind: "failed", code: "not_on_channel", label: "Not on WhatsApp", group: "reachability", contacts: 9 },
+      { kind: "failed", code: "timeout", label: "Timed out", contacts: 1 },
+      { kind: "bounced", code: "soft_bounce", label: "Soft", contacts: 3 },
+    ];
+    expect(bounceCounts(rs)).toEqual({ hard: 4, soft: 3, complaint: 2 });
+    const r = row(1, "Sale", { sent: 100, bounced: 3, complained: 0 }, { channels: ["whatsapp"], reasons: rs });
+    expect(rowCounts(r)).toMatchObject({ bounced: 7, complained: 2 });
+    expect(rowRates(r, {}).bounce).toBeCloseTo(0.07);
+    expect(sectionOf(rs[0])).toBe("bounced");
+    expect(sectionOf(rs[3])).toBe("failed");
   });
 });

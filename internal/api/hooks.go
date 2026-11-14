@@ -412,7 +412,9 @@ func (s *Server) hookEvent(w http.ResponseWriter, r *http.Request, c integration
 		writeErr(w, http.StatusBadRequest, "name the event: letters, digits, _ . : -")
 		return
 	}
-	if event.ServerOnly(req.Name) || event.PlatformOnly(req.Name) {
+	// Delivery and bounce reports count towards the bounce rules: only Pulse's bounce webhooks and
+	// mailboxes, or a server API key, record them.
+	if event.ServerOnly(req.Name) || event.PlatformOnly(req.Name) || event.BounceReport(req.Name) {
 		writeErr(w, http.StatusBadRequest, req.Name+" is recorded by Pulse itself; use the tags action or the API")
 		return
 	}

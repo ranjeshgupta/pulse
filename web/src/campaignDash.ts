@@ -65,11 +65,41 @@ export function rates(c: MessageCounts, buyers: number, reported: boolean): Rate
   };
 }
 
+// ---- bounces and complaints on every channel ----
+
+// Reason codes by bounce type: the server's reasons.BounceType (internal/reasons), shared by the
+// bounce rules, the funnel and the Contacts filters.
+const BOUNCE_TYPE: Record<string, "hard" | "soft" | "complaint"> = {
+  invalid_number: "hard", invalid_email: "hard", invalid_token: "hard", hard_bounce: "hard",
+  soft_bounce: "soft", not_on_channel: "soft", complaint: "complaint", blocked: "complaint",
+};
+export const bounceTypeOf = (code: string) => BOUNCE_TYPE[code];
+
+/** bounceCounts: a campaign's hard bounces, soft bounces and complaints on every channel (an SMS to
+ * an invalid number is a hard bounce, a WhatsApp block a complaint). Reasons the funnel shows as
+ * skipped aren't counted again. */
+export function bounceCounts(reasons: ReasonCount[]): { hard: number; soft: number; complaint: number } {
+  const out = { hard: 0, soft: 0, complaint: 0 };
+  for (const r of reasons) {
+    if (r.group || !["failed", "bounced", "complained"].includes(r.kind)) continue;
+    const t = BOUNCE_TYPE[r.code];
+    if (t) out[t] += r.contacts;
+  }
+  return out;
+}
+
+/** rowCounts: a row's counts with every channel's bounces and complaints (not only email's). */
+export function rowCounts(r: CampaignDashRow): MessageCounts {
+  const b = bounceCounts(r.reasons ?? []);
+  const complaintsFromFailures = (r.reasons ?? []).filter((x) => !x.group && x.kind === "failed" && BOUNCE_TYPE[x.code] === "complaint").reduce((s, x) => s + x.contacts, 0);
+  return { ...r.counts, bounced: Math.max(r.counts.bounced, b.hard + b.soft), complained: r.counts.complained + complaintsFromFailures };
+}
+
 /** rowReported: deliveries count for a campaign when its providers report them now, or when it has
  * delivery reports anyway (sent through a provider that did): the funnel shows those too. */
 export const rowReported = (r: CampaignDashRow, reports: Record<string, boolean>) => deliveryReported(r.channels, reports) || r.counts.delivered > 0;
 
-export const rowRates = (r: CampaignDashRow, reports: Record<string, boolean>) => rates(r.counts, r.buyers, rowReported(r, reports));
+export const rowRates = (r: CampaignDashRow, reports: Record<string, boolean>) => rates(rowCounts(r), r.buyers, rowReported(r, reports));
 
 // ---- sorting ----
 
@@ -162,7 +192,7 @@ export const KIND_LABELS: Record<ReasonKind, string> = {
  * complaints together; the rest failed when tried. */
 export function sectionOf(r: ReasonCount): ReasonSection {
   if (r.group || r.kind === "suppressed" || r.kind === "capped") return "skipped";
-  if (r.kind === "bounced" || r.kind === "complained") return "bounced";
+  if (r.kind === "bounced" || r.kind === "complained" || BOUNCE_TYPE[r.code]) return "bounced";
   return "failed";
 }
 
@@ -202,7 +232,7 @@ export const categoryLabel = (c: string) => CATEGORIES.find((x) => x.key === c)?
 
 export const CSV_HEADER = [
   "Campaign", "Kind", "Type", "Channels", "Status", "Tags", "Sent", "Delivered", "Delivery rate", "Opened", "Open rate", "Open rate of",
-  "Clicked", "Click rate", "Downloads", "Buyers", "Conversion rate", "Revenue", "Currency", "Unsubscribes", "Complaints", "Bounces", "Failures",
+  "Clicked", "Click rate", "Downloads", "Buyers", "Conversion rate", "Revenue", "Currency", "Unsubscribes", "Complaints", "Bounces", "Hard bounces", "Soft bounces", "Failures",
 ];
 
 /** csvRows: the header and one row per campaign, numbers as numbers and rates as shown ("–" when unknown). */
@@ -211,11 +241,12 @@ export function csvRows(rows: CampaignDashRow[], reports: Record<string, boolean
     CSV_HEADER,
     ...rows.map((r) => {
       const x = rowRates(r, reports);
-      const c = r.counts;
+      const c = rowCounts(r);
+      const b = bounceCounts(r.reasons ?? []);
       return [
         r.name, r.kind, categoryLabel(r.category), r.channels.join(" "), r.status, r.tags.join(" | "),
         c.sent, x.deliveryReported ? c.delivered : "", x.deliveryReported ? rate(x.delivery) : "not reported", c.opened, rate(x.open), x.openOf,
-        c.clicked, rate(x.click), c.downloaded, r.buyers, rate(x.conversion), r.revenue, currency, c.unsubscribed, c.complained, c.bounced, c.failed,
+        c.clicked, rate(x.click), c.downloaded, r.buyers, rate(x.conversion), r.revenue, currency, c.unsubscribed, c.complained, c.bounced, b.hard, b.soft, c.failed,
       ];
     }),
   ];

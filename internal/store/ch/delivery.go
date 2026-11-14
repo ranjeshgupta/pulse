@@ -507,11 +507,19 @@ func BuildFunnel(rep Report) Funnel {
 				skippedFailures += r.Contacts
 			}
 		}
-		if r.Kind == "bounced" {
-			if r.Code == reasons.HardBounce {
+		// Bounces and complaints on every channel, by bounce type (an SMS to an invalid number is a
+		// hard bounce, a WhatsApp block a complaint), the same the bounce rules and filters use.
+		// Reasons the funnel shows as skipped (not on the channel, device gone) aren't counted twice.
+		if (r.Kind == "bounced" || r.Kind == "failed" || r.Kind == "complained") && r.Group == "" {
+			switch reasons.BounceType(r.Code) {
+			case reasons.BounceHard:
 				f.HardBounced += r.Contacts
-			} else {
+			case reasons.BounceSoft:
 				f.SoftBounced += r.Contacts
+			case reasons.BounceComplaint:
+				if r.Kind != "complained" { // complained messages are in Totals already
+					f.Complained += r.Contacts
+				}
 			}
 		}
 	}
@@ -528,6 +536,9 @@ func BuildFunnel(rep Report) Funnel {
 	}
 	if t.Failed > skippedFailures {
 		f.Failed = t.Failed - skippedFailures
+	}
+	if b := f.HardBounced + f.SoftBounced; b > f.Bounced {
+		f.Bounced = b // every channel's bounces, not only email's
 	}
 	return f
 }

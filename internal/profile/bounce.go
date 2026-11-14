@@ -92,7 +92,7 @@ func countBounce(merged map[string]any, changed []string, e *event.Event, rules 
 		follow.Props = map[string]any{"channel": unsub, "source": source, "bounce_type": typ, "count": count}
 	default:
 		follow.Name = event.BounceActionName(ch)
-		follow.Props = map[string]any{"channel": ch, "type": typ, "count": count, "action": rule.Action}
+		follow.Props = map[string]any{"channel": ch, "type": typ, "count": count, "action": rule.Action, "address": addressOf(out, ch)}
 	}
 	return out, changed, []event.Event{follow}
 }
@@ -104,17 +104,30 @@ func bounceActionUpdates(e *event.Event, updates map[string]any) {
 	switch attr.String(e.Props["action"]) {
 	case automation.BounceLeaveSegments:
 		updates[consent.AttrSegmentsExcluded] = true
+		updates[consent.AttrSegmentsExcludedBy] = ch
 		fallthrough
 	case automation.BounceStop:
 		if a := consent.BouncedAttr(ch); a != "" {
 			updates[a] = true
+			if addr := attr.String(e.Props["address"]); addr != "" {
+				updates[consent.BouncedAddressAttr(ch)] = addr
+			}
 		}
 	}
 }
 
-// resetBounces starts a channel's counts over when its address changes: a new email address
-// clears the email counts and email_bounced, a new phone number those of SMS, WhatsApp and RCS
-// (sms_bounced is already cleared by MergeScored). Leaving segments ends with a new address too.
+// addressOf is the contact's address on ch: the email, or the phone for SMS, WhatsApp and RCS.
+func addressOf(p map[string]any, ch string) string {
+	if ch == channel.Email {
+		return strings.ToLower(strings.TrimSpace(attr.String(p["email"])))
+	}
+	return strings.TrimSpace(attr.String(p["phone"]))
+}
+
+// resetBounces follows a change of address: a channel whose stop was for another address starts
+// over (its counts, the stop, and leaving segments when that channel caused it); changing back to
+// the address that bounced puts the stop back. So switching addresses never lifts a stop for the
+// address that bounced.
 func resetBounces(cur, merged map[string]any, changed []string) (map[string]any, []string) {
 	var chans []string
 	if slices.Contains(changed, "email") && attr.String(cur["email"]) != "" {
@@ -126,31 +139,40 @@ func resetBounces(cur, merged map[string]any, changed []string) (map[string]any,
 	if len(chans) == 0 {
 		return merged, changed
 	}
-	var drop []string
-	for _, ch := range chans {
-		for _, t := range automation.BounceTypes {
-			drop = append(drop, consent.BounceCountAttr(ch, t))
-		}
-		if ch != channel.SMS { // MergeScored sets sms_bounced false itself
-			drop = append(drop, consent.BouncedAttr(ch))
-		}
+	out := make(map[string]any, len(merged))
+	for k, v := range merged {
+		out[k] = v
 	}
-	drop = append(drop, consent.AttrSegmentsExcluded)
-	out := merged
-	copied := false
-	for _, k := range drop {
-		if _, had := merged[k]; !had {
+	touch := func(k string) { changed = mergeKeys(changed, []string{k}) }
+	for _, ch := range chans {
+		now := addressOf(out, ch)
+		stopped := attr.String(out[consent.BouncedAddressAttr(ch)])
+		if stopped != "" && now == stopped {
+			// Back to the address that bounced: it stays stopped.
+			if !truthy(out[consent.BouncedAttr(ch)]) {
+				out[consent.BouncedAttr(ch)] = true
+				touch(consent.BouncedAttr(ch))
+			}
 			continue
 		}
-		if !copied {
-			out = make(map[string]any, len(merged))
-			for kk, v := range merged {
-				out[kk] = v
+		for _, t := range automation.BounceTypes {
+			if _, had := out[consent.BounceCountAttr(ch, t)]; had {
+				delete(out, consent.BounceCountAttr(ch, t))
+				touch(consent.BounceCountAttr(ch, t))
 			}
-			copied = true
 		}
-		delete(out, k)
-		changed = mergeKeys(changed, []string{k})
+		if ch != channel.SMS { // MergeScored sets sms_bounced false itself
+			if _, had := out[consent.BouncedAttr(ch)]; had {
+				delete(out, consent.BouncedAttr(ch))
+				touch(consent.BouncedAttr(ch))
+			}
+		}
+		if attr.String(out[consent.AttrSegmentsExcludedBy]) == ch {
+			delete(out, consent.AttrSegmentsExcluded)
+			delete(out, consent.AttrSegmentsExcludedBy)
+			touch(consent.AttrSegmentsExcluded)
+			touch(consent.AttrSegmentsExcludedBy)
+		}
 	}
 	return out, changed
 }

@@ -105,3 +105,31 @@ func TestBounceRulesCountAndAct(t *testing.T) {
 		t.Errorf("new address kept the bounce state: %v", p)
 	}
 }
+
+func TestBounceStopSurvivesAddressSwitching(t *testing.T) {
+	s := automation.Defaults()
+	s.Bounces["email"] = automation.ChannelBounces{
+		Hard: automation.BounceRule{Count: 1, Action: automation.BounceLeaveSegments},
+		Soft: automation.BounceRule{Count: 1, Action: automation.BounceRecord}, Complaint: automation.BounceRule{Count: 1, Action: automation.BounceRecord},
+	}
+	rules := rulesOf(s)
+	p := map[string]any{"email": "a@x.com", "phone": "+919800000001"}
+	p, _ = apply(t, p, event.Event{ID: "1", Name: "email_bounced", Ts: time.Now(), Props: map[string]any{"kind": "hard", "same_address": true}}, rules)
+	if p[consent.AttrEmailBounced] != true || p[consent.AttrSegmentsExcluded] != true || p["email_bounced_address"] != "a@x.com" {
+		t.Fatalf("after the bounce: %v", p)
+	}
+	// A new phone number doesn't end an exclusion that email caused.
+	p, _ = apply(t, p, event.Event{ID: "2", Name: "identify", Ts: time.Now(), Attrs: map[string]any{"phone": "+919800000002"}}, rules)
+	if p[consent.AttrSegmentsExcluded] != true {
+		t.Errorf("a new phone ended the email exclusion: %v", p)
+	}
+	// A new email ends it; changing back to the bounced address stops email again.
+	p, _ = apply(t, p, event.Event{ID: "3", Name: "identify", Ts: time.Now(), Email: "b@x.com"}, rules)
+	if p[consent.AttrEmailBounced] != nil || p[consent.AttrSegmentsExcluded] != nil {
+		t.Errorf("new address kept the stop: %v", p)
+	}
+	p, _ = apply(t, p, event.Event{ID: "4", Name: "identify", Ts: time.Now(), Email: "a@x.com"}, rules)
+	if p[consent.AttrEmailBounced] != true {
+		t.Errorf("back to the bounced address lifted the stop: %v", p)
+	}
+}

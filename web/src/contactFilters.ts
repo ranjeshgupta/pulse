@@ -27,7 +27,7 @@ export const MORE_KEYS: { key: string; hint: string }[] = [
 /** Filters that other pages put in links (M7: the contacts behind a number). They aren't offered
  * while typing, but they show as chips and can be removed like any other. */
 export const LINK_KEYS = ["in", "not_in", "subscribed", "reachable", "under_cap", "journey", "at", "journey_status", "campaign", "run",
-  "step", "outcome", "reason", "event", "no_event", "product", "category", "active", "utm", "amp_poll", "answer", "form", "period"];
+  "step", "outcome", "reason", "event", "no_event", "product", "category", "active", "utm", "amp_poll", "answer", "form", "period", "via"];
 
 /** list: is the old name of segment: (static segments used to be called lists). */
 const KEYS = new Set<string>([...FILTER_KEYS.map((k) => k.key), "list", ...LINK_KEYS]);
@@ -134,6 +134,7 @@ export const MENU_SUGGESTIONS: { id: string; label: string; hint: string; words:
   { id: "no_event", label: "Didn't do an event…", hint: "between two dates", words: "event didnt didn't not never date dates period" },
   { id: "campaign", label: "Got a campaign…", hint: "and opened, clicked, bounced…", words: "campaign email message sent opened clicked bounced got" },
   { id: "journey", label: "In a triggered or automation campaign…", hint: "entered it, finished it…", words: "journey campaign triggered automation entered" },
+  { id: "delivery", label: "Bounced or complained on a channel…", hint: "delivered, hard or soft bounce, complaint: SMS, WhatsApp, email…", words: "bounce bounced hard soft complaint complained spam delivered delivery failed sms whatsapp rcs" },
   { id: "active", label: "Was active…", hint: "on the website or app, between two dates", words: "active visit visited website app date dates period new returning" },
   { id: "form", label: "Submitted a form…", hint: "between two dates", words: "form submitted date" },
 ];
