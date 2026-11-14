@@ -228,7 +228,7 @@ fieldset:disabled .seg-toggle button { cursor: not-allowed; opacity: 0.7; }
 .figures strong { font-size: var(--fs-2xl); font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
 /* Tabular figures only where numbers line up: in this face they also widen punctuation. */
 .pulse-figure, .preview-count, .pulse-axis { font-variant-numeric: tabular-nums; }
-.figures span { color: var(--muted); font-size: var(--fs-sm); }
+.figures div > span { color: var(--muted); font-size: var(--fs-sm); }
 
 .live-num { font-variant-numeric: tabular-nums; border-radius: 4px; padding: 0 3px; margin: 0 -3px; }
 .live-num.changed { animation: tick 1.2s ease-out; }

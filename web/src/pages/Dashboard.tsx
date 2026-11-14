@@ -213,7 +213,7 @@ function CampaignList({ title, loading, items, empty, show }: {
   title: string; loading: boolean; items?: BroadcastBrief[]; empty: ReactNode; show: (b: BroadcastBrief) => ReactNode;
 }) {
   return (
-    <div className="ov-list">
+    <div className="ov-col">
       <h4>{title}</h4>
       {loading ? <Skeleton rows={3} /> : !items?.length ? <p className="muted small">{empty}</p> : (
         <ul>
