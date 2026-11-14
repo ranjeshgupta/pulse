@@ -5,6 +5,7 @@
 package consent
 
 import (
+	"regexp"
 	"strings"
 
 	"pulse/internal/attr"
@@ -80,6 +81,8 @@ func Bounced(attrs map[string]any, ch string) bool {
 	return a != "" && truthy(attrs[a])
 }
 
+var topicRe = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
+
 // Methods of an unsubscribe, recorded as props.method on unsubscribed events.
 const (
 	MethodSelf   = "self"   // the contact did it: a link, a keyword reply, the preference center, a form, a complaint
@@ -99,6 +102,15 @@ func Method(source string) string {
 // Key is the attribute that records an opt-out from ch (or from everything, for All).
 func Key(ch string) string { return "optout_" + ch }
 
+// TopicKey is the attribute that records an opt-out from a subscription topic (a product or list),
+// e.g. optout_topic_offers. The contact stays in every segment; campaigns of that topic skip them.
+func TopicKey(topic string) string { return "optout_topic_" + topic }
+
+// OptedOutOfTopic reports whether the contact left the topic.
+func OptedOutOfTopic(attrs map[string]any, topic string) bool {
+	return topic != "" && truthy(attrs[TopicKey(topic)])
+}
+
 // IsReserved reports whether an attribute may only be changed through consent events. Browsers
 // (site key) can't set these directly, so a page script can't opt someone back in.
 // Tags, points, merged_into, the lifecycle stage and the company attributes (company_id,
@@ -111,7 +123,7 @@ func IsReserved(attrName string) bool {
 		"device_type", "device_os", "device_os_version", "device_brand", "device_model", "browser", "app_version":
 		return true
 	}
-	if strings.HasPrefix(attrName, "company_") || IsBounceCount(attrName) || strings.HasSuffix(attrName, "_bounced_address") ||
+	if strings.HasPrefix(attrName, "company_") || strings.HasPrefix(attrName, "optout_topic_") || IsBounceCount(attrName) || strings.HasSuffix(attrName, "_bounced_address") ||
 		attrName == AttrSegmentsExcludedBy {
 		return true
 	}
@@ -121,6 +133,26 @@ func IsReserved(attrName string) bool {
 		}
 	}
 	return false
+}
+
+// SuppressReason says why the contact must not get a message on ch of topic ("" when they may):
+// they left the topic, or opted out of ch or of everything. With emailBySegment (the workspace's
+// email policy is "segment"), email opt-outs don't stop email by themselves: campaigns leave those
+// contacts out with a segment filter. A contact who marked an email as spam is still never emailed.
+func SuppressReason(attrs map[string]any, ch, topic string, emailBySegment bool) string {
+	if OptedOutOfTopic(attrs, topic) {
+		return "contact unsubscribed from the topic " + topic
+	}
+	if ch == "email" && emailBySegment {
+		if n, _ := attr.Number(attr.String(attrs[BounceCountAttr("email", "complaint")])); n > 0 {
+			return "the contact marked an email as spam"
+		}
+		return ""
+	}
+	if OptedOut(attrs, ch) {
+		return "contact unsubscribed from " + ch
+	}
+	return ""
 }
 
 // OptedOut reports whether the contact must not receive messages on ch.
@@ -136,6 +168,19 @@ func truthy(v any) bool {
 // Updates returns the attribute changes a consent event makes, or nil for other events.
 // Resubscribing to one channel also lifts a global opt-out, so it takes effect.
 func Updates(eventName string, props map[string]any) map[string]any {
+	// A topic: only that topic's opt-out changes (props.topic, a topic key).
+	if topic := attr.String(props["topic"]); topic != "" {
+		if !topicRe.MatchString(topic) {
+			return nil
+		}
+		switch eventName {
+		case Unsubscribed:
+			return map[string]any{TopicKey(topic): true}
+		case Resubscribed:
+			return map[string]any{TopicKey(topic): false}
+		}
+		return nil
+	}
 	ch := attr.String(props["channel"])
 	if ch == "" {
 		ch = All

@@ -32,6 +32,8 @@ type Settings struct {
 	DefaultLimits map[string]model.ProviderLimits `json:"default_limits"` // by channel
 	// Bounces: what bounces and complaints do, per channel (bounces.go); DefaultBounces when unset.
 	Bounces map[string]ChannelBounces `json:"bounces"`
+	// Unsubscribe: the link's mode, the email policy and the topics (unsubscribe.go).
+	Unsubscribe Unsubscribe `json:"unsubscribe"`
 }
 
 // Retention says how long each kind of log is kept, in days (0 keeps forever).
@@ -107,10 +109,11 @@ func Defaults() Settings {
 	return Settings{
 		Retention: Retention{AuditDays: DefaultAuditDays, WebhookDeliveryDays: DefaultWebhookDays,
 			IntegrationLogDays: DefaultIntegrationLog, LiveFeedSize: DefaultLiveFeedSize},
-		Retries:   Retries{Attempts: DefaultAttempts, MaxBackoffSeconds: int(DefaultMaxBackoff / time.Second)},
-		Schedules: Schedules{ReachRebuildHour: -1, DailySegmentAt: DefaultDailyAt},
-		Messages:  Messages{InboxExpiryDays: DefaultInboxExpiry},
-		Bounces:   DefaultBounces(),
+		Retries:     Retries{Attempts: DefaultAttempts, MaxBackoffSeconds: int(DefaultMaxBackoff / time.Second)},
+		Schedules:   Schedules{ReachRebuildHour: -1, DailySegmentAt: DefaultDailyAt},
+		Messages:    Messages{InboxExpiryDays: DefaultInboxExpiry},
+		Bounces:     DefaultBounces(),
+		Unsubscribe: DefaultUnsubscribe(),
 	}
 }
 
@@ -127,7 +130,7 @@ func Load(raw []byte) (Settings, error) {
 }
 
 // Sections are the top-level parts of Settings; a PUT replaces the sections it sends.
-var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces"}
+var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces", "unsubscribe"}
 
 // Apply replaces the sections present in body (a JSON object) on top of cur; within a section,
 // fields left out take their defaults. Unknown sections and fields are refused.
@@ -159,6 +162,9 @@ func Apply(cur Settings, body []byte) (Settings, error) {
 		case "default_limits":
 			out.DefaultLimits = nil
 			dst = &out.DefaultLimits
+		case "unsubscribe":
+			out.Unsubscribe = def.Unsubscribe
+			dst = &out.Unsubscribe
 		case "bounces":
 			// The channels sent replace theirs; the others keep theirs.
 			var b map[string]ChannelBounces
@@ -309,6 +315,9 @@ func (s *Settings) Validate() error {
 	}
 	if len(s.DefaultLimits) == 0 {
 		s.DefaultLimits = nil
+	}
+	if err := validateUnsubscribe(&s.Unsubscribe); err != nil {
+		return err
 	}
 	return validateBounces(s.Bounces)
 }

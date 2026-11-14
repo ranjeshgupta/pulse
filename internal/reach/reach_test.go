@@ -98,6 +98,7 @@ func TestCountMatchesSets(t *testing.T) {
 		setBits(t, rdb, Key(tenant+1, Email), randomSet(r, 500, 2000))
 
 		var want Counts
+		keptReach := int64(0) // opted-out contacts with an address
 		for id := range uint32(4000) {
 			if !inc1[id] && !inc2[id] {
 				continue
@@ -108,6 +109,10 @@ func TestCountMatchesSets(t *testing.T) {
 			}
 			want.AfterExclude++
 			if out[id] {
+				want.OptedOut++
+				if addr[id] {
+					keptReach++
+				}
 				continue
 			}
 			want.AfterConsent++
@@ -121,6 +126,13 @@ func TestCountMatchesSets(t *testing.T) {
 		}
 		if got != want {
 			t.Fatalf("round %d: got %+v, want %+v", round, got, want)
+		}
+		keep, _, err := Count(ctx, rdb, Query{Tenant: tenant, Include: []int64{1, 2}, Exclude: []int64{3}, Channel: channel.Email, KeepOptedOut: true}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keep.AfterConsent != want.AfterExclude || keep.Reachable != want.Reachable+keptReach || keep.OptedOut != want.OptedOut {
+			t.Fatalf("round %d, keeping the opted out: %+v (want %+v, %d more reachable)", round, keep, want, keptReach)
 		}
 		if n, _ := rdb.BitCount(ctx, kept, nil).Result(); n != want.Reachable {
 			t.Fatalf("round %d: kept bitmap has %d, want %d", round, n, want.Reachable)

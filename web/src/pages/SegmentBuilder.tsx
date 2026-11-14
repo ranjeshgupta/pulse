@@ -2,6 +2,7 @@
 // one row: [field] [operator for its type] [value input for its type] [×]; behaviour filters read
 // as sentences ("Opened an email [the email: Welcome ▾] [at least ▾] [1] times in the last [30]
 // days"). Filters are added from FilterPicker. Edits go through treeReducer by path.
+import { useTopics } from "../TopicPick";
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, CHANNEL_NAMES, CHANNELS } from "../api";
@@ -39,10 +40,12 @@ export function GroupEditor({ group, onChange, self }: { group: Group; onChange:
   const attrs = useAttributes().data;
   const eventNames = useEventNames().data?.names;
   const schemas = useEventSchemas().data?.schemas;
+  const topics = useTopics().data?.topics;
   const items = useMemo(() => buildCatalog({
     defs: attrs?.attributes ?? [], seen: attrs?.undefined ?? [],
     events: (eventNames ?? []).filter((n) => !KNOWN_EVENTS[n]).map((n) => ({ name: n, label: schemas?.find((x) => x.name === n)?.label })),
-  }), [attrs, eventNames, schemas]);
+    topics,
+  }), [attrs, eventNames, schemas, topics]);
   const [recent, setRecent] = useState(loadRecent);
   const [open, setOpen] = useState<string | null>(null);
   const latest = useRef(group);

@@ -105,6 +105,12 @@ export function AudienceEstimate({ include, exclude, channel, transactional }: {
         ))}
       </ol>
       <p className="estimate-total"><strong className="num"><ContactCount value={e.will_send} filters={estimateFilters(e.capped && e.cap ? "cap" : "reach", include, exclude, channel)} /></strong> contacts will get it{e.capped?.approximate ? " (about)" : ""}, if nothing changes before it sends.</p>
+      {e.unsubscribed_kept && (e.opted_out ?? 0) > 0 && (
+        <div className="alert warn" role="note" style={{ marginTop: 8 }}>
+          <strong className="num"><ContactCount value={e.opted_out!} filters={estimateFilters("opted_out", include, exclude, channel)} /></strong> of them unsubscribed from email.
+          Your workspace leaves them to segment filters (Settings → Bounces &amp; unsubscribes), so they'll get it unless you exclude a segment of unsubscribed contacts.
+        </div>
+      )}
       {!e.ready && <p className="xs muted">Reachability is still being computed for this workspace; the last steps may read low for a few minutes.</p>}
       <p className="xs muted">Counted {new Date(e.computed_at).toLocaleTimeString()} · refreshes every 30 seconds.</p>
     </div>

@@ -256,6 +256,8 @@ export interface ChannelRule { channel: Channel; template_id?: number; fallback_
 export interface JourneyNode {
   type: string; next?: string; seconds?: number; segment_id?: number; yes?: string; no?: string;
   template_id?: number; fallback_template_id?: number; provider_id?: number; x?: number; y?: number;
+  /** send_* and send_message: the subscription topic (its unsubscribers are skipped). */
+  topic?: string;
   until?: string; time_of_day?: string; timezone?: string; event?: string; rule?: Rule;
   variants?: { weight: number; next?: string; label?: string }[]; attrs?: Record<string, unknown>; url?: string; body?: string;
   add_tags?: string[]; remove_tags?: string[]; points?: number; list_id?: number; list_action?: "add" | "remove";
@@ -406,6 +408,8 @@ export type ABMetric = "opens" | "clicks" | "manual";
 export interface ABTest { variants: { label: string; template_id: number }[]; test_percent: number; metric: ABMetric; wait_hours: number }
 export interface Broadcast {
   id: number; name: string; channel: Channel; template_id: number; fallback_template_id?: number; provider_id?: number; segment_id: number;
+  /** The subscription topic: its unsubscribers are skipped, and its unsubscribe link leaves the topic only. */
+  topic?: string;
   start_at: string; end_at?: string | null; repeat: Repeat; next_run_at?: string | null;
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;
@@ -688,6 +692,10 @@ export interface CampaignRow {
 /** An exact audience estimate after each step. */
 export interface Estimate {
   audience: number; after_exclude: number; after_consent: number; reachable: number; will_send: number;
+  /** Contacts (after the exclusions) unsubscribed from the channel or from everything. */
+  opted_out?: number;
+  /** Email with the "segment" email policy: opted_out contacts still get it unless a segment leaves them out. */
+  unsubscribed_kept?: boolean;
   capped?: { capped: number; approximate: boolean; checked: number }; cap?: { max: number; hours: number };
   ready: boolean; computed_at: string; cached_until: string;
 }
@@ -717,7 +725,13 @@ export interface AutomationSettings {
   default_limits: Record<string, ProviderLimits> | null;
   /** Bounce rules per channel (email, sms, whatsapp, rcs). */
   bounces?: Record<string, ChannelBounces>;
+  /** The unsubscribe link's mode, whether email unsubscribes stop email, and the topics. */
+  unsubscribe?: UnsubscribeSettings;
 }
+export type UnsubscribeLinkMode = "confirm" | "one_click";
+export type EmailUnsubscribePolicy = "enforce" | "segment";
+export interface UnsubscribeTopic { key: string; name: string; description?: string }
+export interface UnsubscribeSettings { link_mode: UnsubscribeLinkMode; email_policy: EmailUnsubscribePolicy; topics: UnsubscribeTopic[] }
 export type BounceAction = "record" | "stop" | "unsubscribe" | "leave_segments" | "do_not_contact" | "delete";
 export interface BounceRule { count: number; action: BounceAction }
 export interface ChannelBounces { hard: BounceRule; soft: BounceRule; complaint: BounceRule }

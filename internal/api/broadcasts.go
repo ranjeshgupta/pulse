@@ -171,6 +171,9 @@ func (s *Server) validBroadcast(ctx context.Context, b model.Broadcast) error {
 			errs = append(errs, err)
 		}
 	}
+	if err := s.topicProblem(ctx, b.TenantID, b.Topic); err != nil {
+		errs = append(errs, err)
+	}
 	if b.FallbackTemplateID != 0 {
 		ft, err := s.uiStore().Template(ctx, b.TenantID, b.FallbackTemplateID)
 		if !channel.FallsBackToSMS(b.Channel) || err != nil || ft.Channel != channel.SMS {

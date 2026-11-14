@@ -315,3 +315,26 @@ func TestJSONShape(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsubscribeSettings(t *testing.T) {
+	ok := func(u Unsubscribe) error { s := Defaults(); s.Unsubscribe = u; return s.Validate() }
+	if err := ok(DefaultUnsubscribe()); err != nil {
+		t.Fatal(err)
+	}
+	good := Unsubscribe{LinkMode: LinkOneClick, EmailPolicy: EmailSegment, Topics: []Topic{{Key: "offers", Name: " Offers "}}}
+	if err := ok(good); err != nil {
+		t.Fatal(err)
+	}
+	for name, u := range map[string]Unsubscribe{
+		"mode":    {LinkMode: "x", EmailPolicy: EmailEnforce},
+		"policy":  {LinkMode: LinkConfirm, EmailPolicy: "x"},
+		"key":     {LinkMode: LinkConfirm, EmailPolicy: EmailEnforce, Topics: []Topic{{Key: "Bad key", Name: "x"}}},
+		"channel": {LinkMode: LinkConfirm, EmailPolicy: EmailEnforce, Topics: []Topic{{Key: "email", Name: "x"}}},
+		"twice":   {LinkMode: LinkConfirm, EmailPolicy: EmailEnforce, Topics: []Topic{{Key: "a", Name: "x"}, {Key: "a", Name: "y"}}},
+		"no name": {LinkMode: LinkConfirm, EmailPolicy: EmailEnforce, Topics: []Topic{{Key: "a"}}},
+	} {
+		if ok(u) == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

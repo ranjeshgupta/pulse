@@ -72,6 +72,9 @@ type Executor struct {
 	Stats   StepCounter // per-step entered / yes / no counts (best effort)
 	// Integrations pushes contacts to CRM connectors (push_integration).
 	Integrations Pusher
+	// EmailBySegment reports whether the workspace leaves email unsubscribers to segment filters
+	// (its unsubscribe email policy); nil: email unsubscribes always stop email.
+	EmailBySegment func(ctx context.Context, tenant int64) bool
 }
 
 // Run walks the graph from node `from` until the enrollment waits or exits.
@@ -232,6 +235,7 @@ func (x *Executor) Run(ctx context.Context, g Graph, en model.Enrollment, from s
 			}
 			m.FallbackTemplateID = n.FallbackTemplateID
 			m.ProviderID = n.ProviderID
+			m.Topic = n.Topic
 			m.Deadline = n.Deadline.After(x.Now())
 			if err := x.Sender.Send(ctx, m); err != nil {
 				return err

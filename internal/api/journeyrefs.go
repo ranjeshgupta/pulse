@@ -111,6 +111,11 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 				return bad(id, "%v", err)
 			}
 		}
+		if n.Topic != "" {
+			if err := s.topicProblem(ctx, tenant, n.Topic); err != nil {
+				return bad(id, "%v", err)
+			}
+		}
 		if n.Type == journey.NodeNotifyUser && n.ProviderID != 0 {
 			if err := s.providerFor(ctx, tenant, n.ProviderID, channel.Email); err != nil {
 				return bad(id, "%v", err)

@@ -58,6 +58,8 @@ button{font:inherit;font-weight:600;border-radius:6px;padding:10px 16px;cursor:p
 {{range .Channels}}<label class="row"><input type="checkbox" name="ch_{{.ID}}"{{if .On}} checked{{end}}><span><b>{{.Name}}</b><small>{{.Hint}}</small></span></label>{{end}}
 {{if .Lists}}<h2>What you get</h2>
 {{range .Lists}}<label class="row"><input type="checkbox" name="list_{{.ID}}"{{if .On}} checked{{end}}><span><b>{{.Name}}</b>{{with .Description}}<small>{{.}}</small>{{end}}</span></label>{{end}}{{end}}
+{{if .Topics}}<h2>Topics</h2>
+{{range .Topics}}<label class="row"><input type="checkbox" name="topic_{{.Key}}"{{if .On}} checked{{end}}><span><b>{{.Name}}</b>{{with .Description}}<small>{{.}}</small>{{end}}</span></label>{{end}}{{end}}
 <button class="primary">Save preferences</button></form>
 <form method="post"><input type="hidden" name="action" value="all"><button class="secondary">Unsubscribe from everything</button></form>
 {{end}}</main></body></html>`))
@@ -77,10 +79,16 @@ type prefList struct {
 	On                bool
 }
 
+type prefTopic struct {
+	Key, Name, Description string
+	On                     bool
+}
+
 type prefView struct {
 	Workspace, Address string
 	Channels           []prefChannel
 	Lists              []prefList
+	Topics             []prefTopic
 	Saved, Invalid     bool
 }
 
@@ -136,6 +144,15 @@ func (s *Server) prefState(ctx context.Context, tenant int64, c model.Contact) (
 	return chans, lists, nil
 }
 
+// prefTopics lists the workspace's subscription topics, on unless the contact left them.
+func (s *Server) prefTopics(ctx context.Context, tenant int64, c model.Contact) []prefTopic {
+	var out []prefTopic
+	for _, t := range s.unsubscribeSettings(ctx, tenant).Topics {
+		out = append(out, prefTopic{Key: t.Key, Name: t.Name, Description: t.Description, On: !consent.OptedOutOfTopic(c.Attrs, t.Key)})
+	}
+	return out
+}
+
 var channelNames = map[string]string{channel.Email: "Email", channel.SMS: "SMS", channel.WhatsApp: "WhatsApp", channel.RCS: "RCS", channel.Push: "Push notifications"}
 
 func renderPrefs(w http.ResponseWriter, code int, v prefView) {
@@ -158,7 +175,7 @@ func (s *Server) preferencesPage(w http.ResponseWriter, r *http.Request, t track
 		http.Error(w, "Something went wrong. Please try again.", http.StatusInternalServerError)
 		return
 	}
-	renderPrefs(w, http.StatusOK, prefView{Workspace: workspace, Address: c.Email, Channels: chans, Lists: lists})
+	renderPrefs(w, http.StatusOK, prefView{Workspace: workspace, Address: c.Email, Channels: chans, Lists: lists, Topics: s.prefTopics(r.Context(), t.TenantID, c)})
 }
 
 // savePreferences turns the form into consent and list events for what changed.
@@ -214,6 +231,14 @@ func (s *Server) savePreferences(w http.ResponseWriter, r *http.Request, t track
 			lists[i].On = on
 		}
 	}
+	topics := s.prefTopics(r.Context(), t.TenantID, c)
+	for i, tp := range topics {
+		on := r.PostFormValue("topic_"+tp.Key) == "on"
+		if on != tp.On {
+			add(map[bool]string{true: consent.Resubscribed, false: consent.Unsubscribed}[on], map[string]any{"topic": tp.Key})
+			topics[i].On = on
+		}
+	}
 	if len(evs) > 0 {
 		if err := s.publishEvents(r.Context(), t.TenantID, evs); err != nil {
 			http.Error(w, "We couldn't save that. Please try again.", http.StatusServiceUnavailable)
@@ -221,5 +246,5 @@ func (s *Server) savePreferences(w http.ResponseWriter, r *http.Request, t track
 		}
 	}
 	// Events apply asynchronously, so show the state the contact just chose.
-	renderPrefs(w, http.StatusOK, prefView{Workspace: workspace, Address: c.Email, Channels: chans, Lists: lists, Saved: true})
+	renderPrefs(w, http.StatusOK, prefView{Workspace: workspace, Address: c.Email, Channels: chans, Lists: lists, Topics: topics, Saved: true})
 }

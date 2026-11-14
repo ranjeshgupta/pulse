@@ -22,6 +22,9 @@ import (
 
 	"pulse/internal/attr"
 	"pulse/internal/auth"
+	"pulse/internal/automation"
+	"pulse/internal/channel"
+	"pulse/internal/consent"
 	"pulse/internal/model"
 	"pulse/internal/segment"
 )
@@ -98,7 +101,7 @@ func viewTokens(q string) []string {
 
 // viewKeys are the filter names; list: is the old name of segment: (static segments were lists).
 var viewKeys = map[string]bool{"is": true, "segment": true, "list": true, "tag": true, "stage": true, "company": true,
-	"owner": true, "points": true, "email": true, "name": true}
+	"owner": true, "points": true, "email": true, "name": true, "unsubscribed": true}
 
 // parseContactView compiles a search into a rule and free text. Words that don't start with a
 // known key are free text.
@@ -187,6 +190,11 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 			if r, label, err = pointsFilter(val); err != nil {
 				return v, err
 			}
+		case "unsubscribed":
+			var err error
+			if r, label, err = unsubscribedFilter(strings.ToLower(val)); err != nil {
+				return v, err
+			}
 		case "email":
 			r, label = containsAny([]string{"email"}, val), "Email contains "+val
 		case "name":
@@ -217,7 +225,22 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 
 var viewExample = map[string]string{"is": "is:anonymous", "segment": "segment:\"VIP buyers\"", "list": "list:\"Webinar guests\"",
 	"tag": "tag:vip", "stage": "stage:Customer", "company": "company:Acme", "owner": "owner:me", "points": "points:>50",
-	"email": "email:@example.com", "name": "name:asha"}
+	"email": "email:@example.com", "name": "name:asha", "unsubscribed": "unsubscribed:email"}
+
+// unsubscribedFilter: unsubscribed:<channel> (from it or from everything), unsubscribed:all (from
+// everything) or unsubscribed:<topic key> (left that topic).
+func unsubscribedFilter(val string) (segment.Rule, string, error) {
+	switch {
+	case val == consent.All:
+		return segment.Rule{Attr: consent.Key(consent.All), Op: "eq", Value: "true"}, "Unsubscribed from everything", nil
+	case channel.Valid(val):
+		return segment.Rule{Any: []segment.Rule{{Attr: consent.Key(val), Op: "eq", Value: "true"}, {Attr: consent.Key(consent.All), Op: "eq", Value: "true"}}},
+			"Unsubscribed from " + channelWords(val), nil
+	case automation.ValidTopicKey(val):
+		return segment.Rule{Attr: consent.TopicKey(val), Op: "eq", Value: "true"}, "Unsubscribed from the topic " + val, nil
+	}
+	return segment.Rule{}, "", fmt.Errorf("unsubscribed:%s: use a channel (email, sms…), all, or a topic key", val)
+}
 
 func quoteIfSpace(s string) string {
 	if strings.ContainsFunc(s, unicode.IsSpace) {

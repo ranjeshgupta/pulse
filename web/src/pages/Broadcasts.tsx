@@ -17,6 +17,7 @@ import { ContactCount } from "../ContactCount";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
 import { ProviderPick } from "../ProviderPick";
+import { TopicPick } from "../TopicPick";
 
 const REPEAT_LABEL: Record<Repeat, string> = { none: "Once", daily: "Every day", weekly: "Every week", monthly: "Every month" };
 
@@ -257,6 +258,7 @@ export function BroadcastEdit() {
           </Field>
         )}
         <ProviderPick channel={b.channel} value={b.provider_id} onChange={(provider_id) => set({ provider_id })} />
+        <TopicPick value={b.topic} onChange={(topic) => set({ topic })} />
         <h3 style={{ margin: "10px 0 12px" }}>When</h3>
         <div className="grid-2">
           <Field label="Repeat">

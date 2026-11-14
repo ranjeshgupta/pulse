@@ -70,6 +70,7 @@ export function estimateFilters(step: string, include: number[], exclude: number
   if (exclude.length) f.push(["not_in", exclude.join(",")]);
   if (step === "exclude") return f;
   if (step === "consent") return [...f, ["subscribed", channel]];
+  if (step === "opted_out") return [...f, ["unsubscribed", channel]];
   f.push(["reachable", channel]);
   if (step === "cap") f.push(["under_cap", channel]);
   return f;

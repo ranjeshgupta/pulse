@@ -3,12 +3,13 @@
 // services and mailboxes report them, and how people unsubscribe.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, CHANNEL_NAMES, type AutomationResponse, type BounceAction, type ChannelBounces, type Channel } from "../api";
+import { api, CHANNEL_NAMES, type AutomationResponse, type BounceAction, type ChannelBounces, type Channel, type UnsubscribeSettings } from "../api";
 import { useIsAdmin } from "../auth";
 import { ErrorNote, PageHead, useToast } from "../ui";
 import { BounceMailboxPanel } from "./BounceMailbox";
 import { BouncesPanel } from "./Channels";
 import { BOUNCE_ACTIONS, BOUNCE_CHANNELS, BOUNCE_TYPES, ruleProblem, ruleSentence } from "../bounceRules";
+import { topicKeyFrom, unsubscribeProblem } from "../unsubscribeRules";
 
 export function BounceSettings() {
   const admin = useIsAdmin();
@@ -17,6 +18,7 @@ export function BounceSettings() {
       <PageHead title="Bounces & unsubscribes"
         intro="What Pulse does when a message bounces or someone marks it as spam, on every channel; where your email service and bounce mailboxes report them; and how people unsubscribe." />
       <BounceRulesPanel canEdit={admin} />
+      <UnsubscribePanel canEdit={admin} />
       {admin && <BouncesPanel />}
       {admin && <BounceMailboxPanel />}
     </div>
@@ -37,7 +39,8 @@ function BounceRulesPanel({ canEdit }: { canEdit: boolean }) {
   const problem = draft ? BOUNCE_CHANNELS.map((c) => draft[c] && ruleProblem(draft[c])).find(Boolean) : "";
   const save = useMutation({
     mutationFn: () => api.put<{ settings: unknown }>("/v1/settings/automation", { bounces: draft }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["automation"] }); setDraft(null); toast({ text: "Bounce rules saved. They apply to the next bounce within 30 seconds." }); },
+    // Wait for the saved settings before dropping the draft, or the draft would refill from the old ones.
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ["automation"] }); setDraft(null); toast({ text: "Bounce rules saved. They apply to the next bounce within 30 seconds." }); },
   });
   const set = (type: keyof ChannelBounces, patch: Partial<ChannelBounces[keyof ChannelBounces]>) =>
     setDraft({ ...draft!, [ch]: { ...draft![ch], [type]: { ...draft![ch][type], ...patch } } });
@@ -85,6 +88,100 @@ function BounceRulesPanel({ canEdit }: { canEdit: boolean }) {
           </div>
         )}
         {!canEdit && <p className="xs muted">Only admins can change the rules.</p>}
+      </div>
+    </section>
+  );
+}
+
+/** UnsubscribePanel: what the unsubscribe link does, whether email unsubscribes stop email by
+ * themselves, and the workspace's topics (lists people can leave on their own). */
+function UnsubscribePanel({ canEdit }: { canEdit: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["automation"], queryFn: () => api.get<AutomationResponse>("/v1/settings/automation") });
+  const saved = q.data?.settings.unsubscribe ?? q.data?.defaults.unsubscribe;
+  const [draft, setDraft] = useState<UnsubscribeSettings | null>(null);
+  useEffect(() => { if (saved && !draft) setDraft(structuredClone(saved)); }, [saved, draft]);
+  const u = draft ?? saved;
+  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(saved);
+  const problem = u ? unsubscribeProblem(u) : "";
+  const save = useMutation({
+    mutationFn: () => api.put<{ settings: unknown }>("/v1/settings/automation", { unsubscribe: draft }),
+    onSuccess: async () => {
+      qc.invalidateQueries({ queryKey: ["unsubscribe-topics"] });
+      await qc.invalidateQueries({ queryKey: ["automation"] });
+      setDraft(null); toast({ text: "Unsubscribe settings saved. Emails sent from now on use them." });
+    },
+  });
+  if (!u) return null;
+  const set = (patch: Partial<UnsubscribeSettings>) => setDraft({ ...u, ...patch });
+  const setTopic = (i: number, patch: Partial<UnsubscribeSettings["topics"][number]>) =>
+    set({ topics: u.topics.map((t, j) => (j === i ? { ...t, ...patch } : t)) });
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Unsubscribes</h3><span className="xs muted">Every email has an unsubscribe link and the one-click unsubscribe header</span></div>
+      <div className="panel-body">
+        <ErrorNote error={q.error ?? save.error} />
+        <fieldset className="radio-cards" disabled={!canEdit}>
+          <legend className="small"><strong>When someone clicks the unsubscribe link</strong></legend>
+          <label className="check">
+            <input type="radio" name="link_mode" checked={u.link_mode === "confirm"} onChange={() => set({ link_mode: "confirm" })} />
+            <span><strong>Show a page to confirm</strong><span className="xs muted"> — they press "Unsubscribe" (and can pick topics or other channels instead).</span></span>
+          </label>
+          <label className="check">
+            <input type="radio" name="link_mode" checked={u.link_mode === "one_click"} onChange={() => set({ link_mode: "one_click" })} />
+            <span><strong>Unsubscribe in one click</strong><span className="xs muted"> — the page unsubscribes them right away and says so. Email security scanners that open links don't unsubscribe anyone.</span></span>
+          </label>
+        </fieldset>
+        <p className="xs muted">Either way, every email carries the <code>List-Unsubscribe</code> and <code>List-Unsubscribe-Post: List-Unsubscribe=One-Click</code> headers, so Gmail, Yahoo and Outlook show their own Unsubscribe button, which works in one click.</p>
+
+        <fieldset className="radio-cards" disabled={!canEdit} style={{ marginTop: 14 }}>
+          <legend className="small"><strong>People who unsubscribed from email</strong></legend>
+          <label className="check">
+            <input type="radio" name="email_policy" checked={u.email_policy === "enforce"} onChange={() => set({ email_policy: "enforce" })} />
+            <span><strong>Never email them</strong><span className="xs muted"> — Pulse skips them in every campaign.</span></span>
+          </label>
+          <label className="check">
+            <input type="radio" name="email_policy" checked={u.email_policy === "segment"} onChange={() => set({ email_policy: "segment" })} />
+            <span><strong>Leave them out with segment filters</strong><span className="xs muted"> — they stay in segments and campaigns; exclude a segment of unsubscribed contacts (filter "Unsubscribed from email"). Campaigns show how many are in the audience.</span></span>
+          </label>
+        </fieldset>
+        {u.email_policy === "segment" && (
+          <div className="alert warn" style={{ marginTop: 8 }}>
+            Laws such as CAN-SPAM and GDPR require you to stop emailing people who unsubscribed. With this choice, that's up to your segments.
+            People who marked an email as spam are still never emailed, and SMS STOP replies and topic unsubscribes are always honoured.
+          </div>
+        )}
+
+        <h4 className="small" style={{ marginTop: 18 }}>Topics</h4>
+        <p className="xs muted" style={{ marginTop: 0 }}>
+          Products, newsletters or lists people can leave on their own. Choose a topic on a campaign or journey step: people who left it are skipped,
+          and its unsubscribe link (and the one-click header) leaves that topic only. They stay in every segment.
+        </p>
+        {u.topics.length > 0 && (
+          <table className="table compact">
+            <thead><tr><th>Name</th><th>Key</th><th>Shown to people</th><th /></tr></thead>
+            <tbody>{u.topics.map((t, i) => (
+              <tr key={i}>
+                <td><input className="input" aria-label={`Topic ${i + 1} name`} value={t.name} disabled={!canEdit}
+                  onChange={(e) => setTopic(i, { name: e.target.value, ...(saved?.topics.some((x) => x.key === t.key) ? {} : { key: topicKeyFrom(e.target.value) }) })} /></td>
+                <td><code className="xs">{t.key || "—"}</code></td>
+                <td><input className="input" aria-label={`Topic ${i + 1} description`} placeholder="e.g. Weekly deals and coupons" value={t.description ?? ""} disabled={!canEdit}
+                  onChange={(e) => setTopic(i, { description: e.target.value })} /></td>
+                <td>{canEdit && <button className="btn ghost sm" aria-label={`Remove topic ${t.name || i + 1}`} onClick={() => set({ topics: u.topics.filter((_, j) => j !== i) })}>×</button>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        {canEdit && <button className="btn sm" style={{ marginTop: 8 }} onClick={() => set({ topics: [...u.topics, { key: "", name: "" }] })}>+ Add a topic</button>}
+        {problem && <div className="alert error" style={{ marginTop: 12 }}>{problem}</div>}
+        {canEdit && (
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="btn primary" disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()}>Save unsubscribe settings</button>
+            {dirty && <button className="btn ghost" onClick={() => setDraft(structuredClone(saved!))}>Discard changes</button>}
+          </div>
+        )}
+        {!canEdit && <p className="xs muted">Only admins can change these.</p>}
       </div>
     </section>
   );

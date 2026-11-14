@@ -132,3 +132,17 @@ func (inSegments) Count(context.Context, string, segment.Window) (int, error) { 
 func (m inSegments) InSegment(_ context.Context, id int64) (bool, error) {
 	return m[id], nil
 }
+
+func TestUnsubscribedViewFilter(t *testing.T) {
+	for val, want := range map[string]string{"email": "Unsubscribed from email", "all": "Unsubscribed from everything", "offers": "Unsubscribed from the topic offers"} {
+		if _, label, err := unsubscribedFilter(val); err != nil || !strings.Contains(label, want) {
+			t.Errorf("%s: %q %v", val, label, err)
+		}
+	}
+	if r, _, _ := unsubscribedFilter("offers"); r.Attr != "optout_topic_offers" {
+		t.Errorf("topic rule: %+v", r)
+	}
+	if _, _, err := unsubscribedFilter("Bad Key"); err == nil {
+		t.Error("bad key accepted")
+	}
+}

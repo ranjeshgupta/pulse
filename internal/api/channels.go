@@ -310,6 +310,8 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		TestContactID int64 `json:"test_contact_id"`
 		// ProviderID sends through this provider of the template's channel; 0 is the default.
 		ProviderID int64 `json:"provider_id"`
+		// Topic: send it as a message of this subscription topic (its unsubscribers are skipped).
+		Topic string `json:"topic"`
 		// Event: sample trigger event properties for {{event.x}} (as a journey would carry them).
 		Event map[string]any `json:"event"`
 	}
@@ -335,8 +337,12 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 			return
 		}
 	}
+	if err := s.topicProblem(r.Context(), tenant, req.Topic); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	m := model.Message{ID: "test:" + auth.NewToken(""), TenantID: tenant, Channel: t.Channel,
-		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID, Campaign: "Test send", ProviderID: req.ProviderID}
+		TemplateID: t.ID, FallbackTemplateID: req.FallbackTemplateID, Campaign: "Test send", ProviderID: req.ProviderID, Topic: req.Topic}
 	if req.TestContactID != 0 {
 		tc, err := s.campStore().GetTestContact(r.Context(), tenant, req.TestContactID)
 		if err != nil {

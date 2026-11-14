@@ -37,6 +37,7 @@ import (
 
 	"pulse/internal/api"
 	"pulse/internal/auth"
+	"pulse/internal/automation"
 	"pulse/internal/bounces"
 	"pulse/internal/broadcast"
 	"pulse/internal/channel"
@@ -425,6 +426,7 @@ func runJourneys(ctx context.Context, d *deps) error {
 	if err != nil {
 		return err
 	}
+	autoSettings := automation.NewCache(pgs, 30*time.Second, d.log)
 	eng := journey.NewEngine(pgs, &journey.Executor{
 		Membership: segment.Membership{RDB: rdb}, Sender: sender, Events: sender, Contacts: pgs,
 		Counters: func(tenant int64, contact uint32, asOf time.Time) segment.Counter {
@@ -438,6 +440,9 @@ func runJourneys(ctx context.Context, d *deps) error {
 		MX:           &journey.DNSChecker{},
 		Stats:        journey.RedisStepStats{RDB: rdb},
 		Integrations: ints,
+		EmailBySegment: func(ctx context.Context, tenant int64) bool {
+			return autoSettings.Get(ctx, tenant).Unsubscribe.EmailPolicy == automation.EmailSegment
+		},
 	}, d.log)
 	eng.Schemas = eventschema.NewCache(pgs, rdb, d.log) // personal properties stay out of messages
 	if err := eng.Refresh(ctx); err != nil {

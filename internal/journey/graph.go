@@ -129,6 +129,8 @@ type Node struct {
 	FallbackTemplateID int64 `json:"fallback_template_id,omitempty"`
 	// ProviderID (send_*): the channel's provider to send through; 0 is the default.
 	ProviderID int64 `json:"provider_id,omitempty"`
+	// Topic (send_*, send_message): the subscription topic; contacts who left it are skipped.
+	Topic string `json:"topic,omitempty"`
 
 	Until      string          `json:"until,omitempty"`       // wait_until: RFC 3339 date-time
 	TimeOfDay  string          `json:"time_of_day,omitempty"` // wait_until: "09:30", next occurrence

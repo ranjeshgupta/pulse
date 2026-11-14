@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -56,6 +57,13 @@ func (s *Server) automationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/settings/automation", s.authed(s.putAutomation))
 	mux.HandleFunc("POST /v1/settings/automation/preview", s.authed(s.previewAutomation))
 	mux.HandleFunc("POST /v1/settings/automation/run-retention", s.authed(s.runRetention))
+	mux.HandleFunc("GET /v1/unsubscribe-topics", s.tenant(s.listTopics))
+}
+
+// listTopics returns the workspace's subscription topics and its email unsubscribe policy.
+func (s *Server) listTopics(w http.ResponseWriter, r *http.Request, tenant int64) {
+	u := s.unsubscribeSettings(r.Context(), tenant)
+	writeJSON(w, http.StatusOK, map[string]any{"topics": u.Topics, "email_policy": u.EmailPolicy, "link_mode": u.LinkMode})
 }
 
 func (s *Server) automationStore(w http.ResponseWriter) (AutomationStore, bool) {
@@ -296,6 +304,31 @@ func (s *Server) defaultLimitsFor(ctx context.Context, tenant int64, ch string) 
 		return model.ProviderLimits{}
 	}
 	return a.LimitsFor(ch)
+}
+
+// unsubscribeSettings is the workspace's unsubscribe section (defaults when it can't be read).
+func (s *Server) unsubscribeSettings(ctx context.Context, tenant int64) automation.Unsubscribe {
+	as, ok := s.Store.(AutomationStore)
+	if !ok {
+		return automation.DefaultUnsubscribe()
+	}
+	a, err := as.AutomationSettings(ctx, tenant)
+	if err != nil {
+		s.Log.Error("automation settings", "tenant", tenant, "err", err)
+		return automation.DefaultUnsubscribe()
+	}
+	return a.Unsubscribe
+}
+
+// topicProblem checks a campaign's or step's topic: "" or one of the workspace's topics.
+func (s *Server) topicProblem(ctx context.Context, tenant int64, topic string) error {
+	if topic == "" {
+		return nil
+	}
+	if _, ok := s.unsubscribeSettings(ctx, tenant).Topic(topic); !ok {
+		return fmt.Errorf("the topic %q doesn't exist (Settings → Bounces & unsubscribes)", topic)
+	}
+	return nil
 }
 
 // newProviderLimits picks the limits a new provider starts with: explicit (sent with it) >

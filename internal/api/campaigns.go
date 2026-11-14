@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"pulse/internal/auth"
+	"pulse/internal/automation"
 	"pulse/internal/channel"
 	"pulse/internal/delivery"
 	"pulse/internal/dispatch"
@@ -605,12 +606,15 @@ type Estimate struct {
 	reach.Counts
 	// Capped: reachable contacts a frequency cap of the channel would hold back now (marketing
 	// messages only). Exact up to 50,000 reachable contacts, else from a sample (Approximate).
-	Capped      *reach.CapResult `json:"capped,omitempty"`
-	Cap         *delivery.Cap    `json:"cap,omitempty"`
-	WillSend    int64            `json:"will_send"`
-	Ready       bool             `json:"ready"` // reachability is built (else the last steps read 0)
-	ComputedAt  time.Time        `json:"computed_at"`
-	CachedUntil time.Time        `json:"cached_until"`
+	Capped   *reach.CapResult `json:"capped,omitempty"`
+	Cap      *delivery.Cap    `json:"cap,omitempty"`
+	WillSend int64            `json:"will_send"`
+	Ready    bool             `json:"ready"` // reachability is built (else the last steps read 0)
+	// UnsubscribedKept (email, "segment" email policy): opted_out contacts are still sent to unless
+	// a segment filter leaves them out, so the campaign warns about them.
+	UnsubscribedKept bool      `json:"unsubscribed_kept,omitempty"`
+	ComputedAt       time.Time `json:"computed_at"`
+	CachedUntil      time.Time `json:"cached_until"`
 }
 
 // allowTenant is a fixed-window limit per workspace (all its users together).
@@ -718,11 +722,12 @@ func (s *Server) estimate(ctx context.Context, tenant int64, req EstimateRequest
 		}
 	}
 	counts, kept, err := reach.Count(ctx, s.RDB, reach.Query{Tenant: tenant, Include: req.Include, Exclude: req.Exclude,
-		Channel: req.Channel}, cp != nil)
+		Channel: req.Channel, KeepOptedOut: req.Channel == channel.Email && s.unsubscribeSettings(ctx, tenant).EmailPolicy == automation.EmailSegment}, cp != nil)
 	if err != nil {
 		return Estimate{}, err
 	}
 	est := Estimate{Counts: counts, WillSend: counts.Reachable, ComputedAt: now, CachedUntil: now.Add(estimateCacheTTL)}
+	est.UnsubscribedKept = req.Channel == channel.Email && s.unsubscribeSettings(ctx, tenant).EmailPolicy == automation.EmailSegment
 	if est.Ready, err = reach.Ready(ctx, s.RDB, tenant); err != nil {
 		return Estimate{}, err
 	}

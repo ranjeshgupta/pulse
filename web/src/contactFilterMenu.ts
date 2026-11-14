@@ -10,7 +10,7 @@ export type MenuField = {
   // select: fixed options, or a list the component fills in (segments, events, campaigns…).
   options?: { value: string; label: string }[]; source?: OptionSource;
 };
-export type OptionSource = "segments" | "segmentIds" | "tags" | "stages" | "companies" | "users" | "events" | "campaigns" | "journeys" | "forms";
+export type OptionSource = "segments" | "segmentIds" | "tags" | "stages" | "companies" | "users" | "events" | "campaigns" | "journeys" | "forms" | "unsubscribed";
 export type MenuItem = { id: string; label: string; hint: string; fields: MenuField[]; build: (v: Record<string, string>) => ContactFilter[] };
 
 const CHANNELS = [
@@ -110,6 +110,9 @@ export const FILTER_MENU: { group: string; items: MenuItem[] }[] = [
         { ...FROM, optional: true }, { ...TO, optional: true },
       ], build: (v) => [["outcome", v.outcome], ["via", v.ch], ...dates(v)] },
       { id: "reachable", label: "Can be reached by", hint: "Has an address on the channel and hasn't opted out", fields: [{ key: "ch", label: "Channel", kind: "select", options: CHANNELS }], build: (v) => [["reachable", v.ch]] },
+      { id: "unsubscribed", label: "Unsubscribed from", hint: "A channel, everything, or one of your topics", fields: [
+        { key: "from", label: "From", kind: "select", source: "unsubscribed" },
+      ], build: (v) => [["unsubscribed", v.from]] },
       { id: "subscribed", label: "Not unsubscribed from", hint: "", fields: [{ key: "ch", label: "Channel", kind: "select", options: CHANNELS }], build: (v) => [["subscribed", v.ch]] },
       { id: "under_cap", label: "Not held back by the frequency cap", hint: "Can still get messages today", fields: [{ key: "ch", label: "Channel", kind: "select", options: CHANNELS }], build: (v) => [["under_cap", v.ch]] },
     ],

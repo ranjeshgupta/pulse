@@ -33,6 +33,8 @@ type Token struct {
 	BroadcastID int64  `json:"b,omitempty"`
 	Run         int64  `json:"r,omitempty"`
 	Variant     string `json:"v,omitempty"`
+	// Topic: the message's subscription topic; its unsubscribe link leaves that topic only.
+	Topic string `json:"tc,omitempty"`
 }
 
 // Props are the message's identifiers as event properties, so engagement events count in the

@@ -153,6 +153,8 @@ export type AttrSource = {
   defs: (AttrDefLike & { label?: string; description?: string })[]; seen: string[];
   // The workspace's own events (sent recently or described under Events), each a "Did …" filter.
   events?: { name: string; label?: string }[];
+  // The workspace's subscription topics, each an "Unsubscribed from topic" filter.
+  topics?: { key: string; name: string }[];
 };
 
 /** buildCatalog lists every filter: Pulse's own fields, every attribute the workspace defined or its
@@ -172,11 +174,20 @@ export function buildCatalog(src: AttrSource = { defs: [], seen: [] }): CatalogI
   for (const d of src.defs) custom.set(d.key, d);
   for (const k of src.seen) if (!custom.has(k)) custom.set(k, {});
   for (const [key, d] of [...custom.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    if (known.has(key) || IGNORED_KEYS.has(key)) continue;
+    if (known.has(key) || IGNORED_KEYS.has(key) || (key.startsWith("optout_topic_") && src.topics?.some((t) => `optout_topic_${t.key}` === key))) continue;
     const type = fieldType(key, src.defs);
     out.push({
       id: `field:${key}`, group: groupOfKey(key), label: d.label || labelOfKey(key), hint: d.description || `${src.defs.some((x) => x.key === key) ? "Custom field" : "Seen on contacts"} · ${TYPE_WORD[type]}`,
       icon: TYPE_ICON[type], key, type, custom: true, make: () => fieldFilter(key, type),
+    });
+  }
+  for (const t of src.topics ?? []) {
+    const key = `optout_topic_${t.key}`;
+    if (known.has(key)) continue;
+    known.add(key);
+    out.push({
+      id: `field:${key}`, group: "consent", label: `Unsubscribed from topic: ${t.name}`, hint: "Left this topic (they still get other messages)",
+      icon: TYPE_ICON.boolean, key, type: "boolean", keywords: "unsubscribe topic opt out", make: () => fieldFilter(key, "boolean"),
     });
   }
   for (const it of FIXED) out.push({ ...it, icon: fixedIcon(it) });

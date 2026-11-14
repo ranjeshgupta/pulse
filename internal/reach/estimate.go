@@ -20,6 +20,9 @@ type Query struct {
 	Include []int64
 	Exclude []int64
 	Channel string
+	// KeepOptedOut leaves contacts opted out of the channel in the audience (the workspace sends
+	// email to them, leaving them out with segment filters); OptedOut still counts them.
+	KeepOptedOut bool
 }
 
 // Counts are the audience after each step. Without a channel, the last two equal AfterExclude.
@@ -28,6 +31,9 @@ type Counts struct {
 	AfterExclude int64 `json:"after_exclude"` // ...and in no excluded one
 	AfterConsent int64 `json:"after_consent"` // ...and not opted out of the channel (or of everything)
 	Reachable    int64 `json:"reachable"`     // ...and with a working address on the channel
+	// OptedOut: contacts after the exclusions who opted out of the channel (or of everything).
+	// With KeepOptedOut they stay in AfterConsent and Reachable, so campaigns can warn about them.
+	OptedOut int64 `json:"opted_out"`
 }
 
 // tmpTTL bounds temporary keys if a count dies halfway.
@@ -84,10 +90,17 @@ func Count(ctx context.Context, rdb redis.Cmdable, q Query, keep bool) (Counts, 
 	nExc := p.BitCount(ctx, aud, nil)
 
 	last := aud
-	var nCon, nReach *redis.IntCmd
+	var nCon, nReach, nOut *redis.IntCmd
 	if q.Channel != "" {
-		con := tmp("c")
-		andNot(con, aud, Key(q.Tenant, OptOut(q.Channel)))
+		out := tmp("o")
+		p.BitOpAnd(ctx, out, aud, Key(q.Tenant, OptOut(q.Channel)))
+		expire(out)
+		nOut = p.BitCount(ctx, out, nil)
+		con := aud
+		if !q.KeepOptedOut {
+			con = tmp("c")
+			andNot(con, aud, Key(q.Tenant, OptOut(q.Channel)))
+		}
 		nCon = p.BitCount(ctx, con, nil)
 		r := tmp("r")
 		p.BitOpAnd(ctx, r, con, Key(q.Tenant, AddressOf(q.Channel)))
@@ -101,7 +114,7 @@ func Count(ctx context.Context, rdb redis.Cmdable, q Query, keep bool) (Counts, 
 	}
 	c := Counts{Audience: nAud.Val(), AfterExclude: nExc.Val(), AfterConsent: nExc.Val(), Reachable: nExc.Val()}
 	if nCon != nil {
-		c.AfterConsent, c.Reachable = nCon.Val(), nReach.Val()
+		c.AfterConsent, c.Reachable, c.OptedOut = nCon.Val(), nReach.Val(), nOut.Val()
 	}
 	kept := ""
 	if keep {

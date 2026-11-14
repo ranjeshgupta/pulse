@@ -248,7 +248,7 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 				continue
 			}
 			matched++
-			ok, err := x.reachable(ctx, *c, cm.Channel)
+			ok, err := x.reachable(ctx, *c, cm.Channel, n.Topic, en.TenantID)
 			if err != nil {
 				return "", false, err
 			}
@@ -261,6 +261,7 @@ func (x *Executor) runStep(ctx context.Context, g Graph, en *model.Enrollment, i
 			}
 			m.FallbackTemplateID = cm.FallbackTemplateID
 			m.ProviderID = cm.ProviderID
+			m.Topic = n.Topic
 			m.Deadline = n.Deadline.After(x.Now())
 			if err := x.Sender.Send(ctx, m); err != nil {
 				return "", false, err
@@ -454,8 +455,8 @@ var e164 = regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
 
 // reachable reports whether a marketing message on ch can reach the contact: an address, consent,
 // and no bounce (the same checks the dispatcher makes, done first so the next channel can be tried).
-func (x *Executor) reachable(ctx context.Context, c model.Contact, ch string) (bool, error) {
-	if consent.OptedOut(c.Attrs, ch) {
+func (x *Executor) reachable(ctx context.Context, c model.Contact, ch, topic string, tenant int64) (bool, error) {
+	if consent.SuppressReason(c.Attrs, ch, topic, x.EmailBySegment != nil && x.EmailBySegment(ctx, tenant)) != "" {
 		return false, nil
 	}
 	phone := e164.MatchString(attr.String(c.Attrs["phone"]))

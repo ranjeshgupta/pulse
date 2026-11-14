@@ -32,6 +32,8 @@ var areaByPrefix = map[string]string{
 // special lists routes whose need differs from the method rule.
 var special = map[string]need{
 	"GET /v1/auth/me": {"", auth.None}, // everyone signed in
+	// The subscription topics, for the topic picker of campaigns and journey steps (names only).
+	"GET /v1/unsubscribe-topics": {"", auth.None},
 	// Two-step sign-in: everyone signed in manages their own (twofactor.go). The policy is read
 	// with settings view (the "settings" prefix); changing it needs full admin, checked by its
 	// wrapper, and resetting a teammate's setup settings edit.

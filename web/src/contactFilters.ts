@@ -2,7 +2,7 @@
 // server parses the same syntax (internal/api/contactview.go) and compiles filters into a segment
 // rule, so this file only splits, joins and suggests.
 
-export type FilterKey = "is" | "segment" | "list" | "tag" | "stage" | "company" | "owner" | "points" | "email" | "name";
+export type FilterKey = "is" | "segment" | "list" | "tag" | "stage" | "company" | "owner" | "points" | "email" | "name" | "unsubscribed";
 
 export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = [
   { key: "is", hint: "anonymous, identified, unsubscribed, bounced or Do Not Contact", example: "is:anonymous" },
@@ -14,6 +14,7 @@ export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = 
   { key: "points", hint: "points above, below or equal to a number", example: "points:>50" },
   { key: "email", hint: "email contains", example: "email:@example.com" },
   { key: "name", hint: "name contains", example: "name:asha" },
+  { key: "unsubscribed", hint: "unsubscribed from a channel, from everything (all) or from a topic", example: "unsubscribed:email" },
 ];
 
 /** Typed keys from the Add filter questions, offered while typing too (they need each other as

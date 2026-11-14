@@ -15,6 +15,11 @@ type AutomationStore interface {
 	AutomationSettings(ctx context.Context, tenant int64) (automation.Settings, error)
 }
 
+// emailBySegment reports whether the workspace leaves email unsubscribers to segment filters.
+func (d *Dispatcher) emailBySegment(ctx context.Context, tenant int64) bool {
+	return d.automation(ctx, tenant).Unsubscribe.EmailPolicy == automation.EmailSegment
+}
+
 func (d *Dispatcher) automation(ctx context.Context, tenant int64) automation.Settings {
 	as, ok := d.store.(AutomationStore)
 	if !ok {

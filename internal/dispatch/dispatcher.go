@@ -215,8 +215,8 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	}
 	// Consent first: an opted-out contact gets nothing on this channel, and no fallback either
 	// (the SMS fallback is a separate message and checks SMS consent itself).
-	if consent.OptedOut(c.Attrs, m.Channel) {
-		return d.finish(ctx, sentKey, m, c, "suppressed", "contact unsubscribed from "+m.Channel)
+	if why := consent.SuppressReason(c.Attrs, m.Channel, m.Topic, d.emailBySegment(ctx, m.TenantID)); why != "" {
+		return d.finish(ctx, sentKey, m, c, "suppressed", why)
 	}
 	if m.Channel == channel.Email && attr.String(c.Attrs[consent.AttrEmailBounced]) == "true" {
 		return d.finish(ctx, sentKey, m, c, "suppressed", "the email address bounced")
@@ -273,7 +273,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if m.Channel == channel.Email && d.cfg.Tracking != nil {
 		tok := tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID,
 			Channel: m.Channel, TemplateID: m.TemplateID, JourneyID: m.JourneyID,
-			BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant}
+			BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant, Topic: m.Topic}
 		token = d.cfg.Tracking.Encode(tok)
 		// The message reference links bounces, complaints and delivery reports back to this message.
 		ref = d.cfg.Tracking.Ref(tracking.RefFromToken(tok, c.ID))

@@ -19,6 +19,7 @@ import { GroupEditor, PropertyFilters } from "../SegmentBuilder";
 import type { Pickers } from "./data";
 import { JIcon } from "./icons";
 import { ProviderPick } from "../../ProviderPick";
+import { TopicPick } from "../../TopicPick";
 import {
   deviceRule, ownerRule, OS_CHOICES, parseDevice, parseOwner, parsePoints, parseStage, parseTags, pointsRule, POINT_OPS, stageRule, tagsRule,
   type PointsPreset,
@@ -347,6 +348,7 @@ function StepFields({ id, n, setN, graph, pickers, templates, decisions, journey
         </Field>
       )}
       <ProviderPick channel={ch} value={n.provider_id} onChange={(id) => setN({ provider_id: id || undefined })} />
+      <TopicPick value={n.topic} onChange={(topic) => setN({ topic: topic || undefined })} />
       <DeadlineFields value={n.deadline} onChange={(deadline) => setN({ deadline: deadline ?? undefined })} zone={browserZone()} />
     </>);
   }
@@ -475,6 +477,7 @@ function ChannelRules({ n, setN, templates, event }: { n: JourneyNode; setN: Set
         </div>
       )}
       <Note>Nobody matches: the contact goes on without a message, recorded as <code>message_skipped</code> with the reason. Step stats show which channel each contact got.</Note>
+      <TopicPick value={n.topic} onChange={(topic) => setN({ topic: topic || undefined })} />
     </div>
   );
 }
