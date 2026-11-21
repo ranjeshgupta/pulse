@@ -49,7 +49,7 @@ CRON
 
 echo "== certificate"
 mkdir -p certs backups/postgres backups/clickhouse
-chmod 700 certs
+chmod 700 certs backups backups/postgres backups/clickhouse
 if [ ! -s certs/origin.pem ] || [ ! -s certs/origin.key ]; then
 	cat <<MSG
 Put the Cloudflare Origin Certificate (covering $1 and $2) in:

@@ -3,10 +3,13 @@
 # contacts) every night, kept 14 days; ClickHouse (events, message history) every Sunday, kept 2;
 # copied off the server with rclone when BACKUP_REMOTE is set in .env. Run by hand any time.
 set -eu
+umask 077   # dumps hold contact data: root only
 cd "$(dirname "$0")"
 . ./.env
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p backups/postgres backups/clickhouse
+chmod 700 backups backups/postgres backups/clickhouse
+chmod 600 backups/postgres/*.dump 2>/dev/null || true
 docker compose exec -T postgres pg_dump -U pulse -Fc pulse > "backups/postgres/pulse-$stamp.dump"
 find backups/postgres -name '*.dump' -mtime +14 -delete
 if [ "$(date -u +%u)" = 7 ] || [ "${FULL:-}" = 1 ]; then
