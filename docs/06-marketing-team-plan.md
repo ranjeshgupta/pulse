@@ -774,6 +774,13 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   e2e `TestCalendar`, checked in a headless browser.
 - **10 Data rights**: export and delete existed (M4); added `pages/ConsentPrivacy.tsx` (Consent & privacy tab) and
   `consentHistory.ts` over the contact's events; checked in a headless browser.
+- **11 Archive and RSS-to-email**: pg 038 (`broadcasts.archive_public`, `feed_url`, `feed_seen_at`;
+  `broadcast_runs.feed_html` / `feed_text`); `internal/feed` (RSS 2.0 / Atom parse, `Since`, `Render`); the runner's
+  `feedRun` (keeps the run's items, moves the feed mark, skips a run with nothing new or an unreadable feed, reuses the
+  kept items on a retry); dispatcher `messageBlocks` adds `{{block.feed}}` per run (cached); public
+  `/p/{workspace}/archive`, `/archive/{run}`, `/archive.rss` and `POST /v1/broadcasts/feed-preview`
+  (`internal/api/archive.go`); a landing page can't take the slug `archive`; `FeedFields.tsx` in campaign settings.
+  Unit tests `feed`, `TestFeedRuns`; e2e `TestRSSArchive` (hooks phase: the feed is served from the test container).
 
 ### O5 as built
 

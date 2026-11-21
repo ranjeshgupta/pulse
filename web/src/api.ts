@@ -419,6 +419,10 @@ export interface Broadcast {
   holdout_percent?: number;
   /** Send each message at its contact's best hour (from their opens, clicks and reads), within a day. */
   best_time?: boolean;
+  /** List its sends in the workspace's public archive (/p/{workspace}/archive). */
+  archive_public?: boolean;
+  /** RSS-to-email: each send lists what's new in this feed as {{block.feed}}; nothing new skips the send. */
+  feed_url?: string;
   start_at: string; end_at?: string | null; repeat: Repeat; next_run_at?: string | null;
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;

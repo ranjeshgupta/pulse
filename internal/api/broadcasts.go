@@ -159,7 +159,7 @@ func (s *Server) validBroadcast(ctx context.Context, b model.Broadcast) error {
 			errs = append(errs, fmt.Errorf("excluded segment %d doesn't exist", id))
 		}
 	}
-	errs = append(errs, broadcast.ValidateLocalTime(b), broadcast.ValidateSpeed(b))
+	errs = append(errs, broadcast.ValidateLocalTime(b), broadcast.ValidateSpeed(b), broadcast.ValidateFeed(b))
 	t, err := s.uiStore().Template(ctx, b.TenantID, b.TemplateID)
 	if err != nil {
 		errs = append(errs, errors.New("choose a template"))

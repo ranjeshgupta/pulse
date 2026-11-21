@@ -481,6 +481,21 @@ migrate one at a time.
   non-image data: URLs are removed. A nonce CSP allows only the Pulse SDK scripts.
 - On Pulse-hosted pages the SDK namespaces its stored ids by site key (`storagePrefix`), so workspaces sharing the pages origin
   never share a visitor's identity.
+- **Campaign archive** (O6, `internal/api/archive.go`): `/p/{workspace}/archive` (index), `/archive/{run}` (one send) and
+  `/archive.rss` list sends of email campaigns with `archive_public`, rendered now from their template for an empty
+  contact (no contact data; workspace blocks and the run's feed content), under the same nonce CSP and page rate limit.
+  The slug `archive` is reserved for landing pages.
+
+## RSS-to-email (O6)
+
+A campaign with `feed_url` (email, not A/B) reads the feed (`internal/feed`, RSS 2.0 or Atom, through `safehttp`, 2 MB
+cap) when a run starts. Items published after `broadcasts.feed_seen_at` (first run: one repeat interval back; a one-time
+campaign takes the 10 newest) are rendered to HTML and text and kept on the run (`broadcast_runs.feed_html` /
+`feed_text`), and `feed_seen_at` moves to the newest item, in one transaction. The dispatcher adds them to the run's
+messages as `{{block.feed}}` (looked up by broadcast and scheduled time, cached an hour). A run with nothing new, or
+whose feed can't be read, finishes with no recipients and the campaign moves to its next run, so a broken feed never
+blocks the schedule; a retried run reuses the items it kept rather than reading the feed again. Changing the feed
+address resets the mark.
 
 ## Integrations (batch 8a)
 

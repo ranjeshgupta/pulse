@@ -41,6 +41,8 @@ func Validate(p model.LandingPage) error {
 	var errs []error
 	if !slugRe.MatchString(p.Slug) {
 		errs = append(errs, errors.New("the address must be 1-80 lowercase letters, digits and dashes (e.g. spring-sale)"))
+	} else if p.Slug == "archive" {
+		errs = append(errs, errors.New("\"archive\" is the address of the campaign archive; pick another"))
 	}
 	if strings.TrimSpace(p.Title) == "" {
 		errs = append(errs, errors.New("a title is required"))

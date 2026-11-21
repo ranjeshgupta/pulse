@@ -5,6 +5,7 @@ package pg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,14 +16,14 @@ import (
 
 const broadcastCols = `id, tenant_id, name, channel, template_id, coalesce(fallback_template_id, 0), segment_id,
 	start_at, end_at, repeat, next_run_at, status, updated_at, ab, conversion_event, conversion_days,
-	exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags, coalesce(provider_id, 0), topic, send_per_hour, holdout_percent, best_time`
+	exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags, coalesce(provider_id, 0), topic, send_per_hour, holdout_percent, best_time, archive_public, feed_url`
 
 func scanBroadcast(row pgx.Row) (model.Broadcast, error) {
 	var b model.Broadcast
 	var ab, deadline []byte
 	err := row.Scan(&b.ID, &b.TenantID, &b.Name, &b.Channel, &b.TemplateID, &b.FallbackTemplateID, &b.SegmentID,
 		&b.StartAt, &b.EndAt, &b.Repeat, &b.NextRunAt, &b.Status, &b.UpdatedAt, &ab, &b.ConversionEvent, &b.ConversionDays,
-		&b.ExcludeSegmentIDs, &b.LocalTime, &b.Timezone, &b.IncludeSegmentIDs, &deadline, &b.Tags, &b.ProviderID, &b.Topic, &b.SendPerHour, &b.HoldoutPercent, &b.BestTime)
+		&b.ExcludeSegmentIDs, &b.LocalTime, &b.Timezone, &b.IncludeSegmentIDs, &deadline, &b.Tags, &b.ProviderID, &b.Topic, &b.SendPerHour, &b.HoldoutPercent, &b.BestTime, &b.ArchivePublic, &b.FeedURL)
 	if err == nil && len(ab) > 0 && string(ab) != "null" {
 		b.AB = &model.ABTest{}
 		err = json.Unmarshal(ab, b.AB)
@@ -82,23 +83,24 @@ func (s *Store) SaveBroadcast(ctx context.Context, b model.Broadcast) (int64, er
 	if b.ID == 0 {
 		err := s.db.QueryRow(ctx, `
 			INSERT INTO broadcasts (tenant_id, name, channel, template_id, fallback_template_id, segment_id, start_at, end_at, repeat,
-				ab, conversion_event, conversion_days, exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags, provider_id, topic, send_per_hour, holdout_percent, best_time)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id`,
+				ab, conversion_event, conversion_days, exclude_segment_ids, local_time, timezone, include_segment_ids, deadline, tags, provider_id, topic, send_per_hour, holdout_percent, best_time, archive_public, feed_url)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) RETURNING id`,
 			b.TenantID, b.Name, b.Channel, b.TemplateID, nullID(b.FallbackTemplateID), b.SegmentID, b.StartAt, b.EndAt, b.Repeat,
 			abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone,
-			ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags), nullID(b.ProviderID), b.Topic, b.SendPerHour, b.HoldoutPercent, b.BestTime).Scan(&b.ID)
+			ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags), nullID(b.ProviderID), b.Topic, b.SendPerHour, b.HoldoutPercent, b.BestTime, b.ArchivePublic, b.FeedURL).Scan(&b.ID)
 		return b.ID, err
 	}
 	tag, err := s.db.Exec(ctx, `
 		UPDATE broadcasts SET name = $3, channel = $4, template_id = $5, fallback_template_id = $6, segment_id = $7,
 			start_at = $8, end_at = $9, repeat = $10, ab = $11, conversion_event = $12, conversion_days = $13,
 			exclude_segment_ids = $14, local_time = $15, timezone = $16,
-			include_segment_ids = $17, deadline = $18, tags = $19, provider_id = $20, topic = $21, send_per_hour = $22, holdout_percent = $23, best_time = $24,
+			include_segment_ids = $17, deadline = $18, tags = $19, provider_id = $20, topic = $21, send_per_hour = $22, holdout_percent = $23, best_time = $24, archive_public = $25,
+			feed_seen_at = CASE WHEN feed_url = $26 THEN feed_seen_at END, feed_url = $26,
 			status = 'draft', next_run_at = NULL, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2 AND status NOT IN ('running', 'testing')`,
 		b.TenantID, b.ID, b.Name, b.Channel, b.TemplateID, nullID(b.FallbackTemplateID), b.SegmentID, b.StartAt, b.EndAt, b.Repeat,
 		abJSON(b.AB), b.ConversionEvent, b.ConversionDays, ids(b.ExcludeSegmentIDs), b.LocalTime, b.Timezone,
-		ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags), nullID(b.ProviderID), b.Topic, b.SendPerHour, b.HoldoutPercent, b.BestTime)
+		ids(b.IncludeSegmentIDs), deadlineJSON(b.Deadline), tags(b.Tags), nullID(b.ProviderID), b.Topic, b.SendPerHour, b.HoldoutPercent, b.BestTime, b.ArchivePublic, b.FeedURL)
 	if err == nil && tag.RowsAffected() == 0 {
 		cur, err := s.GetBroadcast(ctx, b.TenantID, b.ID)
 		if err != nil {
@@ -183,6 +185,41 @@ func (s *Store) StartRun(ctx context.Context, broadcast int64, scheduledAt time.
 func (s *Store) SetRunAudience(ctx context.Context, run int64, audience []byte) error {
 	_, err := s.db.Exec(ctx, `UPDATE broadcast_runs SET audience = $2 WHERE id = $1`, run, audience)
 	return err
+}
+
+// FeedSeen is when a campaign's feed was last sent up to (zero before its first feed run).
+func (s *Store) FeedSeen(ctx context.Context, broadcast int64) (time.Time, error) {
+	var t *time.Time
+	err := s.db.QueryRow(ctx, `SELECT feed_seen_at FROM broadcasts WHERE id = $1`, broadcast).Scan(&t)
+	if t == nil {
+		return time.Time{}, notFound(err)
+	}
+	return *t, notFound(err)
+}
+
+// SetRunFeed keeps a run's feed content (what {{block.feed}} is for its messages) and moves the
+// campaign's feed mark to seen.
+func (s *Store) SetRunFeed(ctx context.Context, broadcast, run int64, html, text string, seen time.Time) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE broadcast_runs SET feed_html = $2, feed_text = $3 WHERE id = $1`, run, html, text); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE broadcasts SET feed_seen_at = greatest(coalesce(feed_seen_at, $2), $2) WHERE id = $1`, broadcast, seen); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RunFeed is a run's feed content ("" when the run had none); scheduled is the run's scheduled
+// time, as messages carry it (Message.Run).
+func (s *Store) RunFeed(ctx context.Context, broadcast int64, scheduled time.Time) (html, text string, err error) {
+	err = s.db.QueryRow(ctx, `SELECT feed_html, feed_text FROM broadcast_runs WHERE broadcast_id = $1 AND scheduled_at = $2`,
+		broadcast, scheduled).Scan(&html, &text)
+	return html, text, notFound(err)
 }
 
 func (s *Store) FinishRun(ctx context.Context, run int64, recipients, testRecipients int, winnerDue *time.Time) error {
@@ -270,4 +307,39 @@ func (s *Store) BroadcastRuns(ctx context.Context, tenant, id int64) ([]model.Br
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[model.BroadcastRun])
+}
+
+// ArchiveEntries are a workspace's public archive: sends of email campaigns marked for it, newest
+// first. ArchiveEntry is one of them (with its run's feed content).
+func (s *Store) ArchiveEntries(ctx context.Context, tenant int64, limit int) ([]model.ArchiveEntry, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT r.id, b.id, b.name, b.template_id, r.scheduled_at, r.started_at, '', ''
+		FROM broadcast_runs r JOIN broadcasts b ON b.id = r.broadcast_id
+		WHERE b.tenant_id = $1 AND b.archive_public AND b.channel = 'email' AND r.recipients > 0
+		ORDER BY r.started_at DESC LIMIT $2`, tenant, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, scanArchive)
+}
+
+func (s *Store) ArchiveEntry(ctx context.Context, tenant, run int64) (model.ArchiveEntry, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT r.id, b.id, b.name, b.template_id, r.scheduled_at, r.started_at, r.feed_html, r.feed_text
+		FROM broadcast_runs r JOIN broadcasts b ON b.id = r.broadcast_id
+		WHERE b.tenant_id = $1 AND r.id = $2 AND b.archive_public AND b.channel = 'email' AND r.recipients > 0`, tenant, run)
+	if err != nil {
+		return model.ArchiveEntry{}, err
+	}
+	e, err := pgx.CollectExactlyOneRow(rows, scanArchive)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return e, err
+}
+
+func scanArchive(r pgx.CollectableRow) (model.ArchiveEntry, error) {
+	var e model.ArchiveEntry
+	err := r.Scan(&e.RunID, &e.BroadcastID, &e.Name, &e.TemplateID, &e.ScheduledAt, &e.SentAt, &e.FeedHTML, &e.FeedText)
+	return e, err
 }

@@ -47,6 +47,7 @@ import (
 	"pulse/internal/dispatch"
 	"pulse/internal/event"
 	"pulse/internal/eventschema"
+	"pulse/internal/feed"
 	"pulse/internal/geoip"
 	"pulse/internal/httpauth"
 	"pulse/internal/importer"
@@ -483,7 +484,10 @@ func runBroadcasts(ctx context.Context, pgs *pg.Store, d *deps, pub kafka.Publis
 		return err
 	}
 	r := &broadcast.Runner{Store: pgs, Members: segment.Membership{RDB: d.redis()}, Stats: chs, Pub: pub, Log: d.log, Now: time.Now,
-		Snapshot: broadcast.ReachSnapshot(d.redis(), time.Now)}
+		Snapshot: broadcast.ReachSnapshot(d.redis(), time.Now),
+		Feed: func(ctx context.Context, url string) (feed.Feed, error) {
+			return feed.Fetch(ctx, safehttp.Client(15*time.Second, d.cfg.AllowPrivateWebhooks), url)
+		}}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {

@@ -120,6 +120,7 @@ type Dispatcher struct {
 	files      map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
 	autoCache  sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
 	blockCache sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
+	feedCache  sync.Map                        // "broadcast:run" -> cached[channel.Block] (blocks.go)
 	fileBytes  int
 }
 
@@ -318,7 +319,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 		prefs = d.cfg.Tracking.PreferencesURL(token)
 	}
 	v := vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs})
-	v.Blocks = d.blocks(ctx, m.TenantID)
+	v.Blocks = d.messageBlocks(ctx, m)
 	rendered, err := channel.RenderWith(t, c, v)
 	if err != nil {
 		return d.finish(ctx, sentKey, m, c, "failed", err.Error())

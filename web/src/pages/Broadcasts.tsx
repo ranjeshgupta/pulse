@@ -23,6 +23,7 @@ import { ask, askDelete, useEditGuard } from "../guard";
 import { useCan } from "../auth";
 import { ProviderPick } from "../ProviderPick";
 import { TopicPick } from "../TopicPick";
+import { FeedFields, feedProblem } from "../FeedFields";
 
 const REPEAT_LABEL: Record<Repeat, string> = { none: "Once", daily: "Every day", weekly: "Every week", monthly: "Every month" };
 
@@ -204,6 +205,8 @@ export function BroadcastEdit() {
   const fullProblem = problem
     ?? (b.conversion_event?.trim() && !(days >= 1 && days <= 30) ? "Count conversions within 1 to 30 days." : null)
     ?? deadlineIssue
+    ?? feedProblem(b.feed_url, b.channel)
+    ?? (b.feed_url?.trim() && b.ab ? "An RSS-to-email campaign can't be an A/B test." : null)
     ?? scheduleProblem(b.start_at, b.end_at);
   const runs = existing.data?.runs ?? [];
   const saved = existing.data?.broadcast;
@@ -342,6 +345,7 @@ export function BroadcastEdit() {
           </select>
         </Field>
         {(b.holdout_percent ?? 0) > 0 && !b.conversion_event?.trim() && <div className="alert info">Choose a conversion event above, or the control group can't show the campaign's effect.</div>}
+        <FeedFields channel={b.channel} repeat={b.repeat} archive={!!b.archive_public} feedURL={b.feed_url ?? ""} onChange={set} />
         <datalist id="broadcast-event-names">{events.data?.names.map((n) => <option key={n} value={n} />)}</datalist>
         <h3 style={{ margin: "18px 0 12px" }}>Who it reaches now</h3>
         {b.segment_id ? <div style={{ maxWidth: 560 }}><AudienceEstimate include={[b.segment_id, ...(b.include_segment_ids ?? [])]} exclude={b.exclude_segment_ids ?? []} channel={b.channel} /></div> : <p className="small muted">Choose who receives it.</p>}

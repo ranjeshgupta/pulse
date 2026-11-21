@@ -426,7 +426,12 @@ type Broadcast struct {
 	HoldoutPercent int `json:"holdout_percent,omitempty"`
 	// BestTime sends each message at its contact's best hour (package besttime), within a day of
 	// the run's start (one-time campaigns; not with local time or a sending speed).
-	BestTime  bool       `json:"best_time,omitempty"`
+	BestTime bool `json:"best_time,omitempty"`
+	// ArchivePublic lists the campaign's sends on the workspace's public archive page and RSS.
+	ArchivePublic bool `json:"archive_public,omitempty"`
+	// FeedURL makes it an RSS-to-email campaign: each run sends the feed's items published since
+	// the last run as {{block.feed}}, and skips the run when nothing is new (repeating campaigns).
+	FeedURL   string     `json:"feed_url,omitempty"`
 	SegmentID int64      `json:"segment_id"`
 	StartAt   time.Time  `json:"start_at"`
 	EndAt     *time.Time `json:"end_at,omitempty"`
@@ -453,6 +458,18 @@ type Broadcast struct {
 	// Deadline: don't send after a time of day or after hours late (see Deadline).
 	Deadline *Deadline `json:"deadline,omitempty"`
 	Tags     []string  `json:"tags"`
+}
+
+// ArchiveEntry is one send in a workspace's public campaign archive.
+type ArchiveEntry struct {
+	RunID       int64     `json:"run_id"`
+	BroadcastID int64     `json:"broadcast_id"`
+	Name        string    `json:"name"`
+	TemplateID  int64     `json:"template_id"`
+	ScheduledAt time.Time `json:"scheduled_at"`
+	SentAt      time.Time `json:"sent_at"`
+	FeedHTML    string    `json:"-"`
+	FeedText    string    `json:"-"`
 }
 
 // ABTest sends 2-5 variants to a test group, then the best one to everyone else.

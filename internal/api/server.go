@@ -232,6 +232,7 @@ func (s *Server) Handler() http.Handler {
 	s.preferenceRoutes(mux)
 	s.assetRoutes(mux)
 	s.landingRoutes(mux)
+	s.archiveRoutes(mux)
 	s.insightRoutes(mux)
 	s.integrationRoutes(mux)
 	s.contactDataRoutes(mux)

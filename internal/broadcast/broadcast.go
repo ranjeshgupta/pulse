@@ -13,12 +13,15 @@
 package broadcast
 
 import (
+	"net/url"
+
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"pulse/internal/feed"
 	"strings"
 	"time"
 
@@ -82,6 +85,15 @@ type Runner struct {
 	// Snapshot, when set, counts the run's audience as it starts (reach counts for the broadcast's
 	// channel), stored with the run when the Store can keep it (AudienceStore).
 	Snapshot func(ctx context.Context, b model.Broadcast) ([]byte, error)
+	// Feed fetches an RSS-to-email campaign's feed (feed.Fetch with a safe client).
+	Feed func(ctx context.Context, url string) (feed.Feed, error)
+}
+
+// FeedStore keeps RSS-to-email runs' content (pg.Store).
+type FeedStore interface {
+	FeedSeen(ctx context.Context, broadcast int64) (time.Time, error)
+	SetRunFeed(ctx context.Context, broadcast, run int64, html, text string, seen time.Time) error
+	RunFeed(ctx context.Context, broadcast int64, scheduled time.Time) (html, text string, err error)
 }
 
 // AudienceStore keeps a run's audience snapshot.
@@ -143,6 +155,15 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 			r.Log.Warn("broadcast audience snapshot", "broadcast", b.ID, "err", err)
 		} else if err := as.SetRunAudience(ctx, runID, snap); err != nil {
 			r.Log.Warn("broadcast audience snapshot", "broadcast", b.ID, "err", err)
+		}
+	}
+	if b.FeedURL != "" {
+		ok, err := r.feedRun(ctx, b, runID, at)
+		if err != nil {
+			return err
+		}
+		if !ok { // nothing new in the feed: this run sends nothing
+			return r.skipRun(ctx, b, runID, at)
 		}
 	}
 	members, err := r.audience(ctx, b)
@@ -207,6 +228,88 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 	}
 	r.Log.Info("broadcast sent", "broadcast", b.ID, "recipients", sent, "ab_test", b.AB != nil, "next", next)
 	return r.Store.AdvanceBroadcast(ctx, b.ID, next, HasWinnerStep(b.AB))
+}
+
+// feedRun gets an RSS-to-email run's items: the feed's items published since the last run (on the
+// first run, within one repeat interval) are kept with the run for its messages' {{block.feed}}.
+// A retried run reuses what it kept. ok is false when there is nothing new, or the feed can't be
+// read (the run is skipped, not retried: the next run picks up whatever it missed).
+func (r *Runner) feedRun(ctx context.Context, b model.Broadcast, runID int64, at time.Time) (bool, error) {
+	fs, ok := r.Store.(FeedStore)
+	if !ok || r.Feed == nil {
+		return false, errors.New("RSS-to-email isn't available on this server")
+	}
+	if h, _, err := fs.RunFeed(ctx, b.ID, at); err == nil && h != "" {
+		return true, nil
+	}
+	f, err := r.Feed(ctx, b.FeedURL)
+	if err != nil {
+		r.Log.Warn("broadcast feed", "broadcast", b.ID, "url", b.FeedURL, "err", err)
+		return false, nil
+	}
+	seen, err := fs.FeedSeen(ctx, b.ID)
+	if err != nil {
+		return false, err
+	}
+	if seen.IsZero() {
+		if d := repeatSpan(b.Repeat); d > 0 {
+			seen = at.Add(-d)
+		}
+	}
+	items := feed.Since(f, seen)
+	if len(items) == 0 {
+		return false, nil
+	}
+	html, text := feed.Render(items)
+	mark := feed.Newest(items)
+	if mark.IsZero() {
+		mark = at
+	}
+	return true, fs.SetRunFeed(ctx, b.ID, runID, html, text, mark)
+}
+
+// repeatSpan is how far back a feed campaign's first run looks.
+func repeatSpan(repeat string) time.Duration {
+	switch repeat {
+	case "daily":
+		return 24 * time.Hour
+	case "weekly":
+		return 7 * 24 * time.Hour
+	case "monthly":
+		return 31 * 24 * time.Hour
+	}
+	return 0
+}
+
+// skipRun finishes a run that sends nothing and moves the campaign to its next run.
+func (r *Runner) skipRun(ctx context.Context, b model.Broadcast, runID int64, at time.Time) error {
+	if err := r.Store.FinishRun(ctx, runID, 0, 0, nil); err != nil {
+		return err
+	}
+	var next *time.Time
+	if t, ok := schedule.Next(schedule.Window{Start: b.StartAt, End: b.EndAt}, b.Repeat, at); ok {
+		next = &t
+	}
+	r.Log.Info("broadcast run skipped: nothing new in its feed", "broadcast", b.ID, "next", next)
+	return r.Store.AdvanceBroadcast(ctx, b.ID, next, false)
+}
+
+// ValidateFeed checks an RSS-to-email campaign.
+func ValidateFeed(b model.Broadcast) error {
+	if b.FeedURL == "" {
+		return nil
+	}
+	u, err := url.Parse(b.FeedURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || len(b.FeedURL) > 2000 {
+		return errors.New("feed: give the feed's full address, starting with https://")
+	}
+	if b.Channel != "email" {
+		return errors.New("feed: RSS-to-email is for email campaigns")
+	}
+	if b.AB != nil {
+		return errors.New("feed: an RSS-to-email campaign can't be an A/B test")
+	}
+	return nil
 }
 
 // sendWinner picks the winner if no one has, and sends it to everyone outside the test group.
