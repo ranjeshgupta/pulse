@@ -58,9 +58,14 @@ func LooksLikeEmail(s string) bool { return len(s) <= MaxValue && emailRe.MatchS
 // LooksLikePhone reports whether s is an international (E.164) phone number.
 func LooksLikePhone(s string) bool { return e164Re.MatchString(s) }
 
-// Value normalises a raw value of a field; "" means no usable value.
+// asciiSpace is what Value trims: exactly what Postgres' btrim in pg.keyExpr trims, so both sides
+// agree on values padded with other (Unicode) spaces.
+const asciiSpace = " \t\n\r\v\f"
+
+// Value normalises a raw value of a field; "" means no usable value. MaxValue counts bytes (as
+// octet_length does in pg.keyExpr).
 func Value(field, raw string) string {
-	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, asciiSpace)
 	if raw == "" || len(raw) > MaxValue {
 		return ""
 	}

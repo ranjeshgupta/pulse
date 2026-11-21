@@ -110,7 +110,7 @@ func TestIdentityKeys(t *testing.T) {
 		raw[0].Props["loser"] != "app-9" || raw[1].Name != "login" || raw[1].ExternalID != "crm-1" || !raw[1].Rerouted {
 		t.Fatalf("enriched %+v, raw %+v", enriched, raw)
 	}
-	enriched, raw = send(raw...)
+	_, raw = send(raw...)
 	if len(raw) != 0 || store.contacts["app-9"].Attrs[event.AttrMergedInto] != "crm-1" || store.contacts["crm-1"].Attrs["city"] != "Pune" {
 		t.Fatalf("after reroute: raw %+v, app-9 %v, crm-1 %v", raw, store.contacts["app-9"].Attrs, store.contacts["crm-1"].Attrs)
 	}

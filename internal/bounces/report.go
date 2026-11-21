@@ -24,6 +24,7 @@ import (
 	"net/mail"
 	"net/textproto"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -155,7 +156,11 @@ func address(v string) string {
 func clip(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > maxReason {
-		s = s[:maxReason]
+		n := maxReason
+		for n > 0 && !utf8.RuneStart(s[n]) { // don't split a character
+			n--
+		}
+		s = s[:n]
 	}
 	return s
 }

@@ -307,12 +307,14 @@ func withBlocks(t model.Template, blocks map[string]Block) model.Template {
 	for k, b := range blocks {
 		html[k], text[k] = b.HTML, b.Text
 	}
-	t.HTML = personalize.ExpandBlocks(t.HTML, html)
-	t.Subject = personalize.ExpandBlocks(t.Subject, text)
+	// One allowance for the whole message, so repeating a big block can't blow it up.
+	left := personalize.MaxExpanded
+	t.HTML = personalize.ExpandBlocksWithin(t.HTML, html, &left)
+	t.Subject = personalize.ExpandBlocksWithin(t.Subject, text, &left)
 	if len(t.Content) > 0 && strings.Contains(string(t.Content), "block.") {
 		var v any
 		if json.Unmarshal(t.Content, &v) == nil {
-			if b, err := json.Marshal(expandAll(v, text)); err == nil {
+			if b, err := json.Marshal(expandAll(v, text, &left)); err == nil {
 				t.Content = b
 			}
 		}
@@ -320,17 +322,17 @@ func withBlocks(t model.Template, blocks map[string]Block) model.Template {
 	return t
 }
 
-func expandAll(v any, blocks map[string]string) any {
+func expandAll(v any, blocks map[string]string, left *int) any {
 	switch x := v.(type) {
 	case string:
-		return personalize.ExpandBlocks(x, blocks)
+		return personalize.ExpandBlocksWithin(x, blocks, left)
 	case map[string]any:
 		for k, e := range x {
-			x[k] = expandAll(e, blocks)
+			x[k] = expandAll(e, blocks, left)
 		}
 	case []any:
 		for i, e := range x {
-			x[i] = expandAll(e, blocks)
+			x[i] = expandAll(e, blocks, left)
 		}
 	}
 	return v

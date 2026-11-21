@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"pulse/internal/model"
 )
@@ -116,7 +117,7 @@ func Answers(s model.Survey, form map[string]string) (map[string]any, map[string
 		case Choice:
 			ok := false
 			for _, o := range q.Options {
-				if o == v {
+				if strings.TrimSpace(o) == v { // the answer was trimmed; so is the option it matches
 					ok = true
 				}
 			}
@@ -127,12 +128,20 @@ func Answers(s model.Survey, form map[string]string) (map[string]any, map[string
 			out[q.ID] = v
 		case Text:
 			if len(v) > MaxText {
-				v = v[:MaxText]
+				v = cutUTF8(v, MaxText)
 			}
 			out[q.ID] = v
 		}
 	}
 	return out, problems
+}
+
+// cutUTF8 is s cut to at most n bytes without splitting a character.
+func cutUTF8(s string, n int) string {
+	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // NPSQuestion is the survey's NPS question id ("" without one).

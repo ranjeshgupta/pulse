@@ -16,6 +16,11 @@ func TestValue(t *testing.T) {
 		{"username", " Asha_K ", "asha_k"},
 		{Email, strings.Repeat("a", 256), ""},
 		{Email, "", ""},
+		// Only the ASCII spaces Postgres' btrim removes are trimmed, and the limit is in bytes,
+		// exactly as pg.keyExpr does it.
+		{"username", "\u00a0asha\v", "\u00a0asha"},
+		{"username", strings.Repeat("é", 128), ""},
+		{"username", strings.Repeat("é", 127), strings.Repeat("é", 127)},
 	} {
 		if got := Value(c.field, c.in); got != c.want {
 			t.Errorf("Value(%s, %q) = %q, want %q", c.field, c.in, got, c.want)

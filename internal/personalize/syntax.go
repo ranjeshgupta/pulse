@@ -78,18 +78,41 @@ func UsesReco(src string) bool {
 // BlockKeyRe is a content block's key.
 var BlockKeyRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
+// MaxExpanded caps what ExpandBlocks adds to a field: a field repeating a big block thousands of
+// times would otherwise grow without bound. References past the cap are left as written (they
+// render empty).
+const MaxExpanded = 8 << 20
+
 // ExpandBlocks puts each {{block.key}}'s content in (one level: blocks inside blocks stay as
 // written and render empty). Unknown keys are left for the renderer, which renders them empty.
 func ExpandBlocks(src string, blocks map[string]string) string {
+	left := MaxExpanded
+	return ExpandBlocksWithin(src, blocks, &left)
+}
+
+// ExpandBlocksWithin is ExpandBlocks sharing one allowance between several fields: *left is how
+// many bytes of block content may still be added, and is reduced by what this call adds.
+func ExpandBlocksWithin(src string, blocks map[string]string, left *int) string {
 	if len(blocks) == 0 || !strings.Contains(src, "block.") {
 		return src
 	}
+	clean := map[string]string{}
 	return blockRe.ReplaceAllStringFunc(src, func(m string) string {
 		key := blockRe.FindStringSubmatch(m)[1]
-		if b, ok := blocks[key]; ok {
-			return blockRe.ReplaceAllString(b, "")
+		b, ok := blocks[key]
+		if !ok {
+			return m
 		}
-		return m
+		c, done := clean[key]
+		if !done {
+			c = blockRe.ReplaceAllString(b, "")
+			clean[key] = c
+		}
+		if len(c) > *left {
+			return m
+		}
+		*left -= len(c)
+		return c
 	})
 }
 

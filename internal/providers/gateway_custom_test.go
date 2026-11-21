@@ -104,6 +104,7 @@ func TestCustomRequestValidation(t *testing.T) {
 		{Method: "POST", URL: "https://api.example.com", Success: SuccessRule{StatusMin: 300, StatusMax: 200}},
 		{Method: "POST", URL: "https://api.example.com", Receipt: &ReceiptMapping{IDPath: "id", StatusPath: "s", Statuses: map[string]string{"x": "sent"}, Verify: "query", VerifyName: "t"}},
 		{Method: "POST", URL: "https://api.example.com", Receipt: &ReceiptMapping{IDPath: "id", StatusPath: "s", Statuses: map[string]string{"x": "read"}}},
+		{Method: "POST", URL: "https://api.example.com", Receipt: &ReceiptMapping{IDPath: "id", StatusPath: "s", Statuses: map[string]string{"ok": "delivered", "OK": "failed"}, Verify: "query", VerifyName: "t"}},
 	} {
 		if err := cr.Validate(); err == nil {
 			t.Errorf("accepted %+v", cr)
@@ -112,6 +113,18 @@ func TestCustomRequestValidation(t *testing.T) {
 	ok := CustomRequest{Method: "get", URL: "https://api.example.com/{{message.to}}?a={{contact.x}}"}
 	if err := ok.Validate(); err != nil {
 		t.Error(err)
+	}
+}
+
+// A status matches exactly first, then ignoring case, the same way every time.
+func TestReceiptStatusMatching(t *testing.T) {
+	m := &ReceiptMapping{IDPath: "id", StatusPath: "s", Statuses: map[string]string{"ok": "delivered", "OK": "failed", "Dlvr": "read"}}
+	for range 20 {
+		for st, want := range map[string]string{"ok": "delivered", "OK": "failed", "Ok": "failed", "DLVR": "read", "x": ""} {
+			if got := m.status(st); got != want {
+				t.Fatalf("status(%q) = %q, want %q", st, got, want)
+			}
+		}
 	}
 }
 

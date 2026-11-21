@@ -165,10 +165,10 @@ func (s *Store) PendingIdentityBackfills(ctx context.Context, limit int) ([]Iden
 // keyExpr is the SQL twin of identity.FromContact over a contacts row c, with the field in $4.
 // Keep the two in step: a value normalised differently is never matched.
 const keyExpr = `(SELECT CASE
-		WHEN v <> '' AND length(v) <= 255 THEN
+		WHEN v <> '' AND octet_length(v) <= 255 THEN
 			CASE WHEN $4 = 'phone' THEN nullif((CASE WHEN v LIKE '+%' THEN '+' ELSE '' END) || regexp_replace(v, '[^0-9]', '', 'g'), '+')
 			ELSE lower(v) END
-		WHEN $4 = 'email' AND length(c.external_id) <= 255 AND c.external_id ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' THEN lower(c.external_id)
+		WHEN $4 = 'email' AND octet_length(c.external_id) <= 255 AND c.external_id ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' THEN lower(c.external_id)
 		WHEN $4 = 'phone' AND c.external_id ~ '^\+[1-9][0-9]{6,14}$' THEN c.external_id
 	END FROM (SELECT btrim(coalesce(c.attrs->>$4, ''), E' \t\n\r\v\f') AS v) x)`
 

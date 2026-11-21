@@ -241,10 +241,15 @@ func (c CustomRequest) Validate() error {
 		if r.IDPath == "" || r.StatusPath == "" || len(r.Statuses) == 0 {
 			return errors.New("gateway: the receipt mapping needs an id path, a status path and status values")
 		}
+		folded := map[string]string{}
 		for k, v := range r.Statuses {
 			if !receiptStatuses[v] {
 				return fmt.Errorf("gateway: receipt status %q maps to %q; use delivered, read, failed, undeliverable, bounced or pending", k, v)
 			}
+			if o, dup := folded[strings.ToLower(k)]; dup {
+				return fmt.Errorf("gateway: receipt statuses %q and %q differ only in case (statuses are matched ignoring case)", o, k)
+			}
+			folded[strings.ToLower(k)] = k
 		}
 		switch r.Verify {
 		case "":
@@ -559,12 +564,7 @@ func (m *ReceiptMapping) mapWith(doc any, fallback string) []Receipt {
 		if id == "" {
 			id = fallback
 		}
-		mapped := ""
-		for k, v := range m.Statuses {
-			if strings.EqualFold(k, st) {
-				mapped = v
-			}
-		}
+		mapped := m.status(st)
 		if id == "" || mapped == "" {
 			continue
 		}
@@ -590,6 +590,22 @@ func (m *ReceiptMapping) mapWith(doc any, fallback string) []Receipt {
 		out = append(out, rc)
 	}
 	return out
+}
+
+// status maps a provider status: an exact match first, else the case-insensitive match whose
+// key sorts first (so a mapping saved before keys differing only in case were refused still maps
+// the same way every time).
+func (m *ReceiptMapping) status(st string) string {
+	if v, ok := m.Statuses[st]; ok {
+		return v
+	}
+	best, mapped := "", ""
+	for k, v := range m.Statuses {
+		if strings.EqualFold(k, st) && (mapped == "" || k < best) {
+			best, mapped = k, v
+		}
+	}
+	return mapped
 }
 
 func verifyReceipt(r *http.Request, body []byte, m *ReceiptMapping, token string) bool {

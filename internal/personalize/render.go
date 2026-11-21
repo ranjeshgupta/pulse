@@ -52,6 +52,7 @@ type Renderer struct {
 	missing map[string]bool
 	// Extra functions for legacy actions (journey webhook bodies offer {{json .Attrs}}).
 	Extra map[string]any
+	steps int // range items and template calls of the current render, see maxSteps
 }
 
 // New returns a renderer for one message.
@@ -92,7 +93,11 @@ func (r *Renderer) Text(name, src string, dot any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var b bytes.Buffer
+	for _, t := range tpl.Templates() {
+		guardTree(t.Tree)
+	}
+	var b limitedBuffer
+	r.steps = 0
 	if err := tpl.Execute(&b, dot); err != nil {
 		return "", err
 	}
@@ -123,8 +128,10 @@ func (r *Renderer) JSON(name, src string, dot any) (string, error) {
 		if t.Tree != nil {
 			escapeJSON(t.Tree, t.Tree.Root)
 		}
+		guardTree(t.Tree)
 	}
-	var b bytes.Buffer
+	var b limitedBuffer
+	r.steps = 0
 	if err := tpl.Execute(&b, dot); err != nil {
 		return "", err
 	}
@@ -197,7 +204,11 @@ func (r *Renderer) HTML(name, src string, dot any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var b bytes.Buffer
+	for _, t := range tpl.Templates() {
+		guardTree(t.Tree)
+	}
+	var b limitedBuffer
+	r.steps = 0
 	if err := tpl.Execute(&b, dot); err != nil {
 		return "", err
 	}
@@ -253,6 +264,8 @@ func (r *Renderer) funcs(html bool) map[string]any {
 			return JSONRaw(b)
 		},
 		"pulseJSONEsc": jsonEscape,
+		"pulseRange":   r.rangeGuard,
+		"pulseCall":    r.callGuard,
 		"pulseOut": func(v any) any {
 			if u, ok := v.(htmltemplate.URL); ok {
 				return u
@@ -621,4 +634,102 @@ func formatMoney(v any, cur string) string {
 		return "-" + c.symbol + s[1:]
 	}
 	return c.symbol + s
+}
+
+// A template is written by a workspace user but runs in the shared senders, so one render is
+// bounded: {{range}} over a huge number, nested loops and recursive {{template}} calls stop after
+// maxSteps, and output stops at maxOutput bytes.
+const (
+	maxSteps  = 10000
+	maxOutput = 8 << 20
+)
+
+var (
+	errTooManySteps = fmt.Errorf("the template loops more than %d times", maxSteps)
+	errTooLong      = fmt.Errorf("the template renders more than %d MB", maxOutput>>20)
+)
+
+// limitedBuffer is a bytes.Buffer that refuses to grow past maxOutput.
+type limitedBuffer struct{ bytes.Buffer }
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > maxOutput {
+		return 0, errTooLong
+	}
+	return b.Buffer.Write(p)
+}
+
+// guardTree routes every {{range}} pipeline through pulseRange and every {{template}} call's data
+// through pulseCall, which count steps against maxSteps.
+func guardTree(t *parse.Tree) {
+	if t != nil {
+		guardNode(t, t.Root)
+	}
+}
+
+func guardNode(t *parse.Tree, n parse.Node) {
+	switch n := n.(type) {
+	case *parse.ListNode:
+		if n == nil {
+			return
+		}
+		for _, c := range n.Nodes {
+			guardNode(t, c)
+		}
+	case *parse.IfNode:
+		guardNode(t, n.List)
+		guardNode(t, n.ElseList)
+	case *parse.WithNode:
+		guardNode(t, n.List)
+		guardNode(t, n.ElseList)
+	case *parse.RangeNode:
+		n.Pipe.Cmds = append(n.Pipe.Cmds, guardCmd(t, "pulseRange", n.Pos))
+		guardNode(t, n.List)
+		guardNode(t, n.ElseList)
+	case *parse.TemplateNode:
+		if n.Pipe == nil {
+			n.Pipe = &parse.PipeNode{NodeType: parse.NodePipe, Pos: n.Pos, Line: n.Line}
+		}
+		n.Pipe.Cmds = append(n.Pipe.Cmds, guardCmd(t, "pulseCall", n.Pos))
+	}
+}
+
+func guardCmd(t *parse.Tree, fn string, pos parse.Pos) *parse.CommandNode {
+	id := parse.NewIdentifier(fn).SetTree(t).SetPos(pos)
+	return &parse.CommandNode{NodeType: parse.NodeCommand, Pos: pos, Args: []parse.Node{id}}
+}
+
+// rangeGuard counts what a {{range}} is about to iterate over and passes it on.
+func (r *Renderer) rangeGuard(v any) (any, error) {
+	n := 1
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if rv.Int() > maxSteps {
+			return nil, errTooManySteps
+		}
+		n = int(max(rv.Int(), 0))
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if rv.Uint() > maxSteps {
+			return nil, errTooManySteps
+		}
+		n = int(rv.Uint())
+	case reflect.Slice, reflect.Array, reflect.Map, reflect.String:
+		n = rv.Len()
+	}
+	if r.steps += n; r.steps > maxSteps {
+		return nil, errTooManySteps
+	}
+	return v, nil
+}
+
+// callGuard counts a {{template}} call and passes its data on (nil when the call has none).
+func (r *Renderer) callGuard(v ...any) (any, error) {
+	if r.steps++; r.steps > maxSteps {
+		return nil, errTooManySteps
+	}
+	if len(v) == 0 {
+		return nil, nil
+	}
+	return v[0], nil
 }
