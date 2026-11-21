@@ -1,4 +1,5 @@
 // Preview and test-send, shared by templates, journey steps and broadcasts, for every channel.
+import { languageName } from "./languages";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, CHANNEL_NAMES, type Channel, type ChannelContent, type EventSchema, type Template } from "./api";
@@ -171,7 +172,7 @@ export function PreviewModal({ template, event = "", onClose }: { template: Part
   const ev = parseEvent(evJson);
   const q = useQuery({
     queryKey: ["preview", asWho, template, evName && ev],
-    queryFn: () => api.post<Rendered & { contact: { external_id: string; email: string; phone?: string }; missing: string[]; skipped: boolean }>("/v1/templates/preview",
+    queryFn: () => api.post<Rendered & { contact: { external_id: string; email: string; phone?: string }; missing: string[]; skipped: boolean; locale?: string }>("/v1/templates/preview",
       { template, external_id: asWho, event: evName && ev ? ev : undefined }),
     enabled: ev !== undefined,
   });
@@ -189,6 +190,7 @@ export function PreviewModal({ template, event = "", onClose }: { template: Part
             As {q.data.contact.external_id === "sample" ? "a sample contact (Asha from Pune)" : q.data.contact.external_id}
             {template.channel === "email" ? `, to ${q.data.contact.email || "no email"}` : q.data.contact.phone ? `, to ${q.data.contact.phone}` : ""}
           </p>
+          {q.data.locale && <p className="small muted" style={{ margin: "0 0 8px" }}>🌐 In {languageName(q.data.locale)}: this contact's language.</p>}
           {q.data.missing?.length > 0 && (
             <div className={`alert ${q.data.skipped ? "error" : "info"}`}>
               No value for {q.data.missing.map((m) => `{{${m}}}`).join(", ")}{q.data.skipped ? ": this contact would get nothing (the template skips contacts with missing values)." : ": rendered empty. Add a default, or set the template to skip such contacts."}

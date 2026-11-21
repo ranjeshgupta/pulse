@@ -806,6 +806,14 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   exact anchor count; `POST /v1/analytics/paths`, `pathLinks`; `pages/PathAnalysis.tsx` with `paths.ts` (flow layout);
   dispatcher `pushGone` records `app_uninstalled` for dead android / ios tokens. Tests `TestPathLinks`, `paths.test.ts`,
   `TestPushDropsDeadTokens`, e2e `TestPathsAndUninstalls`.
+- **16 Multi-language templates**: pg 041 `templates.translations`; `model.Translation`; `channel.ForLocale`,
+  `PickTranslation`, `ContactLocale`, `ValidateTranslations` (each language validated as a whole template); dispatcher
+  sends the contact's language (recommendation and survey needs are read from every language); preview reports the
+  language used; `pages/TranslationEditor.tsx` (language bar, editor), `languages.ts`. Tests `TestTranslations`,
+  `languages.test.ts`, e2e `TestTemplateTranslations`; checked in a headless browser.
+- **Security review fixes (item 14)**: survey links carry an HMAC over (survey, token), so a message's token answers
+  only the survey it was sent with (`/s/{id}/{token}/{sig}`); the survey report names commenters only to roles that may
+  view contacts.
 - **Security review fixes (items 12-13)**: Score now holds a per-workspace run lock (`rfmrun:{tenant}`) for the whole
   background pass, which the daily pass respects; the dispatcher's per-code catalog cache is bounded (200k entries);
   updating recommendation lists needs content edit and never replaces lists with empty ones.

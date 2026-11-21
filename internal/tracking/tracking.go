@@ -98,9 +98,17 @@ const PushTrackKey = "pulse_track"
 
 // PushURL is where a push notification's service worker or app SDK reports a click or dismissal:
 // POST {PushURL}?a=clicked or ?a=dismissed.
-// SurveyURL is a survey's page for the message's contact.
+// SurveyURL is a survey's page for the message's contact: the token names the contact and
+// message, and the signature binds it to this survey (a message's token can't answer another).
 func (c *Codec) SurveyURL(survey int64, token string) string {
-	return c.base + "/s/" + strconv.FormatInt(survey, 10) + "/" + token
+	id := strconv.FormatInt(survey, 10)
+	return c.base + "/s/" + id + "/" + token + "/" + c.sign(token, "survey:"+id)
+}
+
+// VerifySurvey checks a survey link's signature.
+func (c *Codec) VerifySurvey(survey int64, token, sig string) bool {
+	want := c.sign(token, "survey:"+strconv.FormatInt(survey, 10))
+	return hmac.Equal([]byte(want), []byte(sig))
 }
 
 func (c *Codec) PushURL(token string) string { return c.base + "/t/p/" + token }

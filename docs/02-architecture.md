@@ -515,8 +515,8 @@ trending and popular; in stock, never one they just bought. Picks fill `reco.N.*
 ## Surveys and NPS (O6)
 
 Surveys and answers live in Postgres (`surveys`, `survey_responses`). `{{survey.ID}}` in a template makes the
-dispatcher put the contact's own link in the message: `/s/{id}/{token}`, where the token is the message's sealed
-tracking token (made for any channel when the template has a survey link), so an answer is tied to the contact, the
+dispatcher put the contact's own link in the message: `/s/{id}/{token}/{sig}`, where the token is the message's sealed
+tracking token and the signature an HMAC over the survey id and the token (so a token answers only its own survey) (made for any channel when the template has a survey link), so an answer is tied to the contact, the
 message and its campaign without the page trusting anything it can't verify. The page is served on the pages origin
 under a nonce CSP. A GET only renders (`?score=N` pre-selects the NPS answer an email's 0-10 row linked to); the POST
 validates against the survey and stores the answer (a contact's answer to the same message is updated, not added), then
@@ -533,6 +533,14 @@ at the last anchor and the N before it); identical paths are counted and the 500
 count of the anchor's people. The API folds them into per-step links for the flow chart. Uninstalls are detected where
 they surface: a push provider that reports a device token as unregistered returns `ErrUnreachable`, the dispatcher
 deletes the token and, for android / ios tokens, records `app_uninstalled` on the contact.
+
+## Multi-language templates (O6)
+
+A template keeps its translations in `templates.translations` (JSON: locale, subject, HTML, and only the content fields
+it changes). At send time the dispatcher picks the contact's version (`channel.ForLocale`: the `locale` attribute, else
+`language`; an exact match first, then the same language) and overlays it on the default before rendering; the
+untranslated template is what decides whether a message needs recommendations or survey links, so every language's
+fields count. Saving validates each language as a whole template (required fields, personalisation syntax).
 
 ## RSS-to-email (O6)
 

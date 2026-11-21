@@ -239,7 +239,12 @@ export interface AmpPollResults { polls: Record<string, { question: string; tota
 /** missing_values: when a variable has no value and no default, render it empty (default) or skip the contact. */
 export interface Template { id: number; name: string; channel: Channel; subject: string; html: string; content: ChannelContent; builder?: unknown; transactional?: boolean; missing_values?: "empty" | "skip";
   /** Written inside a one-time campaign: kept out of template lists until saved as reusable. */
-  hidden?: boolean; updated_at: string }
+  hidden?: boolean; updated_at: string;
+  /** The template in other languages: a contact whose locale matches gets it (exact, then by language). */
+  translations?: Translation[] }
+
+/** Translation: a template's text in one locale; empty fields keep the default's. */
+export interface Translation { locale: string; subject?: string; html?: string; content?: Partial<ChannelContent> }
 
 export interface DeliveryRules {
   caps: Partial<Record<Channel, { max: number; hours: number }>>;

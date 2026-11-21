@@ -92,6 +92,12 @@ func TestSurveys(t *testing.T) {
 	if code, _ := post(strings.Replace(page, fmt.Sprintf("/s/%v/", id), fmt.Sprintf("/s/%v/", id)+"x", 1), url.Values{"q_nps": {"1"}}); code != 404 {
 		t.Errorf("forged token: %d", code)
 	}
+	// The link is bound to its survey: the same token can't answer another one.
+	other := jsonCall(t, c, "POST", "/v1/surveys", map[string]any{"name": "Other " + run, "status": "live", "questions": []any{
+		map[string]any{"id": "nps", "type": "nps", "text": "?"}}}, 201)["id"]
+	if code, _ := post(strings.Replace(page, fmt.Sprintf("/s/%v/", id), fmt.Sprintf("/s/%v/", other), 1), url.Values{"q_nps": {"1"}}); code != 404 {
+		t.Errorf("token reused for another survey: %d", code)
+	}
 	jsonCall(t, c, "POST", "/v1/events", map[string]any{"external_id": ext, "name": "survey_answered", "props": map[string]any{"nps": 10}}, 400)
 	// Closed: the page says so and takes nothing.
 	jsonCall(t, c, "PUT", fmt.Sprintf("/v1/surveys/%v", id), map[string]any{"name": "How did we do " + run, "status": "closed", "questions": sv["survey"].(map[string]any)["questions"]}, 200)

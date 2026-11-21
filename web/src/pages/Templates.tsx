@@ -15,6 +15,7 @@ import { exampleEvent, fillSample, lintAll, SAMPLE_CONTACT, type Sample } from "
 import { EventScopePicker, PersonalizeScopeProvider, TemplatedInput, TemplatedText, useVariables, VarPicker, VarProblems } from "../VarPicker";
 import type { EmailBuilderHandle } from "./EmailBuilder";
 import { AmpSection } from "./AmpEditor";
+import { LanguageBar, TranslationEditor } from "./TranslationEditor";
 
 const EmailBuilder = lazy(() => import("./EmailBuilder"));
 
@@ -106,6 +107,7 @@ export function TemplateEdit() {
   const [testing, setTesting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [spam, setSpam] = useState(false);
+  const [lang, setLang] = useState(""); // "" is the default; else the translation being edited
   const [scopeEvent, setScopeEvent] = useState(() => params.get("event") ?? savedScope());
   const [tab, setTabState] = useState(() => params.get("tab") === "report" ? "report" : "content");
   const setTab = (v: "content" | "report") => {
@@ -208,7 +210,12 @@ export function TemplateEdit() {
           <label className="check" style={{ display: "inline-flex", margin: 0 }}><input type="checkbox" checked={!t.hidden} onChange={() => setT({ ...t, hidden: false })} />Make it a reusable template (when saved)</label>
         </div>
       )}
+      <LanguageBar t={t} lang={lang} setLang={setLang} setT={setT} />
+      {lang !== "" && <TranslationEditor t={t} locale={lang} setT={setT} onRemoved={() => setLang("")} />}
+      {/* The default editor stays mounted while a translation is open, so the builder keeps its state. */}
+      <div hidden={lang !== ""}>
       <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={switchEmailMode} builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={existing.data?.builder != null} onBuilderChange={onBuilderChange} onEdit={markDirty} />
+      </div>
       </div>
       {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
       {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}

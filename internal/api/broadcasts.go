@@ -430,7 +430,7 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 	if !eventFits(w, req.Event) {
 		return
 	}
-	t := req.Template.template(tenant)
+	t, locale := channel.ForLocale(req.Template.template(tenant), channel.ContactLocale(c)) // the contact's language
 	if err := channel.PrepareAMP(&t); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -451,7 +451,7 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp := map[string]any{"subject": out.Subject, "html": out.HTML, "content": out.Content, "missing": nonNil(out.Missing),
+	resp := map[string]any{"subject": out.Subject, "html": out.HTML, "content": out.Content, "missing": nonNil(out.Missing), "locale": locale,
 		"skipped": t.MissingValues == channel.MissingSkip && len(out.Missing) > 0,
 		"contact": map[string]any{"external_id": c.ExternalID, "email": c.Email, "phone": c.Attrs["phone"]}}
 	if t.Channel == channel.Email {

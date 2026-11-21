@@ -514,3 +514,10 @@ select.btn-like { font-weight: 560; background-color: var(--cobalt); color: #fff
 .sc-meter { height: 8px; border-radius: 999px; background: linear-gradient(90deg, #1d9a6c 0 30%, #e8890c 30% 60%, #d64545 60%); opacity: 0.35; position: relative; margin-top: 8px; }
 .sc-meter span { position: absolute; left: 0; top: -3px; height: 14px; border-right: 3px solid #152238; }
 .sc-good { background: #eef9f3; } .sc-risky { background: #fff6e8; } .sc-spam { background: #fdeeee; }
+
+/* Multi-language templates (O6) */
+.lang-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.lang-bar > button[role="tab"] { border: 1px solid var(--line, #dfe2ea); background: var(--surface, #fff); border-radius: 999px; padding: 3px 12px; font: inherit; font-size: var(--fs-sm, 14px); cursor: pointer; color: inherit; }
+.lang-bar > button[role="tab"][aria-selected="true"] { background: var(--cobalt, #3a5ccc); border-color: var(--cobalt, #3a5ccc); color: #fff; }
+.lang-add { display: inline-flex; gap: 6px; align-items: center; }
+.translation { margin-bottom: 14px; }

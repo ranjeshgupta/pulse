@@ -3,7 +3,7 @@ package api
 // Surveys and NPS (O6, package survey).
 //
 //	GET/POST /v1/surveys, GET/PUT/DELETE /v1/surveys/{id}, GET /v1/surveys/{id}/report?days=90
-//	GET/POST /s/{id}/{token}      a message's link ({{survey.ID}}): the contact answers
+//	GET/POST /s/{id}/{token}/{sig}  a message's link ({{survey.ID}}): the contact answers
 //	GET/POST /s/{id}/p/{key}      the public link: anyone answers, without a contact
 //
 // GET only shows the page (?score=N pre-selects the NPS answer an email's 0-10 row linked to); the
@@ -43,11 +43,11 @@ func (s *Server) surveyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/surveys/{id}", s.tenant(s.getSurvey))
 	mux.HandleFunc("PUT /v1/surveys/{id}", s.tenant(s.saveSurvey))
 	mux.HandleFunc("DELETE /v1/surveys/{id}", s.tenant(s.deleteSurvey))
-	mux.HandleFunc("GET /v1/surveys/{id}/report", s.tenant(s.surveyReport))
+	mux.HandleFunc("GET /v1/surveys/{id}/report", s.authed(s.surveyReport))
 	mux.HandleFunc("GET /s/{id}/p/{key}", s.publicSurvey)
 	mux.HandleFunc("POST /s/{id}/p/{key}", s.publicSurvey)
-	mux.HandleFunc("GET /s/{id}/{token}", s.messageSurvey)
-	mux.HandleFunc("POST /s/{id}/{token}", s.messageSurvey)
+	mux.HandleFunc("GET /s/{id}/{token}/{sig}", s.messageSurvey)
+	mux.HandleFunc("POST /s/{id}/{token}/{sig}", s.messageSurvey)
 }
 
 func (s *Server) surveyStore(w http.ResponseWriter) (SurveyStore, bool) {
@@ -164,7 +164,10 @@ type textAnswer struct {
 	NPS        *int      `json:"nps,omitempty"`
 }
 
-func (s *Server) surveyReport(w http.ResponseWriter, r *http.Request, tenant int64) {
+// surveyReport: comments show who wrote them only to roles that may view contacts.
+func (s *Server) surveyReport(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
+	showWho := p.Perms.Allows(auth.AreaContacts, auth.View)
 	ss, ok := s.surveyStore(w)
 	if !ok {
 		return
@@ -220,7 +223,11 @@ func (s *Server) surveyReport(w http.ResponseWriter, r *http.Request, tenant int
 				qr.Counts[attrString(v)]++
 			case survey.Text:
 				if len(qr.Latest) < 50 {
-					qr.Latest = append(qr.Latest, textAnswer{At: x.At, ExternalID: x.ExternalID, Text: attrString(v), NPS: x.NPS})
+					who := ""
+					if showWho {
+						who = x.ExternalID
+					}
+					qr.Latest = append(qr.Latest, textAnswer{At: x.At, ExternalID: who, Text: attrString(v), NPS: x.NPS})
 				}
 			}
 		}
@@ -284,7 +291,7 @@ func (s *Server) messageSurvey(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, err := s.Tracking.Decode(r.PathValue("token"))
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || tok.TenantID == 0 || tok.ExternalID == "" || id <= 0 {
+	if err != nil || tok.TenantID == 0 || tok.ExternalID == "" || id <= 0 || !s.Tracking.VerifySurvey(id, r.PathValue("token"), r.PathValue("sig")) {
 		http.Error(w, "This survey link isn't valid.", http.StatusNotFound)
 		return
 	}
