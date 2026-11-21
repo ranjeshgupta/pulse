@@ -37,6 +37,10 @@ func TestParseAndSince(t *testing.T) {
 	if _, err := Parse([]byte("<html></html>")); err == nil {
 		t.Error("html parsed as a feed")
 	}
+	big := "<rss><channel>" + strings.Repeat("<item><title>x</title><pubDate>Mon, 02 Nov 2026 10:00:00 +0530</pubDate></item>", 20000) + "</channel></rss>"
+	if f, err := Parse([]byte(big)); err != nil || len(f.Items) != MaxParsed || len(Since(f, time.Time{})) != MaxItems {
+		t.Errorf("big feed: %d items, %v", len(f.Items), err)
+	}
 	if h, _ := Render([]Item{{Title: "<script>x</script>", Link: "javascript:alert(1)"}}); strings.Contains(h, "<script>") || strings.Contains(h, "javascript:") {
 		t.Errorf("unsafe render: %s", h)
 	}

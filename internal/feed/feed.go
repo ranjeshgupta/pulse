@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -31,8 +32,11 @@ type Feed struct {
 	Items []Item `json:"items"`
 }
 
-// MaxItems caps what one email lists.
-const MaxItems = 10
+// MaxItems caps what one email lists; MaxParsed caps the items read from one feed.
+const (
+	MaxItems  = 10
+	MaxParsed = 500
+)
 
 const maxBytes = 2 << 20
 
@@ -99,7 +103,7 @@ func Parse(b []byte) (Feed, error) {
 	var r rss
 	if err := xml.Unmarshal(b, &r); err == nil && len(r.Channel.Items) > 0 {
 		f.Title = strings.TrimSpace(r.Channel.Title)
-		for _, it := range r.Channel.Items {
+		for _, it := range r.Channel.Items[:min(len(r.Channel.Items), MaxParsed)] {
 			d := parseDate(it.PubDate)
 			if d.IsZero() {
 				d = parseDate(it.Date)
@@ -115,7 +119,7 @@ func Parse(b []byte) (Feed, error) {
 	var a atom
 	if err := xml.Unmarshal(b, &a); err == nil && len(a.Entries) > 0 {
 		f.Title = strings.TrimSpace(a.Title)
-		for _, e := range a.Entries {
+		for _, e := range a.Entries[:min(len(a.Entries), MaxParsed)] {
 			link := ""
 			for _, l := range e.Links {
 				if l.Rel == "" || l.Rel == "alternate" {
@@ -175,11 +179,7 @@ func Since(f Feed, t time.Time) []Item {
 			out = append(out, it)
 		}
 	}
-	for i := 1; i < len(out); i++ { // newest first (feeds usually are; keep it so)
-		for j := i; j > 0 && out[j].Published.After(out[j-1].Published); j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
-	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Published.After(out[j].Published) }) // newest first
 	if len(out) > MaxItems {
 		out = out[:MaxItems]
 	}
