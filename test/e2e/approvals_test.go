@@ -46,4 +46,12 @@ func TestApprovals(t *testing.T) {
 	if a := latest["approval"].(map[string]any); a["status"] != "approved" || a["decider"] != "API key" {
 		t.Errorf("latest: %v", latest)
 	}
+	// Approved and scheduled: its content can't change behind the approval, through the template
+	// or a content block it uses; a template no live campaign sends can.
+	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", tpl), map[string]any{"name": "ap", "channel": "sms", "content": map[string]any{"text": "Hi, sneaky"}}, 409)
+	blk := jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": "ap_sig", "name": "Sig", "html": "<p>Acme</p>", "text": "Acme"}, -1)["id"]
+	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", tpl), map[string]any{"name": "ap", "channel": "sms", "content": map[string]any{"text": "Hi {{block.ap_sig}}"}}, 409)
+	other := jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "free", "channel": "sms", "content": map[string]any{"text": "x"}}, 201)["id"]
+	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", other), map[string]any{"name": "free", "channel": "sms", "content": map[string]any{"text": "y"}}, 200)
+	_ = blk
 }

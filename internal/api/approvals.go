@@ -371,3 +371,106 @@ func (s *Server) journeyGraph(ctx context.Context, tenant, id int64) (journey.Gr
 	}
 	return journey.ParseGraph(j.Graph)
 }
+
+// ---- four-eyes: no unapproved content through a live campaign ----
+
+// liveUsing names the live campaigns (scheduled, running or testing one-time campaigns, active
+// journeys) that send any of the templates tids.
+func (s *Server) liveUsing(ctx context.Context, tenant int64, tids map[int64]bool) ([]string, error) {
+	sends := func(def any) bool {
+		raw, _ := json.Marshal(def)
+		var doc any
+		_ = json.Unmarshal(raw, &doc)
+		ids := map[int64]bool{}
+		templateIDs(doc, ids)
+		for id := range ids {
+			if tids[id] {
+				return true
+			}
+		}
+		return false
+	}
+	var names []string
+	bs, err := s.bcStore().ListBroadcasts(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range bs {
+		if (b.Status == "scheduled" || b.Status == "running" || b.Status == "testing") && sends(b) {
+			names = append(names, b.Name)
+		}
+	}
+	if us, ok := s.Store.(UIStore); ok {
+		js, err := us.ListJourneys(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+		for _, j := range js {
+			if j.Status == "active" && sends([]any{j.Graph}) {
+				names = append(names, j.Name)
+			}
+		}
+	}
+	return names, nil
+}
+
+// liveLocked refuses (409) an edit to content that live campaigns send when the workspace needs
+// four-eyes launches: the change would reach people without the approval their launch needed.
+// API keys are exempt, as from approvals. It returns true when it answered.
+func (s *Server) liveLocked(w http.ResponseWriter, r *http.Request, p model.Principal, tids map[int64]bool) bool {
+	as, ok := s.Store.(AutomationStore)
+	if p.UserID == 0 || !ok || len(tids) == 0 {
+		return false
+	}
+	set, err := as.AutomationSettings(r.Context(), p.TenantID)
+	if err != nil || !set.Approvals.FourEyes {
+		return false
+	}
+	names, err := s.liveUsing(r.Context(), p.TenantID, tids)
+	if err != nil {
+		s.fail(w, err)
+		return true
+	}
+	if len(names) == 0 {
+		return false
+	}
+	if len(names) > 5 {
+		names = append(names[:5], fmt.Sprintf("%d more", len(names)-5))
+	}
+	writeErr(w, http.StatusConflict, "this workspace needs approval for what campaigns send, and "+strings.Join(names, ", ")+
+		" send this content right now: pause them first, make the change, then ask for approval again")
+	return true
+}
+
+// guardTemplateEdit wraps a template update or delete with liveLocked.
+func (s *Server) guardTemplateEdit(h tenantHandler) http.HandlerFunc {
+	return s.authed(func(w http.ResponseWriter, r *http.Request, p model.Principal) {
+		if id, err := strconv.ParseInt(r.PathValue("id"), 10, 64); err == nil && s.liveLocked(w, r, p, map[int64]bool{id: true}) {
+			return
+		}
+		h(w, r, p.TenantID)
+	})
+}
+
+// guardBlockEdit wraps a content block update or delete with liveLocked, for the templates that
+// use the block.
+func (s *Server) guardBlockEdit(h tenantHandler) http.HandlerFunc {
+	return s.authed(func(w http.ResponseWriter, r *http.Request, p model.Principal) {
+		bs, ok := s.Store.(BlockStore)
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if ok && err == nil {
+			if b, err := bs.GetBlock(r.Context(), p.TenantID, id); err == nil {
+				if ts, err := bs.TemplatesUsingBlock(r.Context(), p.TenantID, b.Key); err == nil {
+					tids := map[int64]bool{}
+					for _, t := range ts {
+						tids[t.ID] = true
+					}
+					if s.liveLocked(w, r, p, tids) {
+						return
+					}
+				}
+			}
+		}
+		h(w, r, p.TenantID)
+	})
+}

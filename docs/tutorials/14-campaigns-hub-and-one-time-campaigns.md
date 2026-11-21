@@ -329,6 +329,11 @@ now**, **Schedule** or **Save and go live**, Pulse opens the same **Ask for appr
 (*This workspace needs a second person to approve every launch…*), and someone else who may publish
 approves. Campaigns launched with an API key aren't affected.
 
+While four-eyes is on, an approved campaign's words can't change behind the approval: saving a
+template or content block that a scheduled or running campaign (or an active triggered campaign)
+sends is refused, with the campaigns named. Pause them, make the change, then ask for approval
+again.
+
 ## 11. The campaign calendar
 
 To see what goes out when, click **📅 Calendar** at the top of the **Campaigns** page.

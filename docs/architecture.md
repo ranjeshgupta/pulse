@@ -604,8 +604,11 @@ A journey is a trigger plus an acyclic graph of steps stored as JSON (`internal/
   campaign.
 - **Approvals.** With four-eyes launches on, a user who can't publish asks for approval; a
   publisher approves the exact version requested (a hash of the campaign, its templates and
-  content blocks; approval refuses and undoes a racing launch if anything changed). API keys
-  launch without approval.
+  content blocks; approval refuses and undoes a racing launch if anything changed). After launch,
+  a template or content block that a live campaign sends (a scheduled, running or testing one-time
+  campaign, or an active journey) can't be changed while four-eyes is on: the edit is refused
+  (409, naming the campaigns) until they're paused, so nothing reaches people unapproved. API keys
+  launch, and edit, without approval.
 - **RSS-to-email** and a **public archive** of email sends are options of an email campaign.
 
 Both journeys and broadcasts publish `model.Message` records to `messages.<channel>`; everything
