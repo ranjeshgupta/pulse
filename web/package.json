@@ -22,7 +22,7 @@
     "@tiptap/pm": "3.32.2",
     "@tiptap/react": "3.32.2",
     "@tiptap/starter-kit": "3.32.2",
-    "@xyflow/react": "^12.12.1",
+    "@xyflow/react": "^13.0.2",
     "font-awesome": "4.7.0",
     "grapesjs": "^0.23.9",
     "grapesjs-preset-newsletter": "^1.0.2",
