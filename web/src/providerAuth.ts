@@ -89,17 +89,72 @@ export function newLogin(): LoginRequest {
 // ---- custom request ----
 
 export interface SuccessRule { status_min?: number; status_max?: number; json_path?: string; json_value?: string }
-export type ReceiptStatus = "delivered" | "read" | "failed" | "undeliverable" | "bounced";
+export type ReceiptStatus = "delivered" | "read" | "failed" | "undeliverable" | "bounced" | "pending";
 export interface ReceiptMapping {
   items_path?: string; id_path: string; status_path: string; statuses: Record<string, ReceiptStatus>;
-  reason_path?: string; code_path?: string; verify: "header" | "query" | "hmac"; verify_name: string;
+  /** "" when reports only come from status requests (the webhook then accepts nothing). */
+  reason_path?: string; code_path?: string; verify: "header" | "query" | "hmac" | ""; verify_name: string;
+}
+/** FailureRule: an answer whose field holds one of the values is a refusal (unreachable: send the SMS fallback). */
+export interface FailureRule { json_path: string; values: string[]; unreachable?: boolean }
+/** PollRequest asks the provider for a message's status ("We ask them"). */
+export interface PollRequest {
+  method: string; url: string; headers?: Header[]; content_type?: string; body?: string; every_minutes?: number; for_hours?: number;
 }
 export interface CustomRequest {
   method: string; url: string; headers?: Header[]; content_type?: string; body?: string;
   success: SuccessRule; id_path?: string; receipt?: ReceiptMapping;
+  failure?: FailureRule; match_by?: "provider" | "pulse"; poll?: PollRequest;
 }
 
-export const RECEIPT_STATUSES: ReceiptStatus[] = ["delivered", "read", "failed", "undeliverable", "bounced"];
+export const RECEIPT_STATUSES: ReceiptStatus[] = ["delivered", "read", "failed", "undeliverable", "bounced", "pending"];
+
+/** What each Pulse status means, for the status-mapping table. */
+export const RECEIPT_STATUS_LABELS: Record<ReceiptStatus, string> = {
+  delivered: "Delivered", read: "Read", failed: "Failed", undeliverable: "Failed: can't get it here (send the SMS fallback)",
+  bounced: "Bounced", pending: "Not final yet (ask again)",
+};
+
+// Words gateways commonly use for each status (operator DLR codes included), in lower case.
+const COMMON_STATUS_WORDS: [ReceiptStatus, string[]][] = [
+  ["delivered", ["delivered", "delivrd", "success", "successful", "dlvrd", "deliver"]],
+  ["read", ["read", "seen", "opened"]],
+  ["undeliverable", ["undeliv", "undelivered", "invalid_number", "not_on_whatsapp", "not_rcs_capable", "unreachable"]],
+  ["failed", ["failed", "failure", "rejectd", "rejected", "expired", "error", "dnd", "blocked"]],
+  ["bounced", ["bounced", "bounce"]],
+  ["pending", ["submitted", "sent", "queued", "accepted", "pending", "enroute", "processing", "acknowledged"]],
+];
+
+/** suggestStatuses maps the provider's status words to Pulse's, from common names; unknown words are left out. */
+export function suggestStatuses(words: string[]): Record<string, ReceiptStatus> {
+  const out: Record<string, ReceiptStatus> = {};
+  for (const raw of words) {
+    const w = raw.trim();
+    if (!w) continue;
+    const lc = w.toLowerCase();
+    const hit = COMMON_STATUS_WORDS.find(([, list]) => list.includes(lc)) ?? COMMON_STATUS_WORDS.find(([, list]) => list.some((x) => lc.includes(x)));
+    if (hit) out[w] = hit[0];
+  }
+  return out;
+}
+
+/** statusWordsIn finds the values at a path in a pasted report or answer (JSON, or a list of them). */
+export function statusWordsIn(sample: string, path: string): string[] {
+  let doc: unknown;
+  try { doc = JSON.parse(sample); } catch { return []; }
+  const items = Array.isArray(doc) ? doc : [doc];
+  const out = new Set<string>();
+  const walk = (v: unknown, parts: string[]): void => {
+    if (parts.length === 0) {
+      if (typeof v === "string" || typeof v === "number") out.add(String(v));
+      return;
+    }
+    if (Array.isArray(v)) { v.forEach((x) => walk(x, parts)); return; }
+    if (v && typeof v === "object") walk((v as Record<string, unknown>)[parts[0]], parts.slice(1));
+  };
+  for (const it of items) walk(it, path.split(".").filter(Boolean));
+  return [...out];
+}
 
 export function newCustomRequest(channel: string): CustomRequest {
   const body = channel === "email"
@@ -122,6 +177,11 @@ export function serializeRequest(r: CustomRequest): string {
   const out: CustomRequest = { ...r, headers: (r.headers ?? []).filter((h) => h.name.trim()) };
   if (!out.headers?.length) delete out.headers;
   if (!out.id_path) delete out.id_path;
+  // A rule being filled in is kept (the server says what's missing on save); only an empty one goes.
+  if (!out.failure?.json_path?.trim() && !out.failure?.values.some((v) => v.trim())) delete out.failure;
+  else if (out.failure) out.failure = { ...out.failure, values: out.failure.values.map((v) => v.trim()).filter(Boolean) };
+  if (!out.match_by || out.match_by === "provider") delete out.match_by;
+  if (out.poll) out.poll = { ...out.poll, headers: (out.poll.headers ?? []).filter((h) => h.name.trim()) };
   return JSON.stringify(out);
 }
 
@@ -148,7 +208,7 @@ export function parseStatuses(text: string): { statuses: Record<string, ReceiptS
 
 /** MESSAGE_VARS are the {{message.x}} a request template can use. */
 export const MESSAGE_VARS = ["to", "text", "subject", "html", "title", "body", "id", "channel", "from", "sender_id",
-  "dlt_template_id", "dlt_entity_id", "template_name", "language", "params", "image_url", "url", "suggestions", "card", "data", "ref"];
+  "dlt_template_id", "dlt_entity_id", "template_name", "language", "params", "image_url", "url", "suggestions", "card", "data", "ref", "provider_id"];
 
 /** urlHost is the scheme://host of a URL ("" when it has none), to warn that changing it clears secrets. */
 export function urlHost(u: string | undefined): string {
@@ -167,7 +227,10 @@ export function endpointHosts(config: Record<string, string>): string[] {
   const a = parseAuth(config.auth);
   if (a.type === "oauth2" && a.token_url) set.add(urlHost(a.token_url));
   if (a.type === "login" && a.login?.url) set.add(urlHost(a.login.url));
-  if (config.request) { const h = urlHost(parseRequest(config.request, "sms").url); if (h) set.add(h); }
+  if (config.request) {
+    const r = parseRequest(config.request, "sms");
+    for (const u of [r.url, r.poll?.url]) { const h = urlHost(u); if (h) set.add(h); }
+  }
   set.delete("");
   return [...set].sort();
 }

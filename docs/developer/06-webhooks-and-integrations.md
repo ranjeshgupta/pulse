@@ -449,10 +449,12 @@ It works in two modes (`config.mode`), chosen in the form with two cards:
   form asks for **1 Your endpoint** (the **Endpoint URL**, `config.url`, and the **Signing secret**),
   **2 Sign-in (optional)** and **3 Check it** (Test connection, Preview request).
 - **Connect to a gateway's existing API** (`custom`): you design the request, so Pulse can call a
-  provider's existing API directly ([custom request mode](#custom-request-mode)). The form's steps are
-  **1 Where to send**, **2 How Pulse signs in**, **3 What to send**, **4 How Pulse knows it was sent**,
-  **5 Delivery reports (optional)** and **6 Check it**, under a box that fills them from the API's
-  pasted curl or Postman examples ([pasting the gateway's examples](#custom-request-mode)).
+  provider's existing API directly ([custom request mode](#custom-request-mode)). The form is a
+  four-step wizard (batch O2), each step with a **Try it**: **1 Sign in** (Test connection), **2 Send**
+  (Preview request), **3 Accepted or failed?** (paste an answer: `check-answer`) and **4 Delivery
+  reports** — none, **They call us** (webhook) or **We ask them** (status requests) — with a status-word
+  table and "Fill in common words" (paste a report: `check-report`; ask about a real message:
+  `check-status`). A box above fills the steps from the API's pasted curl or Postman examples.
 
 Both modes can add [custom authentication](#custom-authentication) (basic, bearer, API key, OAuth2
 or a login flow). Like every provider form, it ends with **Sending limits** (`limits`: messages per
@@ -639,8 +641,8 @@ request, with secrets masked, for the test message or a template rendered for a 
 The provider's delivery webhook posts to the same provider webhook URL. `receipt` maps it: an
 object, or a list of them at `items_path` (or the body itself when it's an array); `id_path` and
 `status_path` find the message ID and status; `statuses` maps the provider's values (any case) to
-`delivered`, `read`, `failed`, `undeliverable` (failed, and the SMS fallback runs) or `bounced`;
-values not listed (such as "queued") are ignored. `reason_path` and `code_path` add the reason.
+`delivered`, `read`, `failed`, `undeliverable` (failed, and the SMS fallback runs), `bounced` or
+`pending` (not final: read and ignored); values not listed (such as "queued") are ignored too. `reason_path` and `code_path` add the reason.
 
 Receipts **fail closed**: they must carry the provider's **receipt token** (a secret you choose),
 or every receipt is refused. `verify` says where:
@@ -650,6 +652,31 @@ or every receipt is refused. `verify` says where:
 | `header` | The value of the header `verify_name` |
 | `query` | The value of the query parameter `verify_name` (register the URL with `?<name>=<token>`) |
 | `hmac` | The key of an HMAC-SHA256 of the raw body, sent in the header `verify_name` as hex or base64 (a `sha256=` prefix is allowed) |
+
+### Failed answers, matching by Pulse's id, status requests
+
+- `failure` (`json_path`, `values`, `unreachable`): an answer whose field holds one of the values
+  (any case) is a refusal even with a success status; with `unreachable` the recipient can't get
+  messages on this channel, so a WhatsApp or RCS message's SMS fallback runs.
+- `match_by: "pulse"`: reports carry Pulse's own message id, which the send puts in a field the
+  provider echoes (`{{message.id}}` as a client reference). Every channel also has
+  `{{message.ref}}`, a signed reference holding the campaign and template ids.
+- `poll` asks the provider for each message's status: `method` (GET or POST), `url` (fixed origin,
+  `{{message.provider_id}}`, `{{message.id}}`, `{{message.ref}}`, `{{message.to}}`), `headers`,
+  `body`, `every_minutes` (1–1,440, default 10) and `for_hours` (1–72, default 24). The answer is
+  read with `receipt` (an entry without an id is about the asked message); `pending` words mean ask
+  again; a final status (delivered, read, failed, bounced) or the end of the window stops asking.
+  The same authentication as sends applies. With `poll`, `receipt.verify` may be empty: the webhook
+  then accepts nothing. Due messages wait in Redis (`rpoll:<workspace>:<provider>`, ZREM claims one
+  for one worker) and the dispatcher role asks every 15 seconds, publishing to `delivery.receipts`.
+- Dry runs (admins): `POST /v1/channels/providers/check-answer` (`{provider, config, secrets,
+  status, body}` → `{accepted, provider_message_id, error, fallback}`), `check-report` (`body` →
+  `{receipts}`; nothing verified or recorded) and `check-status` (`provider_message_id` or
+  `message_id` → one real status request).
+
+Every tracked email also carries `Feedback-ID: <campaign>:t<template>:w<workspace>:pulse`
+(`b<id>` for a one-time campaign, `j<id>` for a journey, `direct` otherwise), so Gmail Postmaster
+Tools reports spam rates per campaign.
 
 ### Custom authentication
 

@@ -11,7 +11,7 @@ import (
 
 // Endpoints lists where a provider's settings send credentials, as scheme://host[:port]: every
 // URL setting (url, base_url, …; not status_callback_url, which is Pulse's own), an SMTP host,
-// the custom request's URL and the authentication's login and token URLs.
+// the custom request's URL and status request URL, and the authentication's login and token URLs.
 func Endpoints(config map[string]string) []string {
 	set := map[string]bool{}
 	add := func(raw string) {
@@ -53,6 +53,9 @@ func Endpoints(config map[string]string) []string {
 	if strings.TrimSpace(config["request"]) != "" {
 		if cr, err := ParseCustomRequest(config["request"]); err == nil {
 			add(cr.URL)
+			if cr.Poll != nil {
+				add(cr.Poll.URL) // status requests carry the same credentials
+			}
 		}
 	}
 	out := make([]string, 0, len(set))

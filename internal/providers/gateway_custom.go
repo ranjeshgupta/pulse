@@ -208,7 +208,7 @@ func (c CustomRequest) Validate() error {
 			return errors.New("gateway: the status request's method must be GET or POST")
 		}
 		if _, err := fixedOrigin(p.URL); err != nil {
-			return fmt.Errorf("gateway: status request: %w", err)
+			return fmt.Errorf("gateway: status request address: %s", strings.TrimPrefix(err.Error(), "gateway: "))
 		}
 		for _, h := range p.Headers {
 			if !headerNameOK(h.Name) {

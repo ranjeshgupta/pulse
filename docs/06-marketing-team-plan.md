@@ -744,6 +744,18 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - Tests: `identity_test.go` (package and profile), `identityKeys.test.ts`, e2e `test/e2e/identity_test.go`.
 - How the ranking, rerouting and backfill work: [architecture](02-architecture.md#profiles-and-reserved-attributes).
 
+### O2 as built
+
+- Backend (a6d1e64): `CustomRequest.failure`, `match_by`, `poll`; `pending` report status; `ReceiptMapping.Map`;
+  `Gateway.Polls/Poll/CheckAnswer/CheckReport` (`providers/gateway_poll.go`); dispatcher `queuePoll` / `RunPolls`
+  (`dispatch/poll.go`); every channel gets a signed `ref`; `Feedback-ID` on tracked email;
+  `internal/api/gatewaycheck.go` (check-answer, check-report, check-status).
+- Web: `pages/GatewayWizard.tsx` (four steps, Try it boxes, status-word table, report modes), `suggestStatuses` /
+  `statusWordsIn` in `providerAuth.ts`; the old long form's receipt section removed.
+- Tests: `providers/gateway_poll_test.go`, `gatewayWizard.test.ts`, e2e `TestGatewayStatusRequests` (in the webhook
+  phase of `make e2e`); checked in a headless browser.
+- Not done from the plan: built-in adapters passing the reference (MSG91, Gupshup, RBM).
+
 ### UX guard (asked for on 2026-11-21, with O3)
 
 - `web/src/guard.tsx`: `ask` / `askDelete` (styled confirm, the safe answer focused for dangerous questions,

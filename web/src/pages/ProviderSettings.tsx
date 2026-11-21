@@ -4,7 +4,7 @@ import { api, type Channel, type ProviderField } from "../api";
 import { ErrorNote, Field } from "../ui";
 import { importExamples, type Imported } from "../curlImport";
 import {
-  AUTH_TYPES, MESSAGE_VARS, RECEIPT_STATUSES, authSecretFields, formatStatuses, newLogin, parseAuth, parseRequest, parseStatuses,
+  AUTH_TYPES, MESSAGE_VARS, authSecretFields, newLogin, parseAuth, parseRequest,
   serializeAuth, serializeRequest, type AuthConfig, type CustomRequest, type Header, type LoginRequest,
 } from "../providerAuth";
 
@@ -331,52 +331,6 @@ export function RequestResult({ channel, config, setConfig }: { channel: Channel
       <Field label="The gateway's message ID is at (optional)" hint="The field in the answer holding the gateway's own ID for the message, e.g. id or data.message_id. Needed to match delivery reports.">
         <input className="input code" value={r.id_path ?? ""} placeholder="id" onChange={(e) => set({ id_path: e.target.value })} />
       </Field>
-    </>
-  );
-}
-
-/** ReceiptMapping: how delivery reports the gateway posts back are read. */
-export function ReceiptMapping({ channel, config, setConfig, webhookURL }: { channel: Channel; config: Record<string, string>; setConfig: Setter; webhookURL?: string }) {
-  const [r, set] = useRequest(channel, config, setConfig);
-  const [statusText, setStatusText] = useState<string | null>(null);
-  const rc = r.receipt;
-  const statuses = parseStatuses(statusText ?? formatStatuses(rc?.statuses));
-  return (
-    <>
-      <label className="check">
-        <input type="checkbox" checked={!!rc} onChange={(e) => set({ receipt: e.target.checked ? { id_path: "id", status_path: "status", statuses: { delivered: "delivered", read: "read", failed: "failed" }, verify: "query", verify_name: "token" } : undefined })} />
-        The gateway sends delivery reports
-      </label>
-      {rc && (
-        <>
-          <p className="xs muted" style={{ marginTop: -6 }}>
-            Give the gateway {webhookURL ? <code>{webhookURL}</code> : "this provider's delivery-report address (shown after saving)"} with the receipt token added as below. Pulse reads each report like this:
-          </p>
-          <div className="grid-2">
-            <Field label="Message ID at"><input className="input code" value={rc.id_path} onChange={(e) => set({ receipt: { ...rc, id_path: e.target.value } })} /></Field>
-            <Field label="Status at"><input className="input code" value={rc.status_path} onChange={(e) => set({ receipt: { ...rc, status_path: e.target.value } })} /></Field>
-          </div>
-          <Field label="Status values" hint={`One per line: the gateway's word = ${RECEIPT_STATUSES.join(" | ")}. Others are ignored.${statuses.errors.length ? " Not understood: " + statuses.errors.join("; ") : ""}`}>
-            <textarea className="textarea code" rows={3} value={statusText ?? formatStatuses(rc.statuses)}
-              onChange={(e) => { setStatusText(e.target.value); set({ receipt: { ...rc, statuses: parseStatuses(e.target.value).statuses } }); }} />
-          </Field>
-          <div className="grid-2">
-            <Field label="Reports prove they're genuine with" hint="The receipt token below. Reports without it are refused.">
-              <select className="select" value={rc.verify} onChange={(e) => set({ receipt: { ...rc, verify: e.target.value as "header" | "query" | "hmac" } })}>
-                <option value="query">The token in the address (?token=…)</option><option value="header">The token in a header</option><option value="hmac">An HMAC-SHA256 of the body in a header</option></select>
-            </Field>
-            <Field label={rc.verify === "query" ? "Parameter name" : "Header name"}><input className="input" value={rc.verify_name} onChange={(e) => set({ receipt: { ...rc, verify_name: e.target.value } })} /></Field>
-          </div>
-          <details className="pf-more" open={!!(rc.items_path || rc.reason_path || rc.code_path) || undefined}>
-            <summary>More fields (optional)</summary>
-            <div className="grid-2">
-              <Field label="List of reports at" hint="When one post carries several."><input className="input code" value={rc.items_path ?? ""} onChange={(e) => set({ receipt: { ...rc, items_path: e.target.value } })} /></Field>
-              <Field label="Failure reason at"><input className="input code" value={rc.reason_path ?? ""} onChange={(e) => set({ receipt: { ...rc, reason_path: e.target.value } })} /></Field>
-              <Field label="Error code at"><input className="input code" value={rc.code_path ?? ""} onChange={(e) => set({ receipt: { ...rc, code_path: e.target.value } })} /></Field>
-            </div>
-          </details>
-        </>
-      )}
     </>
   );
 }

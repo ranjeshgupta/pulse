@@ -84,3 +84,16 @@ func TestPollReceiptsPicksTheMessage(t *testing.T) {
 		t.Errorf("single answer: %+v", rs)
 	}
 }
+
+// The status request's host is a credential endpoint: moving it clears the saved secrets.
+func TestPollURLIsAnEndpoint(t *testing.T) {
+	req := func(poll string) map[string]string {
+		return map[string]string{"mode": "custom", "request": `{"method":"POST","url":"https://api.sms.test/send","poll":{"method":"GET","url":"` + poll + `"}}`}
+	}
+	if !EndpointsChanged(req("https://api.sms.test/status"), req("https://evil.test/status")) {
+		t.Error("moving the status request to another host kept the secrets")
+	}
+	if EndpointsChanged(req("https://api.sms.test/status"), req("https://api.sms.test/v2/status")) {
+		t.Error("a new path on the same host counted as a new endpoint")
+	}
+}

@@ -6,8 +6,9 @@ import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { ask, useEditGuard } from "../guard";
-import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
-import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, parseRequest, presetOf, sameLimits, serializeAuth, serializeRequest } from "../providerAuth";
+import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, Step } from "./ProviderSettings";
+import { GatewayWizard } from "./GatewayWizard";
+import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, parseAuth, parseRequest, presetOf, sameLimits, serializeAuth, serializeRequest } from "../providerAuth";
 
 export function Channels() {
   const admin = useIsAdmin();
@@ -185,28 +186,13 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
             </>
           ) : (
             <>
-              <PasteExamples onApply={(r) => {
-                setConfig((c) => ({ ...c, request: serializeRequest({ ...parseRequest(c.request, channel), ...r.request }), auth: serializeAuth(r.auth) }));
-                setSecrets((x) => ({ ...x, ...r.secrets }));
-              }} />
-              <Step n={1} title="Where to send" hint="The gateway's send-message address, from its API documentation.">
-                <RequestTarget channel={channel} config={config} setConfig={setKey} />
-                {movedNote}
-              </Step>
-              <Step n={2} title="How Pulse signs in" hint="As the gateway's documentation says: most use an API key or a token. Pulse adds it to every request.">
-                {auth}
-              </Step>
-              <Step n={3} title="What to send">
-                <RequestBody channel={channel} config={config} setConfig={setKey} />
-              </Step>
-              <Step n={4} title="How Pulse knows it was sent">
-                <RequestResult channel={channel} config={config} setConfig={setKey} />
-              </Step>
-              <Step n={5} title="Delivery reports (optional)">
-                <ReceiptMapping channel={channel} config={config} setConfig={setKey} webhookURL={provider?.webhook_url} />
-                {config.request && parseRequestReceipt(config.request) && secretOf("receipt_token") && secretField({ ...secretOf("receipt_token")!, required: true, hint: "The gateway adds it to every delivery report, as set above. Reports without it are refused." })}
-              </Step>
-              <Step n={6} title="Check it" hint="Test connection signs in with the details above; Preview request shows the request Pulse would send. Save, then use Send test for a real message.">{tools}</Step>
+              <GatewayWizard channel={channel} config={config} setKey={setKey} auth={auth} authType={parseAuth(config.auth).type}
+                draft={{ provider_id: provider?.id, provider: kind!.id, config, secrets }} webhookURL={provider?.webhook_url} note={movedNote}
+                receiptTokenField={secretOf("receipt_token") && secretField({ ...secretOf("receipt_token")!, required: true, hint: "The gateway adds it to every report, as set above. Reports without it are refused." })}
+                paste={<PasteExamples onApply={(r) => {
+                  setConfig((c) => ({ ...c, request: serializeRequest({ ...parseRequest(c.request, channel), ...r.request }), auth: serializeAuth(r.auth) }));
+                  setSecrets((x) => ({ ...x, ...r.secrets }));
+                }} />} />
             </>
           )}
         </>
@@ -263,11 +249,6 @@ function SimpleProviderFields({ kind, config, setConfig, requiredNow, secrets, e
       )}
     </>
   );
-}
-
-/** parseRequestReceipt: whether the custom request maps delivery reports (they need the receipt token). */
-function parseRequestReceipt(raw: string): boolean {
-  try { return !!(JSON.parse(raw) as { receipt?: unknown }).receipt; } catch { return false; }
 }
 
 /** startLimits: a provider's saved limits, or a new one's preset (Gmail's daily quota…). */
