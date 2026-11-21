@@ -521,3 +521,12 @@ select.btn-like { font-weight: 560; background-color: var(--cobalt); color: #fff
 .lang-bar > button[role="tab"][aria-selected="true"] { background: var(--cobalt, #3a5ccc); border-color: var(--cobalt, #3a5ccc); color: #fff; }
 .lang-add { display: inline-flex; gap: 6px; align-items: center; }
 .translation { margin-bottom: 14px; }
+
+/* AI help (O6) */
+.ai-list { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; }
+.ai-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line, #dfe2ea); border-radius: 8px; }
+.ai-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+.ai-html, .ai-text { max-height: 320px; overflow: auto; border: 1px solid var(--line, #dfe2ea); border-radius: 8px; padding: 10px; margin: 0; white-space: pre-wrap; }
+.ai-html { white-space: normal; }
+.ai-segment { margin-bottom: 12px; }
+@media (max-width: 720px) { .ai-compare { grid-template-columns: 1fr; } }

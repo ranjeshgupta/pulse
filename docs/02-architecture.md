@@ -542,6 +542,16 @@ it changes). At send time the dispatcher picks the contact's version (`channel.F
 untranslated template is what decides whether a message needs recommendations or survey links, so every language's
 fields count. Saving validates each language as a whole template (required fields, personalisation syntax).
 
+## AI help (O6)
+
+`internal/ai` calls Claude (`claude-opus-5-5`) through the official Anthropic Go SDK when the server has
+`PULSE_AI_API_KEY`; without it the endpoints answer 503 and nothing leaves the server. Every request asks for a JSON
+schema (structured outputs) and uses the API's server-side refusal fallback. Answers are checked before the UI sees
+them: rewrites and translations must keep the exact multiset of `{{…}}` placeholders, and a segment rule must parse
+and validate like a hand-built one (`segment.Parse`); otherwise the suggestion is refused with why. What is sent: the
+text being worked on, and for segments the workspace's attribute and event names — never contacts' data. Each
+workspace may make 20 AI requests a minute (Redis counter). Tests use a fake model; nothing in CI calls the API.
+
 ## RSS-to-email (O6)
 
 A campaign with `feed_url` (email, not A/B) reads the feed (`internal/feed`, RSS 2.0 or Atom, through `safehttp`, 2 MB

@@ -38,6 +38,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 
+	"pulse/internal/ai"
 	"pulse/internal/api"
 	"pulse/internal/auth"
 	"pulse/internal/automation"
@@ -317,7 +318,7 @@ func runAPI(ctx context.Context, d *deps) error {
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
 		Schemas: eventschema.NewCache(pgs, d.redis(), d.log), SweepInterval: d.cfg.SweepInterval,
-		DefaultFrom: d.cfg.SMTPFrom,
+		DefaultFrom: d.cfg.SMTPFrom, AI: aiHelper(d.cfg.AIAPIKey),
 	})
 	srv := &http.Server{
 		Addr:              d.cfg.HTTPAddr,
@@ -607,6 +608,14 @@ func runBestTimes(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 		case <-time.After(6 * time.Hour):
 		}
 	}
+}
+
+// aiHelper is AI help when the server has a key (nil: off).
+func aiHelper(key string) *ai.Helper {
+	if key == "" {
+		return nil
+	}
+	return &ai.Helper{C: ai.NewClaude(key)}
 }
 
 // runRFM scores each workspace's buyers (package rfm) and works out its recommendation lists

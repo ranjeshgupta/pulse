@@ -5,6 +5,7 @@ import type { ChannelContent, Template, Translation } from "../api";
 import { askDelete } from "../guard";
 import { LANGUAGES, languageName, validLocale } from "../languages";
 import { RichText } from "../RichText";
+import { TranslateWithAI } from "../AIHelp";
 import { EMAIL_STYLE, unwrapRichText, wrapRichText } from "../richTextHtml";
 import { Field } from "../ui";
 import { TemplatedInput, TemplatedText } from "../VarPicker";
@@ -40,6 +41,19 @@ export function LanguageBar({ t, lang, setLang, setT }: { t: Template; lang: str
   );
 }
 
+/** defaultFields are the default's words a translation covers. */
+function defaultFields(t: Template): Record<string, string> {
+  const d = t.content ?? {};
+  const f: Record<string, string> = t.channel === "email" ? { subject: t.subject, html: t.html }
+    : t.channel === "sms" || t.channel === "rcs" ? { text: d.text ?? "" }
+    : t.channel === "push" || t.channel === "inbox" ? { title: d.title ?? "", body: d.body ?? "" } : {};
+  return Object.fromEntries(Object.entries(f).filter(([, v]) => v.trim() !== ""));
+}
+
+function hasWords(tr: Translation): boolean {
+  return !!(tr.subject?.trim() || tr.html?.trim() || Object.values(tr.content ?? {}).some((v) => typeof v === "string" && v.trim()));
+}
+
 /** TranslationEditor edits one translation; empty fields fall back to the default's. */
 export function TranslationEditor({ t, locale, setT, onRemoved }: { t: Template; locale: string; setT: (t: Template) => void; onRemoved: () => void }) {
   const trs = t.translations ?? [];
@@ -59,6 +73,9 @@ export function TranslationEditor({ t, locale, setT, onRemoved }: { t: Template;
       <div className="panel-head">
         <h3>{name}</h3>
         <span className="row" style={{ gap: 6 }}>
+          <TranslateWithAI locale={locale} fields={defaultFields(t)} hasContent={hasWords(tr)} onDone={(f) => set(t.channel === "email"
+            ? { subject: f.subject ?? tr.subject, html: f.html ?? tr.html }
+            : { content: { ...c, ...Object.fromEntries(Object.entries(f).filter(([k]) => k !== "subject" && k !== "html")) } })} />
           <button type="button" className="btn sm" onClick={copyDefault} title="Start from the default's words, then translate them">Copy from Default</button>
           <button type="button" className="btn ghost sm danger" onClick={() => void askDelete(`the ${name} version`, "Contacts in that language get the default.").then((ok) => { if (ok) { setT({ ...t, translations: trs.filter((x) => x.locale !== locale) }); onRemoved(); } })}>Remove language</button>
         </span>

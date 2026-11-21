@@ -811,6 +811,12 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   sends the contact's language (recommendation and survey needs are read from every language); preview reports the
   language used; `pages/TranslationEditor.tsx` (language bar, editor), `languages.ts`. Tests `TestTranslations`,
   `languages.test.ts`, e2e `TestTemplateTranslations`; checked in a headless browser.
+- **17 AI help**: `internal/ai` (Claude through the official Go SDK, structured output per task, server-side refusal
+  fallback; placeholder and rule checks), `internal/api/ai.go` (status, subject lines, rewrite, translate, segment; off
+  without `PULSE_AI_API_KEY`; 20 a minute per workspace); `AIHelp.tsx` (template ✨ AI panel, Translate from Default,
+  segment from words). Unit tests with a fake model (`ai`, `TestAIHelp`), e2e `TestAIHelpOff`; the panels checked in a
+  headless browser with the AI endpoints mocked (no paid calls in tests).
+- **Batch O is complete** (O1-O5 and all 17 O6 items).
 - **Security review fixes (item 14)**: survey links carry an HMAC over (survey, token), so a message's token answers
   only the survey it was sent with (`/s/{id}/{token}/{sig}`); the survey report names commenters only to roles that may
   view contacts.

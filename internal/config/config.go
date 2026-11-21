@@ -44,6 +44,8 @@ type Config struct {
 	TrustProxy bool
 	// PagesURL is a separate origin for landing pages, downloads and hosted forms (production).
 	PagesURL string
+	// AIAPIKey turns on AI help (an Anthropic API key); empty leaves it off.
+	AIAPIKey string
 	// GeoIPDB is a MaxMind GeoLite2-City or GeoIP2-City .mmdb file; empty turns geolocation off.
 	GeoIPDB string
 	// MaintenanceInterval is how often retention cleanup runs.
@@ -84,6 +86,7 @@ func Load() (Config, error) {
 		TrustProxy:           r.boolean("PULSE_TRUST_PROXY", false),
 		GeoIPDB:              env("PULSE_GEOIP_DB", ""),
 		PagesURL:             env("PULSE_PAGES_URL", ""),
+		AIAPIKey:             env("PULSE_AI_API_KEY", ""),
 		MaintenanceInterval:  r.duration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
 		RFMInterval:          r.duration("PULSE_RFM_INTERVAL", 24*time.Hour),
 		RFMEventsPerSec:      r.integer("PULSE_RFM_EVENTS_PER_SEC", 500),

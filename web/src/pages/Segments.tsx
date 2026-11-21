@@ -7,6 +7,7 @@ import { dailySegmentDefault } from "../automation";
 import { useCan } from "../auth";
 import { describe, newGroup, problems, rootFromRule, toRule, type Group } from "../segmentRules";
 import { askDelete, useEditGuard } from "../guard";
+import { SegmentFromWords } from "../AIHelp";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, timeAgo, useToast } from "../ui";
 import { ContactCount } from "../ContactCount";
 import { GroupEditor } from "./SegmentBuilder";
@@ -216,6 +217,7 @@ function DynamicSegmentEdit() {
       <div className="editor-split">
         <div>
           <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Repeat buyers in Pune" /></Field>
+          <SegmentFromWords hasRule={!!rule} onRule={(r) => setRoot(rootFromRule(r))} />
           <GroupEditor group={root} onChange={setRoot} self={isNew ? undefined : Number(id)} />
           <RefreshField value={refresh} onChange={setRefresh} />
           {issues.length > 0 && <ul className="small muted" style={{ marginTop: 10 }}>{[...new Set(issues)].map((p) => <li key={p}>{p}</li>)}</ul>}

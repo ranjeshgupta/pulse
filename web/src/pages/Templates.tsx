@@ -16,6 +16,7 @@ import { EventScopePicker, PersonalizeScopeProvider, TemplatedInput, TemplatedTe
 import type { EmailBuilderHandle } from "./EmailBuilder";
 import { AmpSection } from "./AmpEditor";
 import { LanguageBar, TranslationEditor } from "./TranslationEditor";
+import { TemplateAI } from "../AIHelp";
 
 const EmailBuilder = lazy(() => import("./EmailBuilder"));
 
@@ -188,6 +189,7 @@ export function TemplateEdit() {
           {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(existing.data?.name ? `the template ${existing.data.name}` : "this template",
             "Campaigns that use it will fail to send. This can't be undone.", existing.data?.name || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           {!isNew && <DuplicateButton path={`/v1/templates/${id}/duplicate`} open={(nid) => `/templates/${nid}`} invalidate={["templates"]} />}
+          <TemplateAI t={t} setT={setT} builderLocked={t.channel === "email" && emailMode === "visual"} />
           <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setFromBuilder({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
           {t.channel === "email" && <button className="btn" onClick={() => { if (emailMode === "visual" && builder.current) setFromBuilder({ ...t, html: builder.current.read().html }); setSpam(true); }}>🛡️ Spam check</button>}
           <button className="btn" disabled={isNew} title={isNew ? "Save the template first" : undefined} onClick={() => setTesting(true)}>Send a test</button>

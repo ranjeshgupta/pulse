@@ -86,6 +86,7 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | `integrations` | How often each ad audience sync (Facebook Custom Audiences, Google Ads Customer Match) re-checks its whole segment. Entries and exits stream in between | You want drift corrected sooner, or fewer API calls to the ad platforms |
 | `PULSE_RFM_INTERVAL` | `24h` | `journeys` | How often each workspace's buyers' customer value (RFM group, score and churn risk) is scored and its recommendation lists worked out; each workspace runs at its own UTC hour (id % 24) when the interval is a day or more. A contact whose group, score or risk changed gets an `rfm_changed` event | You want churn risk to react faster (each pass reads two years of purchases) |
 | `PULSE_RFM_EVENTS_PER_SEC` | `500` | `journeys` | The most `rfm_changed` events a scoring pass sends a second (a first pass changes every buyer) | Your pipeline has headroom and you want first passes over big workspaces to finish sooner |
+| `PULSE_AI_API_KEY` | empty (off) | `api` | An Anthropic API key that turns on AI help (subject lines, rewrites, translations, segments from a sentence). Only the text being worked on is sent, never contacts' data | You want AI help; leave it empty to keep every request on your servers |
 
 ### Variables that aren't server settings
 

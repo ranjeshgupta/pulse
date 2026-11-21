@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"pulse/internal/ai"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +107,8 @@ type Deps struct {
 	// downloads and hosted forms (e.g. https://pages.example.com). Set it in production so that
 	// content never shares an origin (or cookies) with the app. Empty serves them from PublicURL.
 	PagesURL string
+	// AI is AI help (package ai); nil when the server has no AI API key.
+	AI *ai.Helper
 	// Geo locates web and app visitors by IP (nil: off).
 	Geo *geoip.Locator
 	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
@@ -235,6 +238,7 @@ func (s *Server) Handler() http.Handler {
 	s.archiveRoutes(mux)
 	s.productRoutes(mux)
 	s.surveyRoutes(mux)
+	s.aiRoutes(mux)
 	s.insightRoutes(mux)
 	s.integrationRoutes(mux)
 	s.contactDataRoutes(mux)
