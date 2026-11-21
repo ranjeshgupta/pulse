@@ -107,7 +107,46 @@ type Segment struct {
 	// Refresh: live (nil or mode live) follows every event; daily is rebuilt once a day.
 	Refresh       *segment.Refresh `json:"refresh,omitempty"`
 	NextRefreshAt *time.Time       `json:"next_refresh_at,omitempty"`
+	// Unpublished and the window (StartAt, EndAt optional: none = until unpublished) say when the
+	// segment is live. Outside that it's frozen: not recomputed, members kept as they were, and not
+	// offered for new sends. Published and State are what the API shows (WithState), not stored.
+	Unpublished bool       `json:"-"`
+	StartAt     time.Time  `json:"start_at"`
+	EndAt       *time.Time `json:"end_at,omitempty"`
+	Published   bool       `json:"published"`
+	State       string     `json:"state,omitempty"`
 }
+
+// Publish states of a segment (Segment.PublishState).
+const (
+	SegmentLive        = "live"
+	SegmentUpcoming    = "upcoming"
+	SegmentEnded       = "ended"
+	SegmentUnpublished = "unpublished"
+)
+
+// PublishState says whether the segment is live at t: unpublished, upcoming (before its start),
+// ended (after its end) or live.
+func (s Segment) PublishState(t time.Time) string {
+	switch {
+	case s.Unpublished:
+		return SegmentUnpublished
+	case t.Before(s.StartAt):
+		return SegmentUpcoming
+	case s.EndAt != nil && !t.Before(*s.EndAt):
+		return SegmentEnded
+	}
+	return SegmentLive
+}
+
+// WithState fills the API's Published and State fields for t.
+func (s Segment) WithState(t time.Time) Segment {
+	s.Published, s.State = !s.Unpublished, s.PublishState(t)
+	return s
+}
+
+// Live reports whether the segment is published and inside its window at t.
+func (s Segment) Live(t time.Time) bool { return s.PublishState(t) == SegmentLive }
 
 type Template struct {
 	ID       int64           `json:"id"`

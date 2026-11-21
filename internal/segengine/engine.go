@@ -84,6 +84,7 @@ type compiled struct {
 type tenantIndex struct {
 	all        []*compiled // rule segments in evaluation order
 	static     []int64     // static lists (no rule; cleared when a contact is merged away)
+	frozen     []int64     // rule segments not live now (unpublished or outside their window)
 	byEvent    map[string][]*compiled
 	byAttr     map[string][]*compiled
 	dependents map[int64][]*compiled // segment -> rule segments that reference it
@@ -137,6 +138,12 @@ func (e *Engine) Refresh(ctx context.Context) error {
 		}
 		if s.Kind == "static" {
 			ti.static = append(ti.static, s.ID)
+			continue
+		}
+		// Unpublished or outside its window: frozen, its members kept as they were and not
+		// recomputed (segments that read it see its bits, like a static list's).
+		if !s.Live(now) {
+			ti.frozen = append(ti.frozen, s.ID)
 			continue
 		}
 		rule, err := segment.Parse(s.Rule)
@@ -311,6 +318,12 @@ func (e *Engine) candidates(ev *event.Event) []*compiled {
 	}
 	sortByRank(out)
 	return out
+}
+
+// unevaluated lists the segments the stream doesn't evaluate: static lists and frozen segments.
+// A contact merged away or taken out of every segment by a bounce rule leaves them too.
+func (ti *tenantIndex) unevaluated() []int64 {
+	return append(slices.Clone(ti.static), ti.frozen...)
 }
 
 // listChange returns the static list a list_joined or list_left event changes (0 for other
@@ -515,8 +528,8 @@ func (e *Engine) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 		}
 		gone := mergedAway(j.ev.Profile)
 		if gone && exclusionChanged(&j.ev) && idx[j.ev.TenantID] != nil {
-			// A bounce rule took the contact out of every segment: static ones too.
-			for _, list := range idx[j.ev.TenantID].static {
+			// A bounce rule took the contact out of every segment: static and frozen ones too.
+			for _, list := range idx[j.ev.TenantID].unevaluated() {
 				l.bits[list] = false
 				written[bkey{j.ev.TenantID, list, j.ev.ContactID}] = false
 				flips = append(flips, flip{
@@ -550,7 +563,7 @@ func (e *Engine) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 			})
 		}
 		if gone {
-			for _, id := range idx[j.ev.TenantID].static {
+			for _, id := range idx[j.ev.TenantID].unevaluated() {
 				flips = append(flips, flip{
 					change: model.MembershipChange{TenantID: j.ev.TenantID, SegmentID: id, ContactID: j.ev.ContactID, Source: SourceStream, At: now},
 					old:    pipe.SetBit(ctx, segment.MemberKey(j.ev.TenantID, id), int64(j.ev.ContactID), 0),
@@ -888,7 +901,9 @@ func (e *Engine) RunMaintenance(ctx context.Context) error {
 		for id, c := range e.catchUps {
 			if ctx.Err() == nil && !e.now().Before(c.due) {
 				delete(e.catchUps, id)
-				e.rebuild(ctx, c.seg, "backfill")
+				if e.indexed(c.seg) { // not if it was unpublished or deleted since, or its window ended
+					e.rebuild(ctx, c.seg, "backfill")
+				}
 			}
 		}
 		select {

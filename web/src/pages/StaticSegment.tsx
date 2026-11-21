@@ -9,6 +9,9 @@ import { useSegments } from "./segmentData";
 import { ask, askDelete, useEditGuard } from "../guard";
 import { ErrorNote, Field, PageHead, useToast } from "../ui";
 import { ContactCount } from "../ContactCount";
+import { confirmUnpublishSegment, SegmentStateBadge } from "../Publishing";
+import { sameWindow, windowProblem } from "../publishing";
+import { PublishWindowField } from "./Segments";
 
 // Static segments (the API calls them lists) hold exactly the contacts put in them: by hand, by CSV
 // import, by a journey step or the API, until they're removed. Dynamic segments can include or
@@ -30,7 +33,8 @@ export function StaticSegmentDetail() {
   const parsed = [...new Set(ids.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))];
   // Leaving with IDs typed but not added, a rename not saved, or preference changes not saved asks first.
   const [prefDirty, setPrefDirty] = useState(false);
-  const dirty = ids.trim() !== "" || (name !== null && name !== (seg.data?.name ?? "")) || prefDirty;
+  const [winDirty, setWinDirty] = useState(false);
+  const dirty = ids.trim() !== "" || (name !== null && name !== (seg.data?.name ?? "")) || prefDirty || winDirty;
   const guard = useEditGuard();
   const { markDirty, saved: markSaved } = guard;
   useEffect(() => { if (dirty) markDirty(); else markSaved(); }, [dirty, markDirty, markSaved]);
@@ -48,6 +52,13 @@ export function StaticSegmentDetail() {
     onSuccess: () => { markSaved(); qc.invalidateQueries({ queryKey: ["lists"] }); qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Segment deleted" }); nav("/segments?type=static"); },
   });
   const list = seg.data;
+  const publish = useMutation({
+    mutationFn: (published: boolean) => api.put(`/v1/segments/${id}/publishing`, { published, start_at: list?.start_at, end_at: list?.end_at ?? null }),
+    onSuccess: (_, published) => {
+      qc.invalidateQueries({ queryKey: ["segment", id] }); qc.invalidateQueries({ queryKey: ["segments"] });
+      toast({ text: published ? "Published" : "Unpublished. Its contacts stay; new campaigns can't send to it." });
+    },
+  });
 
   return (
     <div className="page">
@@ -63,13 +74,16 @@ export function StaticSegmentDetail() {
         actions={<>
           {list && <Link className="btn" to={viewContactsHref(list.id)}>View contacts</Link>}
           {canEdit && name === null && <button className="btn" onClick={() => setName(list?.name ?? "")}>Rename</button>}
+          {canEdit && list && (list.published !== false
+            ? <button className="btn" disabled={publish.isPending} onClick={() => void confirmUnpublishSegment(list.id).then((ok) => ok && publish.mutate(false))}>Unpublish</button>
+            : <button className="btn" disabled={publish.isPending} onClick={() => publish.mutate(true)}>Publish</button>)}
           {canEdit && <button className="btn danger" disabled={usedBy.length > 0} title={usedBy.length ? "Other segments use this one" : undefined}
             onClick={() => void askDelete(list?.name ? `the static segment ${list.name}` : "this static segment",
               "Its contacts stay; journeys that start from it stop enrolling. This can't be undone.", list?.name || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           {canImport && list && <Link className="btn primary" to={`/contacts/import?segment=${list.id}`}>Import CSV</Link>}
         </>}
       />
-      <ErrorNote error={seg.error ?? rename.error ?? remove.error} />
+      <ErrorNote error={seg.error ?? rename.error ?? remove.error ?? publish.error} />
       <div className="editor-split">
         <div className="panel"><div className="panel-body">
           <Field label="Add or remove contacts" hint="External IDs or emails used as IDs, one per line or separated by commas. Unknown IDs become new contacts.">
@@ -92,6 +106,7 @@ export function StaticSegmentDetail() {
           <div className="panel-body">
             <p className="small muted">In this segment now</p>
             <div className="preview-count">{list ? <ContactCount live value={list.size} filters={[["in", list.id]]} /> : "…"}</div>
+            {list && <p className="small" style={{ marginTop: 6 }}><SegmentStateBadge seg={list} /></p>}
             <h3 style={{ margin: "18px 0 8px" }}>Used by</h3>
             {usedBy.length === 0 ? <p className="small muted">No dynamic segment uses this one yet. In the segment builder, add the filter “Segment membership”.</p> : (
               <ul className="small">{usedBy.map((s) => <li key={s.id}><Link to={`/segments/${s.id}`}>{s.name}</Link> <div className="xs muted">{describe(s.rule, names)}</div></li>)}</ul>
@@ -99,8 +114,40 @@ export function StaticSegmentDetail() {
           </div>
         </aside>
       </div>
+      {list?.kind === "static" && canEdit && <StaticPublishWindow list={list} onDirty={setWinDirty} />}
       {list?.kind === "static" && <PreferenceSettings list={list} onDirty={setPrefDirty} />}
     </div>
+  );
+}
+
+/** StaticPublishWindow: when a static segment is live. Outside it (or unpublished) new campaigns
+ * can't send to it and the preference center doesn't offer it; its contacts stay and can still be
+ * added or removed. */
+function StaticPublishWindow({ list, onDirty }: { list: Segment; onDirty: (dirty: boolean) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const savedWin = { start_at: list.start_at, end_at: list.end_at ?? null };
+  const [win, setWin] = useState<{ start_at?: string; end_at?: string | null } | null>(null);
+  const cur = win ?? savedWin;
+  const dirty = win !== null && !sameWindow(win, savedWin);
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  const problem = windowProblem(cur.start_at, cur.end_at);
+  const save = useMutation({
+    mutationFn: () => api.put(`/v1/segments/${list.id}/publishing`, { published: list.published !== false, start_at: cur.start_at, end_at: cur.end_at ?? null }),
+    onSuccess: () => { setWin(null); qc.invalidateQueries({ queryKey: ["segment", String(list.id)] }); qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Publish window saved" }); },
+  });
+  return (
+    <section className="section">
+      <h3>Publish window</h3>
+      <div style={{ marginTop: 10 }}>
+        <PublishWindowField value={cur} onChange={setWin} seg={list} />
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn primary" disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()}>Save dates</button>
+          {dirty && <button className="btn ghost" onClick={() => setWin(null)}>Undo changes</button>}
+        </div>
+        <ErrorNote error={save.error} />
+      </div>
+    </section>
   );
 }
 

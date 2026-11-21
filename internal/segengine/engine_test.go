@@ -440,3 +440,49 @@ func TestSegmentsExcludedLeavesEverySegment(t *testing.T) {
 		t.Error("exclusion change not seen")
 	}
 }
+
+// A segment that's unpublished or outside its publish window is frozen: the stream doesn't
+// evaluate it (its members stay as they were), and a list_joined event naming it doesn't change it.
+func TestFrozenSegmentsStayOutOfTheStream(t *testing.T) {
+	past, future := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
+	unpublished := model.Segment{ID: 4, TenantID: 1, Rule: delhi.Rule, Unpublished: true}
+	ended := model.Segment{ID: 5, TenantID: 1, Rule: delhi.Rule, StartAt: past.Add(-time.Hour), EndAt: &past}
+	upcoming := model.Segment{ID: 6, TenantID: 1, Rule: delhi.Rule, StartAt: future}
+	e, rdb, pub := setup(t, delhi, unpublished, ended, upcoming)
+	ctx := context.Background()
+
+	ev := event.Event{TenantID: 1, ContactID: 7, Name: "identify", NewContact: true, Profile: map[string]any{"city": "Delhi"}}
+	var got []int64
+	for _, c := range e.candidates(&ev) {
+		got = append(got, c.ID)
+	}
+	if !equal(got, []int64{1}) {
+		t.Fatalf("streamed segments %v, want only the live one [1]", got)
+	}
+	if ti := (*e.idx.Load())[1]; !equal(ti.frozen, []int64{4, 5, 6}) || len(ti.static) != 0 {
+		t.Errorf("frozen %v static %v", ti.frozen, ti.static)
+	}
+
+	// A frozen member stays in while the profile changes...
+	_ = rdb.SetBit(ctx, segment.MemberKey(1, 4), 7, 1).Err()
+	if err := e.HandleEvent(ctx, enriched(t, ev)); err != nil {
+		t.Fatal(err)
+	}
+	pub.changes(t)
+	ev.NewContact, ev.ChangedAttrs, ev.Profile = false, []string{"city"}, map[string]any{"city": "Pune"}
+	_ = e.HandleEvent(ctx, enriched(t, ev))
+	for _, c := range pub.changes(t) {
+		if c.SegmentID == 4 {
+			t.Errorf("frozen segment changed: %+v", c)
+		}
+	}
+	if bit, _ := rdb.GetBit(ctx, segment.MemberKey(1, 4), 7).Result(); bit != 1 {
+		t.Error("frozen member removed by the stream")
+	}
+	// ...and a list_joined naming a frozen rule segment is ignored.
+	join := event.Event{TenantID: 1, ContactID: 8, Name: event.ListJoined, Props: map[string]any{"list_id": "5"}, Profile: map[string]any{}}
+	_ = e.HandleEvent(ctx, enriched(t, join))
+	if bit, _ := rdb.GetBit(ctx, segment.MemberKey(1, 5), 8).Result(); bit != 0 {
+		t.Error("list_joined set a frozen rule segment's bit")
+	}
+}
