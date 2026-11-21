@@ -10,7 +10,7 @@ export type MenuField = {
   // select: fixed options, or a list the component fills in (segments, events, campaigns…).
   options?: { value: string; label: string }[]; source?: OptionSource;
 };
-export type OptionSource = "segments" | "segmentIds" | "tags" | "stages" | "companies" | "users" | "events" | "campaigns" | "journeys" | "forms" | "unsubscribed";
+export type OptionSource = "segments" | "segmentIds" | "tags" | "stages" | "companies" | "users" | "events" | "campaigns" | "journeys" | "forms" | "templates" | "unsubscribed";
 export type MenuItem = { id: string; label: string; hint: string; fields: MenuField[]; build: (v: Record<string, string>) => ContactFilter[] };
 
 const CHANNELS = [
@@ -100,6 +100,11 @@ export const FILTER_MENU: { group: string; items: MenuItem[] }[] = [
         { key: "outcome", label: "And", kind: "select", options: OUTCOMES },
         { ...FROM, optional: true }, { ...TO, optional: true },
       ], build: (v) => [["campaign", v.campaign], ["outcome", v.outcome], ...dates(v)] },
+      { id: "template", label: "Got a message template", hint: "What happened with one template's messages, in any campaign", fields: [
+        { key: "template", label: "Template", kind: "select", source: "templates" },
+        { key: "outcome", label: "And", kind: "select", options: OUTCOMES },
+        { ...FROM, optional: true }, { ...TO, optional: true },
+      ], build: (v) => [["template", v.template], ["outcome", v.outcome], ...dates(v)] },
       { id: "journey", label: "In a triggered or automation campaign", hint: "Who entered it, and where they are", fields: [
         { key: "journey", label: "Campaign", kind: "select", source: "journeys" },
         { key: "status", label: "And", kind: "select", options: [{ value: "", label: "Entered it" }, ...JOURNEY_STATUS], optional: true },

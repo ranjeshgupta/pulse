@@ -65,7 +65,7 @@ const (
 var specialKeys = map[string]bool{"in": true, "not_in": true, "subscribed": true, "reachable": true, "under_cap": true,
 	"journey": true, "at": true, "journey_status": true, "campaign": true, "run": true, "step": true, "outcome": true,
 	"reason": true, "event": true, "no_event": true, "product": true, "category": true, "active": true, "utm": true,
-	"amp_poll": true, "answer": true, "form": true, "period": true, "via": true}
+	"amp_poll": true, "answer": true, "form": true, "period": true, "via": true, "template": true}
 
 // Outcomes a campaign filter takes. With reason:, outcome: is the raw outcome kind of the reasons
 // table (failed, bounced, complained, suppressed, capped).
@@ -107,6 +107,7 @@ type viewSpecial struct {
 	Outcome        string
 	Reason         string
 	Channel        string // via: the messages' channel (with campaign: / outcome:)
+	Template       int64  // template: messages of one template, in any campaign (O4 template reports)
 	Events         []string
 	NoEvents       []string
 	Product        string
@@ -141,7 +142,7 @@ func (sp *viewSpecial) bitmap() bool {
 // ch reports whether the view has ClickHouse conditions of its own.
 func (sp *viewSpecial) ch() bool {
 	return sp.Campaign || sp.Outcome != "" || sp.Reason != "" || len(sp.Events) > 0 || len(sp.NoEvents) > 0 || sp.Active != "" ||
-		sp.PollTemplate != 0 || sp.Form != 0
+		sp.PollTemplate != 0 || sp.Form != 0 || sp.Template != 0
 }
 
 // viewLookups for the M7 filters (each nil when the caller can't use it).
@@ -430,6 +431,23 @@ func parseSpecial(sp *viewSpecial, key, val string, lk viewLookup) (string, erro
 		v := val
 		sp.Answer = &v
 		return "Answer “" + val + "”", nil
+	case "template":
+		if err := once(sp.Template != 0); err != nil {
+			return "", err
+		}
+		if err := need("campaign:any"); err != nil {
+			return "", err
+		}
+		id, err := strconv.ParseInt(val, 10, 64)
+		if err != nil || id <= 0 || sl.Template == nil {
+			return "", errors.New("template: use template:<id>")
+		}
+		name, err := sl.Template(id)
+		if err != nil {
+			return "", fmt.Errorf("there is no template %d", id)
+		}
+		sp.Template = id
+		return "Template “" + name + "”", nil
 	case "form":
 		if err := once(sp.Form != 0); err != nil {
 			return "", err
@@ -469,8 +487,8 @@ func finishSpecial(sp *viewSpecial, lk viewLookup, filters []viewFilter) ([]view
 		return nil, errors.New("at: and journey_status: need journey:<id>")
 	case sp.Step != "" && sp.Source != "journey":
 		return nil, errors.New("step: needs campaign:journey/<id>")
-	case sp.Channel != "" && !sp.Campaign && sp.Outcome == "" && sp.Reason == "":
-		return nil, errors.New("via: needs campaign: or outcome:")
+	case sp.Channel != "" && !sp.Campaign && sp.Outcome == "" && sp.Reason == "" && sp.Template == 0:
+		return nil, errors.New("via: needs campaign:, template: or outcome:")
 	case sp.Run != 0 && sp.Source != "broadcast":
 		return nil, errors.New("run: needs campaign:broadcast/<id>")
 	case sp.Answer != nil && sp.PollTemplate == 0:
@@ -482,11 +500,11 @@ func finishSpecial(sp *viewSpecial, lk viewLookup, filters []viewFilter) ([]view
 	case sp.Active != "" && !sp.periodSet:
 		return nil, errors.New("active: needs period:<from>..<to>")
 	case sp.periodSet && !sp.ch():
-		return nil, errors.New("period: applies to campaign:, outcome:, event:, active:, amp_poll: and form:")
-	case sp.Campaign && sp.Outcome == "" && sp.Reason == "":
+		return nil, errors.New("period: applies to campaign:, template:, outcome:, event:, active:, amp_poll: and form:")
+	case (sp.Campaign || sp.Template != 0) && sp.Outcome == "" && sp.Reason == "":
 		sp.Outcome = "targeted"
 	}
-	if !sp.Campaign && (sp.Outcome != "" || sp.Reason != "") {
+	if !sp.Campaign && sp.Template == 0 && (sp.Outcome != "" || sp.Reason != "") {
 		if lk.Special.Allowed != nil && !lk.Special.Allowed("campaign:any") {
 			return nil, errors.New("outcome: without campaign: lists every campaign's recipients, which needs view access to reports")
 		}
@@ -741,14 +759,20 @@ func (sp *viewSpecial) chConds(tenant int64) (string, []any) {
 			args = append(args, sp.From, sp.To)
 		}
 	}
-	if sp.Campaign || sp.Outcome != "" || sp.Reason != "" {
+	if sp.Campaign || sp.Outcome != "" || sp.Reason != "" || sp.Template != 0 {
 		q := "id IN (SELECT contact_id FROM message_events WHERE tenant_id = ?"
 		args = append(args, t)
-		if sp.Source != "" {
+		switch {
+		case sp.Source != "":
 			q += " AND source = ? AND source_id = ?"
 			args = append(args, sp.Source, uint64(sp.SourceID))
-		} else {
+		case sp.Template == 0:
 			q += " AND source IN ('broadcast', 'journey')"
+		}
+		if sp.Template != 0 {
+			// A template's report counts every send of it, tests and API sends included.
+			q += " AND template_id = ?"
+			args = append(args, uint64(sp.Template))
 		}
 		if sp.Run != 0 {
 			q += " AND run = ?"

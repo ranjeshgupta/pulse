@@ -744,6 +744,17 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - Tests: `identity_test.go` (package and profile), `identityKeys.test.ts`, e2e `test/e2e/identity_test.go`.
 - How the ranking, rerouting and backfill work: [architecture](02-architecture.md#profiles-and-reserved-attributes).
 
+### O4 as built
+
+- Backend (ff020b6): ClickHouse 007 (`message_events.template_id`, `provider_id`, mv4, backfill); `Message.SentVia` and
+  `props.provider_id`; `ch.TemplateReport`; `GET /v1/templates/{id}/report` (from, to, bucket=day|hour, tz; reports
+  view); the `template:` contact filter (with `outcome:`, `reason:`, `via:`, `period:`).
+- Web: the template page's **Content / Report** tabs (`?tab=report`; the editor stays mounted), `pages/TemplateReport.tsx`
+  (figures, line chart with legend toggles and hover, heatmap with the busiest time, campaign / channel / provider
+  tables, reasons, top links), `templateReport.ts`, `templateFilters` in `contactLinks.ts`, Add filter → **Got a
+  message template**.
+- Tests: `templateReport.test.ts`, e2e `TestTemplateReport`; checked in a headless browser on the docs workspace.
+
 ### O2 as built
 
 - Backend (a6d1e64): `CustomRequest.failure`, `match_by`, `poll`; `pending` report status; `ReceiptMapping.Map`;

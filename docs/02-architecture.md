@@ -450,8 +450,12 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   collapse). Event-window segment queries hit only the key range for (tenant, event name).
 - `contacts`: `ReplacingMergeTree(version) ORDER BY (tenant_id, id)` with `attrs Map(String, String)`. Queried with `FINAL`.
 - `segment_members`: current membership mirrored from `segment.membership` ("in segment" rules and static segments in SQL).
-- `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv3`
-  since M4, which adds `complained`) from `events`, for reports; `reason_code` (M4) holds the outcome's reason code.
+- `message_events`: message outcomes of broadcasts and journeys, filled by a materialized view (`message_events_mv4`
+  since O4; mv3 since M4 added `complained`) from `events`, for reports; `reason_code` (M4) holds the outcome's reason
+  code; `template_id` and `provider_id` (O4, ClickHouse migration 007, a `set` skip index on the template, the template
+  backfilled once) feed template reports (`GET /v1/templates/{id}/report`) and the `template:` contact filter. The
+  dispatcher records the provider a message went through as `props.provider_id` (`Message.SentVia`, kept in the receipt
+  lookup so delivery reports carry it too). ClickHouse migrations run on every start, so 006 no longer creates mv3.
 - `active_users_daily` (M4): `AggregatingMergeTree` of `uniqState(contact_id)` per workspace, UTC day, platform and UTM
   source, and `first_active` (the first active day per contact), both fed by materialized views and backfilled once
   (400 days), for the Users dashboard.

@@ -167,6 +167,7 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
+| Template report: delivery, failures, bounces, spam and engagement of one template across every campaign | 🟡 | ✅ | ✅ O4: a template's **Report** tab: figures for its channel (sent, delivered, failed, bounced, spam complaints, opened, clicked, read, unsubscribed, SMS fallbacks), a chart by day or hour (up to 14 days) with lines you switch on and off, a weekday × hour heatmap of opens / reads / clicks with the busiest time, splits by campaign, channel and provider, failure reasons and top links; every number opens those contacts (`template:` filter, also in Add filter → Got a message template) | Provider split only for messages sent from O4 on; days and hours follow the browser's time zone while the contact list's `period:` uses UTC days |
 | Home overview: what needs attention, audience, revenue, campaigns | 🟡 | ✅ | ✅ after M7: the Overview's Needs attention (quota, failing channels, bounce spikes, failing campaigns), Audience (added, unsubscribed, week on week), Revenue and One-time campaigns (sending, coming up, recent), from a summary cached a minute | |
 | Live dashboard, message outcomes | 🟡 | ✅ | ✅ M4: Analytics → Live events (the workspace's latest events, polled every 2 s) | |
 | DAU / WAU / MAU, new vs returning | ⬜ | ✅ | ✅ M4: Analytics → Users, by platform and UTM source, pre-aggregated in ClickHouse (`active_users_daily`, `first_active`) | Deleted contacts still count in past days |

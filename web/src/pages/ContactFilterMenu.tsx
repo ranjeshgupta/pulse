@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Broadcast, type Form, type Journey, type Segment, type Stage, type User } from "../api";
+import { api, CHANNEL_NAMES, type Broadcast, type Form, type Journey, type Segment, type Stage, type Template, type User } from "../api";
 import { chipToken } from "../contactFilters";
 import { defaults, FILTER_MENU, findItem, missing, type MenuField, type MenuItem, type OptionSource } from "../contactFilterMenu";
 import { Field, Modal } from "../ui";
@@ -21,6 +21,7 @@ function useSources(): Record<OptionSource, Option[] | undefined> {
   const broadcasts = useQuery({ queryKey: ["broadcasts"], queryFn: () => api.get<{ broadcasts: Broadcast[] }>("/v1/broadcasts"), ...opts }).data?.broadcasts;
   const journeys = useQuery({ queryKey: ["journeys"], queryFn: () => api.get<{ journeys: Journey[] }>("/v1/journeys"), ...opts }).data?.journeys;
   const forms = useQuery({ queryKey: ["forms"], queryFn: () => api.get<{ forms: Form[] }>("/v1/forms"), ...opts }).data?.forms;
+  const templates = useQuery({ queryKey: ["templates"], queryFn: () => api.get<{ templates: Template[] }>("/v1/templates"), ...opts }).data?.templates;
   const topics = useTopics().data?.topics;
   return {
     segments: segments?.map((s) => ({ value: s.name, label: s.name })),
@@ -37,6 +38,7 @@ function useSources(): Record<OptionSource, Option[] | undefined> {
     ],
     journeys: journeys?.map((j) => ({ value: String(j.id), label: j.name })),
     forms: forms?.map((f) => ({ value: String(f.id), label: f.name })),
+    templates: templates?.map((t) => ({ value: String(t.id), label: `${t.name} (${CHANNEL_NAMES[t.channel] ?? t.channel})` })),
     unsubscribed: [
       { value: "email", label: "Email" }, { value: "sms", label: "SMS" }, { value: "whatsapp", label: "WhatsApp" }, { value: "rcs", label: "RCS" },
       { value: "push", label: "Push" }, { value: "all", label: "Everything" },

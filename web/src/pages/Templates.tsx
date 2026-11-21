@@ -1,3 +1,4 @@
+import { TemplateReport } from "./TemplateReport";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -101,6 +102,13 @@ export function TemplateEdit() {
   const [testing, setTesting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [scopeEvent, setScopeEvent] = useState(() => params.get("event") ?? savedScope());
+  const [tab, setTabState] = useState(() => params.get("tab") === "report" ? "report" : "content");
+  const setTab = (v: "content" | "report") => {
+    setTabState(v);
+    const next = new URLSearchParams(window.location.search);
+    if (v === "report") next.set("tab", "report"); else next.delete("tab");
+    window.history.replaceState(null, "", `${window.location.pathname}${next.toString() ? `?${next}` : ""}`);
+  };
   const builder = useRef<EmailBuilderHandle>(null);
   const setScope = (v: string) => { setScopeEvent(v); try { localStorage.setItem(SCOPE_KEY, v); } catch { /* private window */ } };
 
@@ -179,6 +187,15 @@ export function TemplateEdit() {
         </>}
       />
       <ErrorNote error={save.error ?? remove.error} />
+      {!isNew && (
+        <div className="tabs tmpl-tabs" role="tablist" aria-label="Template">
+          <button role="tab" aria-selected={tab !== "report"} onClick={() => setTab("content")}>✏️ Content</button>
+          <button role="tab" aria-selected={tab === "report"} onClick={() => setTab("report")}>📊 Report</button>
+        </div>
+      )}
+      {tab === "report" && !isNew && <TemplateReport id={t.id} channel={t.channel} />}
+      {/* The editor stays mounted on the Report tab, so the email builder keeps its state. */}
+      <div hidden={tab === "report" && !isNew}>
       {t.hidden && (
         <div className="alert info">
           Written inside a one-time campaign, so it isn't in template lists or pickers.{" "}
@@ -186,6 +203,7 @@ export function TemplateEdit() {
         </div>
       )}
       <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={switchEmailMode} builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={existing.data?.builder != null} onBuilderChange={onBuilderChange} onEdit={markDirty} />
+      </div>
       {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
       {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}
     </div>

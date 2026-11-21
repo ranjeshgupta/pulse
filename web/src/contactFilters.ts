@@ -22,13 +22,13 @@ export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = 
 export const MORE_KEYS: { key: string; hint: string }[] = [
   { key: "event", hint: "did an event (add period: for dates)" },
   { key: "no_event", hint: "never did an event (add period: for dates)" },
-  { key: "period", hint: "between two dates, for event:, campaign:, active: and form:" },
+  { key: "period", hint: "between two dates, for event:, campaign:, template:, active: and form:" },
 ];
 
 /** Filters that other pages put in links (M7: the contacts behind a number). They aren't offered
  * while typing, but they show as chips and can be removed like any other. */
 export const LINK_KEYS = ["in", "not_in", "subscribed", "reachable", "under_cap", "journey", "at", "journey_status", "campaign", "run",
-  "step", "outcome", "reason", "event", "no_event", "product", "category", "active", "utm", "amp_poll", "answer", "form", "period", "via"];
+  "step", "outcome", "reason", "event", "no_event", "product", "category", "active", "utm", "amp_poll", "answer", "form", "period", "via", "template"];
 
 /** list: is the old name of segment: (static segments used to be called lists). */
 const KEYS = new Set<string>([...FILTER_KEYS.map((k) => k.key), "list", ...LINK_KEYS]);

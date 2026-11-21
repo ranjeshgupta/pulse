@@ -86,6 +86,16 @@ export function outcomeFilters(kind: "broadcast" | "journey", id: number, outcom
   return f;
 }
 
+/** A template's outcome, in any campaign (template reports), optionally in a period of days. */
+export function templateFilters(id: number, outcome: string, days?: { from: string; to: string }, extra: { via?: string; reason?: string } = {}): ContactFilter[] {
+  const f: ContactFilter[] = [["template", id]];
+  if (outcome) f.push(["outcome", outcome]);
+  if (extra.reason) f.push(["reason", extra.reason]);
+  if (extra.via) f.push(["via", extra.via]);
+  if (days) f.push(period(days.from, days.to));
+  return f;
+}
+
 /** Funnel keys (funnelMath) → list outcomes. Steps not listed have no list (e.g. conversions). */
 export const FUNNEL_OUTCOME: Record<string, string> = {
   targeted: "targeted", sent: "sent", delivered: "delivered", opened: "opened", read: "read", clicked: "clicked",
