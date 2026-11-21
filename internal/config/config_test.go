@@ -53,3 +53,17 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		}
 	}
 }
+
+func TestDevSecretsRefusedOffLocalhost(t *testing.T) {
+	dev := Config{PublicURL: "http://localhost:7080", AdminToken: devAdminToken, SecretKey: devSecretKey}
+	if errs := devSecrets(dev); len(errs) != 0 {
+		t.Errorf("local dev stack refused: %v", errs)
+	}
+	dev.PublicURL = "https://pulse.example.com"
+	if errs := devSecrets(dev); len(errs) != 2 {
+		t.Errorf("public URL with dev secrets: %v", errs)
+	}
+	if errs := devSecrets(Config{PublicURL: "https://pulse.example.com", AdminToken: "x", SecretKey: "y"}); len(errs) != 0 {
+		t.Errorf("own secrets refused: %v", errs)
+	}
+}

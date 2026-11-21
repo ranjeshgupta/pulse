@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -97,7 +98,35 @@ func Load() (Config, error) {
 			c.Rates[ch] = r.rate(rateEnv(ch), 0)
 		}
 	}
+	r.errs = append(r.errs, devSecrets(c)...)
 	return c, errors.Join(r.errs...)
+}
+
+// The local dev stack's published values (deploy/docker-compose.yml). They are public, so a server
+// reachable from elsewhere must not run with them.
+const (
+	devAdminToken = "dev-admin-token"
+	devSecretKey  = "9f1c2b7e4a6d8053c1e2f4a7b9d0c3e5f6a8b1c2d4e7f9a0b3c5d6e8f1a2b4c6"
+)
+
+// devSecrets refuses the dev stack's admin token and secret key unless the public URL is local.
+func devSecrets(c Config) []error {
+	u, err := url.Parse(c.PublicURL)
+	host := ""
+	if err == nil {
+		host = strings.ToLower(u.Hostname())
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost") {
+		return nil
+	}
+	var out []error
+	if c.AdminToken == devAdminToken {
+		out = append(out, fmt.Errorf("PULSE_ADMIN_TOKEN is the published dev token; set your own (e.g. openssl rand -hex 32) for %s", c.PublicURL))
+	}
+	if c.SecretKey == devSecretKey {
+		out = append(out, fmt.Errorf("PULSE_SECRET_KEY is the published dev key; generate one with openssl rand -hex 32 for %s", c.PublicURL))
+	}
+	return out
 }
 
 func env(k, def string) string {

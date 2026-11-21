@@ -83,8 +83,8 @@ function TemplateAIPanel({ t, setT, builderLocked, onClose }: { t: Template; set
               <ErrorNote error={rewrite.error} />
               {rewrite.data && (
                 <div className="ai-compare">
-                  <Field label="Now">{field.key === "html" ? <div className="ai-html" dangerouslySetInnerHTML={{ __html: sanitizeForPreview(field.value) }} /> : <p className="ai-text">{field.value}</p>}</Field>
-                  <Field label="Suggested">{field.key === "html" ? <div className="ai-html" dangerouslySetInnerHTML={{ __html: sanitizeForPreview(rewrite.data.text) }} /> : <p className="ai-text">{rewrite.data.text}</p>}</Field>
+                  <Field label="Now">{field.key === "html" ? <iframe className="ai-html" title="The email body now" sandbox="" srcDoc={field.value} /> : <p className="ai-text">{field.value}</p>}</Field>
+                  <Field label="Suggested">{field.key === "html" ? <iframe className="ai-html" title="The suggested email body" sandbox="" srcDoc={rewrite.data.text} /> : <p className="ai-text">{rewrite.data.text}</p>}</Field>
                   <div className="row" style={{ gridColumn: "1 / -1", justifyContent: "flex-end" }}>
                     <button type="button" className="btn primary" onClick={() => useRewrite(rewrite.data!.text)}>Use the suggestion</button>
                   </div>
@@ -96,18 +96,6 @@ function TemplateAIPanel({ t, setT, builderLocked, onClose }: { t: Template; set
       )}
     </Modal>
   );
-}
-
-/** sanitizeForPreview strips scripts, event handlers and javascript: links before showing HTML. */
-export function sanitizeForPreview(html: string): string {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  doc.querySelectorAll("script,style,iframe,object,embed,form,meta,link,base").forEach((n) => n.remove());
-  doc.querySelectorAll("*").forEach((el) => {
-    for (const a of [...el.attributes]) {
-      if (/^on/i.test(a.name) || (/^(href|src|xlink:href)$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) el.removeAttribute(a.name);
-    }
-  });
-  return doc.body.innerHTML;
 }
 
 /** TranslateWithAI fills a language version from the default's words. */
