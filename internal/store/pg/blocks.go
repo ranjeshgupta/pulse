@@ -74,3 +74,13 @@ func (s *Store) TemplatesUsingBlock(ctx context.Context, tenant int64, key strin
 	}
 	return out, rows.Err()
 }
+
+// TemplateIDsUsingBlock is every template naming {{block.key}} (no limit: approval checks need all).
+func (s *Store) TemplateIDsUsingBlock(ctx context.Context, tenant int64, key string) ([]int64, error) {
+	rows, err := s.db.Query(ctx, `SELECT id FROM templates WHERE tenant_id = $1
+		AND (html ~ $2 OR subject ~ $2 OR content::text ~ $2 OR translations::text ~ $2)`, tenant, `\{\{\s*block\.`+key+`\s*\}\}`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
+}

@@ -27,7 +27,7 @@ const maxBlocks = 200
 
 func (s *Server) blockRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/content-blocks", s.tenant(s.listBlocks))
-	mux.HandleFunc("POST /v1/content-blocks", s.tenant(s.saveBlock))
+	mux.HandleFunc("POST /v1/content-blocks", s.guardBlockEdit(s.saveBlock))
 	mux.HandleFunc("PUT /v1/content-blocks/{id}", s.guardBlockEdit(s.saveBlock))
 	mux.HandleFunc("DELETE /v1/content-blocks/{id}", s.guardBlockEdit(s.deleteBlock))
 	mux.HandleFunc("GET /v1/content-blocks/{id}/usage", s.tenant(s.blockUsage))

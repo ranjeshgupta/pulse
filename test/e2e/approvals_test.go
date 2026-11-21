@@ -49,9 +49,26 @@ func TestApprovals(t *testing.T) {
 	// Approved and scheduled: its content can't change behind the approval, through the template
 	// or a content block it uses; a template no live campaign sends can.
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", tpl), map[string]any{"name": "ap", "channel": "sms", "content": map[string]any{"text": "Hi, sneaky"}}, 409)
-	blk := jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": "ap_sig", "name": "Sig", "html": "<p>Acme</p>", "text": "Acme"}, -1)["id"]
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", tpl), map[string]any{"name": "ap", "channel": "sms", "content": map[string]any{"text": "Hi {{block.ap_sig}}"}}, 409)
 	other := jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "free", "channel": "sms", "content": map[string]any{"text": "x"}}, 201)["id"]
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", other), map[string]any{"name": "free", "channel": "sms", "content": map[string]any{"text": "y"}}, 200)
-	_ = blk
+}
+
+// TestApprovalsBlockKeys: a live template that names a block not yet created can't be filled by
+// creating the block, or by renaming another block to that key, behind the approval.
+func TestApprovalsBlockKeys(t *testing.T) {
+	c, _ := workspace(t, "Approval blocks")
+	key := jsonCall(t, c, "POST", "/v1/settings/api-key", nil, 200)["api_key"].(string)
+	tpl := jsonCall(t, c, "POST", "/v1/templates", map[string]any{"name": "ab", "channel": "sms", "content": map[string]any{"text": "Hi {{block.promo}}"}}, 201)["id"]
+	seg := jsonCall(t, c, "POST", "/v1/segments", map[string]any{"name": "ab", "rule": map[string]any{"attr": "ab", "op": "eq", "value": "x"}}, 201)["id"]
+	bc := jsonCall(t, c, "POST", "/v1/broadcasts", map[string]any{"name": "Promo", "channel": "sms", "template_id": tpl, "segment_id": seg, "repeat": "none",
+		"start_at": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)}, 200)["id"]
+	other := jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": "spare", "name": "Spare", "html": "<p>x</p>", "text": "x"}, -1)["id"]
+	jsonCall(t, c, "PUT", "/v1/settings/automation", map[string]any{"approvals": map[string]any{"four_eyes": true}}, 200)
+	req := idOf(jsonCall(t, c, "POST", "/v1/approvals", map[string]any{"kind": "broadcast", "campaign_id": bc}, 200)["id"])
+	call(t, "POST", fmt.Sprintf("/v1/approvals/%d/approve", req), key, nil, 200)
+
+	jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": "promo", "name": "Promo", "html": "<p>50% off</p>", "text": "50% off"}, 409)
+	jsonCall(t, c, "PUT", fmt.Sprint("/v1/content-blocks/", other), map[string]any{"key": "promo", "name": "Spare", "html": "<p>x</p>", "text": "x"}, 409)
+	jsonCall(t, c, "PUT", fmt.Sprint("/v1/content-blocks/", other), map[string]any{"key": "spare", "name": "Spare 2", "html": "<p>y</p>", "text": "y"}, 200)
 }

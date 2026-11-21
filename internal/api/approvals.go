@@ -7,15 +7,18 @@ package api
 // launched by approving it: it has to be asked for again.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"pulse/internal/journey"
 	"pulse/internal/personalize"
+	"pulse/internal/store/pg"
 	"slices"
 	"strconv"
 	"strings"
@@ -423,7 +426,11 @@ func (s *Server) liveLocked(w http.ResponseWriter, r *http.Request, p model.Prin
 		return false
 	}
 	set, err := as.AutomationSettings(r.Context(), p.TenantID)
-	if err != nil || !set.Approvals.FourEyes {
+	if err != nil {
+		s.fail(w, err) // fail closed: an unreadable setting never lets an edit through
+		return true
+	}
+	if !set.Approvals.FourEyes {
 		return false
 	}
 	names, err := s.liveUsing(r.Context(), p.TenantID, tids)
@@ -452,24 +459,63 @@ func (s *Server) guardTemplateEdit(h tenantHandler) http.HandlerFunc {
 	})
 }
 
-// guardBlockEdit wraps a content block update or delete with liveLocked, for the templates that
-// use the block.
+// BlockUsage finds every template that names a block (pg.Store).
+type BlockUsage interface {
+	TemplateIDsUsingBlock(ctx context.Context, tenant int64, key string) ([]int64, error)
+}
+
+// guardBlockEdit wraps creating, changing or deleting a content block with liveLocked, for the
+// templates that name the block's current key and the key it is given: creating a block, or
+// renaming one, under a key a live template already names changes what that template sends.
 func (s *Server) guardBlockEdit(h tenantHandler) http.HandlerFunc {
 	return s.authed(func(w http.ResponseWriter, r *http.Request, p model.Principal) {
-		bs, ok := s.Store.(BlockStore)
-		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		if ok && err == nil {
-			if b, err := bs.GetBlock(r.Context(), p.TenantID, id); err == nil {
-				if ts, err := bs.TemplatesUsingBlock(r.Context(), p.TenantID, b.Key); err == nil {
-					tids := map[int64]bool{}
-					for _, t := range ts {
-						tids[t.ID] = true
-					}
-					if s.liveLocked(w, r, p, tids) {
-						return
-					}
+		bs, ok1 := s.Store.(BlockStore)
+		bu, ok2 := s.Store.(BlockUsage)
+		if !ok1 || !ok2 {
+			h(w, r, p.TenantID)
+			return
+		}
+		keys := map[string]bool{}
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, "the request couldn't be read")
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			var in struct {
+				Key string `json:"key"`
+			}
+			if json.Unmarshal(body, &in) == nil && personalize.BlockKeyRe.MatchString(in.Key) {
+				keys[in.Key] = true
+			}
+		}
+		if r.PathValue("id") != "" {
+			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+			if err == nil {
+				b, err := bs.GetBlock(r.Context(), p.TenantID, id)
+				switch {
+				case err == nil:
+					keys[b.Key] = true
+				case !errors.Is(err, pg.ErrNotFound):
+					s.fail(w, err)
+					return
 				}
 			}
+		}
+		tids := map[int64]bool{}
+		for k := range keys {
+			ids, err := bu.TemplateIDsUsingBlock(r.Context(), p.TenantID, k)
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+			for _, id := range ids {
+				tids[id] = true
+			}
+		}
+		if s.liveLocked(w, r, p, tids) {
+			return
 		}
 		h(w, r, p.TenantID)
 	})
