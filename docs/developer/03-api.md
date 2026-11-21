@@ -192,7 +192,7 @@ comes from the previous page and is empty on the last one. The audit log takes `
 lists take `?before=<message id>`.
 
 **Rate limits.** Requests with an API key aren't rate-limited by Pulse; your throughput is bounded
-by the event bus (one machine handled 20,000 events/s in the [load test](../03-load-test.md)) and by
+by the event bus (one machine handled 20,000 events/s in the [load test](../architecture.md#18-performance-and-the-load-test)) and by
 the per-channel send rates. Public endpoints are limited per client IP: `/v1/web/events` 600
 events/minute, form submissions 10/minute, sign-in 10 attempts per 15 minutes per workspace and
 email. Behind a proxy, set `PULSE_TRUST_PROXY` so the client IP is right.
@@ -203,7 +203,7 @@ dates, email domain and last-seen device are ignored in `attrs` even from your s
 can't set consent, tags or points either. Your server may set `tags` (replacing the list), `points`
 and the `optout_*` flags in `attrs`, but the events and routes below are better: the change shows on
 the contact's timeline. Details:
-[architecture, reserved attributes](../02-architecture.md#profiles-and-reserved-attributes).
+[architecture, reserved attributes](../architecture.md#7-identity-resolution-and-profiles).
 
 ---
 
@@ -717,7 +717,7 @@ refresh, so it can differ from `match` until the next one.
 `status` is `new` until the backfill finishes, then `ready`. `POST /v1/segments/preview` with
 `{"rule": …}` counts matches without saving. `PUT /v1/segments/{id}` changes name and rule (and
 rebuilds); `DELETE` answers 409 while another segment uses it. How rules are evaluated:
-[architecture, segment rules](../02-architecture.md#segment-rules).
+[architecture, segment rules](../architecture.md#8-segmentation-engine).
 
 ### Static segments (lists)
 
@@ -957,7 +957,7 @@ going live (`activate` answers 409) while keeping its enrollments and reports;
 `GET /v1/journeys/{id}` and the campaigns hub (`GET /v1/campaigns`) return it too. The workers skip
 such a journey until it's fixed (and log it once). A step with no next step (such as `delete_contact`) simply ends its path. The web app's builder writes the same JSON, so a
 quick way to learn a step's fields is to build it in the app and `GET /v1/journeys/{id}`. More
-about the engine: [architecture, journeys](../02-architecture.md#journeys).
+about the engine: [architecture, journeys](../architecture.md#journeys-triggered-and-automation-campaigns).
 
 ---
 
@@ -1195,7 +1195,7 @@ properties over 4 KB are dropped (`truncated: true`). A funnel covers the last
 `/v1/cohorts`, `/v1/reports`) needs reports edit access.
 
 For raw data, ClickHouse holds every event (table `events`); see
-[architecture, ClickHouse tables](../02-architecture.md#clickhouse-tables).
+[architecture, ClickHouse tables](../architecture.md#clickhouse).
 
 ---
 

@@ -58,7 +58,7 @@ The Docker image build does this itself, so `make up` always serves the app.
 | `make test` | Go unit tests, `go test -count=1 ./...`. No services: stores are faked | Docker or Go |
 | `make it` | Integration tests (`-tags integration ./internal/...`) in a container on the Compose network, against the stack's ClickHouse and Redis. The main one is `TestSQLAgreesWithEval`: the two segment compilers must agree | `make up` |
 | `make e2e` | End-to-end tests (`-tags e2e ./test/e2e/...`), see below | `make up` |
-| `make load ARGS="-rate 10000 -duration 45s"` | Load test from the Compose network. Flags: `-contacts`, `-rate`, `-batch`, `-workers`, `-duration`, `-journey`. Results: [docs/03-load-test.md](../03-load-test.md) | `make up` |
+| `make load ARGS="-rate 10000 -duration 45s"` | Load test from the Compose network. Flags: `-contacts`, `-rate`, `-batch`, `-workers`, `-duration`, `-journey`. Results: [docs/architecture.md#18-performance-and-the-load-test](../architecture.md#18-performance-and-the-load-test) | `make up` |
 | `make seed ARGS="-contacts 1000"` | A "Demo Retail" workspace with data. Flags: `-workspace`, `-email`, `-password`, `-contacts`, `-days`, `-if-exists` | `make up` |
 | `make docs-seed` | The "Acme Retail" workspace (`acme-retail`) the screenshots use, once | `make up` |
 | `make docs-shots [SHOT=dev-03,04]` | Retake documentation screenshots, see [below](#screenshots) | `make up` |
@@ -216,9 +216,9 @@ The docs are part of the change. When behaviour changes, update in the same comm
 | The web SDK (`web/src/sdk`, `web/public/sdk`) | [4. Web SDK](04-web-sdk.md) |
 | A mobile SDK | Its README first, then [5. Mobile SDKs](05-mobile-sdks.md) |
 | Webhook payloads, signing, provider webhooks, the gateway | [6. Webhooks and integrations](06-webhooks-and-integrations.md); the signature samples must keep matching `webhooks.Sign` |
-| Topics, roles, stores, extension points | [7. Architecture and extending](07-architecture-and-extending.md) and [docs/02-architecture.md](../02-architecture.md) |
+| Topics, roles, stores, extension points | [7. Architecture and extending](07-architecture-and-extending.md) and [docs/architecture.md](../architecture.md) |
 | Something users see | The [tutorial](../tutorials/README.md) that covers it, and its screenshots |
-| A feature or a known gap | "What's built" in the README and [docs/05-feature-parity.md](../05-feature-parity.md) |
+| A feature or a known gap | "What's built" in the README and [docs/product.md](../product.md) |
 
 Code samples in the docs come from the code and the end-to-end tests; when you change one of those,
 search the docs for the old field or route name.

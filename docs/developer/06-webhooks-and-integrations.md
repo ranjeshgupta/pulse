@@ -812,7 +812,7 @@ a setting, and every call goes through the guarded HTTP client.
 | Facebook Custom Audiences, Google Ads Customer Match | Out | A segment linked to an audience uploads its members as SHA-256 hashes of the normalised email and phone, streams entries and exits, and reconciles every `PULSE_AUDIENCE_RECONCILE_INTERVAL` |
 
 These connectors have been tested against mock servers only, not live accounts
-([known gaps](../05-feature-parity.md#known-gaps)). Field-by-field behaviour is in the
-[feature parity notes](../05-feature-parity.md) and the [architecture](../02-architecture.md#integrations-batch-8a).
+([known gaps](../product.md#honest-limits-at-a-glance)). Field-by-field behaviour is in the
+[product overview](../product.md) and the [architecture](../architecture.md#14-integrations-and-webhooks).
 
 Next: [7. Architecture and extending](07-architecture-and-extending.md).

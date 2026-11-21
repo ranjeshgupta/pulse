@@ -2,7 +2,8 @@
 
 In about 20 minutes you will read what happened to a campaign's messages (delivered, opened,
 bounced, marked as spam, skipped and why), open the people behind any of those numbers, compare all
-your campaigns side by side, and use the **Users**, **Products** and **Live events** dashboards.
+your campaigns side by side, use the **Users**, **Products** and **Live events** dashboards, and see
+how one message template does across every campaign that sends it.
 
 **You need:** a workspace that has sent some messages. The pictures use the **Acme Retail** example
 workspace and its *Spring catalogue* email and *Monsoon preview* WhatsApp campaigns. The dashboards
@@ -257,12 +258,48 @@ A few numbers aren't links, because no list of people matches them exactly:
 - downloads of an asset, landing page visitors, an in-app message's "seen by", import rows, and
   messages per channel (these count messages or visits, not people).
 
+## 11. How one template does: the template report
+
+A campaign's report shows one campaign. A template's report shows one message, wherever it went out:
+in one-time campaigns, triggered and automation campaign steps, tests and API sends. Use it to answer
+"is our order confirmation SMS delivered?" or "when do people open our newsletter?".
+
+Open **Content → Message templates**, open a template, and click the **📊 Report** tab (next to
+**✏️ Content**). The editor keeps your unsaved changes while you look.
+
+**Period** picks the days (30 by default). **Chart**: **Day by day**, or **Hour by hour** for 14 days or
+fewer. Times are in your browser's time zone, and the counts are people, updated every 30 seconds.
+
+| Part | Shows |
+|---|---|
+| Figures | The numbers for the template's channel: **sent**, **delivered**, **failed**, **bounced**, **spam complaints**, **opened**, **clicked**, **read**, **unsubscribed**, and SMS fallbacks for WhatsApp and RCS |
+| **Over time** | A line per outcome by day or hour. Click a name in the legend to switch its line on or off (spam complaints and unsubscribes start off); point at the chart to read a day |
+| **When people engage** | A weekday × hour grid of opens and clicks (email) or reads and clicks (other channels), darker where there are more, and the busiest time, e.g. *Busiest: Tue, 7 pm. Sending a little before that usually does best.* |
+| **Why messages didn't arrive** | Each failure, bounce or complaint reason with the number of people |
+| **By campaign** | Every campaign that sent it, with its numbers; *Tests and API sends* for the rest. The name opens the campaign |
+| **By provider** | Sent, delivered, failed and bounced per provider, to compare two SMS gateways, say |
+| **By channel** | When WhatsApp or RCS messages fell back to SMS |
+| **Top links** | Email: the links clicked most |
+
+**Every number opens its contacts**, as everywhere (section 4): the list gets filter chips for the
+template, the outcome and the period. On the Contacts page you can build the same list
+yourself: **Add filter → Got a message template**.
+
+Limits: the provider split covers messages sent since this report was added (older ones show as
+*Unknown*). The chart's days follow your browser's time zone, while the contact list's period counts
+whole UTC days, so the two can differ by a few people at the edges.
+
+Each one-time, triggered and automation campaign also has an **Over time** chart in its own report:
+see [tutorial 6](06-triggered-and-automation-campaigns.md#13-per-step-numbers-and-the-report) and
+[tutorial 7](07-one-time-campaigns.md#8-read-the-results).
+
 ## What you have now
 
 - How to read a campaign's funnel and why its messages didn't go out
 - The contacts behind a number, as a list you can export or turn into a segment
 - Every campaign compared, and the reasons across them
 - Active users, product performance and live events
+- A template's report across every campaign that sends it
 
 **Next:** [Tutorial 16, Connecting any provider](16-connecting-any-provider.md): send through a
 service Pulse has no preset for.

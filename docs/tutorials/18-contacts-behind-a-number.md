@@ -155,3 +155,4 @@ missing, for example *Your role can't list these contacts (it needs view access 
 
 **Next:** use the segment you made as the audience of a one-time campaign
 ([tutorial 14](14-campaigns-hub-and-one-time-campaigns.md)).
+Or go on to [tutorial 19, Product recommendations](19-product-recommendations.md).

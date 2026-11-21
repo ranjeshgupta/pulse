@@ -183,6 +183,16 @@ when nothing is old enough yet. The rows are deleted at your workspace's next da
 | **Recount who can be reached** | Who has an email, a phone, push devices and consent is counted as things change, and rebuilt once a day: **A day after the last rebuild**, or **Daily at** an hour (UTC) | A day after the last rebuild |
 | **New daily segments** | The time (and time zone) a segment set to "refresh daily" starts with; each segment can change it ([tutorial 3](03-segments.md)) | 06:00, your browser's time zone |
 | **App inbox expiry** | How long an app inbox message stays when its template doesn't say | 30 days (1–365) |
+| **Workspace control group** | This share of all contacts gets no marketing messages at all, always the same people, so you can compare them with everyone else and see what your marketing adds. Transactional templates and tests still go to them. Campaign reports list them as *Kept back: workspace control group* | 0% (off); up to 20% |
+
+### Approvals
+
+**Four-eyes launches** (*Every launch needs a second person*): when on, nobody launches a one-time,
+triggered or automation campaign alone. They ask for approval, and someone else who may publish
+approves it; it launches exactly as it was when they asked. When off (the default), people whose role
+can't publish ask, and those who can launch directly. Campaigns launched with an API key aren't
+affected. [Tutorial 14](14-campaigns-hub-and-one-time-campaigns.md#10-approvals-a-second-pair-of-eyes)
+shows how asking and approving work.
 
 ### Default limits of new providers, and what's fixed
 
@@ -204,6 +214,34 @@ events a second, and webhook retries.
 ## 6. A person's data: see it, export it, erase it
 
 When someone asks what you hold about them, or asks to be forgotten:
+
+### Everything in one place: the Consent & privacy tab
+
+India's DPDP Act and Europe's GDPR give people the right to see their data, correct it, withdraw
+consent and have it erased. To answer such a request, open the contact's full page (**Open full
+page**, [tutorial 2](02-contacts.md#the-full-contact-page)) and click the **Consent & privacy** tab.
+
+On the left, **Consent history**, newest first, in words: each opt-in and opt-out (per channel and
+topic, and where it came from when Pulse knows), double opt-in
+requests and confirmations ([tutorial 5](05-templates-and-content.md#double-opt-in-ask-people-to-confirm-their-address)),
+form consents with the text they agreed to, spam complaints, and what bounce rules did. Each line has
+its date and time.
+
+On the right, **Their data rights**, with what to do for each:
+
+| Right | What to do |
+|---|---|
+| **See their data** | **Download everything Pulse keeps** (profile, consent, segments, events) as JSON |
+| **Correct it** | Edit the fields on the **Overview** tab, or send an identify from your systems |
+| **Withdraw consent** | Unsubscribe them from a channel or from everything on the **Overview** tab; every send respects it at once |
+| **Erase it** | **Delete this contact**: profile, events, messages and devices go; it can't be undone |
+
+Downloading and deleting need **Contacts: Edit**; without it, the tab says who can. Pulse keeps no
+separate log of requests: note each request and when you answered it. The audit log records the
+downloads and deletions your team makes (step 7).
+
+The rest of this section shows the same actions from the top of the contact's page, and how to erase
+automatically.
 
 **See it.** Open the contact: the profile shows their attributes, segments, consent, tags and points,
 and the **Activity** list of their events.
@@ -444,9 +482,11 @@ they have themselves.
 - Retention rules that clean up anonymous visitors, old events and old logs, with a preview of what
   a shorter setting deletes
 - Retries, segment schedules and default provider limits that fit your workspace
-- A repeatable way to export or erase one person's data
+- A repeatable way to export or erase one person's data, and their consent history in one tab
+- A workspace control group and, if you want it, four-eyes approval for every launch
 - An audit trail you can filter and export
 - Single sign-on, two-step sign-in, identity verification and a fresh API key
 
-That's the end of the tutorials. For installing, configuring and integrating Pulse, see the
-[developer docs](../developer/README.md).
+**Next:** [Tutorial 12, Events and their properties](12-events-and-properties.md). The
+[tutorials index](README.md) lists them all. For installing, configuring and integrating Pulse, see
+the [developer docs](../developer/README.md).

@@ -41,6 +41,13 @@ The rule is a box that starts **Contacts who match ALL of the following:**. Chan
 **ANY** when one filter matching is enough. Between filters the box shows the joining word: **AND**
 for ALL, **OR** for ANY.
 
+> **Describe it in words (AI help).** If your Pulse server has AI help turned on, a box **✨ Describe
+> who should be in it** appears with the rule builder. Type, say, *Bought twice in the last 30 days, live in
+> Pune*, and click **Build**: Pulse fills in the conditions for you to check and edit before saving.
+> It asks before replacing conditions you already have. Only your words and your field and event names
+> are sent to the AI service, never contacts' data. Without AI help the box doesn't show; this
+> tutorial builds the rule by hand. More in [tutorial 5](05-templates-and-content.md#13-let-ai-help).
+
 ### Add a filter on a field
 
 3. Click **+ Add filter**. The filter picker opens: a search box, the groups on the left (Contact,

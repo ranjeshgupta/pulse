@@ -2,7 +2,9 @@
 
 In about 30 minutes you will write a personalised Diwali offer as an email and an SMS, preview it as a
 real contact and send yourself a test; then build a landing page with a sign-up form, a two-page
-enquiry form with a file upload, and a price list people download after telling you who they are.
+enquiry form with a file upload (and double opt-in), and a price list people download after telling
+you who they are. At the end: a spam check, shared content blocks, templates in several languages, AI
+help and the template report.
 
 **You need:** a workspace with channels set up (tutorial 4: the sandbox providers are enough), a few
 contacts (tutorial 1 or 2), and a role that can edit **Content**. Pictures use the Acme Retail docs
@@ -35,7 +37,13 @@ Every template has a **Template name** and a box at the top:
 
 The buttons at the top right are the same for every channel: **Preview as contact**, **Send a test**
 (after the first save), **Save template**, and **Delete** (campaign steps that use a deleted template
-fail to send).
+fail to send). An email template also has **🛡️ Spam check** (step 10), and every template except
+WhatsApp has **✨ AI** when your Pulse server has AI help turned on (step 13).
+
+A saved template has two tabs: **✏️ Content** (the editor) and **📊 Report** (how its messages did in
+every campaign, step 14). Above the editor, the **🌐 Language** bar adds versions in other languages
+(step 12). The **🧩 Content blocks** button on the template list opens the shared headers, footers and
+offers (step 11).
 
 ## 2. Personalisation
 
@@ -57,7 +65,7 @@ when a variable has no value: **leave it empty** (the default) or **don't send t
 {{event.…}}** box beside it (the event that started a campaign) and choosing the channel by rule.
 
 > Templates written with the older Go template tags (`{{.Attrs.first_name}}`, `{{.Contact.Email}}`,
-> `{{.UnsubscribeURL}}`, `{{if …}}`) keep working, also next to variables. Mautic's
+> `{{.UnsubscribeURL}}`, `{{if …}}`) keep working, also next to variables. The form
 > `{contactfield=first_name}` works only in a campaign's **Update contact** step.
 
 ## 3. Write an email
@@ -299,6 +307,42 @@ This one is a two-page bulk order enquiry with a file upload and a hidden campai
    ![After they submit: a message, no static segments, tag bulk-order; Consent: the checkbox text and Email ticked under Opt them back in to](img/05-form-after-submit.png)
 9. Set **Status** to **Live** and click **Save**: *Saved. The form is live.*
 
+### Double opt-in: ask people to confirm their address
+
+With double opt-in, people who fill in the form get an email with a link, and only join your lists
+when they click it. It proves the address is theirs: fewer typos and fake sign-ups, better
+deliverability, and consent you can show.
+
+1. In the form editor, under **Double opt-in**, tick **Ask people to confirm their email address
+   first**.
+2. **Confirmation email**: choose an email template that has the link `{{event.confirm_url}}`. To get
+   one quickly, click **✨ Create the standard one**: Pulse makes the template *Confirm your
+   subscription* (subject *Please confirm your subscription*, a **Yes, subscribe me** link) and picks
+   it. Edit it under **Message templates** any time.
+3. Optionally, **After confirming, show** a message (`Thanks — you're subscribed.`), **Or send them to**
+   a page on your site (the page wins over the message).
+4. **Save**.
+
+What happens then:
+
+- The person becomes a contact right away, with what they typed, and gets the confirmation email.
+  The form's lists (static segments), tags and channel opt-ins wait.
+- The link in the email opens a page, *Confirm your subscription*, with a **Yes, confirm my
+  subscription** button. Only the button confirms: mail scanners that open links confirm nothing.
+- When they click it, they join the lists, get the tags and the opt-ins, and see *You're confirmed*
+  (or your message, or your page). Clicking again does nothing more.
+- Links work for 7 days. After that the page says *This link has expired*: they fill in the form
+  again.
+- Each step is an event on the contact: `optin_requested` when the email goes out, `optin_confirmed`
+  when they confirm. Both show on the contact's **Consent & privacy** tab ([tutorial 11](11-admin-and-privacy.md#6-a-persons-data-see-it-export-it-erase-it))
+  and work in segments and campaign triggers.
+
+A double opt-in form needs a required **Email** field. Pulse sends no reminder to people who never
+confirm; to send one, make a triggered campaign that starts on `optin_requested`, waits a day, and
+sends a reminder if they haven't done `optin_confirmed` ([tutorial 6](06-triggered-and-automation-campaigns.md)).
+
+### The rules Pulse checks
+
 The rules Pulse checks as you type: an **Email** field (key `email`) or a **Phone** field (key
 `phone`) is required, as it says who filled in the form; up to 30 fields, 10 pages and 5 file fields; a
 page break goes between fields, not first or last; keys use letters, digits and `_`.
@@ -369,6 +413,135 @@ anonymous. Files always download; they never open in the browser.
 
 ![Assets: the 2026 bulk price list, PDF, gated by Newsletter sign-up, with its download count](img/05-assets.png)
 
+## 10. Check an email for spam
+
+Before you send an email, check whether its content looks like spam to inbox filters.
+
+1. Open the email template and click **🛡️ Spam check** (top right).
+2. The **Spam check and inbox preview** window opens.
+
+At the top is the **inbox preview**: one line as it would look in an inbox list, with your sender, the
+subject and the first words of the email (the preheader). If the first words are "View in browser" or
+an image's name, change the start of your email.
+
+Under it is the **score**: points for everything a spam filter dislikes. Under 3 points is good.
+
+| Rating | Means |
+|---|---|
+| ✅ **Looks good** | Nothing here should send it to spam |
+| ⚠️ **Risky** | Some filters may file it as spam or Promotions. Fix the items listed |
+| 🚫 **Likely spam** | Most filters would flag it. Fix the items before sending |
+
+Each item has its points and how to fix it. Pulse checks, among others: spammy words in the subject
+("FREE!!!", "100% guaranteed"), a subject in capitals or with many exclamation marks, an email that is
+only an image, images without alt text, no plain-text version, link shorteners, a link whose text names
+another website than it goes to, hidden text, forms or scripts, and bare web addresses. The line at
+the bottom gives the email's size (Gmail cuts off emails over 102 KB), and how many links and images
+it has.
+
+The check looks at your content only. It doesn't run the network tests some spam filters use, and it
+doesn't send to real test inboxes. Your sending domain matters as much: check it on **Settings →
+Channels** ([tutorial 4](04-channels.md#12-check-your-sending-domain)).
+
+## 11. Reuse content: content blocks
+
+A content block is a header, footer, offer or signature you write once and use in any template. Change
+the block and every template that uses it changes from the next send.
+
+1. On **Content → Message templates**, click **🧩 Content blocks**, then **New block**.
+2. **Name**: `Festive footer`. The **Key** fills in from the name (`festive_footer`); templates use the
+   block as `{{block.festive_footer}}`.
+3. **Content (emails)**: write the block in the rich text editor (links, images, tables).
+4. **Plain text (SMS, WhatsApp, push, subjects)**: the words for channels without formatting. Leave it
+   empty to use the content's words.
+5. Click **Save block**.
+
+To use it, put `{{block.festive_footer}}` where it should go in a template: click **Copy** next to it
+in the block list and paste, or pick it from the **{ } Variable** button's list. Previews and sends
+use the block's current content, and variables inside a block (`{{contact.first_name}}`) are filled in
+for each contact.
+
+When you open a block again, **Used by** lists the templates that use it. Saving says how many
+templates get the change. Changing a block's key breaks templates that use the old key. **Delete**
+says how many templates use it; after deleting, they show nothing in its place.
+
+Blocks can't contain other blocks. The keys `feed` and `recommendations` are kept for Pulse's own
+blocks: `{{block.feed}}` (RSS-to-email, [tutorial 7](07-one-time-campaigns.md#10-a-newsletter-from-your-blog-the-archive-and-rss-to-email))
+and `{{block.recommendations}}` ([tutorial 19](19-product-recommendations.md)).
+
+## 12. Write it in several languages
+
+One template can have a version per language. Each contact gets the version for their language;
+everyone else gets the default.
+
+1. Open the template. Above the editor, the **🌐 Language** bar shows **Default**.
+2. Click **+ Add language**. Choose one of the offered languages (Hindi, Tamil, Marathi, English and
+   others), or type a code such as `hi-IN` and click **Add**. A template can have up to 20 languages.
+3. The language's editor opens. Click **Copy from Default** to start from the default's words, then
+   translate them. (With AI help on, **✨ Translate from Default** does a first draft, step 13.)
+4. **Save template**.
+
+What a language version holds depends on the channel:
+
+| Channel | A language version has |
+|---|---|
+| Email | **Subject** and the email body (rich text) |
+| SMS, RCS | **Message** |
+| Push, app inbox | **Title** and **Body** |
+| WhatsApp | The **Approved template name** and its **Template language code** (WhatsApp approves each language separately) |
+
+Leave a field empty to use the default's. Links, images and settings stay the default's, and
+variables work the same.
+
+**Who gets which version.** Pulse reads the contact's `locale` field (or, without it, `language`).
+An exact match wins (`hi-IN`); otherwise the same language does (a contact with `hi-IN` gets the `hi`
+version). Everyone else, and contacts with no language, get the default. **Preview as contact** shows
+the version that contact would get.
+
+**Remove language** deletes a version; contacts in that language then get the default. An email built
+with the drag-and-drop builder keeps its layout in the default only: its language versions are rich
+text. Reports count all languages together.
+
+## 13. Let AI help
+
+If whoever runs your Pulse server has turned on AI help (with the setting `PULSE_AI_API_KEY`), you
+see **✨** buttons in three places. Without it, the buttons don't show.
+
+**In a template:** click **✨ AI** (top right; not on WhatsApp templates). The **✨ AI help** window
+has:
+
+- **Subject line ideas** (email) or **Title ideas** (push, app inbox): click **Suggest**, then **Use**
+  next to the one you like. **More ideas** asks again.
+- **Rewrite the email body** (or the message, or the body): choose how (**Shorter**, **Friendlier**,
+  **Simpler words**, **More urgent**, **More formal**, **Fix spelling and grammar**) and click
+  **Rewrite**. **Now** and **Suggested** show side by side; **Use the suggestion** puts it in the
+  editor. An email in the drag-and-drop builder can't be rewritten: switch it to rich text or HTML
+  first.
+
+**In a language version:** **✨ Translate from Default** fills it with a translation of the default's
+words. If it already has words, Pulse asks before replacing them.
+
+**In a segment:** **✨ Describe who should be in it**, e.g. *Bought twice in the last 90 days, live in
+Pune, not unsubscribed*, then **Build**. The conditions appear in the rule builder for you to check
+([tutorial 3](03-segments.md)).
+
+What to know:
+
+- Nothing changes until you click **Use**, **Use the suggestion**, **Translate** or **Build**, and you
+  can still edit the result, or leave without saving.
+- Variables like `{{contact.first_name}}` must come back unchanged, and a segment's conditions must be
+  valid; if not, Pulse refuses the suggestion.
+- Only the words you are working on (and your field and event names, for segments) are sent to the AI
+  service, never your contacts' data.
+- A workspace can make 20 AI requests a minute. There is no image generation.
+
+## 14. How a template does: the Report tab
+
+Open a saved template and click **📊 Report** to see how its messages did across every campaign that
+sent it: sent, delivered, failed, bounced, opened, clicked; a chart by day or hour; when people open;
+and the split by campaign and provider. [Tutorial 15](15-delivery-and-dashboards.md#11-how-one-template-does-the-template-report)
+explains it.
+
 ## What you have now
 
 - A personalised email and SMS, previewed as a real contact and tested in Mailpit and the test inbox
@@ -376,5 +549,7 @@ anonymous. Files always download; they never open in the browser.
 - A two-page enquiry form with a file upload, hidden campaign field and consent, and its first
   submission
 - A price list that people download after signing up
+- Ways to make every template better: a spam check, shared content blocks, language versions, AI
+  suggestions, and a report per template
 
 **Next:** [Tutorial 6, Triggered and automation campaigns](06-triggered-and-automation-campaigns.md): send these templates automatically, with waits and decisions.

@@ -1,8 +1,9 @@
 # Tutorial 7: One-time campaigns, all settings and results
 
 In about 15 minutes you will send one email to a whole segment with an A/B test of two subject lines,
-pick the winner, and read the results: the funnel, why some messages didn't go out, and the people
-behind every number. Then you will schedule a weekly campaign and cancel it.
+pick the winner, and read the results: the funnel, why some messages didn't go out, the chart over
+time, and the people behind every number. Then you will schedule a weekly campaign and cancel it, and
+turn your blog's feed into a newsletter with a public archive.
 
 A one-time campaign sends **one message to everyone in your chosen segments, sent once or repeated
 daily, weekly or monthly**. [Tutorial 14](14-campaigns-hub-and-one-time-campaigns.md) shows the quick
@@ -158,6 +159,13 @@ whose time has already passed when you schedule gets it right away.
 
 This tutorial leaves the box unticked.
 
+**⏰ Send at each contact's best time (within 24 hours of the start)** (**Once** only): each person
+gets it at the hour they usually open, click or read, worked out from the last 90 days; people with no
+history get the hour your audience is busiest. It turns own-time-zone sending off.
+[Tutorial 14](14-campaigns-hub-and-one-time-campaigns.md#at-each-contacts-best-time) has the details.
+A **sending speed** (spreading a big send over hours) is set in the step-by-step wizard
+([tutorial 14](14-campaigns-hub-and-one-time-campaigns.md#sending-speed)).
+
 **Send deadline** (optional): tick **Send deadline: drop messages that would go out late** and fill
 **Don't send after** (a time of day: the first time it comes after the send starts, in the zone named
 under it, or in each contact's own zone for a local-time send) and/or **...or more than** a number of
@@ -170,6 +178,21 @@ as failed with the reason *Send deadline passed*, and counted in the results).
 **Conversion goal** (optional): type an event, e.g. `purchase`, and **Within** `3` **days of their
 send** (1 to 30). The results then count recipients who did it within that many days of their send,
 and show the revenue from them.
+
+**Control group** (optional): did the campaign make people buy, or would they have bought anyway? To
+find out, keep some of the audience back. Choose **Keep back 10% to measure the effect** (5% to 50%;
+the default is **None: everyone gets it**). Pulse picks the same people for every send of this
+campaign (and keeps them out of the A/B winner send too). They get nothing, and the results show them
+as skipped, *Kept back: campaign control group*. A control group needs a conversion event above: if
+there is none, a note asks you to choose one. The results then compare the two groups (step 8,
+**Uplift**).
+
+A workspace can also keep a share of all contacts away from every campaign, for a long-term view of
+what your marketing adds: see [tutorial 11](11-admin-and-privacy.md#5-automation--limits)
+(**Workspace control group**).
+
+Below the conversion goal, an email campaign has **Archive and feed**: the public archive and
+RSS-to-email (step 10).
 
 **Who it reaches now**, at the bottom of the form, counts exactly who would get it if it went now: in
 the segments, after the left-out ones, not unsubscribed from the channel, reachable on it (an address
@@ -252,6 +275,16 @@ yourself before then.*).
 | **By channel** | When some WhatsApp or RCS messages fell back to SMS |
 | **Top links** | Links clicked most, with contacts and clicks |
 | **By day** | Sent, opened and clicked per day |
+| **Over time** | A chart of **Sent**, **Delivered**, **Failed**, **Bounced**, **Opened**, **Clicked** (and **Read**) by day, or by hour for 14 days or fewer. **Period** picks the days; click a name in the legend to switch its line on or off. Times are in your browser's time zone |
+
+**Uplift.** With a control group and a conversion goal, a box in the results compares them, e.g.
+*📈 Uplift: +3.2 points — recipients did purchase 8.1% of the time, the control group (120 people kept
+back) 4.9%. About 96 conversions came from the campaign itself.* The number of people kept back is a
+link to them. If recipients didn't do better, it says *So far the campaign hasn't beaten doing
+nothing.* Give it the full conversion window before you judge.
+
+In **Why messages didn't go out**, the people kept back show as *Kept back: campaign control group*
+(and *Kept back: workspace control group* for the workspace one). They aren't failures.
 
 Each contact counts once. **Delivered** shows "—" when the provider doesn't report delivery: plain
 SMTP relays (as in local development), Gmail and Google Workspace don't; sending services with
@@ -310,12 +343,58 @@ audience. Messages already sent stay sent.
 To change a scheduled campaign (another template, a later time), cancel it, make the change, and
 schedule it again.
 
+## 10. A newsletter from your blog: the archive and RSS-to-email
+
+An email campaign can do two more things, under **Archive and feed** on its **All settings and
+results** page.
+
+### The public archive
+
+Tick **🗂️ Show its sends in the public archive**. Anyone can then read the campaign's sends on your
+workspace's archive page, `http://localhost:7080/p/<workspace>/archive`; the line under the box
+links to it.
+
+- The archive lists the sends of every campaign that has the box ticked, newest first. Each send has
+  its own page.
+- There is an RSS feed of the archive at `/p/<workspace>/archive.rss`, so people can follow your
+  newsletter in a feed reader.
+- Each page shows the email as a contact with no details would see it: `{{contact.first_name |
+  default:"there"}}` shows "there". Write the template so it reads well that way.
+- The page shows the template as it is now, not a frozen copy of what was sent: if you change the
+  template, old sends in the archive change too.
+
+### RSS-to-email: send what's new on your blog
+
+With **Content from an RSS feed (optional)**, each send lists what's new in a feed (your blog, a news
+page) since the last send.
+
+1. Make a **repeating** email campaign, e.g. **Every week** (step 9).
+2. In its template, put `{{block.feed}}` where the new items should go. Each item shows its title (a
+   link), a summary and its image; up to 10 items.
+3. In **Content from an RSS feed (optional)**, paste the feed's address, e.g.
+   `https://blog.example.com/feed.xml`.
+4. Click **Preview**. Pulse reads the feed and shows its title, how many items it has, and which ones
+   *would go in the next send*. If nothing is new: *Nothing new in the last week: the next send would
+   be skipped.*
+
+What happens at each send:
+
+- Pulse reads the feed and sends the items published since the last send.
+- Nothing new: that send is skipped, so nobody gets an empty newsletter.
+- The first send looks back one repeat (a day, a week or a month).
+- If the feed can't be read, that send is skipped too.
+
+Limits: RSS-to-email and the archive are for email campaigns only, and RSS-to-email doesn't work with
+A/B tests. Items without a date count only on the first send.
+
 ## What you have now
 
 - A sent one-time campaign with an A/B test, a winner picked by hand and results with a funnel,
   opens, clicks, a conversion and revenue, each number opening the people behind it
 - A way to test safely: a small segment of test contacts, **Preview** and **Send a test**
 - A repeating campaign scheduled, then cancelled and deleted
+- A control group to prove a campaign's effect, and the chart of a campaign over time
+- A newsletter that sends what's new on your blog, with a public archive
 
 **Next:** [Tutorial 8](08-website-and-app-messages.md), Website & app messages: a website pop-up,
 dynamic web content and a mobile in-app message.

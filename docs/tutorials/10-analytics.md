@@ -1,7 +1,9 @@
 # Tutorial 10: Analytics
 
 In about 20 minutes you will read the live Overview, build your own report, follow contacts through a
-funnel, see who comes back with a cohort report, and find out which campaigns bring in revenue.
+funnel, see who comes back with a cohort report, find out which campaigns bring in revenue, group
+your buyers by their value and churn risk, and follow the paths people take before and after an
+event.
 
 The ready-made dashboards (**Users**, **Campaign performance**, **Products** and **Live events**) and
 how messages are delivered, bounced or skipped have their own tutorial:
@@ -221,12 +223,97 @@ At the bottom, **Revenue settings** says which events count. Click **Change**:
 Click **Save settings**. Campaign reports and **Campaign performance** use the same settings for their
 revenue.
 
+## 7. Customer value: your best buyers, and who is slipping away
+
+**Analytics → Customer value** groups your buyers by three things (RFM): how **recently** they bought,
+how **often**, and how much they **spend**. It also gives each buyer a **churn risk**: how likely they
+are to stop buying. Pulse works it out every day from the last two years of purchases, using the
+revenue event and amount from the **Revenue settings** (section 6).
+
+At the top: **buyers scored**, **their revenue (2 years)**, how many are **at high churn risk**, and the
+**revenue from them**. Below, one row per group, best first:
+
+| Group | Who, and what to do |
+|---|---|
+| **Champions** | Bought recently, buy often and spend the most. Reward them; ask for reviews and referrals |
+| **Loyal** | Buy often. Offer loyalty perks and upsell |
+| **Potential loyalists** | Recent buyers with a few orders. Offer membership or a reason to come back |
+| **New customers** | First purchase just now. Welcome and onboard them |
+| **Promising** | Recent, but bought once. Build the habit with a timely follow-up |
+| **Need attention** | Middling recency and frequency. Limited-time offers and recommendations |
+| **About to sleep** | Haven't bought for a while and bought little. Re-engage before they lapse |
+| **At risk** | Used to buy often, not lately. Win them back with something personal |
+| **Can't lose them** | Were among the best, gone quiet. Reach out now, by more than one channel |
+| **Hibernating** | Long gone, bought little. Low-cost reminders only |
+| **Lost** | The longest gone. Leave them or try one last win-back |
+
+Each row shows its **Buyers** (and their share), **Revenue**, **Avg orders**, **Days since last**
+order, and its **Churn risk** split into **Low**, **Medium**, **High** and **Lost**.
+
+**Every count opens those contacts**, as filter chips (*value* and *churn*) on the Contacts page. To
+reach a group in a campaign, click **Make a segment** on its row: Pulse creates the dynamic segment
+*Customer value: At risk* and opens it. It stays up to date as buyers move.
+
+How the scores work:
+
+- Recency, frequency and spend are each scored 1 to 5 against your own buyers (in fifths), so the
+  groups adjust as your business grows.
+- Churn risk compares the time since each buyer's last order with their own usual gap between
+  orders: 1.5 times overdue is **Medium**, 3 times is **High**. One-time buyers go **Medium** after 90
+  days and **High** after 180. A year without an order is **Lost**.
+- Groups compare buyers with each other, while churn risk uses time. So a fast-growing shop can have
+  buyers in the *Lost* group whose churn risk is still low.
+
+**Score now** (top right) scores again straight away, for example after you change the revenue
+settings; it can run once every 5 minutes. Without any purchases, the page says *No buyers scored
+yet* and which event it reads.
+
+**Act the day someone slips.** When a buyer moves to another group, Pulse records an `rfm_changed`
+event on them (with the new `group` and the `previous_group`) and updates their fields `rfm_group`,
+`rfm_score` and `churn_risk`. Start a triggered campaign on `rfm_changed` where `group` is *At risk*
+to win people back the day they slip ([tutorial 6](06-triggered-and-automation-campaigns.md)), or
+write `{{contact.rfm_group}}` in a message. There is no machine-learning churn prediction: the risk
+comes from each buyer's own rhythm.
+
+## 8. Paths: what people do before and after an event
+
+**Analytics → Paths** shows what people did after an event, step by step, or what they did before
+one. For example: what do new sign-ups do next? What did people do just before they bought?
+
+1. **Show what people did**: **After** or **Before**.
+2. **Event**: type or pick one, e.g. `signup`.
+3. **Steps**: 2 to 6 (4 by default).
+4. **In the last**: 7, 30 or 90 days.
+5. **Leave out**: events to skip. Page views (`page_view`, `session_start`) are left out at first,
+   because they fill every path; click one to put it back, or **+ event** to leave out another.
+
+The page updates as you change it. At the top, *1,240 people did signup*, and a flow chart: one column
+per step, a box per event with how many people, and bands between them. Each step shows the 7 biggest
+events; the rest are grouped as *Other*, and *(stopped)* counts people who did nothing more. Point at a
+band to read it (*signup → add_to_cart: 310 people*).
+
+Below, **Most common paths** lists whole paths with how many people took them and their share, e.g.
+`signup → product_view → add_to_cart → purchase`.
+
+What to know:
+
+- Pulse's own events (messages sent, campaign steps, tags) are left out, so you see what people did.
+- The same event several times in a row counts once.
+- A path starts at a person's first time doing the event (or, for **Before**, ends at the last time).
+- Pulse looks at up to 300,000 people and keeps the 500 most common paths. Paths can't be split by
+  segment yet.
+
+Paths include app events such as `app_uninstalled`: put it as the event with **Before** to see what
+people did before they removed your app ([tutorial 4](04-channels.md#mobile-push-firebase-cloud-messaging)).
+
 ## What you have now
 
 - The live Overview and a report of your own, filtered and charted
 - A funnel with its drop-offs, broken down by plan
 - A cohort report of who comes back
 - Revenue, and which campaigns earned it
+- Your buyers grouped by value and churn risk, with segments to act on
+- The paths people take before and after an event
 
 For the dashboards, delivery and the contacts behind each number, go on to
 [tutorial 15](15-delivery-and-dashboards.md).

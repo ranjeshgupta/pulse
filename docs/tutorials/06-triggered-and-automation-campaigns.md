@@ -283,6 +283,14 @@ a campaign is live its steps are locked:
 
 ![Live status, Duplicate, the Pause to edit button, and the note "This campaign is live, so its steps are locked"](img/06-live.png)
 
+### When someone else must approve it
+
+If your role can't publish triggered and automation campaigns, the button reads **Save and ask for
+approval** instead. Click it, add a **Note for the approver (optional)** (*Diwali send to all Pune
+customers, offer valid till Sunday.*) and click **Ask for approval**. A banner on the campaign says
+**⏳ Waiting for approval**. [Tutorial 14](14-campaigns-hub-and-one-time-campaigns.md#10-approvals-a-second-pair-of-eyes)
+explains what the approver sees, and how a workspace can make every launch need a second person.
+
 ## 12. Try it with a test contact
 
 Use the SDK test page from tutorial 1 (**Settings → Sign-in & keys → Your website → Open the test
@@ -342,6 +350,44 @@ Every number in the report is a link to its people: **1 in progress** opens the 
 through the steps, a reason's count opens the contacts it happened to at that step, a day in **By day**
 opens who got a message that day. The report counts *entries* where the list counts *people*, so a
 person who went through twice is once in the list; the list says so when it matters.
+
+In **Messages by step**, a step's template name opens that template's own report: how the message did
+in every campaign that uses it ([tutorial 15](15-delivery-and-dashboards.md#11-how-one-template-does-the-template-report)).
+
+### Over time
+
+The **Over time** chart at the top of the report shows the campaign day by day:
+
+| Line | Counts |
+|---|---|
+| **Entered**, **Finished** | People who started and finished the campaign |
+| **Joined the segment**, **Left the segment** | For an automation campaign: people joining and leaving the segment that starts it (*Left* starts switched off) |
+| **Sent**, **Delivered**, **Failed**, **Bounced**, **Opened**, **Clicked**, **Read** | What happened to its messages |
+
+- **Period** picks the days (30 by default, up to 120).
+- **Chart**: **Day by day**, or **Hour by hour** for 14 days or fewer.
+- **Show**: **The whole campaign**, or one step. For a step you see **Reached the step**, its **Yes**
+  and **No** (or each split path), and its messages.
+- Click a name in the legend to switch its line on or off. Times are in your browser's time zone.
+
+Use it to see when a change you made started to work, or which day a decision began sending more
+people down **No**. Step lines and segment joins and leaves are recorded from this version of Pulse
+on: older campaigns have them only from then.
+
+### Decisions and conditions
+
+Below the chart, **Decisions and conditions** lists every decision, condition and split in step
+order:
+
+| Column | Shows |
+|---|---|
+| **Step** | Its number and name, e.g. *2. Opens email* |
+| **Reached** | How many times people reached it |
+| **Yes**, **No** | The share and the count that went each way |
+| **Paths** | For a split, the count on each path |
+
+Click a row to see that step in the **Over time** chart. These are counts: Pulse doesn't keep who took
+**Yes** or **No**, so there is no list of people behind them.
 
 ## 14. Pause it
 

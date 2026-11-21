@@ -111,7 +111,8 @@ then a line of facts: **External ID**, **Email**, **Name**, **Stage**, **Owner**
 
 The right-hand column keeps the panel's sections: owner, stage and company, tags and points,
 consent, lists and choices, **Devices** (the push devices registered for them), app inbox and
-attributes. The main part has three tabs.
+attributes. The main part has four tabs: **Overview**, **Messages**, **Events** and **Consent &
+privacy**.
 
 **Overview** answers "can we reach this person, and what do they do?":
 
@@ -145,6 +146,11 @@ attributes. The main part has three tabs.
 **Pulse events** (what Pulse recorded: messages, segment changes, campaign steps), or type event names
 separated by commas and click **Filter** (or click a name under the box). Click an event to see its
 properties.
+
+**Consent & privacy** has their consent history in words (opt-ins, opt-outs, confirmations, form
+consents, spam complaints) and their data rights (download, correct, withdraw consent, delete), for
+requests under India's DPDP Act or GDPR. [Tutorial 11](11-admin-and-privacy.md#everything-in-one-place-the-consent--privacy-tab)
+walks through it.
 
 ## 3. Owner, stage and company
 
@@ -474,6 +480,51 @@ To merge two contacts that don't share an email or phone (say, an old and a new 
 one to fold away, click **Merge into…**, search by ID, email, name or phone, choose the contact to
 keep and click **Merge**.
 
+### Merge automatically: identity keys
+
+Merging by hand works for a few duplicates. If your contacts come from several systems (your website,
+your app, a store till, a CRM), the same person often arrives with different IDs but the same email or
+phone. **Identity keys** tell Pulse which details identify a person, so it treats them as one.
+
+Go to **Settings → Identity** (under *Contact data*; changing it needs an admin). The **Identity keys**
+table lists the keys, highest priority first. A new workspace has one: **External id**, *the id your
+website, app or CRM sends with every event*. Contacts are then told apart by their ID only, and
+contacts sharing an email or phone are only listed under **Duplicates**.
+
+1. Under the table, choose **Email address** in **Add a field…** and click **Add key**. Any contact
+   field works too: a user name, a customer number, PAN.
+2. In **When two contacts share it**, choose **Merge them automatically** or **Only list them under
+   Duplicates**.
+3. Use **↑** and **↓** to set the order: Pulse matches an event by the keys from top to bottom, and the
+   first match wins.
+4. Read **What this does**: it explains your choices in words, e.g. *An event is matched by external
+   id, then email address. A new external id whose email address is already known joins the contact
+   that has it.*
+5. Click **Save identity keys**. Events use the keys within 30 seconds. (**Discard changes** undoes
+   your edits; leaving the page asks first.)
+
+Emails are compared in lower case, phones as digits with the country code, other fields in lower
+case. An external ID that is itself an email address or phone number counts as one, and fills in the
+contact's `email` or `phone` if they have none.
+
+**What happens next.**
+
+- A new event or import whose email (say) belongs to another contact joins that contact, or the two
+  are merged, as in a manual merge: the higher-priority contact's values win, and history, tags,
+  points and static segments move to it.
+- Pulse fills the new key in for your existing contacts in the background. The **Status** column
+  shows *Reading existing contacts… 40%*, then **Ready**.
+- Contacts that already shared a value before you added the key are **not** merged in bulk: they show
+  under **Duplicates**, which gets a tab for each key, for you to merge by hand.
+
+**Be careful with shared emails and phones.** Merging can't be undone. If people in your audience
+share an email address or phone (a family number, an office inbox), choose **Only list them under
+Duplicates** for that key.
+
+Only events from your servers, imports and integrations merge contacts. Website and app events (where
+anyone can type any email) and anonymous visitors never do. Two new contacts that arrive in the same
+import with the same new value aren't merged either: they show under **Duplicates**.
+
 ## 11. Companies
 
 For B2B, link contacts to the companies they work for. Go to **Companies** (under *Audience*).
@@ -504,6 +555,7 @@ field, such as industry).
   guests**, and one of them (`store-1001`) with an owner, a stage, tags and points
 - A feel for filters, saved views, exports, duplicates and companies, for **· why?** on a contact's
   segments, and for the full contact page with its reachability, messages and events
+- Identity keys that merge the same person arriving from different systems
 
 **Next:** Tutorial 3, Segments: build dynamic segments with the rule builder, manage static ones, and
 set up scoring and stages.

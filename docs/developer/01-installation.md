@@ -110,7 +110,7 @@ production and use your own provider.
 | `make docs-seed` | The "Acme Retail" workspace used for the documentation's screenshots |
 | `make test` | Go unit tests (no services needed) |
 | `make it` / `make e2e` | Integration and end-to-end tests against the running stack |
-| `make load ARGS="-rate 10000 -duration 45s"` | Load test ([results](../03-load-test.md)) |
+| `make load ARGS="-rate 10000 -duration 45s"` | Load test ([results](../architecture.md#18-performance-and-the-load-test)) |
 
 To start again from empty databases: `docker compose -f deploy/docker-compose.yml down -v`. The `-v`
 **deletes all the volumes** (every workspace, contact and event); use it only on a local stack.
@@ -325,7 +325,7 @@ partition count you want; `migrate` then keeps them.
   A/B winners are claimed with row locks (`FOR UPDATE SKIP LOCKED`), so no step fires twice.
 - Measured on one 12-core machine running everything: 10,000 events/s at p95 313 ms, and 20,000
   events/s sustained. Redis (single-threaded) is the next limit; see the
-  [load test](../03-load-test.md).
+  [load test](../architecture.md#18-performance-and-the-load-test).
 
 ### TLS and the reverse proxy
 

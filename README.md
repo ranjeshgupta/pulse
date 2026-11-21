@@ -115,10 +115,9 @@ For production (separate roles, scaling, backups, TLS) see
   [webhooks and integrations](docs/developer/06-webhooks-and-integrations.md),
   [architecture and extending](docs/developer/07-architecture-and-extending.md),
   [contributing and testing](docs/developer/08-contributing-and-testing.md).
-- **Design notes**: [architecture](docs/02-architecture.md),
-  [load tests](docs/03-load-test.md), [feature checklist](docs/05-feature-parity.md),
-  [design review](docs/01-review.md), and the plans the features were built from
-  ([web app and channels](docs/04-phase2-plan.md), [marketing team requirements](docs/06-marketing-team-plan.md)).
+- **Design and product**: [architecture](docs/architecture.md) (with the load test results),
+  [product overview](docs/product.md) (every feature and its limits), and
+  [how it compares](docs/comparison.md) with other open-source and SaaS products.
 
 ## How it works
 
@@ -139,13 +138,13 @@ Every role is the same binary (`pulse api`, `pulse segments`, `pulse dispatch`â€
 so each scales on its own. One person's events stay in order (Kafka is keyed by contact); segment
 membership lives in Redis bitmaps for instant checks and counts; the event history lives in
 ClickHouse for windows, backfills, reports and dashboards. Details:
-[architecture](docs/02-architecture.md).
+[architecture](docs/architecture.md).
 
 ## Sizing
 
 Measured on one 12-core / 31 GB workstation running **everything**: Kafka, ClickHouse, Postgres,
 Redis, Pulse (`pulse all`) and the load generator, next to other software. These numbers are a
-floor. Details: [load test](docs/03-load-test.md).
+floor. Details: [load test](docs/architecture.md#18-performance-and-the-load-test).
 
 **The month scenario** (`make load ARGS="-scenario month ..."`) creates the contacts, then sends a
 whole month of website traffic as fast as the API takes it. Each page view carries 2 events (the
@@ -227,7 +226,7 @@ curl -s localhost:7080/v1/contacts/u1 -H "Authorization: Bearer $KEY"   # the pr
 
 Some contact fields are kept by Pulse itself (tags, points, stage, consent, company, ownerâ€¦) and
 change only through their own APIs and events: see
-[profiles and reserved attributes](docs/02-architecture.md#profiles-and-reserved-attributes).
+[profiles and reserved attributes](docs/architecture.md#7-identity-resolution-and-profiles).
 
 ## Repository layout
 
@@ -255,7 +254,7 @@ docs/               tutorials, developer guides, design notes and the screenshot
 
 ## Limitations
 
-The full, current list is under [Known gaps](docs/05-feature-parity.md#known-gaps). The ones most
+The full, current list is under [Known gaps](docs/product.md#honest-limits-at-a-glance). The ones most
 likely to matter:
 
 - The provider and integration adapters are tested against mock servers; check each with a real

@@ -14,9 +14,8 @@ with the [tutorials](../tutorials/README.md) instead.
 | 7 | [Architecture & extending](07-architecture-and-extending.md) | Roles, Kafka topics, data stores, adding a channel, a journey step or a segment filter |
 | 8 | [Contributing & testing](08-contributing-and-testing.md) | Repository layout, `make test` / `it` / `e2e`, web app tests, screenshots for the docs |
 
-Design notes written while building Pulse: [design review](../01-review.md),
-[architecture](../02-architecture.md), [load test](../03-load-test.md),
-[feature parity](../05-feature-parity.md), [the marketing team's plan](../06-marketing-team-plan.md).
+For how Pulse is built and what it does: [architecture](../architecture.md) (including the load test),
+[product overview](../product.md) and [how it compares](../comparison.md).
 
 ## Screenshots in these docs
 

@@ -2,22 +2,24 @@
 
 In about 25 minutes you will put a slide-in on your website and decide which pop-up wins when several
 could show, make a part of a page show different content to different people (and check who sees
-which version), and set up an in-app message for your mobile app.
+which version), set up an in-app message for your mobile app, and give a place in your app's screens
+different content for different people.
 
 **You need:** the Pulse web SDK on your site, or the SDK test page (tutorial 1, step 6), and a segment
 or two (tutorial 3). Creating and publishing these needs **Content: Edit**.
 
 ---
 
-## 1. Three kinds of message
+## 1. Four kinds of message
 
 | Kind | Where | What it is |
 |---|---|---|
 | **Pop-up, banner bar or slide-in** (a *focus item*) | Website | A message over the page: shown on load, after a delay, on scroll, or when the visitor is about to leave |
 | **Dynamic web content** | Website | A placeholder in your page that shows different content to different segments |
 | **In-app message** | Mobile app | A pop-up, banner or full-screen message in your Android or iOS app, when an app event happens |
+| **App content slot** | Mobile app | A place in your app's screens (a home banner, an offers card) that shows different content to different segments |
 
-In the sidebar, under **Campaigns**, click **Website & app messages**. All three kinds are listed
+In the sidebar, under **Campaigns**, click **Website & app messages**. All four kinds are listed
 together, with their **Channel** (**Website** or **Mobile app**), **Type**, **Schedule** and **Status**
 (**Live** or **Draft**). For in-app messages, **Seen by · clicked** counts the people who saw it (each
 once) and the share who tapped a button. Filter with **All / Website / Mobile app**, the type list, or
@@ -223,7 +225,7 @@ the live messages and show each one when its trigger happens in the app; Pulse i
 targets them. So here you set one up and preview it; you see it for real in an app that uses a Pulse
 SDK (see the developer docs).
 
-**New → Mobile app** opens the editor.
+**New → Mobile app → In-app message** opens the editor.
 
 ![The in-app message editor with the Pop-up layout and its phone preview](img/08-inapp.png)
 
@@ -286,6 +288,56 @@ The phone on the right previews it:
 The app SDKs report when a message is shown, tapped and dismissed; the list's **Seen by · clicked**
 column counts each person once. On websites, use a pop-up, bar or slide-in instead.
 
+## 5. Content inside your app: app content slots
+
+An app content slot is the app's version of dynamic web content (section 3): a named place in your
+app's screens, such as `home_banner` or `offers_card`, that shows each person the content meant for
+them. Your app developers put the slot in the app once; after that you change what it shows from
+Pulse, without a new app release.
+
+### Set up the content
+
+1. **New → Mobile app → App content slot**.
+2. **Name**: `Home banner`. **Slot key**: `home_banner`. The hint under it shows how the app shows it:
+   `PulseSlot(id: 'home_banner')` (Flutter), `PulseSlotView` (Android, iOS).
+3. **Where** is already **App**. (A new slot can switch between **Website** and **App**; a saved one
+   can't.)
+4. Click **Add a variant**, name it `VIPs`, and under **Audience rules** pick **VIP customers**. App
+   slots use segments and contact-field rules; page addresses and devices don't apply in an app.
+5. Choose what the variant shows: a **Card** (the default) or **HTML (web view)**.
+
+A **Card** has:
+
+| Field | Example |
+|---|---|
+| **Title** | `Weekend sale: 20% off` |
+| **Text** | `Hi {{contact.first_name \| default: 'there'}}, your favourites are on sale.` (variables work) |
+| **Image address** | `https://cdn.example.com/sale.png` (https only) |
+| **Button text** and **Opens** | `Shop now`, and where the button goes: `https://…` or an app link such as `myapp://sale` |
+| **Custom values for your app** | Names and values your app reads when it draws the slot itself, e.g. `theme = dark`, `offer_id = W20`. **Add a value** for each |
+
+On the right, a phone shows the card as the SDK's ready-made view draws it. An empty card shows
+*Nothing shows: the slot stays empty.* Switching between **Card** and **HTML (web view)** clears the
+other one, so Pulse asks first.
+
+6. **Everyone else sees**: a card (or HTML) for app users who match no variant, including people who
+   haven't signed in. Leave it empty to show nothing.
+7. Use **Check overlap** and **Schedule** as for web content, then **Publish**.
+
+The order of variants, the never-shown warnings and the overlap check work as in section 3.
+
+### In the app
+
+The panel **Show it in your app**, at the bottom, has the line of code for each SDK (Flutter,
+Android, iOS). The app fetches the slot, draws the card (or hands it to the app's own view), and
+records `app_content_viewed` and `app_content_clicked` on the contact, for segments and reports.
+**Unpublish** empties the place in the app within seconds; the slot is kept as a draft.
+
+Triggered and automation campaigns can fill app slots too, with a **Push dynamic content** step.
+
+Limits: the SDKs' ready-made views draw cards. **HTML (web view)** content needs your app to show it
+itself. The app keeps the content in memory only, so it fetches it again after a restart.
+
 ## What you have now
 
 ![The list with Newsletter slide-in, Sale banner and Cart reminder in the app next to the seeded items](img/08-list-after.png)
@@ -295,5 +347,6 @@ column counts each person once. On websites, use a pop-up, bar or slide-in inste
 - **Sale banner**: a content slot with two variants (testers; VIPs on their phone), checked for
   overlap, and a default for everyone else
 - **Cart reminder in the app**: an in-app banner for contacts with an abandoned cart, saved as a draft
+- **Home banner**: an app content slot with a card for VIPs and one for everyone else
 
 **Next:** Tutorial 9, Integrations: HubSpot or Salesforce, Shopify, Zapier and ad audiences.

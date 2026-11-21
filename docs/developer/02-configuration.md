@@ -58,7 +58,7 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 | `PULSE_PAGES_URL` | none | `api` | A separate origin for workspace-authored content: landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`). When set, that host serves only those paths plus `/sdk/`, `/v1/web/` and `/healthz`, and the app host redirects page paths to it | In production, so pages your users write never share an origin or cookies with the app. See [Two origins](01-installation.md#two-origins-public_url-and-pages_url) |
 | `PULSE_TRUST_PROXY` | `false` | `api` | Take the client IP from the **right-most** `X-Forwarded-For` entry (rate limits, sign-in throttling, audit log, GeoIP) and the host from `X-Forwarded-Host` (for the pages split) | Only when Pulse can be reached **only** through your reverse proxy. Otherwise clients could pick their own IP |
 | `PULSE_ALLOW_SIGNUP` | `true` | `api` | Anyone may create a workspace at `/signup` (`POST /v1/auth/signup`) | Set `false` on a private installation and create workspaces with the admin token |
-| `PULSE_ADMIN_TOKEN` | none | `api` | Platform operator token for `POST /v1/tenants` (create a workspace without users). Unset turns that route off (it answers 401) | You create workspaces from your own tooling. Use a long random value: `openssl rand -hex 32` |
+| `PULSE_ADMIN_TOKEN` | none | `api` | Platform operator token for `POST /v1/tenants` (create a workspace without users). Unset turns that route off (it answers 401) | You create workspaces from your own tooling. Use a long random value: `openssl rand -hex 32`. The dev stack's `dev-admin-token` is refused unless `PULSE_PUBLIC_URL` is a local address |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | `api` | Lets workspace SSO discovery and token calls reach private and loopback addresses | Your identity provider is on an internal network. The dev stack turns it on for its Keycloak |
 | `PULSE_GEOIP_DB` | none | `api` | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file. Fills `geo_*` attributes of web and app visitors (when the workspace allows it in Settings → Data & privacy). If the file can't be opened, `api` exits with `geoip database …` | You want location attributes. See [GeoIP](01-installation.md#geoip-optional) |
 
@@ -66,7 +66,7 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 
 | Variable | Default | Used by | Meaning | Change it when |
 |---|---|---|---|---|
-| `PULSE_SECRET_KEY` | none | `api`, `journeys`, `dispatch`, `webhooks`, `integrations` | 64 hex characters (32 bytes, AES-256-GCM). Encrypts stored credentials (SSO client secrets, provider and integration credentials, webhook signing secrets, bounce mailbox passwords, two-step sign-in secrets), SSO and two-step sign-in state, email tracking and unsubscribe links, and signed download links. A value that isn't 64 hex characters stops the role with `secret key must be 64 hex characters (32 bytes)` | Always in production: `openssl rand -hex 32`, kept in a secret store and backed up. Without it the log warns `PULSE_SECRET_KEY not set`, SSO, provider credentials and outbound webhooks don't work, and emails go out without open/click tracking |
+| `PULSE_SECRET_KEY` | none | `api`, `journeys`, `dispatch`, `webhooks`, `integrations` | 64 hex characters (32 bytes, AES-256-GCM). Encrypts stored credentials (SSO client secrets, provider and integration credentials, webhook signing secrets, bounce mailbox passwords, two-step sign-in secrets), SSO and two-step sign-in state, email tracking and unsubscribe links, and signed download links. A value that isn't 64 hex characters stops the role with `secret key must be 64 hex characters (32 bytes)` | Always in production: `openssl rand -hex 32`, kept in a secret store and backed up. The dev stack's published key (in `deploy/docker-compose.yml`) is refused unless `PULSE_PUBLIC_URL` is a local address. Without it the log warns `PULSE_SECRET_KEY not set`, SSO, provider credentials and outbound webhooks don't work, and emails go out without open/click tracking |
 | `PULSE_ALLOW_PRIVATE_WEBHOOKS` | `false` | `api`, `journeys`, `dispatch`, `webhooks`, `integrations` | Lets every user-entered URL reach private and loopback addresses (and use plain `http` where `https` is otherwise required): journey webhook steps, outbound webhooks and their tests, the custom HTTP gateway and other provider endpoints, custom authentication login and token URLs, Gupshup URLs, the web push install check, integrations (CRM, Shopify, ad platform base URLs) and bounce mailboxes (IMAP) | Local development and tests only (the dev stack turns it on so the e2e receivers on the Compose network can be called). Leave it off in production: any workspace admin can type these URLs |
 
 ### Workers
@@ -127,7 +127,7 @@ it's simplest to give every role the same environment. `migrate` takes a Postgre
 several `migrate` or `all` processes starting together migrate one at a time.
 
 What each role reads and writes on Kafka is in
-[the architecture document](../02-architecture.md#kafka-topics); [7. Architecture and
+[the architecture document](../architecture.md#kafka-topics); [7. Architecture and
 extending](07-architecture-and-extending.md) walks through the code.
 
 ---

@@ -25,6 +25,9 @@ double braces. Pulse fills them for each contact when the message goes out.
 | `{{event.x}}` | A property of the event that started the campaign (triggered campaigns). Dots go into objects and lists: `items.0.name` is the first item's name, `items[].name` every item's, joined | `{{event.product_name}}` → Brass table lamp |
 | `{{campaign.x}}` | `name`, `id`, `type` (`journey` for a triggered or automation campaign, `broadcast` for a one-time campaign, `test` for a test send), `step` (the step of a triggered or automation campaign), `channel`, `template` | `{{campaign.name}}` → Cart rescue |
 | `{{links.x}}` | Email only: `unsubscribe` and `preferences` (the contact's preference center) | `<a href="{{links.unsubscribe}}">` |
+| `{{block.x}}` | A shared content block: a header, footer or offer written once ([tutorial 5](05-templates-and-content.md#11-reuse-content-content-blocks)). `{{block.feed}}` is an RSS feed's new items ([tutorial 7](07-one-time-campaigns.md#rss-to-email-send-whats-new-on-your-blog)) | `{{block.festive_footer}}` |
+| `{{reco.x}}` | Products picked for the contact: `reco.1.name` … `reco.12.name`, `reco.last_viewed.name`; `{{block.recommendations}}` for a card grid ([tutorial 19](19-product-recommendations.md)) | `{{reco.1.name}}` → Steel pressure cooker |
+| `{{survey.ID}}` | The contact's own link to a survey ([tutorial 20](20-surveys-and-nps.md)) | `<a href="{{survey.3}}">` |
 
 One-time and automation campaigns aren't started by an event, so `{{event.x}}` is empty in them (or
 its default, section 3).

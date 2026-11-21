@@ -3,8 +3,9 @@
 In about 15 minutes you will find every campaign in one list, learn the three types of campaign,
 filter the list by type and tag, start a new campaign by saying what you want to do, and send a
 one-time SMS with the step-by-step wizard: choose who gets it (and who doesn't), write the message
-right there, schedule it with a send deadline, and check the exact number of contacts it will reach
-before you send.
+right there, schedule it with a send deadline (or at each contact's best time, or spread out over
+hours), and check the exact number of contacts it will reach before you send. At the end: approvals
+before a campaign goes live, and the calendar of every send.
 
 **You need:** access to view one-time campaigns or triggered & automation campaigns to see the list,
 and to publish one-time campaigns to send one (the **Admin** or **Editor** role). The examples use the
@@ -209,6 +210,32 @@ whenever they can, even at night. Tick **Send deadline: drop messages that would
 With both, the earlier wins. Dropped messages are recorded as failed with the reason *Send deadline passed*,
 and the campaign's results say how many were late.
 
+### At each contact's best time
+
+Tick **⏰ Send at each contact's best time (within 24 hours of the start)** (Once only). Instead of
+sending to everyone at once, Pulse sends to each person at the hour they usually open, click or read
+your messages, within 24 hours of **Send at**.
+
+- Pulse works out each contact's best hour from their opens, clicks and reads over the last 90 days,
+  and updates it every 6 hours.
+- People with no history get the hour your whole audience is busiest.
+- Each message waits until its hour comes. The results don't count these as held.
+- It can't be combined with own-time-zone sending or a sending speed: ticking it turns those off.
+  Repeating campaigns don't use it.
+
+The review says *Each contact at their best time, within 24 hours of …*.
+
+### Sending speed
+
+**Sending speed** is **As fast as possible** (the default: as fast as the channel and provider allow)
+or **Spread it out**. With **Spread it out**, enter how many **messages an hour** (60 to 10,000,000).
+Pulse gives each message its own time and sends them evenly.
+
+Spread out a big send to protect your website from a rush of visitors, to warm up a new sending
+domain, or to stay under a provider's limits. Provider limits (**Channels → Limits**) still apply on
+top. For a repeating campaign, each send is spread out from its own start. The review shows the speed
+under **Speed**.
+
 ## 6. Review and send
 
 **Next: Review** lists everything in words, with the **Exact audience now** beside it.
@@ -264,6 +291,62 @@ To put campaigns away:
   **Archived** status to see archived ones, and click **Restore** to bring one back as **Paused**.
   See [tutorial 6](06-triggered-and-automation-campaigns.md#15-delete-or-archive-a-campaign).
 
+## 10. Approvals: a second pair of eyes
+
+Some teams want a second person to check a campaign before it goes out. Pulse has this built in, for
+one-time, triggered and automation campaigns.
+
+**Who asks.** On **Settings → Roles**, **Publish** lets someone launch campaigns ([tutorial 11](11-admin-and-privacy.md#12-roles-a-recap)).
+Someone who can edit but not publish sees **Save and ask for approval** where the **Send now** /
+**Schedule** (or **Save and go live**) button would be:
+
+1. Click **Save and ask for approval**.
+2. Add a **Note for the approver (optional)**, e.g. *Diwali send to all Pune customers, offer valid
+   till Sunday.*
+3. Click **Ask for approval**. Pulse says *Asked for approval. You'll see the answer here.*
+
+The campaign shows a banner: **⏳ Waiting for approval**, who asked and when, and **Withdraw** to take
+the request back.
+
+**Who approves.** Everyone who may publish that kind of campaign sees, at the top of the **Campaigns**
+page, *⏳ 2 campaigns waiting for your approval:* with a link to each and who asked. On the campaign,
+the banner has:
+
+- **✅ Approve and launch**: Pulse asks *Approve and launch …? It launches now, as it was when they
+  asked.* The campaign is scheduled (or goes live) exactly as it was when they asked.
+- **Send back**: write **What should change? They'll see this.** and click **Send back**. The banner
+  turns to **↩️ Sent back** with your note.
+
+Nobody can approve their own request. If the campaign, its templates or their content blocks change
+after the request, the banner says *It changed after the request, so approving won't launch it: ask
+again.*, and approving is refused. The list and banner refresh on their own; Pulse doesn't email
+approvers yet, so tell them.
+
+**Four-eyes: every launch needs a second person.** By default, people who may publish launch campaigns
+themselves. To make everyone ask, an admin turns on **Settings → Automation & limits → Approvals →
+Four-eyes launches** (*Every launch needs a second person*). Then when a publisher clicks **Send
+now**, **Schedule** or **Save and go live**, Pulse opens the same **Ask for approval** window
+(*This workspace needs a second person to approve every launch…*), and someone else who may publish
+approves. Campaigns launched with an API key aren't affected.
+
+## 11. The campaign calendar
+
+To see what goes out when, click **📅 Calendar** at the top of the **Campaigns** page.
+
+The **Calendar** shows one month (**←** and **→** move a month, **Today** comes back):
+
+- Every one-time send on its day, with its time and name, coloured by channel (email, SMS, WhatsApp,
+  RCS, push, app inbox). A repeating campaign shows each of its sends. Drafts show dashed, at their
+  planned time.
+- **Running all month or part of it:** the live triggered and automation campaigns (⚡), and paused
+  ones marked *(paused)*. They don't have a fixed time, so they are listed above the grid.
+- A day with 3 or more sends gets **🔥** and the number: check they don't reach the same people too
+  often. A day with more than four sends shows *+2 more*.
+
+Click a send to open its campaign. The calendar shows only the kinds of campaign your role may view.
+It doesn't work out whether two sends on the same day reach the same people: compare their segments,
+or use a frequency cap ([tutorial 4](04-channels.md#4-set-delivery-rules)).
+
 ## Troubleshooting
 
 | What you see | Why, and what to do |
@@ -275,3 +358,5 @@ To put campaigns away:
 | "Too many estimates; try again in a minute" | Counts are limited to 60 a minute per workspace (repeats within 30 seconds are free) |
 | Fewer messages went out than the count | Contacts left the segments, unsubscribed or bounced between the count and the send, the frequency cap held some back, or the send deadline dropped late ones (see the campaign's results) |
 | **Next** stays greyed out | The red text next to it says what's missing |
+| **Save and ask for approval** instead of **Send now** | Your role can't publish one-time campaigns (section 10) |
+| **Send now** opens **Ask for approval** | The workspace has **Four-eyes launches** on (section 10) |

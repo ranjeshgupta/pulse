@@ -5,7 +5,7 @@ SMS, WhatsApp, RCS and push, check it with a test send, and set the rules that p
 and your sender reputation: frequency caps, quiet hours, reply keywords, what bounces and spam
 complaints do on each channel, how people unsubscribe (with topics they can leave on their own), and
 reply tracking. At the end you set up the web push prompt that asks your website's visitors to get
-notifications.
+notifications, and check that your email domain has the DNS records inboxes ask for.
 
 **You need:** a workspace where you are an **Admin** (tutorial 1). Only admins can add providers, send
 provider tests and change delivery rules; editors and viewers see the page read-only. Nothing in this
@@ -204,7 +204,7 @@ None of the three report deliveries to Pulse (like any plain SMTP relay).
 | Provider | Settings |
 |---|---|
 | **Twilio** | **Account SID**, **Auth token**; then either a **From number** or a **Messaging Service SID**; optionally **Delivery report URL**: paste this provider's own Pulse webhook URL (you get it after saving, so edit the provider once more) |
-| **MSG91** (India, DLT) | **Flow template ID** (the flow's text must be exactly `##message##`: Pulse puts the whole SMS there), **Sender ID (DLT header)**, **Auth key** |
+| **MSG91** (India, DLT) | **Flow template ID** (the flow's text must be exactly `##message##`: Pulse puts the whole SMS there), **Sender ID (DLT header)**, **Auth key**; for delivery reports, a **Webhook token** (any long random text) — then, in MSG91's "On Report Received" webhook, paste this provider's Pulse webhook URL with `?token=` and the same text. Without a token, Pulse ignores MSG91's reports. Each SMS carries Pulse's reference (MSG91's `CRQID`), so reports find their message and campaign |
 
 <img src="img/04-add-msg91.png" alt="Add SMS provider: MSG91 with a flow template ID and sender ID ACMEIN, empty Sending limits, and Use for all SMS messages unticked, so it is saved as standby" width="420">
 
@@ -259,6 +259,14 @@ settings → Service accounts → Generate new private key; paste the whole file
 Android, iOS (through FCM tokens, not direct APNs) and web apps that use Firebase. Your app registers
 its device tokens with the Pulse mobile SDKs.
 
+**App uninstalls.** When someone deletes your app, their phone's push token stops working. The next
+time Pulse sends them a push, the push service says the token is no longer registered. Pulse then
+drops that device and records an `app_uninstalled` event on the contact, with the **platform**
+(Android or iOS) and the message that found it. Use it like any event: a segment of *did
+app_uninstalled in the last 30 days* ([tutorial 3](03-segments.md)), or a triggered campaign that
+starts on `app_uninstalled` and sends a win-back email or SMS ([tutorial 6](06-triggered-and-automation-campaigns.md)).
+Pulse only finds out when it sends a push: a phone that gets no push isn't checked.
+
 <img src="img/04-add-fcm.png" alt="Add Push provider: Firebase Cloud Messaging with a project ID, an empty service account key box, and empty Sending limits" width="420">
 
 ### Web push: no provider needed
@@ -274,8 +282,9 @@ For a provider Pulse has no ready-made connection for, pick **Custom HTTP gatewa
 Then click one of two cards:
 
 - **Connect to a gateway's existing API**: your SMS or messaging company already has an API. You tell
-  Pulse, in numbered steps, where to send, how to sign in, what to send, how it knows a message was
-  sent and how delivery reports come back, without any code.
+  Pulse, in four steps, how to **Sign in**, what to **Send**, whether the answer means **Accepted or
+  failed?**, and how **Delivery reports** come back (the gateway posts them, or Pulse asks for them),
+  without any code. Each step has a **Try it** box to check it.
   [Tutorial 16](16-connecting-any-provider.md) walks through it.
 - **Your developers build an endpoint for Pulse** (the default): Pulse posts each message as JSON in
   its own format to **1 Your endpoint**: the **Endpoint URL**, signed with the **Signing secret (we
@@ -732,6 +741,40 @@ blocked for the site, the service worker, the opt-in prompt, whether this browse
 whether the visitor is signed in. In the picture the check ran on one of the workspace's landing
 pages, which has the snippet but no service worker.
 
+## 12. Check your sending domain
+
+Gmail and Yahoo ask everyone who sends a lot of email to prove the mail really comes from them, with
+three DNS records on the domain you send from: **SPF**, **DKIM** and **DMARC**. Without them, more of
+your email lands in spam, or is refused. To check yours:
+
+1. On **Settings → Channels**, click **🩺 Check sending domain** in the **Email** panel. The **Sending
+   domain health** panel opens on the right.
+2. **Domain you send from**: Pulse fills it in from your email provider's From address, e.g.
+   `acme-retail.example`.
+3. **Sending service**: the service that sends for you (Pulse guesses it from your provider), or
+   **Detect / other**.
+4. **DKIM selector (optional)**: if your service gave you one, e.g. `s1`. Leave it empty to try the
+   service's usual ones.
+5. Click **Check**. Pulse reads your domain's public DNS records (**Checking DNS…**).
+
+The top line says whether the domain is ready for bulk sending (✅) or not (⚠️), in a sentence. Below
+it, one row per check, each ✅ (fine), ⚠️ (works, could be better) or ❌ (missing or wrong):
+
+| Check | What Pulse looks for |
+|---|---|
+| **SPF** | One SPF record, ending in `~all` or `-all`, that includes your sending service |
+| **DKIM** | A signing key for your service's selector (or the one you gave) |
+| **DMARC** | A DMARC record and its policy (`none`, `quarantine` or `reject`) |
+| **BIMI** | Your logo record, which some inboxes show next to your mail (optional) |
+| **MX** | The domain can receive mail, so replies and bounces arrive |
+
+Each row shows what Pulse **found** and, when something needs fixing, the record to add. Click **Copy**
+next to a record and give it to whoever manages your domain's DNS. DNS changes can take a few hours to
+show: click **Check** again later.
+
+The check reads public DNS only. It doesn't check that your From domain lines up with the address your
+service uses for bounces; your sending service's own dashboard shows that.
+
 ## What you have now
 
 - A provider (or the sandbox) on every channel you use, checked with a test send
@@ -742,6 +785,7 @@ pages, which has the snippet but no service worker.
 - Unsubscribe settings: the link's behaviour, your email unsubscribe policy, and topics
 - The test inbox, for trying everything without messaging anyone
 - A web push prompt and a site that passes the install check
+- A sending domain checked for SPF, DKIM and DMARC
 
 **Next:** [Tutorial 5, Templates and content](05-templates-and-content.md): write the messages these
 channels send, and the landing pages, forms and files around them. For a provider without a

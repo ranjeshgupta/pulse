@@ -5,7 +5,7 @@ recipes for the changes people make most: a new channel provider, a new journey 
 filter, a new migration, a new API route.
 
 The design reasons, data layouts and contracts (topics, keys, ClickHouse tables, journey semantics,
-segment compilers) are in **[the architecture document](../02-architecture.md)**; this guide links
+segment compilers) are in **[the architecture document](../architecture.md)**; this guide links
 there instead of repeating it.
 
 ---
@@ -90,7 +90,7 @@ Settings → Automation & limits) before recording `<channel>_failed` (`internal
 | Kafka | Events and messages in flight | `internal/kafka` |
 
 Tenancy: `tenant_id` leads every Postgres key, ClickHouse `ORDER BY` and Redis key, and every
-store function takes the tenant ([architecture, identity and tenancy](../02-architecture.md#identity-and-tenancy)).
+store function takes the tenant ([architecture, identity and tenancy](../architecture.md#6-multi-tenancy-and-isolation)).
 
 ---
 
@@ -250,7 +250,7 @@ kind (action, condition, decision) as the template, e.g. `update_owner` for an a
    `test/e2e/builder_test.go` if it touches other roles.
 
 Journey semantics (enrollment, re-entry, goals, timers, splits): [architecture,
-journeys](../02-architecture.md#journeys).
+journeys](../architecture.md#journeys-triggered-and-automation-campaigns).
 
 ---
 
@@ -284,7 +284,7 @@ the same meaning**:
    and fails on any contact the two compilers disagree about. Add the operator to its generator.
 5. The builder (`segmentCatalog.ts` / `segmentRules.ts`) to offer it.
 
-The rule format and the window semantics: [architecture, segment rules](../02-architecture.md#segment-rules).
+The rule format and the window semantics: [architecture, segment rules](../architecture.md#8-segmentation-engine).
 
 ---
 

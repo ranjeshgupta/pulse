@@ -22,7 +22,7 @@ decompiled; the site key is public by design.
 
 ## What has been tested
 
-Read this before shipping. From the SDK READMEs and [the feature parity notes](../05-feature-parity.md#known-gaps):
+Read this before shipping. From the SDK READMEs and [the product overview's limits](../product.md#honest-limits-at-a-glance):
 
 | | Flutter | Android | iOS |
 |---|---|---|---|
