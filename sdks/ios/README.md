@@ -2,7 +2,7 @@
 
 Send events from an iOS app to [Pulse](../../README.md): track events and screens, identify signed-in
 users (with identity verification), register push tokens, report push opens and dismissals, show the
-app inbox and in-app messages, and let people opt out of tracking.
+app inbox, in-app messages and app content slots, and let people opt out of tracking.
 
 It mirrors the [Flutter SDK](../flutter/pulse_sdk/README.md) and the web SDK: people are anonymous
 (`anon-` + 24 hex characters) until `identify`, and `identify` merges the anonymous visitor into the
@@ -16,8 +16,8 @@ A Swift package with two libraries:
 
 | Target | What it is |
 |---|---|
-| `PulseCore` | Foundation only (builds on Linux too): queue, batching and backoff, sessions, validation, JSON, HTTP (`URLSession` behind `PulseHTTPClient`), storage (`UserDefaultsStorage`, `InMemoryStorage`), inbox, in-app logic, push tracking, opt-out. |
-| `Pulse` | Re-exports `PulseCore` and adds, behind `#if canImport(UIKit)` / `#if canImport(UserNotifications)`: `PulseClient.start(_:)` with app lifecycle observation, device details from `UIDevice` and the bundle, a `UNUserNotificationCenterDelegate` helper for opens and dismissals, and in-app messages drawn with UIKit. |
+| `PulseCore` | Foundation only (builds on Linux too): queue, batching and backoff, sessions, validation, JSON, HTTP (`URLSession` behind `PulseHTTPClient`), storage (`UserDefaultsStorage`, `InMemoryStorage`), inbox, in-app logic, app content slots (fetch and cache), push tracking, opt-out. |
+| `Pulse` | Re-exports `PulseCore` and adds, behind `#if canImport(UIKit)` / `#if canImport(UserNotifications)`: `PulseClient.start(_:)` with app lifecycle observation, device details from `UIDevice` and the bundle, a `UNUserNotificationCenterDelegate` helper for opens and dismissals, in-app messages drawn with UIKit, and the content slot views `PulseSlotView` (UIKit) and `PulseSlot` (SwiftUI). |
 
 iOS 14 or later. No third-party dependencies.
 
@@ -85,6 +85,7 @@ thread; network work runs on the SDK's serial queue, and callbacks come back on 
 | `optOut()` / `optIn()` / `isOptedOut` | Local tracking consent. |
 | `inbox` | The app inbox (`PulseInbox`). |
 | `inApp` | In-app campaigns (`PulseInApp`). |
+| `content` | App content slots (`PulseContent`). |
 | `currentID`, `anonymousID`, `isIdentified`, `sessionID`, `pendingEvents`, `deviceProperties`, `pushToken`, `pendingPushReports` | State. |
 | `appDidEnterBackground()` / `appWillEnterForeground()` | Lifecycle hooks; `start` calls them for you. |
 
@@ -285,6 +286,65 @@ url}` and `inapp_dismissed` `{inapp_id}` (a banner that times out records nothin
 off with `inAppMessages: false`. To draw messages yourself, create the client with
 `PulseClient.configure(_:environment:)` and your own `PulseInAppPresenter`.
 
+## App content slots
+
+A content slot is a named place in the app (a home banner, a promo tile) whose content is set in
+Pulse, the app twin of a website's dynamic web content. Create slots in Pulse under **Website & app
+messages → Content slots** with **Where: App**; the slot id (lowercase letters, digits, `-`, `_`) is
+what the app uses. Each person gets the first variant whose audience they match, else the slot's
+default; a slot with nothing for them shows nothing.
+
+UIKit:
+
+```swift
+let banner = PulseSlotView(slot: "home_banner")      // draws image, title, body, button
+stackView.addArrangedSubview(banner)                  // zero height while there is nothing to show
+
+// Draw it yourself (the only way to show `html` or the card's `data`):
+let tile = PulseSlotView(slot: "promo_tile")
+tile.render = { content in
+    let label = UILabel()
+    label.text = content.card?.data["headline"]
+    return label
+}
+// From your own button: tile.click()  (or tile.click(link: "myapp://offer"))
+tile.onContentChange = { _ in tableView.performBatchUpdates(nil) } // self-sizing cells
+```
+
+SwiftUI:
+
+```swift
+PulseSlot(id: "home_banner")                          // the default card
+
+PulseSlot(id: "promo_tile") { content in              // your own drawing
+    MyPromo(html: content.html, data: content.card?.data ?? [:])
+        .onTapGesture { PulseClient.shared?.content.clicked("promo_tile", content) }
+}
+```
+
+Without the views:
+
+```swift
+let content = await PulseClient.shared?.content.fetch(["home_banner", "promo_tile"]) ?? [:]
+PulseClient.shared?.content.fetch(["home_banner"]) { content in /* main queue */ }
+PulseClient.shared?.content.cached("home_banner")     // last fetched content, or nil
+PulseClient.shared?.content.viewed("home_banner", c)  // when you show it yourself
+PulseClient.shared?.content.clicked("home_banner", c) // on a tap
+```
+
+`PulseSlotContent` (Codable) has `card` (`PulseSlotCard`: `title`, `body`, `imageURL`, `buttonText`,
+`deepLink`, `data`), `html` and `variant`; every field is optional. The views show the cached content
+at once and fetch their slot when they come on screen if it was never fetched or is older than 15
+minutes (views appearing together share one request). The SDK fetches every slot asked for again
+after `identify` (another user's content is dropped at once), `reset` and `optIn`, and when the app
+returns to the foreground more than 15 minutes after the last fetch. Errors never reach the app: the
+cached content is kept. While opted out nothing is requested.
+
+Recorded with `track()`: `app_content_viewed` `{slot, variant}` once for each content a view shows
+while on screen, and `app_content_clicked` `{slot, variant, link}` on a tap of the card's button (or of
+a card with a deep link and no button), after which the deep link goes to `onInAppAction` on the main
+queue, as with in-app buttons. `variant` is `""` for the slot's default content.
+
 ## Consent (opt-out)
 
 ```swift
@@ -294,11 +354,11 @@ PulseClient.shared?.isOptedOut
 ```
 
 `optOut()` deletes queued events and push reports, and from then on nothing is recorded or sent: no
-events, push-token registrations, push reports, inbox or in-app requests (inbox calls return an
+events, push-token registrations, push reports, inbox, in-app or content slot requests (inbox calls return an
 empty page). The flag is stored (`pulse.<siteKey>.optout`) and survives restarts. `identify` and
 `reset` still update the ids locally, so the right person is used after `optIn()`, but an
 anonymous-to-user merge that happened while opted out is not sent. `optIn()` registers the stored
-push token again and fetches in-app campaigns.
+push token again and fetches in-app campaigns and content slots.
 
 This is local tracking consent. It does not unsubscribe the person from channels (that is done on
 the server, for example from an unsubscribe link), and Pulse can still send pushes to a registered
@@ -334,19 +394,21 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/w -w /w swift:5.10 
 | inbox | `GET {host}/v1/web/inbox?id=&user_hash=&before=`, header `X-Pulse-Site-Key` → `{"messages":[...],"unread"}` |
 | inbox actions | `POST {host}/v1/web/inbox`, body `{"id","user_hash","action":"read"\|"delete"\|"click","message_ids":[...]}` → `{"changed"}` |
 | in-app | `POST {host}/v1/web/inapp`, body `{"id","user_hash","platform":"ios"}` → `{"messages":[{"id","layout","content","trigger","end_at"}]}` |
+| content slots | `POST {host}/v1/web/content`, body `{"id","user_hash","platform":"ios","slots":[...]}` (1–50 ids) → `{"content":{"<slot>":{"card":{...},"html","variant"}}}` |
 | push open / dismissal | `POST {pulse_track}?a=clicked\|dismissed&platform=ios`, no body, no site key → 204 (404 bad token, 400 bad action) |
 
 ## What was verified
 
 - `PulseCore` and its tests were compiled and run on Linux in Docker with
   `docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/w -w /w swift:5.10 swift test`
-  (Swift 5.10): 33 tests, all passing. They cover the anonymous id and its site-key namespace, the
+  (Swift 5.10): 43 tests, all passing. They cover the anonymous id and its site-key namespace, the
   identify merge prop, validation, batching, persistence across restarts, backoff and drop rules,
   sessions, device props, opt-out, push token registration, push report URLs and retries, inbox
-  parsing and the user-hash rule, and in-app frequency rules. On Linux the `Pulse` target compiles to
+  parsing and the user-hash rule, in-app frequency rules, and content slots (request body, decoding, cache and refresh, failures
+  keeping the cache, events). On Linux the `Pulse` target compiles to
   just the re-export, because UIKit and UserNotifications are missing.
 - The `Pulse` target's UIKit and UserNotifications code (`PulseClient.start`, lifecycle observers,
-  `UIDevice` details, `PulseNotificationDelegate`, the in-app view controller and banner) was **not**
+  `UIDevice` details, `PulseNotificationDelegate`, the in-app view controller and banner, `PulseSlotView` and `PulseSlot`) was **not**
   built or run here: there is no Xcode on this machine. Expect to fix small compile issues the first
   time it is built for iOS.
 - `URLSessionHTTPClient` was compiled but not exercised (the tests use a fake client). Nothing was

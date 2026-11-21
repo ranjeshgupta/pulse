@@ -179,6 +179,9 @@ func (s *Server) saveDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
 	if d.Variants == nil {
 		d.Variants = []model.DWCVariant{}
 	}
+	if d.Platform == "" {
+		d.Platform = onsite.PlatformWeb
+	}
 	if err := onsite.ValidateDWC(d); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

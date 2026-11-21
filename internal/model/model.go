@@ -348,11 +348,16 @@ type OnsiteCondition = segment.PropFilter
 
 // DWCSlot is a Dynamic Web Content slot: a placeholder on a page filled per visitor.
 type DWCSlot struct {
-	ID          int64        `json:"id"`
-	TenantID    int64        `json:"tenant_id"`
-	Slot        string       `json:"slot"` // the page's data-pulse-slot value
-	Name        string       `json:"name"`
-	DefaultHTML string       `json:"default_html"`
+	ID       int64  `json:"id"`
+	TenantID int64  `json:"tenant_id"`
+	Slot     string `json:"slot"` // the page's data-pulse-slot value, or the app's slot id
+	Name     string `json:"name"`
+	// Platform is where the slot lives: "web" (a page element, HTML) or "app" (a place in a mobile
+	// app, filled by the SDKs with a card or HTML). "" is web.
+	Platform    string `json:"platform"`
+	DefaultHTML string `json:"default_html"`
+	// DefaultCard is an app slot's default content as a card (nil: DefaultHTML, or nothing).
+	DefaultCard *AppCard     `json:"default_card,omitempty"`
 	Variants    []DWCVariant `json:"variants"` // first variant whose segment matches wins
 	Status      string       `json:"status"`
 	StartAt     time.Time    `json:"start_at"`
@@ -369,6 +374,18 @@ type DWCVariant struct {
 	SegmentID int64          `json:"segment_id,omitempty"`
 	Audience  OnsiteAudience `json:"audience"`
 	HTML      string         `json:"html"`
+	Card      *AppCard       `json:"card,omitempty"` // app slots: a card instead of HTML
+}
+
+// AppCard is app slot content the app draws natively: any part may be empty, and Data carries
+// custom key-values for apps that draw the slot themselves.
+type AppCard struct {
+	Title      string            `json:"title,omitempty"`
+	Body       string            `json:"body,omitempty"`
+	ImageURL   string            `json:"image_url,omitempty"`
+	ButtonText string            `json:"button_text,omitempty"`
+	DeepLink   string            `json:"deep_link,omitempty"` // https link or app scheme://
+	Data       map[string]string `json:"data,omitempty"`
 }
 
 // Rules returns the variant's audience, with the pre-M6 segment folded in.

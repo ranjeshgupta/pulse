@@ -1,7 +1,7 @@
 import Foundation
 
 /// The Pulse SDK core: identity, event queue, sessions, push tokens and push tracking, opt-out, the app
-/// inbox and in-app campaigns. Foundation only; the `Pulse` module adds `PulseClient.start(_:)` with
+/// inbox, in-app campaigns and app content slots. Foundation only; the `Pulse` module adds `PulseClient.start(_:)` with
 /// UIKit lifecycle, device details and in-app presentation.
 ///
 /// People are anonymous (`anon-` + 24 hex characters) until `identify`. Events are queued, persisted,
@@ -34,6 +34,8 @@ public final class PulseClient {
     public private(set) var inbox: PulseInbox!
     /// In-app campaigns.
     public private(set) var inApp: PulseInApp!
+    /// App content slots.
+    public private(set) var content: PulseContent!
     private var pushTracker: PushTracker!
 
     /// Creates a client. Most apps call `PulseClient.start(_:)` (Pulse module) instead, which also sets `shared`.
@@ -43,6 +45,7 @@ public final class PulseClient {
         self.keys = PulseStorageKeys(siteKey: config.siteKey)
         inbox = PulseInbox(self)
         inApp = PulseInApp(self)
+        content = PulseContent(self)
         pushTracker = PushTracker(self)
         load()
         inApp.load()
@@ -170,6 +173,7 @@ public final class PulseClient {
             return (previous, wasAnonymous, optedOut)
         }
         if previous != userID { inbox.forget() }
+        content.identityChanged(clear: previous != userID)
         if out { return log("opted out: identify \(userID) stored locally, not sent") }
         var props: [String: JSON] = deviceProperties.mapValues { .string($0) }
         if wasAnonymous { props["anonymous_id"] = .string(previous) }
@@ -193,6 +197,7 @@ public final class PulseClient {
             env.storage.delete(keys.sessionID)
         }
         inbox.forget()
+        content.identityChanged(clear: true)
         if isOptedOut { return }
         env.dispatcher.execute { [weak self] in _ = self?.registerStoredToken() }
         if config.inAppMessages { inApp.refresh() }
@@ -203,7 +208,7 @@ public final class PulseClient {
     // MARK: - Consent
 
     /// Stops all tracking and sending on this device: queued events and push reports are deleted, and
-    /// nothing is recorded or sent (events, push tokens, push reports, inbox and in-app requests) until
+    /// nothing is recorded or sent (events, push tokens, push reports, inbox, in-app and app content requests) until
     /// `optIn()`. The choice is stored. Channel unsubscribes are separate and happen on the server.
     public func optOut() {
         locked {
@@ -229,6 +234,7 @@ public final class PulseClient {
         log("opted in")
         env.dispatcher.execute { [weak self] in _ = self?.registerStoredToken() }
         if config.inAppMessages { inApp.refresh() }
+        content.refresh()
     }
 
     // MARK: - Sessions and lifecycle
@@ -267,11 +273,12 @@ public final class PulseClient {
     }
 
     /// Call when the app comes to the foreground (the Pulse module does). May start a new session and
-    /// refresh in-app campaigns.
+    /// refresh in-app campaigns and app content.
     public func appWillEnterForeground() {
         if isOptedOut { return }
         session()
         if config.inAppMessages { inApp.refreshIfStale() }
+        content.refreshIfStale()
     }
 
     // MARK: - Queue

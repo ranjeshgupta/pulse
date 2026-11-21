@@ -391,6 +391,47 @@ dismissal). These are the shown and click numbers in Pulse's On-site & in-app li
 `Pulse.instance.inApp.campaigns` lists the cached campaigns and `inApp.refresh()` fetches them now.
 Turn the feature off with `PulseConfig(inAppMessages: false)`.
 
+## App content slots
+
+A content slot is a named place in your app (a home banner, a tip on the cart screen) whose content
+Pulse chooses per person: the app twin of a website's dynamic web content. Slots are created in Pulse
+under **Website & app messages → Content slots** with **Where: App**; use the slot id (lowercase
+letters, digits, `-` and `_`) in the app.
+
+```dart
+// Drop a slot into any screen. Slots built in the same frame are fetched in one request.
+const PulseSlot(id: 'home_banner', padding: EdgeInsets.all(16))
+
+// Draw it yourself (the only way to show `html` or `data`):
+PulseSlot(
+  id: 'cart_tip',
+  placeholder: const SizedBox(height: 0),           // while loading / when empty (default)
+  builder: (context, content) => ListTile(
+    title: Text(content.card?.title ?? ''),
+    subtitle: Text('${content.card?.data['coupon'] ?? ''}'),
+    onTap: () => Pulse.instance.content.recordClick(content),  // records + opens the deep link
+  ),
+)
+
+// Or fetch without a widget:
+final content = await Pulse.instance.content.fetch(['home_banner', 'cart_tip']);
+final banner = Pulse.instance.content.cached('home_banner');   // null: show nothing
+```
+
+The default `PulseSlot` view draws a Material card (image, title, body, button) when the content has
+a card, and nothing for HTML-only content (the SDK has no web view). Tapping the card (when it has a
+deep link) or its button opens the deep link through `PulseConfig.onInAppAction`, like an in-app
+button.
+
+The SDK caches each slot in memory. After `identify` and `reset` the cache is cleared and every slot
+asked for so far is fetched again (`PulseSlot` widgets redraw), and when the app resumes, slots older
+than 15 minutes are fetched again. When a fetch fails (network, 400, 429, 5xx) the cached content is
+kept; `fetch` never throws for that.
+
+Events, through the normal event queue: `app_content_viewed` `{slot, variant}` the first time a
+`PulseSlot` shows a given content, and `app_content_clicked` `{slot, variant, link}` on a tap
+(`variant` and `link` are left out when not set).
+
 ## Testing
 
 `Pulse.init` accepts an `http.Client` (use `MockClient` from `package:http/testing.dart`) and a
@@ -414,3 +455,4 @@ PULSE_SITE_KEY=sk_... PULSE_HOST=http://localhost:7080 \
 | inbox | `GET {host}/v1/web/inbox?id=&user_hash=&before=`, header `X-Pulse-Site-Key` → `{"messages":[...],"unread"}` |
 | inbox actions | `POST {host}/v1/web/inbox`, body `{"id","user_hash","action":"read"\|"delete"\|"click","message_ids":[...]}` → `{"changed"}` |
 | in-app | `POST {host}/v1/web/inapp`, body `{"id","user_hash","platform":"android"\|"ios"}` → `{"messages":[{"id","layout","content","trigger","end_at"}]}` |
+| app content | `POST {host}/v1/web/content`, body `{"id","user_hash","platform":"android"\|"ios","slots":[...]}` → `{"content":{"<slot>":{"card","html","variant"}}}` |

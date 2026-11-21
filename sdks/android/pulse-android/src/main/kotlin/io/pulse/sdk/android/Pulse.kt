@@ -16,6 +16,7 @@ import android.util.Log
 import io.pulse.sdk.DeviceInfo
 import io.pulse.sdk.PulseClient
 import io.pulse.sdk.PulseConfig
+import io.pulse.sdk.PulseContent
 import io.pulse.sdk.PulseEnvironment
 import io.pulse.sdk.PulseInApp
 import io.pulse.sdk.PulseInbox
@@ -149,6 +150,10 @@ object Pulse {
 
     @JvmStatic
     val inApp: PulseInApp get() = instance.inApp
+
+    /** App content slots (`PulseContent`); [PulseSlotView] draws one. */
+    @JvmStatic
+    val content: PulseContent get() = instance.content
 
     /** Tracks started activities: background/foreground, and the activity in-app messages are shown over. */
     internal class Lifecycle : Application.ActivityLifecycleCallbacks, ComponentCallbacks {

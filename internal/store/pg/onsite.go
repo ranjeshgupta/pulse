@@ -56,11 +56,11 @@ func (s *Store) DeleteFocusItem(ctx context.Context, tenant, id int64) error {
 	return err
 }
 
-const dwcCols = `id, tenant_id, slot, name, default_html, variants, status, start_at, end_at, updated_at`
+const dwcCols = `id, tenant_id, slot, name, platform, default_html, default_card, variants, status, start_at, end_at, updated_at`
 
 func scanDWC(row pgx.Row) (model.DWCSlot, error) {
 	var d model.DWCSlot
-	err := row.Scan(&d.ID, &d.TenantID, &d.Slot, &d.Name, &d.DefaultHTML, &d.Variants, &d.Status, &d.StartAt, &d.EndAt, &d.UpdatedAt)
+	err := row.Scan(&d.ID, &d.TenantID, &d.Slot, &d.Name, &d.Platform, &d.DefaultHTML, &d.DefaultCard, &d.Variants, &d.Status, &d.StartAt, &d.EndAt, &d.UpdatedAt)
 	if d.Variants == nil {
 		d.Variants = []model.DWCVariant{}
 	}
@@ -83,13 +83,14 @@ func (s *Store) GetDWCSlot(ctx context.Context, tenant, id int64) (model.DWCSlot
 func (s *Store) SaveDWCSlot(ctx context.Context, d model.DWCSlot) (int64, error) {
 	if d.ID == 0 {
 		err := s.db.QueryRow(ctx, `
-			INSERT INTO dwc_slots (tenant_id, slot, name, default_html, variants, status, start_at, end_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-			d.TenantID, d.Slot, d.Name, d.DefaultHTML, d.Variants, d.Status, d.StartAt, d.EndAt).Scan(&d.ID)
+			INSERT INTO dwc_slots (tenant_id, slot, name, default_html, variants, status, start_at, end_at, platform, default_card) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+			d.TenantID, d.Slot, d.Name, d.DefaultHTML, d.Variants, d.Status, d.StartAt, d.EndAt, d.Platform, d.DefaultCard).Scan(&d.ID)
 		return d.ID, conflict(err)
 	}
 	tag, err := s.db.Exec(ctx, `
-		UPDATE dwc_slots SET slot = $3, name = $4, default_html = $5, variants = $6, status = $7, start_at = $8, end_at = $9, updated_at = now()
-		WHERE tenant_id = $1 AND id = $2`, d.TenantID, d.ID, d.Slot, d.Name, d.DefaultHTML, d.Variants, d.Status, d.StartAt, d.EndAt)
+		UPDATE dwc_slots SET slot = $3, name = $4, default_html = $5, variants = $6, status = $7, start_at = $8, end_at = $9,
+			platform = $10, default_card = $11, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2`, d.TenantID, d.ID, d.Slot, d.Name, d.DefaultHTML, d.Variants, d.Status, d.StartAt, d.EndAt, d.Platform, d.DefaultCard)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}

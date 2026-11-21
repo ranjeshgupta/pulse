@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 
 import 'config.dart';
+import 'content_model.dart';
 import 'device.dart';
 import 'exception.dart';
 import 'inapp_message.dart';
@@ -15,6 +16,7 @@ import 'inapp_view.dart';
 import 'storage.dart';
 import 'validation.dart';
 
+part 'content.dart';
 part 'inapp.dart';
 part 'inbox.dart';
 
@@ -44,6 +46,7 @@ class Pulse with WidgetsBindingObserver {
   Pulse._(this.config, this._http, this._storage, this._ownsHttp, this._clock) {
     inbox = PulseInbox._(this);
     inApp = PulseInApp._(this);
+    content = PulseContent._(this);
   }
 
   static Pulse? _instance;
@@ -113,6 +116,9 @@ class Pulse with WidgetsBindingObserver {
 
   /// In-app campaigns (see [PulseConfig.inAppMessages] and [attachNavigator]).
   late final PulseInApp inApp;
+
+  /// App content slots (see [PulseContent] and the `PulseSlot` widget).
+  late final PulseContent content;
 
   // The user hash, when a user is identified with one.
   String? get _identifiedHash => _userId == null ? null : _userHash;
@@ -246,6 +252,7 @@ class Pulse with WidgetsBindingObserver {
     if (_push != null && previous != userId) unawaited(_registerStoredToken());
     if (previous != userId) inbox._forget();
     if (config.inAppMessages) unawaited(inApp.refresh());
+    content._onIdentityChange();
   }
 
   /// Forgets the identified user (call it on sign-out): a new anonymous id is used from now on.
@@ -263,6 +270,7 @@ class Pulse with WidgetsBindingObserver {
     if (_push != null) unawaited(_registerStoredToken());
     inbox._forget();
     if (config.inAppMessages) unawaited(inApp.refresh());
+    content._onIdentityChange();
   }
 
   /// Registers a push [token] (the FCM registration token, obtained by the
@@ -521,6 +529,7 @@ class Pulse with WidgetsBindingObserver {
     if (config.inAppMessages && state == AppLifecycleState.resumed) {
       inApp._refreshIfStale();
     }
+    if (state == AppLifecycleState.resumed) content._refreshIfStale();
   }
 
   /// Stops the flush timer and lifecycle observer. Queued events stay in storage for the next start.
@@ -529,6 +538,7 @@ class Pulse with WidgetsBindingObserver {
     _disposed = true;
     _timer?.cancel();
     inApp._dispose();
+    content._dispose();
     WidgetsBinding.instance.removeObserver(this);
     if (_ownsHttp) _http.close();
     if (identical(_instance, this)) _instance = null;

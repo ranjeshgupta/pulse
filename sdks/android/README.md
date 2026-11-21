@@ -2,7 +2,8 @@
 
 Send events from an Android app to [Pulse](../../README.md): track events and screens, identify
 signed-in users (with identity verification), register FCM push tokens, report push opens and
-dismissals, show the app inbox and in-app messages, and let people opt out of tracking.
+dismissals, show the app inbox, in-app messages and app content slots, and let people opt out of
+tracking.
 
 It mirrors the [Flutter SDK](../flutter/pulse_sdk/README.md) and the web SDK: people are anonymous
 (`anon-` + 24 hex characters) until `identify`, and `identify` merges the anonymous visitor into the
@@ -99,6 +100,7 @@ runs on the SDK's own worker thread, and callbacks come back on the main thread.
 | `Pulse.optOut()` / `Pulse.optIn()` / `Pulse.isOptedOut` | Local tracking consent. |
 | `Pulse.inbox` | The app inbox (`PulseInbox`). |
 | `Pulse.inApp` | In-app campaigns (`PulseInApp`). |
+| `Pulse.content` | App content slots (`PulseContent`); `PulseSlotView` draws one. |
 | `Pulse.currentId` | The id events are recorded under. |
 | `Pulse.instance` | The `PulseClient`: also `anonymousId`, `isIdentified`, `sessionId`, `pendingEvents`, `deviceProperties`, `pushToken`, `pendingPushReports`, `flushBlocking()`. |
 
@@ -305,6 +307,66 @@ url}` and `inapp_dismissed` `{inapp_id}` (a banner that times out records nothin
 Turn the feature off with `PulseConfig(inAppMessages = false)`. To draw messages yourself, build a
 `PulseClient` with your own `InAppPresenter` in `PulseEnvironment`.
 
+## App content slots
+
+Content slots are named places in the app (a home banner, a promo card) whose content Pulse chooses
+per person: the app twin of a website's dynamic web content. Create them in Pulse under
+**Website & app messages → Content slots** with **Where: App**, then put a `PulseSlotView` where the
+slot goes:
+
+```kotlin
+val slot = PulseSlotView(context).apply { slotId = "home_banner" }
+container.addView(slot)
+```
+
+```xml
+<!-- or in a layout: the slot id goes in android:tag -->
+<io.pulse.sdk.android.PulseSlotView
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:tag="home_banner" />
+```
+
+When attached, the view shows the cached content and fetches the slot (unless it was fetched less
+than 15 minutes ago). A card is drawn as image, title, body and button; tapping the button (or the
+card, when it has a deep link) opens `deep_link` through `PulseConfig.onInAppAction`, like in-app
+buttons. The view is `GONE` while the slot is empty for this person. HTML and custom `data` are not
+drawn by the SDK: draw them yourself with a renderer (return null to hide the slot), and call
+`slot.click()` from your own tap handler:
+
+```kotlin
+slot.setRenderer { content ->
+    val color = content.card?.data?.get("color")
+    MyBannerView(context, content.card, color).apply { setOnClickListener { slot.click() } }
+}
+```
+
+Without a view:
+
+```kotlin
+Pulse.content.fetch(listOf("home_banner", "promo")) { content ->   // main thread
+    content["home_banner"]?.card?.let { showBanner(it.title, it.body, it.imageUrl, it.deepLink) }
+}
+Pulse.content.cached("home_banner")         // SlotContent? from the last fetch
+Pulse.content.load(listOf("home_banner")) { ... }   // the cache when fresh (< 15 min), else fetch
+val handle = Pulse.content.addListener { all -> ... } // whenever the cache changes
+Pulse.content.trackViewed("home_banner", c)    // when you show it yourself
+Pulse.content.trackClicked("home_banner", c)   // records the click and opens c.card?.deepLink
+```
+
+`SlotContent` has `card` (`SlotCard`: `title`, `body`, `imageUrl`, `buttonText`, `deepLink`,
+`data`), `html` and `variant`; every field may be null. Slot ids are lowercase letters, digits, `-`
+and `_` (others are skipped), at most 50 per request. A slot missing from the answer means show
+nothing. `fetchBlocking(slots)` does the same as `fetch` on the calling thread.
+
+The cache is cleared after `identify`, `reset` and `optIn` (listeners get an empty map, then the
+slots asked for so far are fetched again), and slots older than 15 minutes are fetched again when the
+app returns to the foreground. On a network error or an error answer the cached content is kept and
+returned; nothing throws. While opted out nothing is requested.
+
+Recorded with `track()`: `app_content_viewed` `{slot, variant}` once per content shown per view
+attach, and `app_content_clicked` `{slot, variant, link}` on a tap.
+
 ## Consent (opt-out)
 
 ```kotlin
@@ -314,8 +376,8 @@ Pulse.isOptedOut
 ```
 
 `optOut()` deletes queued events and push reports, and from then on nothing is recorded or sent:
-no events, push-token registrations, push reports, inbox or in-app requests (inbox calls return an
-empty page). The flag is stored (`pulse.<siteKey>.optout`) and survives restarts. `identify` and
+no events, push-token registrations, push reports, inbox, in-app or app content requests (inbox
+calls return an empty page). The flag is stored (`pulse.<siteKey>.optout`) and survives restarts. `identify` and
 `reset` still update the ids locally, so the right person is used after `optIn()`, but an
 anonymous-to-user merge that happened while opted out is not sent. `optIn()` registers the stored
 push token again and fetches in-app campaigns.
@@ -365,21 +427,23 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/w -v /tmp/gradle-di
 | inbox | `GET {host}/v1/web/inbox?id=&user_hash=&before=`, header `X-Pulse-Site-Key` → `{"messages":[...],"unread"}` |
 | inbox actions | `POST {host}/v1/web/inbox`, body `{"id","user_hash","action":"read"\|"delete"\|"click","message_ids":[...]}` → `{"changed"}` |
 | in-app | `POST {host}/v1/web/inapp`, body `{"id","user_hash","platform":"android"}` → `{"messages":[{"id","layout","content","trigger","end_at"}]}` |
+| app content | `POST {host}/v1/web/content`, body `{"id","user_hash","platform":"android","slots":[...]}` → `{"content":{"<slot>":{"card":{...},"html","variant"}}}` |
 | push open / dismissal | `POST {pulse_track}?a=clicked\|dismissed&platform=android`, no body, no site key → 204 (404 bad token, 400 bad action) |
 
 ## What was verified
 
 - `pulse-core` was compiled and its unit tests run in Docker with
   `docker run --rm -u $(id -u):$(id -g) -v $PWD:/w -w /w -e GRADLE_USER_HOME=/w/.gradle gradle:8-jdk17 gradle :pulse-core:test --no-daemon`
-  (Gradle 8, JDK 17, Kotlin 2.0.21): 44 tests, all passing. They cover the anonymous id and its
+  (Gradle 8, JDK 17, Kotlin 2.0.21): 53 tests, all passing. They cover the anonymous id and its
   site-key namespace, the identify merge prop, validation, batching, persistence across restarts,
   backoff and drop rules, sessions, device props, opt-out, push token registration, push report URLs
-  and retries, inbox parsing and the user-hash rule, and in-app frequency rules.
+  and retries, inbox parsing and the user-hash rule, in-app frequency rules, and app content requests,
+  parsing, caching (kept on failure, cleared on identify/reset) and events.
 - `pulse-android` was compiled and linted, not run: `gradle :pulse-android:assembleRelease
   :pulse-android:lintRelease` (Android Gradle plugin 8.5.2, compileSdk 34) inside the
   `ghcr.io/cirruslabs/android-sdk:34` image, with Gradle copied from `gradle:8-jdk17`; it built
   and lint found no issues. There are no unit or instrumented tests for it, and it was not run on a
   device or emulator: the `Pulse` object, SharedPreferences storage, lifecycle handling, device
-  details, notification helpers, the `PulseFirebase` reflection and `PulseInAppActivity` are
-  untested at runtime.
+  details, notification helpers, the `PulseFirebase` reflection, `PulseInAppActivity` and
+  `PulseSlotView` are untested at runtime.
 - Nothing was tested against a running Pulse server.

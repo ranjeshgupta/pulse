@@ -6,8 +6,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The Pulse SDK core: identity, event queue, sessions, push tokens and push tracking, opt-out, the
- * app inbox and in-app campaigns. It has no Android dependency; the `pulse-android` module wraps it
- * in the `Pulse` object with SharedPreferences storage, lifecycle hooks and device details.
+ * app inbox, in-app campaigns and app content slots. It has no Android dependency; the
+ * `pulse-android` module wraps it in the `Pulse` object with SharedPreferences storage, lifecycle
+ * hooks and device details.
  *
  * People are anonymous (`anon-` + 24 hex characters) until [identify]. Events are queued, persisted,
  * and sent in batches every [PulseConfig.flushIntervalMillis], as soon as [PulseConfig.maxBatch]
@@ -39,6 +40,9 @@ class PulseClient(val config: PulseConfig, internal val env: PulseEnvironment) {
 
     /** In-app campaigns. */
     val inApp: PulseInApp = PulseInApp(this)
+
+    /** App content slots. */
+    val content: PulseContent = PulseContent(this)
 
     private val pushTracker = PushTracker(this)
 
@@ -178,6 +182,7 @@ class PulseClient(val config: PulseConfig, internal val env: PulseEnvironment) {
             out = optedOut
         }
         if (previous != userId) inbox.forget()
+        content.reload()
         if (out) return log("opted out: identify $userId stored locally, not sent")
         val props = LinkedHashMap<String, Any?>(deviceProperties)
         if (wasAnonymous) props["anonymous_id"] = previous
@@ -203,6 +208,7 @@ class PulseClient(val config: PulseConfig, internal val env: PulseEnvironment) {
             env.storage.delete(keys.sessionId)
         }
         inbox.forget()
+        content.reload()
         if (isOptedOut) return
         env.dispatcher.execute { registerStoredToken() }
         if (config.inAppMessages) inApp.refresh()
@@ -237,6 +243,7 @@ class PulseClient(val config: PulseConfig, internal val env: PulseEnvironment) {
         log("opted in")
         env.dispatcher.execute { registerStoredToken() }
         if (config.inAppMessages) inApp.refresh()
+        content.reload()
     }
 
     // ---- sessions and lifecycle ----
@@ -277,11 +284,12 @@ class PulseClient(val config: PulseConfig, internal val env: PulseEnvironment) {
         if (config.flushOnBackground) flush()
     }
 
-    /** Call when the app comes to the foreground (the Android module does). May start a new session and refresh in-app campaigns. */
+    /** Call when the app comes to the foreground (the Android module does). May start a new session and refresh in-app campaigns and app content. */
     fun onForeground() {
         if (isOptedOut) return
         session()
         if (config.inAppMessages) inApp.refreshIfStale()
+        content.refreshIfStale()
     }
 
     // ---- queue ----

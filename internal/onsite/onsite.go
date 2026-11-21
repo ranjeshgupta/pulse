@@ -82,7 +82,7 @@ func DecideFor(items []model.FocusItem, slots []model.DWCSlot, wanted []string, 
 		want[w] = true
 	}
 	for _, s := range slots {
-		if s.Status != "active" || !want[s.Slot] || !(schedule.Window{Start: s.StartAt, End: s.EndAt}).Active(now) {
+		if IsApp(s) || s.Status != "active" || !want[s.Slot] || !(schedule.Window{Start: s.StartAt, End: s.EndAt}).Active(now) {
 			continue
 		}
 		html, which := s.DefaultHTML, ""
@@ -249,6 +249,10 @@ func ValidateDWC(d model.DWCSlot) error {
 		return fmt.Errorf("name is required")
 	case !oneOf(d.Status, "draft", "active"):
 		return fmt.Errorf("status must be draft or active")
+	case !oneOf(d.Platform, "", PlatformWeb, PlatformApp):
+		return fmt.Errorf("platform must be web or app")
+	case !IsApp(d) && d.DefaultCard != nil:
+		return fmt.Errorf("website slots show HTML, not cards")
 	case len(d.Variants) > MaxVariants:
 		return fmt.Errorf("at most %d variants", MaxVariants)
 	}
@@ -270,6 +274,18 @@ func ValidateDWC(d model.DWCSlot) error {
 		if err := ValidateAudience(what, v.Rules()); err != nil {
 			return err
 		}
+		if v.Card != nil && !IsApp(d) {
+			return fmt.Errorf("%s: website slots show HTML, not cards", what)
+		}
+		if err := ValidateCard(what, v.Card); err != nil {
+			return err
+		}
+		if IsApp(d) && (len(v.Rules().URLContains) > 0 || len(v.Rules().URLNotContains) > 0) {
+			return fmt.Errorf("%s: page address rules don't apply in an app", what)
+		}
+	}
+	if err := ValidateCard("default", d.DefaultCard); err != nil {
+		return err
 	}
 	return (schedule.Window{Start: d.StartAt, End: d.EndAt}).Validate()
 }
