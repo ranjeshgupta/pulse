@@ -268,7 +268,14 @@ likely to matter:
 
 ## License
 
-Pulse is free software under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
-You may use, change and share it. If you change it and let people use it over a network (for
-example as a hosted service), you must offer them the source of your changed version under the
-same license.
+Pulse uses two licenses:
+
+- **The platform** (the server, the web app and everything else, unless a folder says otherwise)
+  is free software under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). You may
+  use, change and share it. If you change it and let people use it over a network (for example as
+  a hosted service), you must offer them the source of your changed version under the same license.
+- **The SDKs** you embed in your own websites and apps are under the [MIT License](sdks/android/LICENSE),
+  so using them never puts your website's or app's code under the AGPL:
+  [Android](sdks/android/LICENSE), [iOS](sdks/ios/LICENSE), [Flutter](sdks/flutter/pulse_sdk/LICENSE),
+  the [web SDK](web/src/sdk/LICENSE) and the [scripts your pages load](web/public/sdk/LICENSE)
+  (the web SDK bundle, landing page and service worker scripts).
