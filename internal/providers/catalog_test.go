@@ -127,7 +127,8 @@ func TestServiceAccountTokens(t *testing.T) {
 		_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"Invalid JWT Signature."}`)
 	}))
 	defer reject.Close()
-	p, err = New("google_rbm", Deps{}, map[string]string{"agent_id": "a"},
+	p, err = New("google_rbm", Deps{AllowPrivate: true}, // the token server is local
+		map[string]string{"agent_id": "a"},
 		map[string]string{"service_account_json": testServiceAccount(t, reject.URL)})
 	if err != nil {
 		t.Fatal(err)

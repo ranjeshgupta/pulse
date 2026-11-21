@@ -71,3 +71,13 @@ func TestDevSecretsRefusedOffLocalhost(t *testing.T) {
 		t.Errorf("own secrets refused: %v", errs)
 	}
 }
+
+// PULSE_KAFKA_PARTITIONS is an int32: a value past its range is rejected, not wrapped to 1 or a negative.
+func TestLoadRejectsPartitionsOverflow(t *testing.T) {
+	for _, v := range []string{"4294967297", "2147483648"} {
+		t.Setenv("PULSE_KAFKA_PARTITIONS", v)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "PULSE_KAFKA_PARTITIONS") {
+			t.Errorf("%s: err = %v", v, err)
+		}
+	}
+}

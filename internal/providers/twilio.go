@@ -22,7 +22,7 @@ func init() {
 		ID: "twilio", Channel: channel.SMS, Name: "Twilio",
 		Description: "SMS through Twilio's Programmable Messaging API, worldwide.",
 		Config: []Field{
-			{Key: "account_sid", Label: "Account SID", Placeholder: "AC0123456789abcdef0123456789abcdef", Required: true},
+			{Key: "account_sid", Label: "Account SID", Placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", Required: true},
 			{Key: "from", Label: "From number (leave empty to use a Messaging Service)", Placeholder: "+14155550123"},
 			{Key: "messaging_service_sid", Label: "Messaging Service SID", Placeholder: "MG0123456789abcdef0123456789abcdef"},
 			{Key: "status_callback_url", Label: "Delivery report URL (this provider's Pulse webhook URL)",

@@ -252,8 +252,9 @@ export default async function (browser) {
   await context.close();
 }
 
-/** The control of a form field by its exact label (the label wraps the control, so its text runs on). */
+/** The control of a form field by its exact label (the label wraps the control, so its text runs on).
+ * Every regex special character in the label is escaped (backslash too), so it matches literally. */
 function field(page, label) {
-  const exact = new RegExp(`^${label.replace(/[()?]/g, "\\$&")}$`);
+  const exact = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
   return page.locator("label.field", { has: page.locator(":scope > span", { hasText: exact }) }).locator("input, select, textarea").first();
 }

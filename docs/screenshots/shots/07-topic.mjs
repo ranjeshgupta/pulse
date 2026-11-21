@@ -7,9 +7,10 @@ import { api, go, session, settle, shot, until } from "../lib.mjs";
 
 const AREA = "tutorials";
 
-/** The control of a form field by its exact label (the label wraps the control, so its text runs on). */
+/** The control of a form field by its exact label (the label wraps the control, so its text runs on).
+ * Every regex special character in the label is escaped (backslash too), so it matches literally. */
 function field(page, label) {
-  return page.locator("label.field", { has: page.locator(":scope > span", { hasText: new RegExp(`^${label.replace(/[()]/g, "\\$&")}$`) }) }).locator("input, select, textarea").first();
+  return page.locator("label.field", { has: page.locator(":scope > span", { hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }) }).locator("input, select, textarea").first();
 }
 
 export default async function (browser) {

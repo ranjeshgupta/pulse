@@ -24,21 +24,30 @@ export function domainOf(providers: Provider[]): string {
   return "";
 }
 
-/** serviceOf guesses the sending service from a provider's settings. */
+// SERVICE_DOMAINS: the domains each service's SMTP hosts live under (smtp.sendgrid.net,
+// email-smtp.<region>.amazonaws.com, smtp-relay.gmail.com, …).
+const SERVICE_DOMAINS: [string, string[]][] = [
+  ["ses", ["amazonaws.com"]], ["sendgrid", ["sendgrid.net", "sendgrid.com"]], ["mailgun", ["mailgun.org", "mailgun.net"]],
+  ["postmark", ["postmarkapp.com"]], ["mailjet", ["mailjet.com"]], ["sparkpost", ["sparkpostmail.com", "sparkpost.com"]],
+  ["brevo", ["brevo.com", "sendinblue.com"]], ["gmail", ["gmail.com", "googlemail.com", "google.com"]],
+];
+
+/** hostName is the bare host name of a host setting ("smtp://Smtp.Sendgrid.net:587/" → "smtp.sendgrid.net"). */
+function hostName(host: string): string {
+  return host.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/?#].*$/, "").replace(/:\d*$/, "").replace(/\.$/, "");
+}
+
+/** serviceOf guesses the sending service from a provider's settings. The host must be the
+ * service's domain or a name under it: "amazonaws.com.example.net" or "mysendgrid-relay.example"
+ * are not that service, and a wrong guess would check (and advise) the wrong SPF include. */
 export function serviceOf(p?: Provider): string {
   if (!p) return "";
   const svc = (p.config?.service ?? "").toLowerCase();
   if (svc && svc !== "auto") return svc;
-  const host = (p.config?.host ?? "").toLowerCase();
-  if (host.includes("amazonaws.com")) return "ses";
-  if (host.includes("sendgrid")) return "sendgrid";
-  if (host.includes("mailgun")) return "mailgun";
-  if (host.includes("postmark")) return "postmark";
-  if (host.includes("mailjet")) return "mailjet";
-  if (host.includes("sparkpost")) return "sparkpost";
-  if (host.includes("brevo") || host.includes("sendinblue")) return "brevo";
-  if (host.includes("gmail") || host.includes("google")) return "gmail";
-  return "";
+  const host = hostName(p.config?.host ?? "");
+  if (!host) return "";
+  const under = (d: string) => host === d || host.endsWith("." + d);
+  return SERVICE_DOMAINS.find(([, ds]) => ds.some(under))?.[0] ?? "";
 }
 
 export function DomainCheckDrawer({ providers, onClose }: { providers: Provider[]; onClose: () => void }) {

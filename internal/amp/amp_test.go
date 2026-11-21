@@ -232,3 +232,15 @@ func TestPreviewIsScriptFree(t *testing.T) {
 		}
 	}
 }
+
+// Attribute values the preview copies (alt, width, height, class, a carousel's height) are
+// HTML-escaped, so a quote in one can't end the attribute and add an event handler.
+func TestPreviewEscapesAttributeQuotes(t *testing.T) {
+	attack := `1" onerror="alert(1)`
+	doc := `<amp-img src="https://cdn.example/a.png" alt='` + attack + `' width='` + attack + `' height='` + attack + `'></amp-img>` +
+		`<amp-carousel type="slides" height='` + attack + `'><p class='` + attack + `'>x</p></amp-carousel>`
+	pv := PreviewHTML(doc)
+	if strings.Contains(pv, `" onerror="`) || strings.Count(pv, "&#34; onerror=&#34;") != 5 {
+		t.Errorf("attribute not escaped: %s", pv)
+	}
+}

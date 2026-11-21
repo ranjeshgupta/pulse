@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pulse/internal/safehttp"
 	"slices"
 	"sort"
 	"strconv"
@@ -281,7 +282,9 @@ func New(kind string, d Deps, config, secrets map[string]string) (Provider, erro
 		return nil, fmt.Errorf("unknown provider %q", kind)
 	}
 	if d.HTTP == nil {
-		d.HTTP = &http.Client{Timeout: 15 * time.Second}
+		// Safe by default: an adapter that ever calls an address from its settings can't reach the
+		// server's own network (unless the operator allows private addresses).
+		d.HTTP = safehttp.Client(15*time.Second, d.AllowPrivate)
 	}
 	return k.New(d, config, secrets)
 }

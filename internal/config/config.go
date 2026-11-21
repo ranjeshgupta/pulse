@@ -88,7 +88,7 @@ func Load() (Config, error) {
 		RedisAddr:            env("PULSE_REDIS_ADDR", "localhost:16379"),
 		RedisPassword:        env("PULSE_REDIS_PASSWORD", ""),
 		KafkaBrokers:         strings.Split(env("PULSE_KAFKA_BROKERS", "localhost:19092"), ","),
-		Partitions:           int32(r.integer("PULSE_KAFKA_PARTITIONS", 12)),
+		Partitions:           r.integer32("PULSE_KAFKA_PARTITIONS", 12),
 		SMTPAddr:             env("PULSE_SMTP_ADDR", "localhost:11025"),
 		SMTPFrom:             env("PULSE_SMTP_FROM", "Pulse <noreply@pulse.local>"),
 		AdminToken:           env("PULSE_ADMIN_TOKEN", ""),
@@ -181,6 +181,20 @@ func (r *reader) integer(k string, def int) int {
 		return def
 	}
 	return n
+}
+
+// integer32 is integer for an int32 setting: a value past the int32 range fails instead of wrapping.
+func (r *reader) integer32(k string, def int32) int32 {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 32)
+	if err != nil || n <= 0 {
+		r.fail(k, v, "must be a whole number from 1 to 2147483647")
+		return def
+	}
+	return int32(n)
 }
 
 // rate reads a number greater than zero; fractions are fine (12.5 per second).

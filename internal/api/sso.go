@@ -147,7 +147,8 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		loginRedirect(w, r, "sso_expired")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: ssoCookie, Path: "/v1/auth/sso", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: ssoCookie, Path: "/v1/auth/sso", MaxAge: -1,
+		HttpOnly: true, Secure: s.secureCookies(), SameSite: http.SameSiteLaxMode})
 	flow, err := s.Box.OpenString(cookie.Value)
 	parts := strings.Split(flow, "|")
 	if err != nil || len(parts) != 5 {
