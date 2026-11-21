@@ -74,6 +74,9 @@ func TestSignupIsRateLimited(t *testing.T) {
 	s, _, _ := newServer()
 	redisServer(t, s)
 	s.SignupRate = 2
+	// The limits count per clock minute: a fixed clock keeps a slow run from crossing into the next one.
+	fixed := time.Date(2026, 11, 21, 12, 0, 10, 0, time.UTC)
+	s.now = func() time.Time { return fixed }
 	h := s.Handler()
 	signup := func(i int, ip string) int {
 		r := httptest.NewRequest("POST", "/v1/auth/signup", strings.NewReader(`{"workspace":"W`+string(rune('a'+i))+`","email":"o`+string(rune('a'+i))+`@acme.io","password":"long enough pw"}`))

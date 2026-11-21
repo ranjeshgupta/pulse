@@ -60,7 +60,7 @@ func (s *Server) allowRate(ctx context.Context, prefix string, tenant int64, r *
 	if s.RDB == nil {
 		return true
 	}
-	key := prefix + ":" + strconv.FormatInt(tenant, 10) + ":" + s.ip(r) + ":" + strconv.FormatInt(time.Now().Unix()/60, 10)
+	key := prefix + ":" + strconv.FormatInt(tenant, 10) + ":" + s.ip(r) + ":" + strconv.FormatInt(s.now().Unix()/60, 10)
 	c, err := s.RDB.IncrBy(ctx, key, int64(n)).Result()
 	if err != nil {
 		return true
