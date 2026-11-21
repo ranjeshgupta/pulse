@@ -530,11 +530,15 @@ func (s *Server) guardBlockEdit(h tenantHandler) http.HandlerFunc {
 			var in struct {
 				Key string `json:"key"`
 			}
-			if json.Unmarshal(body, &in) == nil {
-				// The key as saveBlock will store it; one it would refuse saves nothing anyway.
-				if k := normalizeBlockKey(in.Key); personalize.BlockKeyRe.MatchString(k) {
-					keys[k] = true
-				}
+			// Decoded exactly as saveBlock decodes it (decode: json.Decoder, first value), so both
+			// see the same key; a body it can't read is refused here, not passed on.
+			if err := json.NewDecoder(bytes.NewReader(body)).Decode(&in); err != nil {
+				writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+				return
+			}
+			// The key as saveBlock will store it; one it would refuse saves nothing anyway.
+			if k := normalizeBlockKey(in.Key); personalize.BlockKeyRe.MatchString(k) {
+				keys[k] = true
 			}
 		}
 		if r.PathValue("id") != "" {

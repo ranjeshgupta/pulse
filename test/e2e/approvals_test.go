@@ -4,6 +4,8 @@ package e2e
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,6 +72,13 @@ func TestApprovalsBlockKeys(t *testing.T) {
 
 	jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": "promo", "name": "Promo", "html": "<p>50% off</p>", "text": "50% off"}, 409)
 	jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": " promo ", "name": "Promo", "html": "<p>50% off</p>", "text": "50% off"}, 409) // saved trimmed
+	// Text after the JSON: the guard reads the body exactly as saving does, so it's still refused.
+	raw, _ := http.NewRequest("POST", apiURL+"/v1/content-blocks", strings.NewReader(`{"key":"promo","name":"Promo","html":"<p>x</p>","text":"x"} trailing`))
+	raw.Header.Set("Content-Type", "application/json")
+	raw.Header.Set("X-Pulse-CSRF", "1")
+	if resp, err := c.Do(raw); err != nil || (resp.StatusCode != 409 && resp.StatusCode != 400) {
+		t.Errorf("block with trailing data: %v %v", err, resp.StatusCode)
+	}
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/content-blocks/", other), map[string]any{"key": "promo", "name": "Spare", "html": "<p>x</p>", "text": "x"}, 409)
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/content-blocks/", other), map[string]any{"key": "spare", "name": "Spare 2", "html": "<p>y</p>", "text": "y"}, 200)
 }
