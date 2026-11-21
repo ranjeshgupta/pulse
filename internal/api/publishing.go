@@ -39,7 +39,7 @@ type JourneyScheduleStore interface {
 func (s *Server) publishingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/segments/{id}/publishing", s.tenant(s.putSegmentPublishing))
 	mux.HandleFunc("GET /v1/segments/{id}/usage", s.tenant(s.segmentUsage))
-	mux.HandleFunc("PUT /v1/journeys/{id}/schedule", s.tenant(s.putJourneySchedule))
+	mux.HandleFunc("PUT /v1/journeys/{id}/schedule", s.authed(s.putJourneySchedule))
 	// POST /v1/journeys/{id}/unpublish is one of journeyAction's actions (it needs the body).
 }
 
@@ -350,7 +350,10 @@ func (s *Server) unpublishJourney(w http.ResponseWriter, r *http.Request, p mode
 
 // putJourneySchedule changes a journey's dates, also while it's live: move the end later (or clear
 // it) to let people in again, or end it at a set time. People already inside always finish.
-func (s *Server) putJourneySchedule(w http.ResponseWriter, r *http.Request, tenant int64) {
+// Reopening a live journey whose window had ended is a launch: it needs a live trigger segment and,
+// in a workspace that requires it, a second person's approval.
+func (s *Server) putJourneySchedule(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	id, ok := pathID(w, r)
 	if !ok {
 		return
@@ -371,16 +374,42 @@ func (s *Server) putJourneySchedule(w http.ResponseWriter, r *http.Request, tena
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	js, ok := s.Store.(JourneyScheduleStore)
-	if !ok {
+	us, ok := s.Store.(UIStore)
+	js, ok2 := s.Store.(JourneyScheduleStore)
+	if !ok || !ok2 {
 		writeErr(w, http.StatusNotImplemented, "changing dates isn't available")
 		return
 	}
-	if err := js.SetJourneyWindow(r.Context(), tenant, id, win); err != nil {
+	j, err := us.GetJourney(r.Context(), tenant, id)
+	if err != nil {
 		if errors.Is(err, pg.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "not found")
 			return
 		}
+		s.fail(w, err)
+		return
+	}
+	if j.ArchivedAt != nil {
+		writeErr(w, http.StatusConflict, "restore the journey from the archive before changing its dates")
+		return
+	}
+	now := s.now()
+	if j.Status == "active" && win.State(now) != "ended" {
+		if (schedule.Window{Start: j.StartAt, End: j.EndAt}).State(now) == "ended" && s.fourEyes(w, r, p) {
+			return // reopening an ended live journey is a launch
+		}
+		if g, err := journey.ParseGraph(j.Graph); err == nil && g.Trigger.SegmentID != 0 {
+			if err := s.segmentsLiveFor(r.Context(), tenant, []int64{g.Trigger.SegmentID}, win.Start); err != nil {
+				if errors.Is(err, errSegmentNotLive) {
+					writeErr(w, http.StatusConflict, err.Error())
+				} else {
+					s.fail(w, err)
+				}
+				return
+			}
+		}
+	}
+	if err := js.SetJourneyWindow(r.Context(), tenant, id, win); err != nil {
 		s.fail(w, err)
 		return
 	}

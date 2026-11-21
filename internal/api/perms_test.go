@@ -82,6 +82,13 @@ func TestRoutePermissions(t *testing.T) {
 		{"POST /v1/templates/{id}/duplicate", viewer, false},
 		{"PUT /v1/channels/providers/{id}/limits", auth.Perms{auth.AreaChannels: auth.Edit}, true},
 		{"PUT /v1/channels/providers/{id}/limits", auth.Perms{auth.AreaSettings: auth.Edit, auth.AreaChannels: auth.View}, false},
+		// Publishing: changing a live journey's dates can reopen it, so it needs publish (unpublish is
+		// one of POST /v1/journeys/{id}/{action}).
+		{"PUT /v1/journeys/{id}/schedule", auth.Perms{auth.AreaJourneys: auth.Edit}, false},
+		{"PUT /v1/journeys/{id}/schedule", auth.Perms{auth.AreaJourneys: auth.Publish}, true},
+		{"PUT /v1/segments/{id}/publishing", viewer, false},
+		{"PUT /v1/segments/{id}/publishing", auth.Perms{auth.AreaSegments: auth.Edit}, true},
+		{"GET /v1/segments/{id}/usage", viewer, true},
 		// M6
 		{"POST /v1/templates/amp/check", viewer, true},
 		{"POST /v1/templates/amp/check", auth.Perms{auth.AreaChannels: auth.Edit}, false},

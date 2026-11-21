@@ -272,6 +272,25 @@ func TestJourneyScheduleWhileLive(t *testing.T) {
 	if w = do(t, h, "PUT", "/v1/journeys/99/schedule", "key-1", `{"start_at":"`+start+`"}`); w.Code != http.StatusNotFound {
 		t.Errorf("missing: %d", w.Code)
 	}
+
+	// Reopening a live journey is a launch: its trigger segment must be live.
+	ps.segments[0].Unpublished = true
+	ps.journeys[7] = model.Journey{ID: 7, TenantID: 1, Name: "Welcome", Status: "active", StartAt: pubNow.Add(-time.Hour), EndAt: &end,
+		Graph: json.RawMessage(`{"trigger":{"type":"segment_entered","segment_id":1},"entry":"a","nodes":{"a":{"type":"exit"}}}`)}
+	if w = do(t, h, "PUT", "/v1/journeys/7/schedule", "key-1", `{"start_at":"`+start+`"}`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "unpublished") {
+		t.Errorf("reopen with an unpublished trigger segment: %d %s", w.Code, w.Body)
+	}
+	// Ending it sooner is always fine.
+	sooner := pubNow.Add(-30 * time.Minute).Format(time.RFC3339)
+	if w = do(t, h, "PUT", "/v1/journeys/7/schedule", "key-1", `{"start_at":"`+start+`","end_at":"`+sooner+`"}`); w.Code != http.StatusOK {
+		t.Errorf("end sooner: %d %s", w.Code, w.Body)
+	}
+	// An archived journey keeps its dates.
+	archived := pubNow
+	ps.journeys[8] = model.Journey{ID: 8, TenantID: 1, Name: "Old", Status: "paused", StartAt: pubNow.Add(-time.Hour), ArchivedAt: &archived, Graph: json.RawMessage(`{}`)}
+	if w = do(t, h, "PUT", "/v1/journeys/8/schedule", "key-1", `{"start_at":"`+start+`"}`); w.Code != http.StatusConflict {
+		t.Errorf("archived: %d %s", w.Code, w.Body)
+	}
 }
 
 func TestSegmentUsage(t *testing.T) {
