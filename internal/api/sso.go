@@ -201,6 +201,10 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if errors.Is(err, pg.ErrSSOSubjectConflict) {
+		loginRedirect(w, r, "sso_identity_conflict")
+		return
+	}
 	if errors.Is(err, pg.ErrNotFound) {
 		loginRedirect(w, r, "sso_not_provisioned")
 		return

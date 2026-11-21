@@ -21,6 +21,7 @@ export const SSO_ERRORS: Record<string, string> = {
   sso_no_verified_email: "Your identity provider didn't share a verified email address.",
   sso_not_provisioned: "You don't have access to this workspace yet. Ask an admin to add you.",
   sso_link_needed: "This email already has a password account. Sign in with your password first, then use Single sign-on once to link it.",
+  sso_identity_conflict: "This email is already linked to a different single sign-on identity. Ask an admin of your workspace to check your account.",
 };
 
 /** loginError is the message for ?error= (null without one; a general message for unknown codes). */

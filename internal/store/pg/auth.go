@@ -137,6 +137,10 @@ func (s *Store) DeleteUser(ctx context.Context, tenant, id int64) error {
 // identity provider account with the same email can't take the account over.
 var ErrPasswordAccount = errors.New("this email has a password account; sign in with the password once to link SSO")
 
+// ErrSSOSubjectConflict: an SSO identity's email belongs to a user linked to a different identity
+// at the provider; an admin has to sort it out.
+var ErrSSOSubjectConflict = errors.New("this email is linked to a different single sign-on identity")
+
 // SSOUser finds the user for a verified SSO identity: by subject, then by email (linking the
 // subject, only for users without a password), then creates one when the workspace allows it.
 func (s *Store) SSOUser(ctx context.Context, tenant int64, subject, email, name string, autoCreate bool, role string) (model.User, error) {
@@ -151,13 +155,18 @@ func (s *Store) SSOUser(ctx context.Context, tenant int64, subject, email, name 
 	if !errors.Is(err, ErrNotFound) {
 		return u, err
 	}
+	// An account with this email that isn't linked to this subject: a password account may be linked
+	// by its owner (ErrPasswordAccount); one linked to another SSO subject is never relinked silently.
 	var hasPassword bool
-	if err := s.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE tenant_id = $1 AND email = $2)`,
-		tenant, normEmail(email)).Scan(&hasPassword); err != nil {
+	err = s.db.QueryRow(ctx, `SELECT coalesce(password_hash, '') <> '' FROM users WHERE tenant_id = $1 AND email = $2`,
+		tenant, normEmail(email)).Scan(&hasPassword)
+	switch {
+	case err == nil && hasPassword:
+		return model.User{}, ErrPasswordAccount
+	case err == nil:
+		return model.User{}, ErrSSOSubjectConflict
+	case !errors.Is(err, pgx.ErrNoRows):
 		return model.User{}, err
-	}
-	if hasPassword {
-		return model.User{}, ErrPasswordAccount // or linked to another subject: never relinked silently
 	}
 	if !autoCreate {
 		return model.User{}, ErrNotFound

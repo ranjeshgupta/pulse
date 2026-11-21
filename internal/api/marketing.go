@@ -19,6 +19,7 @@ import (
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/segment"
+	"pulse/internal/store/ch"
 	"pulse/internal/store/pg"
 )
 
@@ -402,6 +403,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	}
 	if code, msg := inputProblem(err); code != 0 {
 		writeErr(w, code, msg)
+		return
+	}
+	if ch.LimitExceeded(err) {
+		writeErr(w, http.StatusUnprocessableEntity, "this needs more time or memory than a request may use: try a shorter period or fewer conditions")
 		return
 	}
 	s.Log.Error("request failed", "err", err)

@@ -2,6 +2,8 @@ package ch
 
 import (
 	"context"
+	"errors"
+	"math"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -33,11 +35,23 @@ func WithLimits(ctx context.Context, l Limits) context.Context {
 func (l Limits) settings() clickhouse.Settings {
 	set := clickhouse.Settings{}
 	if l.MaxExecutionTime > 0 {
-		set["max_execution_time"] = int(l.MaxExecutionTime.Seconds())
+		// ClickHouse takes whole seconds and 0 means no limit: round up, at least 1.
+		set["max_execution_time"] = max(1, int(math.Ceil(l.MaxExecutionTime.Seconds())))
 		set["timeout_overflow_mode"] = "throw"
 	}
 	if l.MaxMemory > 0 {
 		set["max_memory_usage"] = l.MaxMemory
 	}
 	return set
+}
+
+// LimitExceeded reports whether a query stopped at one of its limits (time or memory), which is
+// the request's size, not a fault: ClickHouse errors TIMEOUT_EXCEEDED (159), TOO_SLOW (160) and
+// MEMORY_LIMIT_EXCEEDED (241).
+func LimitExceeded(err error) bool {
+	var ex *clickhouse.Exception
+	if !errors.As(err, &ex) {
+		return false
+	}
+	return ex.Code == 159 || ex.Code == 160 || ex.Code == 241
 }

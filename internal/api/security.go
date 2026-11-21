@@ -121,7 +121,7 @@ func (s *Server) queryLimits(h http.Handler) http.Handler {
 	export.MaxExecutionTime = 0
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		use := l
-		if strings.HasSuffix(r.URL.Path, "/export") {
+		if r.URL.Path == "/v1/contacts/export" { // the contact export streams everything; only it has no time limit
 			use = export
 		}
 		h.ServeHTTP(w, r.WithContext(ch.WithLimits(r.Context(), use)))
