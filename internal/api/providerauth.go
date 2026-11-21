@@ -199,7 +199,7 @@ func (s *Server) previewOutbound(ctx context.Context, pr model.Principal, ch str
 		}
 		contact = c
 	}
-	v := channel.Vars{Event: d.Event}
+	v := channel.Vars{Event: d.Event, Blocks: s.renderBlocks(ctx, pr.TenantID)}
 	v.Campaign.Name, v.Campaign.Type, v.Campaign.Channel = "Preview", "test", ch
 	if d.TemplateID != 0 {
 		t, err := s.uiStore().Template(ctx, pr.TenantID, d.TemplateID)

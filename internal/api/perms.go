@@ -20,7 +20,7 @@ var areaByPrefix = map[string]string{
 	"journeys": auth.AreaJourneys, "journey-steps": auth.AreaJourneys,
 	"broadcasts": auth.AreaBroadcasts,
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
-	"assets": auth.AreaContent, "landing-pages": auth.AreaContent, "test-contacts": auth.AreaContent,
+	"assets": auth.AreaContent, "landing-pages": auth.AreaContent, "test-contacts": auth.AreaContent, "content-blocks": auth.AreaContent,
 	"stats": auth.AreaReports, "funnels": auth.AreaReports, "cohorts": auth.AreaReports, "reports": auth.AreaReports,
 	"revenue": auth.AreaReports, "analytics": auth.AreaReports, // M4 dashboards
 	"live":     auth.AreaContacts, // the live event feed shows people's events
@@ -32,6 +32,11 @@ var areaByPrefix = map[string]string{
 // special lists routes whose need differs from the method rule.
 var special = map[string]need{
 	"GET /v1/auth/me": {"", auth.None}, // everyone signed in
+	// Approvals check the campaign's area in the handler (edit to ask, publish to decide).
+	"GET /v1/approvals":                {"", auth.None},
+	"GET /v1/approvals/latest":         {"", auth.None},
+	"POST /v1/approvals":               {"", auth.None},
+	"POST /v1/approvals/{id}/{action}": {"", auth.None},
 	// The subscription topics, for the topic picker of campaigns and journey steps (names only).
 	"GET /v1/unsubscribe-topics": {"", auth.None},
 	// Two-step sign-in: everyone signed in manages their own (twofactor.go). The policy is read
@@ -46,6 +51,7 @@ var special = map[string]need{
 	"GET /v1/events/names":                            {auth.AreaReports, auth.View},
 	"POST /v1/segments/preview":                       {auth.AreaSegments, auth.View},
 	"POST /v1/templates/preview":                      {auth.AreaContent, auth.View},
+	"POST /v1/templates/spam-check":                   {auth.AreaContent, auth.View},
 	"POST /v1/landing-pages/preview":                  {auth.AreaContent, auth.View},
 	"POST /v1/templates/text":                         {auth.AreaContent, auth.View},
 	"GET /v1/templates/sample-event":                  {auth.AreaContacts, auth.View}, // a contact's real event
@@ -55,6 +61,7 @@ var special = map[string]need{
 	"POST /v1/revenue/report":                         {auth.AreaReports, auth.View},
 	"PUT /v1/revenue/settings":                        {auth.AreaSettings, auth.Edit}, // a workspace setting
 	"POST /v1/channels/test":                          {auth.AreaContent, auth.Edit},  // a test send of a template
+	"POST /v1/channels/domain-check":                  {auth.AreaChannels, auth.View}, // reads public DNS only
 	"POST /v1/journeys/{id}/{action}":                 {auth.AreaJourneys, auth.Publish},
 	"POST /v1/broadcasts/{id}/schedule":               {auth.AreaBroadcasts, auth.Publish},
 	"POST /v1/broadcasts/{id}/cancel":                 {auth.AreaBroadcasts, auth.Publish},

@@ -112,14 +112,15 @@ type Dispatcher struct {
 	pub      kafka.Publisher
 	now      func() time.Time
 
-	mu        sync.Mutex
-	templates map[[2]int64]cached[model.Template]
-	senders   map[string]cached[providers.Provider] // web push
-	vias      map[string]cached[sendVia]            // default providers with their limits
-	rules     map[int64]cached[delivery.Rules]
-	files     map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
-	autoCache sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
-	fileBytes int
+	mu         sync.Mutex
+	templates  map[[2]int64]cached[model.Template]
+	senders    map[string]cached[providers.Provider] // web push
+	vias       map[string]cached[sendVia]            // default providers with their limits
+	rules      map[int64]cached[delivery.Rules]
+	files      map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
+	autoCache  sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
+	blockCache sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
+	fileBytes  int
 }
 
 type attachment struct {
@@ -316,7 +317,9 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if token != "" {
 		prefs = d.cfg.Tracking.PreferencesURL(token)
 	}
-	rendered, err := channel.RenderWith(t, c, vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs}))
+	v := vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs})
+	v.Blocks = d.blocks(ctx, m.TenantID)
+	rendered, err := channel.RenderWith(t, c, v)
 	if err != nil {
 		return d.finish(ctx, sentKey, m, c, "failed", err.Error())
 	}
@@ -553,7 +556,7 @@ func (d *Dispatcher) sendInternal(ctx context.Context, sentKey string, m model.M
 	if t.Channel != channel.Email {
 		return done("failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
 	}
-	rendered, err := channel.RenderWith(t, c, vars(m, channel.Links{}))
+	rendered, err := channel.RenderWith(t, c, d.varsWithBlocks(ctx, m))
 	if err != nil {
 		return done("failed", err.Error())
 	}
@@ -1281,7 +1284,7 @@ func (d *Dispatcher) sendTest(ctx context.Context, sentKey string, m model.Messa
 	default:
 		c.Attrs["phone"] = m.TestTo
 	}
-	rendered, err := channel.RenderWith(t, c, vars(m, channel.Links{}))
+	rendered, err := channel.RenderWith(t, c, d.varsWithBlocks(ctx, m))
 	if err != nil {
 		d.log("test send failed", m, err)
 		return d.mark(ctx, sentKey, "failed")

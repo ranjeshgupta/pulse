@@ -45,7 +45,7 @@ func (s *Server) broadcastRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/broadcasts/{id}", s.tenant(s.getBroadcast))
 	mux.HandleFunc("PUT /v1/broadcasts/{id}", s.tenant(s.saveBroadcast))
 	mux.HandleFunc("DELETE /v1/broadcasts/{id}", s.tenant(s.deleteBroadcast))
-	mux.HandleFunc("POST /v1/broadcasts/{id}/schedule", s.tenant(s.scheduleBroadcast))
+	mux.HandleFunc("POST /v1/broadcasts/{id}/schedule", s.authed(s.scheduleBroadcast))
 	mux.HandleFunc("POST /v1/broadcasts/{id}/cancel", s.tenant(s.cancelBroadcast))
 	mux.HandleFunc("POST /v1/broadcasts/{id}/runs/{run}/winner", s.tenant(s.pickWinner))
 	mux.HandleFunc("GET /v1/broadcasts/{id}/report", s.tenant(s.broadcastReport))
@@ -327,34 +327,43 @@ func audienceAtSend(runs []model.BroadcastRun, run int64) *ch.AudienceAtSend {
 	return &a
 }
 
-func (s *Server) scheduleBroadcast(w http.ResponseWriter, r *http.Request, tenant int64) {
+func (s *Server) scheduleBroadcast(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
+	if s.fourEyes(w, r, p) {
+		return
+	}
+	s.launchBroadcast(w, r, p.TenantID, id)
+}
+
+// launchBroadcast schedules a broadcast (its own Schedule button, or an approval).
+func (s *Server) launchBroadcast(w http.ResponseWriter, r *http.Request, tenant, id int64) bool {
 	b, err := s.bcStore().GetBroadcast(r.Context(), tenant, id)
 	if err != nil {
 		s.fail(w, err)
-		return
+		return false
 	}
 	if b.Status == "testing" || b.Status == "running" {
 		writeErr(w, http.StatusConflict, "this broadcast is already sending")
-		return
+		return false
 	}
 	if err := s.validBroadcast(r.Context(), b); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+		return false
 	}
 	first, ok := broadcast.FirstRun(b, s.now())
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "the schedule has already ended; move the end later or remove it")
-		return
+		return false
 	}
 	if err := s.bcStore().SetBroadcastSchedule(r.Context(), tenant, id, "scheduled", &first); err != nil {
 		s.fail(w, err)
-		return
+		return false
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "scheduled", "next_run_at": first})
+	return true
 }
 
 func (s *Server) cancelBroadcast(w http.ResponseWriter, r *http.Request, tenant int64) {
@@ -425,7 +434,7 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 			links = channel.Links{Unsubscribe: s.Tracking.Base() + "/u/preview", Preferences: s.Tracking.Base() + "/p/preview"}
 		}
 	}
-	out, err := channel.RenderWith(t, c, channel.Vars{Event: req.Event, Campaign: camp, Links: links})
+	out, err := channel.RenderWith(t, c, channel.Vars{Event: req.Event, Campaign: camp, Links: links, Blocks: s.renderBlocks(r.Context(), tenant)})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

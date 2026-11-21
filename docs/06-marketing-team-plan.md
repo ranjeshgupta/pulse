@@ -759,6 +759,12 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - **4 Best time to send**: `internal/besttime` (Refresh every 6 h in the maintenance role, `Hour`, `NextAt`),
   `ch.BestHours` / `DefaultHour`, `Broadcast.BestTime` (pg 035), `Message.BestTime` held by the dispatcher (kind `best`);
   wizard and settings checkboxes; e2e `TestBestTime`.
+- **5 Sender domain check**: `internal/domaincheck` (Resolver interface, `Services` with SPF includes and DKIM selectors),
+  `POST /v1/channels/domain-check`, `pages/DomainCheck.tsx` drawer on Channels.
+- **6 Spam check**: `internal/spamcheck` (rules, `Text`), `POST /v1/templates/spam-check`, `pages/SpamCheck.tsx` modal.
+- **7 Content blocks**: pg 036 `content_blocks`, `personalize.NSBlock` / `ExpandBlocks`, `channel.Vars.Blocks` (sends,
+  previews), `/v1/content-blocks` (+ usage), dispatcher cache, `pages/ContentBlocks.tsx`, variable picker group.
+  e2e `TestContentBlocks`, `TestSpamAndDomainChecks`.
 
 ### O5 as built
 

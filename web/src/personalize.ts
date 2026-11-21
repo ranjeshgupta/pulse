@@ -323,6 +323,8 @@ export function fillSample(src = "", sample: Sample = { contact: SAMPLE_CONTACT 
       if (p.error) return whole;
       return show(p.pipes.reduce<unknown>((v, pipe) => applyPipe(v, pipe), valueOf(p.var, sample)));
     }
+    const block = /^block\.(\w+)$/.exec(inner.trim());
+    if (block) return `[block: ${block[1]}]`;
     const attr = /^\.Attrs\.(\w+)$/.exec(inner.trim());
     if (attr) return show(sample.contact[attr[1]]) || `[${attr[1]}]`;
     if (inner.trim() === ".Contact.Email") return show(sample.contact.email);

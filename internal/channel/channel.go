@@ -279,6 +279,53 @@ type Vars struct {
 	Event    map[string]any // the properties of the event that started the journey
 	Campaign personalize.Campaign
 	Links    Links
+	// Blocks are the workspace's content blocks ({{block.key}}): HTML for email bodies, Text for
+	// subjects and every other channel's fields.
+	Blocks map[string]Block
+}
+
+// Block is a reusable content block's two forms.
+type Block struct {
+	HTML string
+	Text string
+}
+
+// withBlocks puts the content blocks into the template's fields before rendering.
+func withBlocks(t model.Template, blocks map[string]Block) model.Template {
+	if len(blocks) == 0 {
+		return t
+	}
+	html, text := map[string]string{}, map[string]string{}
+	for k, b := range blocks {
+		html[k], text[k] = b.HTML, b.Text
+	}
+	t.HTML = personalize.ExpandBlocks(t.HTML, html)
+	t.Subject = personalize.ExpandBlocks(t.Subject, text)
+	if len(t.Content) > 0 && strings.Contains(string(t.Content), "block.") {
+		var v any
+		if json.Unmarshal(t.Content, &v) == nil {
+			if b, err := json.Marshal(expandAll(v, text)); err == nil {
+				t.Content = b
+			}
+		}
+	}
+	return t
+}
+
+func expandAll(v any, blocks map[string]string) any {
+	switch x := v.(type) {
+	case string:
+		return personalize.ExpandBlocks(x, blocks)
+	case map[string]any:
+		for k, e := range x {
+			x[k] = expandAll(e, blocks)
+		}
+	case []any:
+		for i, e := range x {
+			x[i] = expandAll(e, blocks)
+		}
+	}
+	return v
 }
 
 // Render fills every field of the template for one contact. HTML is auto-escaped; plain-text fields
@@ -295,6 +342,7 @@ func RenderFor(t model.Template, contact model.Contact, links Links) (Rendered, 
 // RenderWith renders with the full personalisation context: {{contact.x}}, {{event.x}},
 // {{campaign.x}} and {{links.x}}, and the older {{.Attrs.x}} syntax.
 func RenderWith(t model.Template, contact model.Contact, v Vars) (Rendered, error) {
+	t = withBlocks(t, v.Blocks)
 	d := data{Contact: contact, Attrs: contact.Attrs, UnsubscribeURL: v.Links.Unsubscribe, PreferencesURL: v.Links.Preferences}
 	links := map[string]string{}
 	if v.Links.Unsubscribe != "" {

@@ -778,3 +778,6 @@ export interface RetentionPreviewItem {
   error?: string;
 }
 export interface RetentionPreview { items: RetentionPreviewItem[]; approximate: boolean; cached: boolean }
+
+/** A reusable content block: {{block.key}} in any template (HTML for email, text elsewhere). */
+export interface ContentBlock { id: number; key: string; name: string; html: string; text: string; updated_at?: string }

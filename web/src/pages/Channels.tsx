@@ -8,6 +8,7 @@ import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToa
 import { ask, useEditGuard } from "../guard";
 import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, Step } from "./ProviderSettings";
 import { GatewayWizard } from "./GatewayWizard";
+import { DomainCheckDrawer } from "./DomainCheck";
 import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, parseAuth, parseRequest, presetOf, sameLimits, serializeAuth, serializeRequest } from "../providerAuth";
 
 export function Channels() {
@@ -18,6 +19,7 @@ export function Channels() {
   const cat = useQuery({ queryKey: ["catalog"], queryFn: () => api.get<{ providers: ProviderKind[]; send_rates?: Record<string, number> }>("/v1/channels/catalog") });
   const list = useQuery({ queryKey: ["providers"], queryFn: () => api.get<{ providers: Provider[] }>("/v1/channels/providers") });
   const [editing, setEditing] = useState<{ channel: Channel; provider?: Provider } | null>(null);
+  const [checking, setChecking] = useState(false);
   const [testing, setTesting] = useState<Provider | null>(null);
   const kinds = cat.data?.providers ?? [];
   const sendRates = cat.data?.send_rates ?? {};
@@ -27,13 +29,17 @@ export function Channels() {
     <div className="page">
       <PageHead title="Channels" intro="Where each channel's messages go out. A provider is the service that delivers the messages (an SMTP server, an SMS gateway, WhatsApp…). Each channel sends through its default provider; the sandbox provider sends nothing real and shows messages in the Test inbox." />
       <ErrorNote error={cat.error ?? list.error} />
+      {checking && <DomainCheckDrawer providers={providers.filter((p) => p.channel === "email")} onClose={() => setChecking(false)} />}
       {PROVIDER_CHANNELS.map((ch) => {
         const mine = providers.filter((p) => p.channel === ch);
         return (
           <section className="panel" key={ch} style={{ marginBottom: 16 }}>
             <div className="panel-head">
               <ChannelLabel channel={ch} />
-              {admin && <button className="btn sm" onClick={() => setEditing({ channel: ch })}>Add provider</button>}
+              <div className="row" style={{ gap: 6 }}>
+                {ch === "email" && <button className="btn ghost sm" onClick={() => setChecking(true)}>🩺 Check sending domain</button>}
+                {admin && <button className="btn sm" onClick={() => setEditing({ channel: ch })}>Add provider</button>}
+              </div>
             </div>
             {mine.length === 0 ? (
               <div className="panel-body small muted">

@@ -3,7 +3,7 @@
 // wrap an input or textarea with it and show the field's variable problems underneath.
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type AttributeDef, type EventSchema } from "./api";
+import { api, type AttributeDef, type ContentBlock, type EventSchema } from "./api";
 import { buildTag, CAMPAIGN_VARS, contactVars, eventVars, insertAt, lint, LINK_VARS, PIPES, type Problem, type TagPipe, type VarItem } from "./personalize";
 import "./personalize.css";
 
@@ -56,6 +56,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
   const [fmt, setFmt] = useState(0);
   const [custom, setCustom] = useState("");
   const vars = useVariables();
+  const blocks = useQuery({ queryKey: ["content-blocks"], queryFn: () => api.get<{ blocks: ContentBlock[] }>("/v1/content-blocks"), staleTime: 60_000, retry: false, enabled: open && !vars.contactOnly });
   const box = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => {
@@ -87,6 +88,16 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
             <>
               <input className="input vp-search" autoFocus placeholder="Search variables" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search variables" />
               <div className="vp-list">
+                {(blocks.data?.blocks ?? []).filter((b) => !q || (b.name + " " + b.key).toLowerCase().includes(q.toLowerCase())).length > 0 && (
+                  <div className="vp-group" role="group" aria-labelledby={`${id}-blocks`}>
+                    <div className="vp-group-name" id={`${id}-blocks`}>Content blocks</div>
+                    {(blocks.data?.blocks ?? []).filter((b) => !q || (b.name + " " + b.key).toLowerCase().includes(q.toLowerCase())).map((b) => (
+                      <button type="button" key={b.key} className="vp-item" onClick={() => done(`{{block.${b.key}}}`)}>
+                        <span>🧩 {b.name}</span><code>block.{b.key}</code>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {groups.map(([g, items]) => (
                   <div key={g} className="vp-group" role="group" aria-labelledby={`${id}-${g}`}>
                     <div className="vp-group-name" id={`${id}-${g}`}>{GROUP_NAMES[g]}</div>

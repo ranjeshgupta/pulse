@@ -37,6 +37,14 @@ type Settings struct {
 	Unsubscribe Unsubscribe `json:"unsubscribe"`
 	// Identity: the keys that identify a person, in priority order (package identity).
 	Identity Identity `json:"identity"`
+	// Approvals (O6): FourEyes makes every launch of a one-time or triggered / automation campaign
+	// go through an approval by someone other than who asked (API keys are exempt).
+	Approvals Approvals `json:"approvals"`
+}
+
+// Approvals is Settings → Team → Approvals.
+type Approvals struct {
+	FourEyes bool `json:"four_eyes"`
 }
 
 // Identity is Settings → Contacts → Identity.
@@ -143,7 +151,7 @@ func Load(raw []byte) (Settings, error) {
 }
 
 // Sections are the top-level parts of Settings; a PUT replaces the sections it sends.
-var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces", "unsubscribe", "identity"}
+var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces", "unsubscribe", "identity", "approvals"}
 
 // Apply replaces the sections present in body (a JSON object) on top of cur; within a section,
 // fields left out take their defaults. Unknown sections and fields are refused.
@@ -181,6 +189,9 @@ func Apply(cur Settings, body []byte) (Settings, error) {
 		case "identity":
 			out.Identity = def.Identity
 			dst = &out.Identity
+		case "approvals":
+			out.Approvals = def.Approvals
+			dst = &out.Approvals
 		case "bounces":
 			// The channels sent replace theirs; the others keep theirs.
 			var b map[string]ChannelBounces

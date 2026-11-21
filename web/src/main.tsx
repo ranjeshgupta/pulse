@@ -39,6 +39,7 @@ import { IntegrationEdit, IntegrationList } from "./pages/Integrations";
 import { ImportPage } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
 import { IdentitySettings } from "./pages/IdentitySettings";
+import { ContentBlocks } from "./pages/ContentBlocks";
 import { AutomationSettingsPage } from "./pages/AutomationSettings";
 import { WebPushSettingsPage } from "./pages/WebPush";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
@@ -105,6 +106,7 @@ const router = createBrowserRouter([
       { path: "on-site/content/:id", element: <DWCEdit /> },
       { path: "on-site/in-app/:id", element: <InAppEdit /> },
       { path: "templates", element: <TemplateList /> },
+      { path: "templates/blocks", element: <ContentBlocks /> },
       { path: "templates/:id", element: <Keyed><TemplateEdit /></Keyed> },
       { path: "landing-pages", element: <LandingPageList /> },
       { path: "landing-pages/:id", element: <LandingPageEdit /> },

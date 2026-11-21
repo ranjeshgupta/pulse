@@ -34,7 +34,44 @@ const (
 	// NSMessage is the message being sent (to, text, subject…), for request templates of the
 	// custom HTTP gateway only (message templates have it empty).
 	NSMessage = "message"
+	// NSBlock is a reusable content block ({{block.footer}}): the renderer puts the block's
+	// content in before anything else is filled (ExpandBlocks); one it doesn't know is empty.
+	NSBlock = "block"
 )
+
+// blockRe finds {{block.key}} (spaces allowed inside the braces).
+var blockRe = regexp.MustCompile(`\{\{\s*block\.([a-z0-9_]{1,64})\s*\}\}`)
+
+// BlockKeyRe is a content block's key.
+var BlockKeyRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
+
+// ExpandBlocks puts each {{block.key}}'s content in (one level: blocks inside blocks stay as
+// written and render empty). Unknown keys are left for the renderer, which renders them empty.
+func ExpandBlocks(src string, blocks map[string]string) string {
+	if len(blocks) == 0 || !strings.Contains(src, "block.") {
+		return src
+	}
+	return blockRe.ReplaceAllStringFunc(src, func(m string) string {
+		key := blockRe.FindStringSubmatch(m)[1]
+		if b, ok := blocks[key]; ok {
+			return blockRe.ReplaceAllString(b, "")
+		}
+		return m
+	})
+}
+
+// BlockKeys lists the blocks a template uses.
+func BlockKeys(src string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range blockRe.FindAllStringSubmatch(src, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
 
 // MessageKeys are the message.* variables of gateway request templates.
 var MessageKeys = []string{"id", "channel", "to", "from", "platform", "subject", "html", "text", "title", "body",
@@ -109,7 +146,7 @@ const maxPathSegments = 6
 // IsStandard reports whether an action's text (between the braces, trimmed) uses the standard
 // syntax: it starts with contact., event., campaign. or links.
 func IsStandard(action string) bool {
-	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage} {
+	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage, NSBlock} {
 		if strings.HasPrefix(action, ns+".") {
 			return true
 		}
@@ -350,6 +387,10 @@ func checkVar(v string) error {
 	case NSMessage:
 		if !contains(MessageKeys, segs[0]) {
 			return fmt.Errorf("message has %s", strings.Join(MessageKeys, ", "))
+		}
+	case NSBlock:
+		if len(segs) != 1 || !BlockKeyRe.MatchString(path) {
+			return fmt.Errorf("a content block is {{block.key}} with a lower-case key")
 		}
 	}
 	return nil

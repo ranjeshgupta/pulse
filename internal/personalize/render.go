@@ -305,6 +305,8 @@ func (r *Renderer) Value(name string) any {
 	case NSMessage:
 		v, _ := Lookup(r.vars.Message, path)
 		return v
+	case NSBlock:
+		return "" // a block the workspace doesn't have (known ones were expanded before rendering)
 	}
 	return nil
 }

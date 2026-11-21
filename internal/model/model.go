@@ -752,3 +752,35 @@ type LandingPage struct {
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
+
+// ContentBlock is a reusable piece of content (O6): {{block.<Key>}} in any template. HTML goes into
+// email bodies; Text into subjects and every other channel.
+type ContentBlock struct {
+	ID        int64     `json:"id"`
+	TenantID  int64     `json:"-"`
+	Key       string    `json:"key"`
+	Name      string    `json:"name"`
+	HTML      string    `json:"html"`
+	Text      string    `json:"text"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Approval is a request to launch a campaign (O6 approvals).
+type Approval struct {
+	ID           int64      `json:"id"`
+	TenantID     int64      `json:"-"`
+	Kind         string     `json:"kind"` // broadcast | journey
+	CampaignID   int64      `json:"campaign_id"`
+	Version      string     `json:"-"`
+	RequestedBy  int64      `json:"requested_by"`
+	Requester    string     `json:"requester"`
+	Note         string     `json:"note"`
+	Status       string     `json:"status"` // pending | approved | rejected | withdrawn
+	DecidedBy    int64      `json:"decided_by,omitempty"`
+	Decider      string     `json:"decider,omitempty"`
+	DecisionNote string     `json:"decision_note,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DecidedAt    *time.Time `json:"decided_at,omitempty"`
+	// CampaignName is filled for lists.
+	CampaignName string `json:"campaign_name,omitempty"`
+}

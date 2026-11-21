@@ -1,4 +1,5 @@
 import { TemplateReport } from "./TemplateReport";
+import { SpamCheckModal } from "./SpamCheck";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -41,7 +42,10 @@ export function TemplateList() {
       <PageHead
         title="Message templates"
         intro="Reusable content for the email, SMS, WhatsApp, RCS, push and app inbox messages your campaigns send. Each template belongs to one channel. (Website and app pop-ups are made under Website & app messages; landing pages under Landing pages.)"
-        actions={<Link className="btn primary" to={`/templates/new?channel=${channel || "email"}`}>New {channelWord(channel || "email")} template</Link>}
+        actions={<>
+          <Link className="btn" to="/templates/blocks">🧩 Content blocks</Link>
+          <Link className="btn primary" to={`/templates/new?channel=${channel || "email"}`}>New {channelWord(channel || "email")} template</Link>
+        </>}
       />
       <div className="tabs" role="tablist">
         {(["", ...CHANNELS] as const).map((c) => (
@@ -101,6 +105,7 @@ export function TemplateEdit() {
   const [emailMode, setEmailMode] = useState<EmailMode>("visual");
   const [testing, setTesting] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [spam, setSpam] = useState(false);
   const [scopeEvent, setScopeEvent] = useState(() => params.get("event") ?? savedScope());
   const [tab, setTabState] = useState(() => params.get("tab") === "report" ? "report" : "content");
   const setTab = (v: "content" | "report") => {
@@ -182,6 +187,7 @@ export function TemplateEdit() {
             "Campaigns that use it will fail to send. This can't be undone.", existing.data?.name || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           {!isNew && <DuplicateButton path={`/v1/templates/${id}/duplicate`} open={(nid) => `/templates/${nid}`} invalidate={["templates"]} />}
           <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setFromBuilder({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
+          {t.channel === "email" && <button className="btn" onClick={() => { if (emailMode === "visual" && builder.current) setFromBuilder({ ...t, html: builder.current.read().html }); setSpam(true); }}>🛡️ Spam check</button>}
           <button className="btn" disabled={isNew} title={isNew ? "Save the template first" : undefined} onClick={() => setTesting(true)}>Send a test</button>
           <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save template</button>
         </>}
@@ -206,6 +212,7 @@ export function TemplateEdit() {
       </div>
       {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
       {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}
+      {spam && <SpamCheckModal subject={t.subject} html={t.html} text={String((t.content as { text?: string })?.text ?? "")} onClose={() => setSpam(false)} />}
     </div>
     </PersonalizeScopeProvider>
   );

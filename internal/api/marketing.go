@@ -227,28 +227,38 @@ func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, p model.P
 		writeErr(w, http.StatusNotFound, "unknown action")
 		return
 	}
+	if status == "active" && s.fourEyes(w, r, p) {
+		return
+	}
+	s.setJourneyStatus(w, r, p, id, status)
+}
+
+// setJourneyStatus activates or pauses a journey (its own buttons, or an approval).
+func (s *Server) setJourneyStatus(w http.ResponseWriter, r *http.Request, p model.Principal, id int64, status string) bool {
+	tenant := p.TenantID
 	if status == "active" {
 		if us, ok := s.Store.(UIStore); ok {
 			j, err := us.GetJourney(r.Context(), tenant, id)
 			if err != nil {
 				s.fail(w, err)
-				return
+				return false
 			}
 			if j.ArchivedAt != nil {
 				writeErr(w, http.StatusConflict, "restore the journey from the archive before activating it")
-				return
+				return false
 			}
 			if g, err := journey.ParseGraph(j.Graph); err == nil && !deletePermOK(w, p, g) {
-				return
+				return false
 			}
 		}
 	}
 	if err := s.Store.SetJourneyStatus(r.Context(), tenant, id, status); err != nil {
 		s.fail(w, err)
-		return
+		return false
 	}
 	s.journeysChanged(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": status})
+	return true
 }
 
 // JourneyArchiveStore archives journeys that have run (they can't be deleted).
