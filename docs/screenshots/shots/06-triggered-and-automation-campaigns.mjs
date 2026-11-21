@@ -167,8 +167,11 @@ export default async function (browser) {
   await page.locator(".jnode.c-start").click();
   await settle(page);
   const sched = insp.locator("h4", { hasText: "Publish window" });
-  await sched.scrollIntoViewIfNeeded();
+  await page.setViewportSize({ width: 1440, height: 1600 }); // the publish window is low in the Start settings
+  await insp.getByText("Contacts already inside keep going after the end.").scrollIntoViewIfNeeded();
+  await settle(page, { quiet: 300 });
   await shot(page, AREA, "06-schedule", { clip: insp.locator("h4:has-text('Publish window'), h4:has-text('Publish window') ~ *"), pad: 8 });
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   // 11. Save draft, then publish.
   await page.getByRole("button", { name: "Save draft" }).click();
