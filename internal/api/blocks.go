@@ -87,7 +87,7 @@ func (s *Server) saveBlock(w http.ResponseWriter, r *http.Request, tenant int64)
 	if !decode(w, r, &b) {
 		return
 	}
-	b.TenantID, b.Key, b.Name = tenant, strings.TrimSpace(b.Key), strings.TrimSpace(b.Name)
+	b.TenantID, b.Key, b.Name = tenant, normalizeBlockKey(b.Key), strings.TrimSpace(b.Name)
 	if id := r.PathValue("id"); id != "" {
 		n, ok := pathID(w, r)
 		if !ok {

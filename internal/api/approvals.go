@@ -459,9 +459,53 @@ func (s *Server) guardTemplateEdit(h tenantHandler) http.HandlerFunc {
 	})
 }
 
-// BlockUsage finds every template that names a block (pg.Store).
-type BlockUsage interface {
-	TemplateIDsUsingBlock(ctx context.Context, tenant int64, key string) ([]int64, error)
+// TemplateTexts reads every template's wording (pg.Store).
+type TemplateTexts interface {
+	TemplateTexts(ctx context.Context, tenant int64) ([]model.Template, error)
+}
+
+// normalizeBlockKey is a block key as saveBlock stores it (the guard must see the same key).
+func normalizeBlockKey(k string) string { return strings.TrimSpace(k) }
+
+// templateBlockKeys are the blocks a template names, found the way the renderer finds them: in
+// the subject and HTML, and in every string of its content and translations once decoded.
+func templateBlockKeys(t model.Template) map[string]bool {
+	out := map[string]bool{}
+	add := func(src string) {
+		for _, k := range personalize.BlockKeys(src) {
+			out[k] = true
+		}
+	}
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			add(x)
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		case map[string]any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	content := func(raw json.RawMessage) {
+		var v any
+		if json.Unmarshal(raw, &v) == nil {
+			walk(v)
+		}
+	}
+	add(t.Subject)
+	add(t.HTML)
+	content(t.Content)
+	for _, tr := range t.Translations {
+		add(tr.Subject)
+		add(tr.HTML)
+		content(tr.Content)
+	}
+	return out
 }
 
 // guardBlockEdit wraps creating, changing or deleting a content block with liveLocked, for the
@@ -470,7 +514,7 @@ type BlockUsage interface {
 func (s *Server) guardBlockEdit(h tenantHandler) http.HandlerFunc {
 	return s.authed(func(w http.ResponseWriter, r *http.Request, p model.Principal) {
 		bs, ok1 := s.Store.(BlockStore)
-		bu, ok2 := s.Store.(BlockUsage)
+		bu, ok2 := s.Store.(TemplateTexts)
 		if !ok1 || !ok2 {
 			h(w, r, p.TenantID)
 			return
@@ -486,8 +530,11 @@ func (s *Server) guardBlockEdit(h tenantHandler) http.HandlerFunc {
 			var in struct {
 				Key string `json:"key"`
 			}
-			if json.Unmarshal(body, &in) == nil && personalize.BlockKeyRe.MatchString(in.Key) {
-				keys[in.Key] = true
+			if json.Unmarshal(body, &in) == nil {
+				// The key as saveBlock will store it; one it would refuse saves nothing anyway.
+				if k := normalizeBlockKey(in.Key); personalize.BlockKeyRe.MatchString(k) {
+					keys[k] = true
+				}
 			}
 		}
 		if r.PathValue("id") != "" {
@@ -504,14 +551,18 @@ func (s *Server) guardBlockEdit(h tenantHandler) http.HandlerFunc {
 			}
 		}
 		tids := map[int64]bool{}
-		for k := range keys {
-			ids, err := bu.TemplateIDsUsingBlock(r.Context(), p.TenantID, k)
+		if len(keys) > 0 {
+			ts, err := bu.TemplateTexts(r.Context(), p.TenantID)
 			if err != nil {
 				s.fail(w, err)
 				return
 			}
-			for _, id := range ids {
-				tids[id] = true
+			for _, t := range ts {
+				for k := range templateBlockKeys(t) {
+					if keys[k] {
+						tids[t.ID] = true
+					}
+				}
 			}
 		}
 		if s.liveLocked(w, r, p, tids) {

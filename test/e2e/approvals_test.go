@@ -69,6 +69,7 @@ func TestApprovalsBlockKeys(t *testing.T) {
 	call(t, "POST", fmt.Sprintf("/v1/approvals/%d/approve", req), key, nil, 200)
 
 	jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": "promo", "name": "Promo", "html": "<p>50% off</p>", "text": "50% off"}, 409)
+	jsonCall(t, c, "POST", "/v1/content-blocks", map[string]any{"key": " promo ", "name": "Promo", "html": "<p>50% off</p>", "text": "50% off"}, 409) // saved trimmed
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/content-blocks/", other), map[string]any{"key": "promo", "name": "Spare", "html": "<p>x</p>", "text": "x"}, 409)
 	jsonCall(t, c, "PUT", fmt.Sprint("/v1/content-blocks/", other), map[string]any{"key": "spare", "name": "Spare 2", "html": "<p>y</p>", "text": "y"}, 200)
 }

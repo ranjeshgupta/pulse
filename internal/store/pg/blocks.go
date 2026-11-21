@@ -4,6 +4,7 @@ package pg
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 
@@ -75,12 +76,20 @@ func (s *Store) TemplatesUsingBlock(ctx context.Context, tenant int64, key strin
 	return out, rows.Err()
 }
 
-// TemplateIDsUsingBlock is every template naming {{block.key}} (no limit: approval checks need all).
-func (s *Store) TemplateIDsUsingBlock(ctx context.Context, tenant int64, key string) ([]int64, error) {
-	rows, err := s.db.Query(ctx, `SELECT id FROM templates WHERE tenant_id = $1
-		AND (html ~ $2 OR subject ~ $2 OR content::text ~ $2 OR translations::text ~ $2)`, tenant, `\{\{\s*block\.`+key+`\s*\}\}`)
+// TemplateTexts is every template's wording (subject, HTML, content, translations; written-in-
+// campaign templates included), for finding which blocks templates name with the renderer's parser.
+func (s *Store) TemplateTexts(ctx context.Context, tenant int64) ([]model.Template, error) {
+	rows, err := s.db.Query(ctx, `SELECT id, subject, html, content, translations FROM templates WHERE tenant_id = $1`, tenant)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[int64])
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.Template, error) {
+		var t model.Template
+		var trs []byte
+		err := r.Scan(&t.ID, &t.Subject, &t.HTML, &t.Content, &trs)
+		if err == nil && len(trs) > 2 {
+			err = json.Unmarshal(trs, &t.Translations)
+		}
+		return t, err
+	})
 }
