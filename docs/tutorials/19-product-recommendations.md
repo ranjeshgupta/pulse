@@ -15,6 +15,8 @@ Go to **Content → Product catalog**. The list shows each product's image, name
 **Price**, **Stock** and when it **Changed**. **Search by code, name or category** finds one; long
 catalogs have **Previous** and **Next**.
 
+![Content, Product catalog: the search box, Update lists, Import CSV and Add product, and the list of products with category, price (a sale price shows the old one too), In stock and Changed](img/19-catalog.png)
+
 **One at a time.** Click **Add product** and fill in:
 
 | Field | Example |
@@ -26,6 +28,8 @@ catalogs have **Previous** and **Next**.
 | **Price**, **Sale price (optional)**, **Currency** | `2499`, `1999`, `INR` |
 | **Category** | `Kitchen` |
 | **In stock** | Ticked. Only products in stock are recommended |
+
+<img src="img/19-add-product.png" alt="Add a product, filled in: code KT-2041, name Steel pressure cooker 5 L, link, price 2499, sale price 1999, currency INR, category Kitchen, and In stock ticked" width="560">
 
 Click **Save product**. Click a product's row to edit it; the delete button at the end of the row
 deletes it (Pulse asks first).
@@ -93,7 +97,10 @@ default, e.g. `{{reco.1.name | default:"our bestsellers"}}`.
 
 At the bottom of **Product catalog**, **What would a contact see?**: enter a contact's external ID and
 click **Show picks**. Pulse lists what they **bought lately** and **looked at**, the products it would
-recommend now, and their last viewed product (`{{reco.last_viewed.name}}`). *No products to recommend
+recommend now, and their last viewed product (`{{reco.last_viewed.name}}`).
+
+![What would a contact see? for cust-0007: bought lately KIT-101, looked at BED-404 and DEC-310, then four numbered product cards with their prices, and Last viewed without buying: Memory foam pillow](img/19-picks.png)
+ *No products to recommend
 yet* means the catalog needs products in stock, and the lists need product events.
 
 **Preview as contact** and **Send a test** in the template editor show the real picks for that

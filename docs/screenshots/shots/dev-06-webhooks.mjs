@@ -4,7 +4,7 @@
 //     ever delivered) named with runId(), deleted again at the end, its secret masked;
 //   - Settings → Channels → SMS → Add provider → Custom HTTP gateway, filled with placeholders and
 //     cancelled.
-import { api, go, maskSecrets, runId, session, settle, shot } from "../lib.mjs";
+import { api, go, maskSecrets, runId, session, settle, shot, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "developer";
 
@@ -34,7 +34,13 @@ export default async function (browser) {
     hookId = made.id;
     await go(page, `/settings/webhooks/${hookId}`);
     const secret = panel(page, "Signing secret");
+    // The full secret shows only right after it is created or rotated: rotate this throwaway one,
+    // then hide it again so the picture has it masked, with Reveal and Copy.
+    await secret.getByRole("button", { name: "Rotate secret" }).click();
+    await confirmIfAsked(page, "Rotate secret");
+    await secret.getByRole("button", { name: "Hide" }).click();
     await secret.getByRole("button", { name: "Reveal" }).waitFor();
+    await page.locator(".toast").waitFor({ state: "detached", timeout: 10_000 }).catch(() => {});
     await maskSecrets(page, [".wh-secret code"]);
     await shot(page, AREA, "dev-06-webhook-secret", { clip: page.locator("section.panel", { has: page.getByRole("heading", { name: /^(Signing secret|Send a test)$/ }) }), pad: 8 });
     await api(context, "DELETE", `/v1/settings/webhooks/${hookId}`);
@@ -57,6 +63,7 @@ export default async function (browser) {
     await settle(page);
     await shot(page, AREA, "dev-06-gateway", { clip: dialog, pad: 0 });
     await dialog.getByRole("button", { name: "Cancel" }).click();
+    await confirmIfAsked(page, "Discard changes");
   } finally {
     if (hookId) await api(context, "DELETE", `/v1/settings/webhooks/${hookId}`).catch(() => {});
     await context.close();

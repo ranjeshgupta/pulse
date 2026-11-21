@@ -32,6 +32,8 @@ in ([tutorial 5](05-templates-and-content.md), [tutorial 6](06-triggered-and-aut
 6. **Thank-you message**: `Thanks! Your answer helps us get better.`
 7. Set **Status** to **Taking answers** and click **Save**.
 
+![The survey How did we do?, Questions and links tab: name, Status Taking answers, the intro, an NPS (0-10) question that must be answered and a Free text question, each with its id and up and down arrows and Remove, the Add buttons, and the thank-you message](img/20-questions.png)
+
 There is no branching: everyone sees every question.
 
 ## 2. Send it
@@ -44,8 +46,12 @@ Open the survey's **Questions and links** tab. **Use it** gives three ways:
 | **NPS row for email** | **Copy HTML**: a row of 0 to 10 buttons to paste into an email's HTML. A click opens the survey with that score already picked |
 | **Public link** | One link for anyone (a website, a QR code, social posts). Answers from it aren't tied to a contact |
 
+![Use it: the variable {{survey.31}} with Copy, NPS row for email with Copy HTML, and the public link with Copy, then a hint to start a triggered campaign from survey_answered for detractors](img/20-use-it.png)
+
 The NPS row is the easiest for people: one click on the score in the email. The answer is only saved
 when they press **Send** on the survey page, so mail scanners that open links never answer for them.
+
+<img src="img/20-survey-page.png" alt="The survey page opened from the email row: How did we do?, the intro, the 0 to 10 buttons with 9 already picked, the free-text question and the Send button" width="480">
 The variable is also in the **{ } Variable** list of the template editor.
 
 If someone answers the same message's survey again, their answer is updated, not counted twice.
@@ -63,6 +69,8 @@ Open the survey; it starts on the **Results** tab. Choose **30 days**, **90 days
   link*). Roles that can't view contacts don't see who wrote them.
 
 The results refresh every 30 seconds.
+
+![Results for How did we do?, 12 responses: NPS 25 with 50% promoters (6), 25% passives (3) and 25% detractors (3), a bar for each score from 0 to 10 coloured red, grey and green, and the latest answers to What's the main reason for your score? with each one's score](img/20-results.png)
 
 ## 4. Act on the answers
 

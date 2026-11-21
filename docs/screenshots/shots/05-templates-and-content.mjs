@@ -4,7 +4,7 @@
 // filled in once on its hosted page) and a gated asset ("2026 bulk price list"). Each run first
 // deletes what an earlier run made under those names, so they don't pile up. Test sends go to one
 // seeded contact (example.com address): the email reaches Mailpit, the SMS the test inbox.
-import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, session, settle, shot, until, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 const MAILPIT = process.env.MAILPIT_URL || "http://localhost:18025";
@@ -87,6 +87,7 @@ async function templates(page, context, contact) {
 
   // 3. Rich text: written in the HTML tab here (reliable to type), then shown in Rich text.
   await page.getByRole("tab", { name: "Rich text" }).click();
+  await confirmIfAsked(page, /^Switch/); // leaving the drag-and-drop builder asks first
   await page.getByLabel("Template name").fill(EMAIL_NAME);
   await page.getByLabel(/^Subject/).fill(EMAIL_SUBJECT);
   await page.getByRole("tab", { name: "HTML" }).click();
@@ -196,6 +197,7 @@ async function landingPage(page, context) {
   await field(page, "Meta description").fill("20% off everything at Acme Retail until Sunday. Sign up to get your code.");
   await page.getByRole("group", { name: "Status" }).getByRole("button", { name: "Published" }).click();
   await page.getByRole("tab", { name: "Rich text" }).click();
+  await confirmIfAsked(page, /^Switch/); // leaving the drag-and-drop builder asks first
   await page.getByRole("tab", { name: "HTML" }).click();
   await page.getByLabel("Page HTML").fill(PAGE_HTML);
   await page.getByRole("tab", { name: "Rich text" }).click();

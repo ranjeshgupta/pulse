@@ -7,7 +7,7 @@
 // draft "Monsoon clearance" is changed on screen (not saved) for the deadline and estimate pictures.
 // It also makes a second email template ("Weekend sale (subject B)") for variant B, once.
 // A rerun first deletes the campaigns earlier runs made (by name; never the seeded ones).
-import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, session, settle, shot, until, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 const AB_NAME = "Weekend sale preview";
@@ -99,7 +99,8 @@ export default async function (browser) {
   await page.locator(".page > fieldset .badge", { hasText: "VIP customers" }).getByRole("button", { name: "Remove" }).click();
 
   // Preview and send a test.
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  // The message's Preview; the RSS feed option has its own (disabled until a feed is set).
+  await page.locator("button:enabled", { hasText: /^Preview$/ }).first().click();
   const preview = page.getByRole("dialog", { name: /^Preview/ });
   await preview.locator("iframe").waitFor();
   await settle(page, { quiet: 1000 });
@@ -173,6 +174,7 @@ export default async function (browser) {
 
   // 7. Pick A: it goes to the rest of the segment.
   await pickA.click();
+  await confirmIfAsked(page, "Send A");
   await until(async () => (await api(context, "GET", `/v1/broadcasts/${id}`)).runs.some((r) => r.winner_sent_at), { timeout: 60_000, what: "the winner send" });
   // Two testers open the email and one clicks its link (as a mail app would: the tracking image,
   // then the tracked link), so the results have something to show.
@@ -244,10 +246,12 @@ export default async function (browser) {
   await shot(page, AREA, "07-scheduled", { clip: page.locator(".page-head, .alert.info"), pad: 8 });
   await clearHighlights(page);
   await cancel.click();
+  await confirmIfAsked(page, "Cancel campaign");
   await page.locator(".page-head .badge", { hasText: "Cancelled" }).waitFor();
   await settle(page);
   await shot(page, AREA, "07-cancelled", { clip: page.locator(".page-head"), pad: 8 });
   await page.getByRole("button", { name: "Delete" }).click();
+  await confirmIfAsked(page, "Delete");
   await page.waitForURL((u) => u.pathname === "/campaigns");
 
   // 9. More segments, a send deadline and the exact estimate, on the seeded draft (not saved).

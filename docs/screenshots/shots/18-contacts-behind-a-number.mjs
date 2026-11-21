@@ -1,7 +1,7 @@
 // Screenshots for docs/tutorials/18-contacts-behind-a-number.md, in the seeded docs workspace.
 // Segment sizes as links, the "Spring catalogue" funnel (seeded by make docs-seed), the list opened
 // from its "Opened" number with its chips and note, and "Create segment from this list" (Cancelled).
-import { api, clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, session, settle, shot, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 const top = (height) => ({ x: 232, y: 0, width: 1440 - 232, height });
@@ -50,6 +50,7 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "18-create-segment", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 
   // 5. A dashboard: Campaign performance, where each campaign's numbers link but the totals don't.
   await go(page, "/analytics/campaigns");

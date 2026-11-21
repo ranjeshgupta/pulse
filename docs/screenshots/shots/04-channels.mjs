@@ -3,7 +3,7 @@
 // (email goes through the server's SMTP relay, Mailpit in development). Provider forms are filled
 // with placeholder values and cancelled, never saved; delivery rules are changed on screen only.
 // The one thing it sends is a provider test through the SMS sandbox, which lands in the test inbox.
-import { api, BASE, clearHighlights, DOCS, go, highlight, session, settle, shot } from "../lib.mjs";
+import { api, BASE, clearHighlights, DOCS, go, highlight, session, settle, shot, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -39,6 +39,7 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "04-add-limits", { clip: limitsPart, pad: 8 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Gmail: the three-step app password guide, only the fields of the chosen sign-in method, and the
@@ -54,6 +55,7 @@ export default async function (browser) {
   await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-gmail", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // 3. SMS: MSG91, and WhatsApp: Meta Cloud API (placeholders, not saved).
@@ -70,6 +72,7 @@ export default async function (browser) {
   await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-msg91", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   const waPanel = page.locator("section.panel").nth(2);
@@ -84,6 +87,7 @@ export default async function (browser) {
   await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-whatsapp", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // 4. Push: Firebase Cloud Messaging (placeholders, not saved). The custom gateway is in 16-*.mjs.
@@ -98,6 +102,7 @@ export default async function (browser) {
   await page.evaluate(() => document.activeElement?.blur()); // no text cursor in the picture
   await shot(page, AREA, "04-add-fcm", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -159,6 +164,7 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "04-limits", { clip: limits, pad: 0 });
   await limits.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 
   // 11. Saved test contacts, and the Send a test dialog that offers them.
   await page.setViewportSize({ width: 1440, height: 1400 });
@@ -174,6 +180,7 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "04-test-contact-add", { clip: add, pad: 0 });
   await add.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await page.setViewportSize({ width: 1440, height: 900 });
   const tpl = (await api(context, "GET", "/v1/templates?channel=sms")).templates.find((t) => t.name === "Cart rescue SMS");
   await go(page, `/templates/${tpl.id}`);

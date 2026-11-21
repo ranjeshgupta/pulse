@@ -4,7 +4,7 @@
 // secrets. The docs workspace has no bounce mailbox (a made-up one would be polled and fail), so
 // the list of mailboxes is the server's answer stood in for in the browser (page.route) with two
 // made-up mailboxes, and the Add mailbox form is filled in with placeholders and cancelled.
-import { clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
+import { clearHighlights, go, highlight, session, settle, shot, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -96,6 +96,7 @@ export default async function (browser) {
   await settle(page);
   await shot(page, AREA, "04-bounce-mailbox", { clip: editor, pad: 8 });
   await editor.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 
   await context.close();
 }

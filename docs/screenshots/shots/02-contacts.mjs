@@ -7,7 +7,7 @@
 // created only the first time.
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, session, settle, shot, until, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 const CSV = resolve(dirname(fileURLToPath(import.meta.url)), "../../tutorials/files/sample-contacts.csv");
@@ -55,6 +55,7 @@ async function contactFields(context, page) {
   await settle(page);
   await shot(page, AREA, "02-define-choice", { clip: edit, pad: 0 });
   await edit.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await edit.waitFor({ state: "detached" });
   await page.setViewportSize({ width: 1440, height: 900 });
   // The second field the sample file needs, saved the same way (PUT is idempotent).
@@ -225,6 +226,7 @@ async function filters(page) {
   await settle(page);
   await shot(page, AREA, "02-save-segment", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 
   const exp = page.getByRole("link", { name: "Export CSV" });
   await highlight(exp);

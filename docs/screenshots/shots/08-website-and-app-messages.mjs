@@ -6,7 +6,7 @@
 // so they don't appear in other guides' pictures of the test page. Mobile app: an in-app message
 // editor with its phone preview, saved as a draft. At the end the slide-in is unpublished; the
 // slot stays published (only a page with its slot shows it). A rerun deletes what earlier runs made.
-import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, session, settle, shot, until, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 const FOCUS = "Newsletter slide-in";
@@ -201,6 +201,7 @@ export default async function (browser) {
   await go(page, "/on-site");
   await page.getByRole("button", { name: "New", exact: true }).click();
   await modal.getByRole("radio", { name: /^Mobile app/ }).click();
+  await modal.getByRole("button", { name: /^In-app message/ }).click(); // the app also has content slots
   await page.waitForURL("**/on-site/in-app/new");
   await settle(page, { quiet: 800 });
   await field(page, "Name").fill(INAPP);
@@ -246,6 +247,7 @@ export default async function (browser) {
   const focus = (await api(context, "GET", "/v1/focus-items")).focus_items.find((f) => f.name === FOCUS);
   await go(page, `/on-site/focus/${focus.id}`);
   await page.getByRole("button", { name: "Unpublish" }).click();
+  await confirmIfAsked(page, "Unpublish");
   await until(async () => (await api(context, "GET", `/v1/focus-items/${focus.id}`)).status === "draft", { what: "the slide-in to be unpublished" });
   await context.close();
 }

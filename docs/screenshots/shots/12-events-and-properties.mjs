@@ -3,7 +3,7 @@
 // e-commerce events with properties (some of them not fitting their schema).
 // Nothing is saved: the suggested-events and New event dialogs and the Enforce confirmation are cancelled, the
 // segment builder and the journey Start are filled in but never saved.
-import { clearHighlights, go, highlight, session, settle, shot } from "../lib.mjs";
+import { clearHighlights, go, highlight, session, settle, shot, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -38,6 +38,7 @@ async function eventList(page) {
   await settle(page);
   await shot(page, AREA, "12-suggested", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await dialog.waitFor({ state: "detached" });
 
   await page.getByRole("button", { name: "New event" }).click();
@@ -55,6 +56,7 @@ async function eventList(page) {
   await settle(page);
   await shot(page, AREA, "12-new-event", { clip: create, pad: 0 });
   await create.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await create.waitFor({ state: "detached" });
 }
 
@@ -86,6 +88,7 @@ async function schema(page) {
   await settle(page);
   await shot(page, AREA, "12-enforce", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
   await dialog.waitFor({ state: "detached" });
 
   // purchase: the items[] properties, one of them added to the contact's list field "products".

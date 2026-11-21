@@ -3,7 +3,7 @@
 // exists) and follows the tutorial in it: workspace ready, empty overview, website snippet, the
 // test page, the first contact. Part 2 uses the seeded docs workspace for Team and Roles, which
 // look more like a real team there.
-import { api, clearHighlights, go, highlight, maskSecrets, runId, session, settle, shot, until } from "../lib.mjs";
+import { api, clearHighlights, go, highlight, maskSecrets, runId, session, settle, shot, until, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -114,6 +114,7 @@ async function teamAndRoles(browser) {
   await settle(page);
   await shot(page, AREA, "01-add-teammate", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 
   // 3. Campaigns → New campaign: the chooser (closed again without picking).
   await go(page, "/campaigns");

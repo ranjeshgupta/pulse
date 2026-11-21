@@ -2,7 +2,7 @@
 // (acme-retail), which `make docs-seed` gives the Cart rescue templates (email, SMS, WhatsApp) and
 // an active Cart rescue journey whose first step picks SMS for Indian numbers and WhatsApp otherwise.
 // Nothing is saved: fields are typed into and left, dialogs are cancelled.
-import { api, go, session, settle, shot, until } from "../lib.mjs";
+import { api, go, session, settle, shot, until, confirmIfAsked } from "../lib.mjs";
 
 const AREA = "tutorials";
 
@@ -86,6 +86,7 @@ async function testSend(page, id) {
   await settle(page, { quiet: 800 });
   await shot(page, AREA, "13-test-send", { clip: dialog, pad: 0 });
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await confirmIfAsked(page, "Discard changes");
 }
 
 async function rules(page, context) {

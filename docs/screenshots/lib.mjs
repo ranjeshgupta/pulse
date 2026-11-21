@@ -228,3 +228,24 @@ export async function until(fn, { timeout = 30_000, every = 1000, what = "condit
 export function runId() {
   return Date.now().toString(36).slice(-5);
 }
+
+/**
+ * Answers the app's confirm prompt (an alertdialog such as "Discard your changes?" or "Leave the
+ * drag-and-drop builder?") with the given button, if one opens within `timeout` ms. Returns whether
+ * it did. Use it after closing a filled-in dialog or switching editors.
+ */
+export async function confirmIfAsked(page, button, { timeout = 1500 } = {}) {
+  const ask = page.getByRole("alertdialog");
+  try {
+    await ask.waitFor({ timeout });
+  } catch {
+    return false;
+  }
+  const answer = ask.getByRole("button", { name: button, exact: true });
+  if (!(await answer.isVisible())) {
+    throw new Error(`confirmIfAsked: no "${button}" button in the prompt: ${(await ask.innerText()).replace(/\s+/g, " ")}`);
+  }
+  await answer.click();
+  await ask.waitFor({ state: "detached" });
+  return true;
+}
