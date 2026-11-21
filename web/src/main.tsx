@@ -40,6 +40,7 @@ import { ImportPage } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
 import { IdentitySettings } from "./pages/IdentitySettings";
 import { ContentBlocks } from "./pages/ContentBlocks";
+import { CampaignCalendar } from "./pages/CampaignCalendar";
 import { AutomationSettingsPage } from "./pages/AutomationSettings";
 import { WebPushSettingsPage } from "./pages/WebPush";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
@@ -98,6 +99,7 @@ const router = createBrowserRouter([
       { path: "broadcasts", element: <Navigate to={OLD_CAMPAIGN_LISTS["/broadcasts"]} replace /> },
       { path: "campaigns", element: <CampaignHub /> },
       { path: "campaigns/new", element: <Navigate to="/campaigns?new=1" replace /> },
+      { path: "campaigns/calendar", element: <CampaignCalendar /> },
       { path: "campaigns/new/:channel", element: <Keyed><OneTimeWizard /></Keyed> },
       { path: "campaigns/one-time/:id", element: <Keyed><OneTimeWizard /></Keyed> },
       { path: "broadcasts/:id", element: <Keyed><BroadcastEdit /></Keyed> },

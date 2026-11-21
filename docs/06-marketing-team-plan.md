@@ -770,6 +770,8 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   approve re-checks after launching and undoes it on a change), `scheduleBroadcastNow`; `ApprovalBar.tsx` (banner,
   ask dialog, pending list), `approvals.ts`; launch buttons on the wizard, campaign settings and journey pages;
   e2e `TestApprovals`, checked in a headless browser.
+- **9 Calendar**: `GET /v1/campaigns/calendar` (`internal/api/calendar.go`), `pages/CampaignCalendar.tsx`, `calendar.ts`;
+  e2e `TestCalendar`, checked in a headless browser.
 
 ### O5 as built
 

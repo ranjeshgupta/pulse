@@ -51,6 +51,7 @@ func (s *Server) campStore() CampaignStore { return s.Store.(CampaignStore) }
 
 func (s *Server) campaignRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/campaigns", s.authed(s.listCampaigns))
+	mux.HandleFunc("GET /v1/campaigns/calendar", s.authed(s.campaignCalendar))
 	mux.HandleFunc("GET /v1/campaigns/tags", s.authed(s.campaignTags))
 	mux.HandleFunc("PUT /v1/broadcasts/{id}/tags", s.tenant(s.putBroadcastTags))
 	mux.HandleFunc("PUT /v1/journeys/{id}/tags", s.tenant(s.putJourneyTags))

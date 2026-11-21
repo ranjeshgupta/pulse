@@ -95,6 +95,7 @@ var special = map[string]need{
 	"GET /v1/integrations/{id}/fields":                {auth.AreaSettings, auth.Edit}, // calls the CRM with the stored credentials
 	// The Campaigns hub lists broadcasts and journeys: the handler shows only what the role may view.
 	"GET /v1/campaigns":          {"", auth.None},
+	"GET /v1/campaigns/calendar": {"", auth.None}, // filtered by what the role may view
 	"GET /v1/campaigns/tags":     {"", auth.None},
 	"POST /v1/segments/estimate": {auth.AreaSegments, auth.View}, // counts only, like a segment preview
 	// M5 Settings → Automation & limits. Reading them needs settings view, like delivery rules and

@@ -1,0 +1,21 @@
+.cal-title { margin: 0 0 10px; }
+.cal-live { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: var(--r-md); overflow: hidden; background: var(--surface); }
+.cal-head { padding: 6px 8px; font-size: var(--fs-xs); color: var(--muted, #6b7280); border-bottom: 1px solid var(--rule); background: var(--bg, #f6f7fb); }
+.cal-day { min-height: 110px; padding: 6px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cal-day:nth-child(7n) { border-right: 0; }
+.cal-day.other { background: var(--bg, #f6f7fb); opacity: 0.6; }
+.cal-day.today .cal-date span:first-child { background: var(--cobalt); color: #fff; border-radius: 999px; padding: 0 7px; }
+.cal-day.busy { background: #fff7ed; }
+.cal-date { display: flex; justify-content: space-between; font-size: var(--fs-sm); font-weight: 600; }
+.cal-busy { font-size: var(--fs-xs); color: #b45309; }
+.cal-pill { display: block; font-size: 12px; padding: 2px 6px; border-radius: 6px; background: var(--cobalt-wash); color: inherit; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid var(--cobalt); }
+.cal-pill:hover { filter: brightness(0.96); }
+.cal-pill.draft { border-style: dashed; background: transparent; border: 1px dashed var(--rule); border-left: 3px dashed var(--muted, #8a8f99); }
+.cal-pill.journey { display: inline-block; background: #ecfdf5; border-left-color: #1d9a6c; }
+.cal-pill.journey.paused { opacity: 0.6; }
+.cal-pill.ch-sms { border-left-color: #6b7280; } .cal-pill.ch-whatsapp { border-left-color: #1d9a6c; } .cal-pill.ch-rcs { border-left-color: #7c3aed; }
+.cal-pill.ch-push { border-left-color: #e8890c; } .cal-pill.ch-inbox { border-left-color: #9b3fb5; }
+.cal-time { color: var(--muted, #6b7280); font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .cal-day { min-height: 70px; } .cal-pill .cal-time { display: none; } }

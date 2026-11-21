@@ -131,6 +131,7 @@ export default function Shell() {
       ["New campaign", "/campaigns?new=1", ["broadcasts", "edit"], "broadcast journey send email sms whatsapp"],
       ["New segment", "/segments/new", ["segments", "edit"], "audience list"],
       ["New message template", "/templates/new", ["content", "edit"], "email sms whatsapp push"],
+      ["Campaign calendar", "/campaigns/calendar", ["broadcasts", "view"], "schedule month plan"],
       ["Content blocks", "/templates/blocks", ["content", "view"], "reusable header footer snippet"],
       ["New landing page", "/landing-pages/new", ["content", "edit"]],
       ["New form", "/forms/new", ["content", "edit"]],

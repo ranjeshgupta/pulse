@@ -94,7 +94,10 @@ export function CampaignHub() {
       <PageHead
         title="Campaigns"
         intro="Every email, SMS, WhatsApp, RCS, push and app inbox campaign, in one place. Pick a type below to see only those."
-        actions={canCreate && <button className="btn primary" onClick={() => setChoosing(true)}>New campaign</button>}
+        actions={<>
+          <Link className="btn" to="/campaigns/calendar">📅 Calendar</Link>
+          {canCreate && <button className="btn primary" onClick={() => setChoosing(true)}>New campaign</button>}
+        </>}
       />
       {choosing && <NewCampaignModal canOneTime={canBroadcast} canJourney={canJourney} onClose={() => setChoosing(false)} />}
       <PendingApprovals />
