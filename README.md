@@ -138,6 +138,7 @@ secrets, TLS, firewall, backups). For separate roles, scaling and other setups s
   [webhooks and integrations](docs/developer/06-webhooks-and-integrations.md),
   [architecture and extending](docs/developer/07-architecture-and-extending.md),
   [contributing and testing](docs/developer/08-contributing-and-testing.md).
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 - **Design and product**: [architecture](docs/architecture.md) (with the load test results),
   [product overview](docs/product.md) (every feature and its limits), and
   [how it compares](docs/comparison.md) with other open-source and SaaS products.

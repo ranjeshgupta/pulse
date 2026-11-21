@@ -1,7 +1,7 @@
 # Contributing to Pulse
 
 Thank you for helping. Bug reports, fixes, documentation, tests and new provider adapters are all
-welcome. This page is the short version; the full guide, with the repository layout, every make
+welcome. Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). This page is the short version; the full guide, with the repository layout, every make
 target and the test setup, is [Contributing and testing](docs/developer/08-contributing-and-testing.md).
 
 ## Reporting bugs and asking for features
