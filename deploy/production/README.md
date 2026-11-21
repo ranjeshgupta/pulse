@@ -78,7 +78,12 @@ This run builds Pulse (a few minutes the first time), starts everything and wait
 
 Then:
 
-- **SSL/TLS → Overview**: mode **Full (strict)**.
+- **SSL/TLS → Overview**: mode **Full (strict)**. This setting covers the whole domain. Sites
+  served by Cloudflare Workers or Pages don't use it, but other proxied records pointing at servers
+  without a valid certificate would start failing with error 526. If the domain has such records,
+  leave the domain's mode alone and add a rule for the two Pulse names only: **Rules → Configuration
+  Rules → Create rule**, *When* `Hostname is in {pulse.example.com go.example.com}`, *Then*
+  **SSL → Full (strict)**.
 - **SSL/TLS → Edge Certificates**: *Always Use HTTPS* on, *Minimum TLS Version* 1.2.
 - **Caching**: leave the defaults. Cloudflare doesn't cache HTML or API responses unless you add
   a "Cache Everything" rule, and you shouldn't: pages and API answers are per visitor.
