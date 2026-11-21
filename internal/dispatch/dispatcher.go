@@ -380,6 +380,9 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	var sent, unreachable int
 	var lastErr, transient error
 	chosen := via // the configured provider (via is the target's sender in the loop)
+	if via.id != 0 {
+		m.SentVia = via.id // reports split outcomes by provider; receipts carry it via remember
+	}
 	for _, tg := range targets {
 		via := p
 		if m.Channel == channel.Push && providers.IsWebPushSubscription(tg.to) {
@@ -711,6 +714,9 @@ func (d *Dispatcher) eventRecordWith(id string, m model.Message, c model.Contact
 // eventRecordCode is eventRecordWith with a known reason code (else it is derived from the reason).
 func (d *Dispatcher) eventRecordCode(id string, m model.Message, c model.Contact, outcome, reason, code string, bounce bool) (*kgo.Record, error) {
 	props := map[string]any{"message_id": m.ID, "template_id": m.TemplateID, "journey_id": m.JourneyID}
+	if m.SentVia != 0 {
+		props["provider_id"] = m.SentVia
+	}
 	if code == "" || !reasons.Valid(code) {
 		code = reasons.Classify(m.Channel, outcome, reason)
 	}

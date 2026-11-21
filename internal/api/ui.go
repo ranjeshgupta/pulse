@@ -51,6 +51,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /v1/templates", s.tenant(s.listTemplates))
 	mux.HandleFunc("GET /v1/templates/{id}", s.tenant(s.getTemplate))
+	mux.HandleFunc("GET /v1/templates/{id}/report", s.tenant(s.templateReport))
 	mux.HandleFunc("PUT /v1/templates/{id}", s.tenant(s.updateTemplate))
 	mux.HandleFunc("DELETE /v1/templates/{id}", s.tenant(s.deleteTemplate))
 	mux.HandleFunc("POST /v1/templates/text", s.tenant(s.templateText))

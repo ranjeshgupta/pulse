@@ -178,6 +178,9 @@ type Message struct {
 	// ProviderID sends through this provider of the channel instead of the default (chosen on the
 	// campaign, step or test send); if it was removed since, the default is used.
 	ProviderID int64 `json:"provider_id,omitempty"`
+	// SentVia is the provider the message actually went through (set by the dispatcher at send
+	// time; the channel's default resolved), recorded on its outcome events for reports.
+	SentVia int64 `json:"sent_via,omitempty"`
 	// Topic is the subscription topic the message belongs to (Settings → Bounces & unsubscribes):
 	// contacts who left it are skipped, and its unsubscribe link leaves that topic only.
 	Topic string `json:"topic,omitempty"`

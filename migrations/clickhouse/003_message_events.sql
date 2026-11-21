@@ -23,7 +23,7 @@ ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (tenant_id, source, source_id, kind, contact_id, id);
 
--- The materialized view that fills it is in 006_delivery_and_dashboards.sql (message_events_mv3;
+-- The materialized view that fills it is in 007_message_events_template.sql (message_events_mv4;
 -- the earlier message_events_mv and _mv2 are dropped there).
 
 -- One-time backfill of events recorded before this table existed (skipped once it has rows).

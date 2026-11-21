@@ -7,27 +7,8 @@ ALTER TABLE message_events ADD COLUMN IF NOT EXISTS reason_code LowCardinality(S
 
 DROP VIEW IF EXISTS message_events_mv2;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS message_events_mv3 TO message_events AS
-SELECT
-    tenant_id,
-    multiIf(JSONExtractUInt(props, 'broadcast_id') > 0, 'broadcast', JSONExtractUInt(props, 'journey_id') > 0, 'journey', 'other') AS source,
-    if(JSONExtractUInt(props, 'broadcast_id') > 0, JSONExtractUInt(props, 'broadcast_id'), JSONExtractUInt(props, 'journey_id')) AS source_id,
-    JSONExtractUInt(props, 'run') AS run,
-    JSONExtractString(props, 'variant') AS variant,
-    if(JSONExtractUInt(props, 'broadcast_id') = 0 AND JSONExtractUInt(props, 'journey_id') > 0,
-       arrayElement(splitByChar(':', JSONExtractString(props, 'message_id')), 2), '') AS node,
-    if(name = 'unsubscribed', JSONExtractString(props, 'channel'), splitByChar('_', name)[1]) AS channel,
-    if(name = 'unsubscribed', 'unsubscribed', splitByChar('_', name)[2]) AS kind,
-    contact_id,
-    ts,
-    JSONExtractString(props, 'message_id') AS message_id,
-    JSONExtractString(props, 'url') AS url,
-    id,
-    JSONExtractString(props, 'reason_code') AS reason_code
-FROM events
-WHERE JSONHas(props, 'message_id')
-  AND (match(name, '^(email|sms|whatsapp|rcs|push|inbox)_(sent|failed|delivered|read|fallback|opened|clicked|suppressed|capped|deferred|bounced|complained)$')
-       OR name = 'unsubscribed');
+-- message_events_mv3 lived here; 007_message_events_template.sql replaces it with message_events_mv4
+-- (migrations run on every start, so it is no longer created here).
 
 -- Daily active users, for DAU / WAU / MAU at any size: one uniq state per (workspace, UTC day,
 -- platform, source). WAU and MAU merge 7 and 30 days of states. Active means an event the person
