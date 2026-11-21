@@ -6,6 +6,7 @@ import { keyLabel } from "../identityKeys";
 import { useAttributes } from "./segmentData";
 import { mergePlan } from "../accounts";
 import { Empty, ErrorNote, PageHead, timeAgo, useToast } from "../ui";
+import { ask } from "../guard";
 import "./duplicates.css";
 
 type By = string;
@@ -90,7 +91,14 @@ function GroupCard({ group, onMerged }: { group: DuplicateGroup; onMerged: () =>
       </table>
       <div className="panel-body row">
         <button className="btn primary" disabled={!winner || merge.isPending || merge.isSuccess}
-          onClick={() => confirm(`Merge ${group.contacts.length - 1} contact(s) into ${winner}? This can't be undone.`) && merge.mutate()}>
+          onClick={() => {
+            const n = group.contacts.length - 1;
+            void ask({
+              title: `Merge ${n} contact${n === 1 ? "" : "s"} into ${winner}?`,
+              body: `${winner} is kept and its values win; the other${n === 1 ? "" : "s"}' history, tags, points and static segments move to it. A merge can't be undone.`,
+              confirmText: "Merge", danger: true,
+            }).then((ok) => ok && merge.mutate());
+          }}>
           {merge.isPending ? "Merging…" : merge.isSuccess ? "Merged" : `Merge into ${winner}`}
         </button>
         <ErrorNote error={merge.error} />

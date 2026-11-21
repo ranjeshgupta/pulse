@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Segment } from "../api";
 import { nowISO, ScheduleFields, scheduleProblem } from "../schedule";
+import { ask, askDelete } from "../guard";
 import { ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { useChangeGuard } from "./OnSite";
 import { PersonalizeScopeProvider, TemplatedInput, TemplatedText } from "../VarPicker";
 import { fillSample, SAMPLE_CONTACT } from "../personalize";
 import "./inapp.css";
@@ -95,6 +97,8 @@ export function InAppEdit() {
   const existing = useQuery({ queryKey: ["inapp", id], queryFn: () => api.get<InAppMessage>(`/v1/inapp/${id}`), enabled: !isNew });
   const [m, setM] = useState<InAppMessage | null>(isNew ? { ...NEW_MESSAGE, start_at: nowISO() } : null);
   useEffect(() => { if (existing.data && !m) setM(existing.data); }, [existing.data, m]);
+  // Every edit replaces m: leaving with unsaved changes asks first.
+  const changes = useChangeGuard(m);
 
   const save = useMutation({
     mutationFn: (msg: InAppMessage) => {
@@ -114,11 +118,13 @@ export function InAppEdit() {
       qc.invalidateQueries({ queryKey: ["inapp"] });
       toast({ text: msg.status === "active" ? "Live. Apps pick it up the next time they fetch campaigns." : "Saved as draft" });
       // Keep the id the create call returned: the page stays mounted under its new address.
-      setM(isNew ? { ...msg, id: r.id } : msg);
+      const next = isNew ? { ...msg, id: r.id } : msg;
+      changes.savedAs(next);
+      setM(next);
       if (isNew) nav(`/on-site/in-app/${r.id}`, { replace: true });
     },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/inapp/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["inapp"] }); nav("/on-site?channel=app"); } });
+  const remove = useMutation({ mutationFn: () => api.del(`/v1/inapp/${id}`), onSuccess: () => { changes.left(); qc.invalidateQueries({ queryKey: ["inapp"] }); toast({ text: "In-app message deleted" }); nav("/on-site?channel=app"); } });
   if (!m) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
   const c = m.content, t = m.targeting;
@@ -141,8 +147,13 @@ export function InAppEdit() {
         back={<Link className="back" to="/on-site?channel=app">Website &amp; app messages</Link>}
         title={isNew ? "New in-app message" : m.name || "In-app message"}
         actions={<>
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this in-app message?") && remove.mutate()}>Delete</button>}
-          <button className="btn" disabled={save.isPending} onClick={() => save.mutate({ ...m, status: "draft" })}>{m.status === "active" ? "Back to draft" : "Save draft"}</button>
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(m.name ? `the in-app message ${m.name}` : "this in-app message",
+            m.status === "active" ? "Apps stop showing it the next time they fetch campaigns. This can't be undone." : "This can't be undone.").then((ok) => ok && remove.mutate())}>Delete</button>}
+          <button className="btn" disabled={save.isPending} onClick={() => {
+            if (m.status !== "active") return save.mutate({ ...m, status: "draft" });
+            void ask({ title: "Take this message back to draft?", body: "Apps stop showing it the next time they fetch campaigns. Your changes are kept in the draft.", confirmText: "Back to draft" })
+              .then((ok) => ok && save.mutate({ ...m, status: "draft" }));
+          }}>{m.status === "active" ? "Back to draft" : "Save draft"}</button>
           <button className="btn primary" disabled={save.isPending || !!problem} title={problem ?? undefined} onClick={() => save.mutate({ ...m, status: "active" })}>{m.status === "active" ? "Save live" : "Go live"}</button>
         </>}
       />

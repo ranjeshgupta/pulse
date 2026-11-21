@@ -13,6 +13,17 @@ import {
 
 type Setter = (key: string, value: string) => void;
 
+/** touched tells the dialog around a button that the button changed the form: the dialog's
+ * "Discard your changes?" guard only notices typing, so this sends it a typing event from a
+ * throwaway input placed next to the button. */
+function touched(from: HTMLElement) {
+  const probe = document.createElement("input");
+  probe.hidden = true;
+  from.after(probe);
+  probe.dispatchEvent(new Event("input", { bubbles: true }));
+  probe.remove();
+}
+
 /** ConfigField renders one catalog setting: a select when it has options, a switch, a number, a
  * text area or a line of text. */
 export function ConfigField({ f, value, onChange }: { f: ProviderField; value: string; onChange: (v: string) => void }) {
@@ -58,10 +69,10 @@ function HeadersEditor({ headers, onChange, hint }: { headers: Header[]; onChang
         <div className="row" key={i} style={{ marginBottom: 6, flexWrap: "nowrap" }}>
           <input className="input" style={{ maxWidth: 200 }} placeholder="Name" aria-label="Header name" value={h.name} onChange={(e) => set(i, { ...h, name: e.target.value })} />
           <input className="input" placeholder="Value" aria-label="Header value" value={h.value} onChange={(e) => set(i, { ...h, value: e.target.value })} />
-          <button className="btn sm ghost" onClick={() => onChange(headers.filter((_, j) => j !== i))}>Remove</button>
+          <button type="button" className="btn sm ghost" onClick={(e) => { touched(e.currentTarget); onChange(headers.filter((_, j) => j !== i)); }}>Remove</button>
         </div>
       ))}
-      <button className="btn sm" onClick={() => onChange([...headers, { name: "", value: "" }])}>Add header</button>
+      <button type="button" className="btn sm" onClick={(e) => { touched(e.currentTarget); onChange([...headers, { name: "", value: "" }]); }}>Add header</button>
     </Field>
   );
 }
@@ -211,11 +222,11 @@ export function GatewayModeChoice({ mode, onChange }: { mode: string; onChange: 
   const custom = mode === "custom";
   return (
     <div className="choice-cards" role="radiogroup" aria-label="How Pulse calls your gateway">
-      <button type="button" role="radio" aria-checked={!custom} className={!custom ? "on" : ""} onClick={() => onChange("standard")}>
+      <button type="button" role="radio" aria-checked={!custom} className={!custom ? "on" : ""} onClick={(e) => { if (custom) touched(e.currentTarget); onChange("standard"); }}>
         <strong>Your developers build an endpoint for Pulse</strong>
         <span>Pulse posts each message as JSON in its own format, signed with a secret. Simplest: you only enter the address and the secret.</span>
       </button>
-      <button type="button" role="radio" aria-checked={custom} className={custom ? "on" : ""} onClick={() => onChange("custom")}>
+      <button type="button" role="radio" aria-checked={custom} className={custom ? "on" : ""} onClick={(e) => { if (!custom) touched(e.currentTarget); onChange("custom"); }}>
         <strong>Connect to a gateway's existing API</strong>
         <span>Your SMS or messaging service already has an API. You tell Pulse where to send, how to sign in and what to send.</span>
       </button>
@@ -276,7 +287,7 @@ export function RequestBody({ channel, config, setConfig }: { channel: Channel; 
       <div className="pf-inserts" aria-label="Insert a placeholder">
         <span className="xs muted">Insert:</span>
         {(INSERTS[channel] ?? INSERTS.other).map(([v, label]) => (
-          <button type="button" key={v} className="btn sm" title={`{{${v}}}`} onClick={() => insert(v)}>{label}</button>
+          <button type="button" key={v} className="btn sm" title={`{{${v}}}`} onClick={(e) => { touched(e.currentTarget); insert(v); }}>{label}</button>
         ))}
       </div>
       <details className="pf-more">

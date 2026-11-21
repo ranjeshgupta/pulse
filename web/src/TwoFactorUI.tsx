@@ -1,6 +1,6 @@
 // Two-step sign-in building blocks shared by the sign-in page and Your account: the QR code, the
 // setup steps and the recovery codes screen.
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, type TwoFactorSetup } from "./api";
 import { codeReady, isAppCode, qrMatrix, recoveryText } from "./twoFactor";
 import { ErrorNote, Field, useCopy } from "./ui";
@@ -50,7 +50,7 @@ export function SetupApp({ base, onDone, onCancel, initial }: { base: "/v1/accou
     }
   }
 
-  async function confirm(e: FormEvent) {
+  async function enable(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -81,7 +81,7 @@ export function SetupApp({ base, onDone, onCancel, initial }: { base: "/v1/accou
   }
 
   return (
-    <form onSubmit={confirm} className="tf-setup">
+    <form onSubmit={enable} className="tf-setup">
       <ol className="tf-steps">
         <li>
           <strong>Scan this code with your authenticator app.</strong> In the app, choose to add an account, then scan a QR code.
@@ -116,6 +116,13 @@ export function RecoveryCodes({ codes, workspace, email, onDone, doneLabel = "Do
   const [saved, setSaved] = useState(false);
   const text = recoveryText(codes, workspace, email);
   const href = useMemo(() => URL.createObjectURL(new Blob([text], { type: "text/plain" })), [text]);
+  // The codes are shown only once: closing or reloading the tab before saving them asks first.
+  useEffect(() => {
+    if (saved) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [saved]);
   return (
     <div>
       <div className="alert warn">

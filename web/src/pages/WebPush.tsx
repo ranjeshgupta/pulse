@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useCan } from "../auth";
+import { useEditGuard } from "../guard";
 import { ErrorNote, Field, PageHead, timeAgo, useCopy, useToast } from "../ui";
 import {
   browserFacts, checkItemView, checkSummary, DEFAULT_SERVICE_WORKER, frequencySummary, MAX_RULES, needsSnippet, normalise,
@@ -30,6 +31,13 @@ export function WebPushSettingsPage() {
       toast({ text: "Saved. Your site picks up the change on the next page a visitor opens." });
     },
   });
+  // Leaving with unsaved prompt or site changes asks first; Ctrl/⌘+S saves.
+  const unsaved = !!q.data && !!draft && !sameSettings(draft, q.data.settings);
+  const guard = useEditGuard(() => {
+    if (canEdit && draft && unsaved && validate(draft).length === 0 && !save.isPending) save.mutate(normalise(draft));
+  });
+  const { markDirty, saved: markSaved } = guard;
+  useEffect(() => { if (unsaved) markDirty(); else markSaved(); }, [unsaved, markDirty, markSaved]);
   const data = q.data;
   if (!data) return <div className="page"><ErrorNote error={q.error} /></div>;
   const cur = draft ?? data.settings;

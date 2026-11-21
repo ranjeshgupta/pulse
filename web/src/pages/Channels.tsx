@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type ProviderField, type SandboxMessage } from "../api";
 import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { ask, useEditGuard } from "../guard";
 import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, ReceiptMapping, RequestBody, RequestResult, RequestTarget, Step } from "./ProviderSettings";
 import { applyPreset, cleanLimits, fieldShown, hostsChanged, limitsNote, parseRequest, presetOf, sameLimits, serializeAuth, serializeRequest } from "../providerAuth";
 
@@ -123,7 +124,7 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/channels/providers/${provider!.id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: `Removed ${provider!.name}` }); onClose(); },
   });
 
   const secretField = (f: ProviderField) => (
@@ -142,9 +143,13 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
   return (
     <Modal wide title={provider ? `Edit ${provider.name}` : `Add ${CHANNEL_NAMES[channel]} provider`} onClose={onClose}
       footer={<>
-        {provider && <button className="btn danger" style={{ marginRight: "auto" }} onClick={() => confirm("Remove this provider?") && remove.mutate()}>Remove</button>}
+        {provider && <button className="btn danger" style={{ marginRight: "auto" }} disabled={remove.isPending} onClick={() => void ask({
+          title: `Remove ${provider.name}?`,
+          body: <>{CHANNEL_NAMES[channel]} messages stop going out through it{provider.is_default ? <>, and it's the channel's default provider: until you pick another, {CHANNEL_NAMES[channel]} sends may fail</> : ""}. Its saved settings and secrets are deleted. This can't be undone.</>,
+          confirmText: "Remove provider", danger: true, typeToConfirm: provider.name,
+        }).then((ok) => ok && remove.mutate())}>Remove</button>}
         <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save provider</button>
+        <button className="btn primary" disabled={save.isPending || remove.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save provider"}</button>
       </>}>
       <ErrorNote error={save.error ?? remove.error} />
       <div className="grid-2">
@@ -308,8 +313,12 @@ function DeliveryRulesPanel({ admin }: { admin: boolean }) {
   const rules = r ?? q.data;
   const save = useMutation({
     mutationFn: () => api.put<DeliveryRules>("/v1/settings/delivery", rules),
-    onSuccess: (d) => { qc.setQueryData(["delivery"], d); setR(null); toast({ text: "Delivery rules saved. They apply within 30 seconds." }); },
+    onSuccess: (d) => { guard.saved(); qc.setQueryData(["delivery"], d); setR(null); toast({ text: "Delivery rules saved. They apply within 30 seconds." }); },
   });
+  // The only editable panel on the Channels page: unsaved rules make leaving the page ask first.
+  const guard = useEditGuard(admin && r && !save.isPending ? () => save.mutate() : undefined);
+  const { markDirty, saved } = guard;
+  useEffect(() => { if (r) markDirty(); else saved(); }, [r, markDirty, saved]);
   if (!rules) return null;
   const edit = (p: Partial<DeliveryRules>) => setR({ ...rules, ...p });
   const setCap = (ch: Channel, cap?: { max: number; hours: number }) => {
@@ -377,7 +386,12 @@ function DeliveryRulesPanel({ admin }: { admin: boolean }) {
             <input className="input" type="email" value={rules.reply_to ?? ""} placeholder="replies@inbound.example.com" onChange={(e) => edit({ reply_to: e.target.value.trim() || undefined })} />
           </Field>
           <p className="xs muted" style={{ marginTop: -6, marginBottom: 14 }}>Emails from triggered and automation campaigns use it as their Reply-To, so a "Replies to email" decision can see who answered.</p>
-          {admin && <button className="btn primary" disabled={!r || save.isPending} onClick={() => save.mutate()}>Save delivery rules</button>}
+          {admin && (
+            <div className="row">
+              <button className="btn primary" disabled={!r || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save delivery rules"}</button>
+              {r && <button className="btn ghost" type="button" onClick={() => setR(null)}>Discard changes</button>}
+            </div>
+          )}
         </fieldset>
       </div>
     </section>
@@ -409,7 +423,7 @@ function ProviderTest({ provider, onClose }: { provider: Provider; onClose: () =
   });
   const [label, ph] = TO_LABEL[provider.channel];
   return (
-    <Modal title={`Send a test through ${provider.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" disabled={!to || send.isPending} onClick={() => send.mutate()}>Send test</button></>}>
+    <Modal title={`Send a test through ${provider.name}`} onClose={onClose} guard={false} footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" disabled={!to || send.isPending} onClick={() => send.mutate()}>Send test</button></>}>
       <p className="small muted" style={{ marginBottom: 14 }}>Sends a short fixed message directly through this provider, to check its settings. Nothing is recorded on any contact.</p>
       <Field label={label}><input className="input" value={to} placeholder={ph} onChange={(e) => setTo(e.target.value.trim())} autoFocus /></Field>
       {provider.channel === "whatsapp" && (
@@ -444,7 +458,7 @@ const BOUNCE_SERVICES: Record<string, string> = {
 };
 
 // BouncesPanel shows where the email service should report bounces and complaints, and what each does.
-export function BouncesPanel() {
+export function BouncesPanel({ onDirty }: { onDirty?: (dirty: boolean) => void } = {}) {
   const toast = useToast();
   const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<BounceSettings>("/v1/settings/bounces") });
   const copy = (text: string) =>
@@ -494,7 +508,7 @@ export function BouncesPanel() {
             Reports can't be matched to the messages they're about: the server has no secret key (PULSE_SECRET_KEY). Contacts are still updated, but bounces and complaints don't show in campaign reports.
           </div>
         )}
-        {q.data?.signing && <BounceSigning url={q.data.url} signing={q.data.signing} />}
+        {q.data?.signing && <BounceSigning url={q.data.url} signing={q.data.signing} onDirty={onDirty} />}
       </div>
     </section>
   );
@@ -517,7 +531,7 @@ function Checked({ on, basic, signing }: { on: boolean; basic?: boolean; signing
 
 // BounceSigning sets the keys each email service's webhook posts are checked with. Secrets are
 // never shown again; empty fields keep what is saved. Once a key is saved, unsigned posts are refused.
-function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }) {
+function BounceSigning({ url, signing, onDirty }: { url: string; signing: SigningStatus; onDirty?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [sendgrid, setSendgrid] = useState("");
@@ -547,8 +561,10 @@ function BounceSigning({ url, signing }: { url: string; signing: SigningStatus }
     : !password && userChanged && user.trim() ? "Enter the password to change the user name."
     : "";
   const anything = !!(sendgrid.trim() || mailgun.trim() || password);
+  useEffect(() => { onDirty?.(anything || (userChanged && !!user.trim())); }, [anything, userChanged, user, onDirty]);
   const remove = (k: SigningKey, name: string) =>
-    confirm(`Remove the ${name} key? Posts in that format are then accepted on the URL alone.`) && clear.mutate(k);
+    void ask({ title: `Remove the ${name} key?`, body: "Posts in that format are then accepted on the URL alone.", confirmText: "Remove key", danger: true })
+      .then((ok) => ok && clear.mutate(k));
   const exampleUser = encodeURIComponent(user.trim() || "user");
   const basicURL = url.replace(/^(https?:\/\/)/, `$1${exampleUser}:<password>@`);
 
@@ -769,7 +785,7 @@ function LimitsForm({ provider, sendRate, onClose }: { provider: Provider; sendR
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["providers"] }); toast({ text: "Sending limits saved. Every Pulse server follows them within 30 seconds." }); onClose(); },
   });
   return (
-    <Modal title={`Sending limits: ${provider.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save limits</button></>}>
+    <Modal title={`Sending limits: ${provider.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save limits"}</button></>}>
       <ErrorNote error={save.error} />
       <LimitsFields limits={l} onChange={setL} channel={provider.channel} sendRate={sendRate} />
       <p className="xs muted">Sent today: {(provider.usage_today ?? 0).toLocaleString("en-IN")}.</p>
@@ -790,7 +806,11 @@ function TestContactsPanel({ canEdit }: { canEdit: boolean }) {
     mutationFn: (tc: TestContact) => (tc.id ? api.put(`/v1/test-contacts/${tc.id}`, tc) : api.post("/v1/test-contacts", tc)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["test-contacts"] }); setEdit(null); },
   });
-  const remove = useMutation({ mutationFn: (id: number) => api.del(`/v1/test-contacts/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["test-contacts"] }) });
+  const toast = useToast();
+  const remove = useMutation({
+    mutationFn: (t: TestContact) => api.del(`/v1/test-contacts/${t.id}`),
+    onSuccess: (_, t) => { qc.invalidateQueries({ queryKey: ["test-contacts"] }); toast({ text: `Removed ${t.name}` }); },
+  });
   const tcs = q.data?.test_contacts ?? [];
   return (
     <section className="panel" style={{ marginBottom: 16 }} aria-labelledby="tc-head">
@@ -813,14 +833,16 @@ function TestContactsPanel({ canEdit }: { canEdit: boolean }) {
               <td className="small">{t.push_token ? `${t.push_token.slice(0, 14)}…` : <span className="faint">–</span>}</td>
               <td className="num">{canEdit && <div className="row" style={{ justifyContent: "flex-end" }}>
                 <button className="btn sm" onClick={() => setEdit({ ...BLANK_TC, ...t })}>Edit</button>
-                <button className="btn ghost sm danger" onClick={() => confirm(`Remove ${t.name} from the test contacts?`) && remove.mutate(t.id)}>Remove</button>
+                <button className="btn ghost sm danger" disabled={remove.isPending}
+                  onClick={() => void ask({ title: `Remove ${t.name} from the test contacts?`, body: "\"Send a test\" dialogs no longer offer them. The contact itself isn't touched.", confirmText: "Remove", danger: true })
+                    .then((ok) => ok && remove.mutate(t))}>Remove</button>
               </div>}</td>
             </tr>
           ))}</tbody>
         </table>
       )}
       {edit && (
-        <Modal title={edit.id ? `Edit ${edit.name}` : "Add a test contact"} onClose={() => setEdit(null)} footer={<><button className="btn" onClick={() => setEdit(null)}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate(edit)}>Save</button></>}>
+        <Modal title={edit.id ? `Edit ${edit.name}` : "Add a test contact"} onClose={() => setEdit(null)} footer={<><button className="btn" onClick={() => setEdit(null)}>Cancel</button><button className="btn primary" disabled={save.isPending} onClick={() => save.mutate(edit)}>{save.isPending ? "Saving…" : "Save"}</button></>}>
           <ErrorNote error={save.error} />
           <Field label="Name"><input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Priya (QA)" autoFocus /></Field>
           <Field label="An existing contact (external ID, optional)" hint="Tests to them use their own data and addresses, like any contact."><input className="input" value={edit.external_id ?? ""} onChange={(e) => setEdit({ ...edit, external_id: e.target.value })} /></Field>

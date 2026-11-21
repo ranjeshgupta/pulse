@@ -176,7 +176,7 @@ export function PreviewModal({ template, event = "", onClose }: { template: Part
     enabled: ev !== undefined,
   });
   return (
-    <Modal title={`Preview: ${template.name || CHANNEL_NAMES[template.channel]}`} onClose={onClose}>
+    <Modal title={`Preview: ${template.name || CHANNEL_NAMES[template.channel]}`} onClose={onClose} guard={false}>
       <form className="row" style={{ marginBottom: 14, flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); setAsWho(ext.trim()); }}>
         <input className="input" placeholder="Contact's external ID (empty: sample contact)" value={ext} onChange={(e) => setExt(e.target.value)} aria-label="Preview as contact" />
         <button className="btn">Preview as contact</button>

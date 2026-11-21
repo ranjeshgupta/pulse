@@ -5,6 +5,7 @@ import { api, ApiError, type DWCSlot, type FocusItem, type Overlap } from "../ap
 import { useCan } from "../auth";
 import { moveBy, moveVariant } from "../onsiteVariants";
 import { describeWindow } from "../schedule";
+import { ask, DISCARD } from "../guard";
 import { Drawer, Empty, ErrorNote, Modal, PageHead, Status, useToast } from "../ui";
 import type { InAppMessage } from "./InApp";
 import { OverlapView } from "./OnSite";
@@ -20,7 +21,9 @@ type Kind = "focus" | "content" | "inapp";
 type Row = { key: string; kind: Kind; channel: Channel; name: string; type: string; schedule: string; status: string; href: string; shown?: number; clicked?: number };
 
 const CHANNEL_LABEL: Record<Channel, string> = { website: "Website", app: "Mobile app" };
-const KIND_LABEL: Record<Kind, string> = { focus: "Pop-ups, bars and slide-ins", content: "Dynamic web content", inapp: "In-app messages" };
+const KIND_LABEL: Record<Kind, string> = { focus: "Pop-ups, bars and slide-ins", content: "Dynamic content slots", inapp: "In-app messages" };
+/** Which kinds each channel has: content slots live on websites and in apps. */
+const KIND_CHANNELS: Record<Kind, Channel[]> = { focus: ["website"], content: ["website", "app"], inapp: ["app"] };
 const FOCUS_TYPE = { modal: "Pop-up", bar: "Banner bar", slide: "Slide-in" };
 const INAPP_TYPE = { modal: "Pop-up", banner: "Banner", fullscreen: "Full screen" };
 
@@ -49,7 +52,7 @@ export function OnSiteList() {
   const stats = inapp.data?.stats ?? {};
   const rows: Row[] = [
     ...(focus.data?.focus_items ?? []).map((f): Row => ({ key: `f${f.id}`, kind: "focus", channel: "website", name: f.name, type: FOCUS_TYPE[f.kind], schedule: describeWindow(f.start_at, f.end_at), status: f.status, href: onsiteHref("focus", f.id) })),
-    ...(dwc.data?.slots ?? []).map((d): Row => ({ key: `d${d.id}`, kind: "content", channel: "website", name: d.name, type: `Content slot · ${d.slot}`, schedule: describeWindow(d.start_at, d.end_at), status: d.status, href: onsiteHref("content", d.id) })),
+    ...(dwc.data?.slots ?? []).map((d): Row => ({ key: `d${d.id}`, kind: "content", channel: d.platform === "app" ? "app" : "website", name: d.name, type: `Content slot · ${d.slot}`, schedule: describeWindow(d.start_at, d.end_at), status: d.status, href: onsiteHref("content", d.id) })),
     ...(inapp.data?.messages ?? []).map((m): Row => ({
       key: `i${m.id}`, kind: "inapp", channel: "app", name: m.name, type: INAPP_TYPE[m.layout] ?? m.layout, schedule: describeWindow(m.start_at, m.end_at), status: m.status,
       href: onsiteHref("inapp", m.id), shown: stats[String(m.id)]?.shown ?? 0, clicked: stats[String(m.id)]?.clicked ?? 0,
@@ -61,7 +64,7 @@ export function OnSiteList() {
     <div className="page">
       <PageHead
         title="Website & app messages"
-        intro="Messages shown inside your website (pop-ups, banner bars, slide-ins and dynamic content) and your mobile apps (in-app messages), targeted by segment, page or app event."
+        intro="Messages shown inside your website (pop-ups, banner bars, slide-ins and dynamic content) and your mobile apps (in-app messages and app content slots), targeted by segment, page or app event."
         actions={canEdit && <button className="btn primary" onClick={() => setCreating(true)}>New</button>}
       />
       {creating && <NewOnSiteModal onClose={() => setCreating(false)} />}
@@ -69,11 +72,11 @@ export function OnSiteList() {
       <div className="row" style={{ marginBottom: 14, justifyContent: "space-between" }}>
         <div className="row">
           <div className="seg-toggle" role="group" aria-label="Channel">
-            {(["", "website", "app"] as const).map((c) => <button key={c} aria-pressed={channel === c} onClick={() => { set("channel", c); if (c && kind && (c === "app") !== (kind === "inapp")) set("type", ""); }}>{c ? CHANNEL_LABEL[c] : "All"}</button>)}
+            {(["", "website", "app"] as const).map((c) => <button key={c} aria-pressed={channel === c} onClick={() => { set("channel", c); if (c && kind && !KIND_CHANNELS[kind].includes(c)) set("type", ""); }}>{c ? CHANNEL_LABEL[c] : "All"}</button>)}
           </div>
           <select className="select inline" value={kind} onChange={(e) => set("type", e.target.value)} aria-label="Type">
             <option value="">All types</option>
-            {(Object.keys(KIND_LABEL) as Kind[]).filter((k) => !channel || (channel === "app") === (k === "inapp")).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+            {(Object.keys(KIND_LABEL) as Kind[]).filter((k) => !channel || KIND_CHANNELS[k].includes(channel)).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
           </select>
         </div>
         <div className="row">
@@ -125,8 +128,8 @@ function NewOnSiteModal({ onClose }: { onClose: () => void }) {
         <button role="radio" aria-checked={channel === "website"} className={channel === "website" ? "on" : ""} onClick={() => setChannel("website")}>
           <strong>Website</strong><span>On your site's pages, through the web SDK.</span>
         </button>
-        <button role="radio" aria-checked={channel === "app"} className={channel === "app" ? "on" : ""} onClick={() => nav(onsiteHref("inapp", "new"))}>
-          <strong>Mobile app</strong><span>An in-app message in your Android or iOS app, when an app event happens.</span>
+        <button role="radio" aria-checked={channel === "app"} className={channel === "app" ? "on" : ""} onClick={() => setChannel("app")}>
+          <strong>Mobile app</strong><span>Inside your Android, iOS or Flutter app, through the app SDK.</span>
         </button>
       </div>
       {channel === "website" && (
@@ -138,6 +141,19 @@ function NewOnSiteModal({ onClose }: { onClose: () => void }) {
             </button>
             <button onClick={() => nav(onsiteHref("content", "new"))}>
               <strong>Dynamic web content</strong><span>A placeholder in your page that shows different content to different segments.</span>
+            </button>
+          </div>
+        </>
+      )}
+      {channel === "app" && (
+        <>
+          <p className="small muted" style={{ marginBottom: 10 }}>What kind?</p>
+          <div className="seg-kind">
+            <button onClick={() => nav(onsiteHref("inapp", "new"))}>
+              <strong>In-app message</strong><span>A pop-up, banner or full screen, shown when an app event happens.</span>
+            </button>
+            <button onClick={() => nav(onsiteHref("content", "new") + "?platform=app")}>
+              <strong>App content slot</strong><span>A place in your app's screens (home banner, offers card…) that shows different content to different segments.</span>
             </button>
           </div>
         </>
@@ -174,8 +190,10 @@ function FocusOrderDrawer({ items, canEdit, onClose }: { items: FocusItem[]; can
       toast({ text: "Order saved. Visitors see it within seconds." });
     },
   });
+  // Reordering isn't typing, so the drawer's own guard can't see it: ask here before closing.
+  const tryClose = () => { if (!changed.length) onClose(); else void ask(DISCARD).then((ok) => ok && onClose()); };
   return (
-    <Drawer title="Order of pop-ups, bars and slide-ins" subtitle="Visitors see one pop-up, one bar and one slide-in at a time: the first in this order they can still see." onClose={onClose}>
+    <Drawer title="Order of pop-ups, bars and slide-ins" subtitle="Visitors see one pop-up, one bar and one slide-in at a time: the first in this order they can still see." onClose={tryClose} guard={false}>
       <p className="small muted" style={{ marginBottom: 14 }}>
         Put the most important item first. If a visitor isn't in its audience, has already seen it as often as it allows, or it's outside its schedule, the next one in the list is shown instead.
       </p>

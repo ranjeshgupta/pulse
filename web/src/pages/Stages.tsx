@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Stage } from "../api";
 import { describeThreshold, moveItem } from "../accounts";
+import { ask } from "../guard";
 import { Empty, ErrorNote, Field, Modal, PageHead, useToast } from "../ui";
 import "./stages.css";
 import { ContactCount } from "../ContactCount";
@@ -68,7 +69,11 @@ export function Stages() {
                   <td className="num"><ContactCount live value={s.contacts} filters={[["stage", s.name]]} /></td>
                   <td className="num">
                     <button className="btn ghost sm" onClick={() => setEditing(s)}>Edit</button>
-                    <button className="btn ghost sm danger" onClick={() => confirm(`Remove the stage ${s.name}? Its ${s.contacts} contacts keep "${s.name}" as their stage until they move.`) && remove.mutate(s)}>Remove</button>
+                    <button className="btn ghost sm danger" disabled={remove.isPending} onClick={() => void ask({
+                      title: `Remove the stage ${s.name}?`,
+                      body: `Its ${s.contacts} ${s.contacts === 1 ? "contact keeps" : "contacts keep"} "${s.name}" as their stage until they move.`,
+                      confirmText: "Remove stage", danger: true,
+                    }).then((ok) => ok && remove.mutate(s))}>Remove</button>
                   </td>
                 </tr>
               ))}

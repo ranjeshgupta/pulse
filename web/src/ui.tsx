@@ -1,5 +1,6 @@
 // Small shared building blocks. Styling lives in styles.css.
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { ask, DialogCtx, DISCARD, isCloseButton, useDirtyRef } from "./guard";
 import { CHANNEL_NAMES, type Channel } from "./api";
 
 export function PageHead({ title, intro, actions, back }: { title: ReactNode; intro?: ReactNode; actions?: ReactNode; back?: ReactNode }) {
@@ -74,31 +75,57 @@ export function LiveNumber({ value }: { value: number }) {
   return <span className={`live-num${changed ? " changed" : ""}`}>{value.toLocaleString("en-IN")}</span>;
 }
 
-export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
-  useEscape(onClose);
+/** Modal: a dialog. It notices typing inside it and, while there are unsaved changes, asks before
+ * closing by Esc, the backdrop, Close, or a footer Cancel / Close button (guard={false} turns that
+ * off, e.g. for dialogs that only show something). Closing from code (after a save) never asks. */
+export function Modal({ title, onClose, children, footer, wide, guard = true }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; guard?: boolean }) {
+  const { dirty, track, reset } = useDirtyRef();
+  const tryClose = useCallback(() => {
+    if (!guard || !dirty.current) return onClose();
+    void ask(DISCARD).then((ok) => ok && onClose());
+  }, [guard, dirty, onClose]);
+  useEscape(tryClose);
+  const ctx = useMemo(() => ({ saved: reset }), [reset]);
+  const footClick = (e: MouseEvent) => {
+    const b = (e.target as HTMLElement).closest("button");
+    if (b && guard && dirty.current && isCloseButton(b.textContent ?? "", b.hasAttribute("data-close"))) {
+      e.preventDefault();
+      e.stopPropagation();
+      tryClose();
+    }
+  };
   return (
     <>
-      <div className="modal-backdrop" onClick={onClose} />
-      <div className={wide ? "modal wide" : "modal"} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="panel-head"><h3>{title}</h3><button className="btn ghost sm" onClick={onClose}>Close</button></div>
-        <div className="panel-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
+      <div className="modal-backdrop" onClick={tryClose} />
+      <div className={wide ? "modal wide" : "modal"} role="dialog" aria-modal="true" aria-label={title} {...(guard ? track : {})}>
+        <div className="panel-head"><h3>{title}</h3><button className="btn ghost sm" onClick={tryClose} aria-label="Close">Close</button></div>
+        <DialogCtx.Provider value={ctx}>
+          <div className="panel-body">{children}</div>
+          {footer && <div className="modal-foot" onClickCapture={footClick}>{footer}</div>}
+        </DialogCtx.Provider>
       </div>
     </>
   );
 }
 
-export function Drawer({ title, subtitle, onClose, children }: { title: ReactNode; subtitle?: ReactNode; onClose: () => void; children: ReactNode }) {
-  useEscape(onClose);
+/** Drawer: a side panel, with the same unsaved-changes question as Modal. */
+export function Drawer({ title, subtitle, onClose, children, guard = true }: { title: ReactNode; subtitle?: ReactNode; onClose: () => void; children: ReactNode; guard?: boolean }) {
+  const { dirty, track, reset } = useDirtyRef();
+  const tryClose = useCallback(() => {
+    if (!guard || !dirty.current) return onClose();
+    void ask(DISCARD).then((ok) => ok && onClose());
+  }, [guard, dirty, onClose]);
+  useEscape(tryClose);
+  const ctx = useMemo(() => ({ saved: reset }), [reset]);
   return (
     <>
-      <div className="drawer-backdrop" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true">
+      <div className="drawer-backdrop" onClick={tryClose} />
+      <aside className="drawer" role="dialog" aria-modal="true" {...(guard ? track : {})}>
         <div className="drawer-head">
           <div><h2>{title}</h2>{subtitle && <p className="muted small">{subtitle}</p>}</div>
-          <button className="btn ghost sm" onClick={onClose}>Close</button>
+          <button className="btn ghost sm" onClick={tryClose}>Close</button>
         </div>
-        <div className="drawer-body">{children}</div>
+        <DialogCtx.Provider value={ctx}><div className="drawer-body">{children}</div></DialogCtx.Provider>
       </aside>
     </>
   );

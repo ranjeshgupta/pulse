@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, type Import, type Segment } from "../api";
 import { useCan } from "../auth";
 import { CORE_TARGETS, guessTarget, headerEnd, mappingProblems, parseRows, remapped } from "../importMapping";
+import { ask, useEditGuard } from "../guard";
 import { Empty, ErrorNote, LiveNumber, PageHead, timeAgo, useToast } from "../ui";
 import { useAttributes, useSegments } from "./segmentData";
 import "./imports.css";
@@ -139,12 +140,12 @@ function ImportWizard({ statics, initialSegment, onUploading }: { statics: Segme
   const [error, setError] = useState<unknown>(null);
   const abort = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!progress) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [progress]);
+  // A chosen file (the wizard under way) or an upload in progress: leaving the page (a link, back,
+  // closing the tab) asks first, since it drops the choices or stops the upload.
+  const underWay = !!file || !!progress;
+  const guard = useEditGuard();
+  const { markDirty, saved: markDone } = guard;
+  useEffect(() => { if (underWay) markDirty(); else markDone(); }, [underWay, markDirty, markDone]);
   useEffect(() => () => abort.current?.(), []);
 
   const reset = () => { setStep(0); setFile(null); setHead(null); setTargets([]); setAgreed(false); setSegNew(""); };
@@ -209,7 +210,8 @@ function ImportWizard({ statics, initialSegment, onUploading }: { statics: Segme
           <div style={{ marginBottom: 14 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="small"><strong>Uploading {file?.name}</strong> <span className="muted">{formatBytes(progress.loaded)} of {formatBytes(progress.total)}</span></span>
-              <span className="row small"><span className="live-num">{pct}%</span><button className="btn sm" onClick={() => abort.current?.()}>Cancel upload</button></span>
+              <span className="row small"><span className="live-num">{pct}%</span><button className="btn sm" onClick={() => void ask({ title: "Stop the upload?", body: "Nothing from this file is imported, and you'd need to upload it again.", confirmText: "Stop upload", cancelText: "Keep uploading", danger: true })
+                .then((ok) => ok && abort.current?.())}>Cancel upload</button></span>
             </div>
             <div className="imp-bar"><div style={{ width: `${pct}%` }} /></div>
             <p className="xs muted" style={{ marginTop: 8 }}>Keep this page open until the upload finishes. After that the import runs on its own.</p>
@@ -286,7 +288,7 @@ function ImportWizard({ statics, initialSegment, onUploading }: { statics: Segme
             {step > 0 && <button className="btn" onClick={() => setStep(step - 1)}>Back</button>}
             {step < 3 && <button className="btn primary" disabled={!canNext} onClick={() => setStep(step + 1)}>Next</button>}
             {step === 3 && <button className="btn primary" disabled={!agreed} onClick={start}>Start import</button>}
-            {step > 0 && <button className="btn ghost" onClick={reset}>Start over</button>}
+            {step > 0 && <button className="btn ghost" onClick={() => void ask({ title: "Start over?", body: "The file and the choices you made are cleared.", confirmText: "Start over", danger: true }).then((ok) => ok && reset())}>Start over</button>}
           </div>
         )}
       </div>
@@ -330,7 +332,8 @@ function ImportTable({ imports, listName, canCancel }: { imports: Import[]; list
                   <td className="num">
                     <div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       {canCancel && (i.status === "queued" || i.status === "running") && (
-                        <button className="btn sm" disabled={cancel.isPending} onClick={() => confirm("Stop this import? Rows already imported stay.") && cancel.mutate(i.id)}>Cancel</button>
+                        <button className="btn sm" disabled={cancel.isPending} onClick={() => void ask({ title: "Stop this import?", body: "Rows already imported stay; the rest of the file isn't imported.", confirmText: "Stop import", cancelText: "Keep importing", danger: true })
+                          .then((ok) => ok && cancel.mutate(i.id))}>Cancel</button>
                       )}
                       {hasDetail && <button className="btn ghost sm" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : i.id)}>{expanded ? "Hide errors" : "Show errors"}</button>}
                     </div>

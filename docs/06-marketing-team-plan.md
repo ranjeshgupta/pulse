@@ -744,6 +744,26 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - Tests: `identity_test.go` (package and profile), `identityKeys.test.ts`, e2e `test/e2e/identity_test.go`.
 - How the ranking, rerouting and backfill work: [architecture](02-architecture.md#profiles-and-reserved-attributes).
 
+### UX guard (asked for on 2026-11-21, with O3)
+
+- `web/src/guard.tsx`: `ask` / `askDelete` (styled confirm, the safe answer focused for dangerous questions,
+  optional type-the-name), `useEditGuard` (leave guard via react-router's `useBlocker`, `beforeunload`, Ctrl/⌘+S,
+  `markDirty` / `saved`), `useDirtyRef`; `Modal` and `Drawer` track typing and ask before closing (`guard={false}`,
+  `data-no-dirty`, `useDialogSaved`). Every page's `window.confirm` replaced; every delete of saved data asks.
+- `web/src/CommandPalette.tsx`: ⌘K / Ctrl+K palette (pages, settings, create actions, contact search), `/`, `?`.
+- Checked in a headless browser (Playwright): app slot creation, the leave guard, Esc on an edited dialog, the palette.
+
+### O3 as built (done before O2, at the user's request)
+
+- Content slots have `platform` (`web` / `app`, pg migration 032) and app slots a `default_card` / variant `card`
+  (`model.AppCard`); `onsite.DecideApp`, `POST /v1/web/content` (`internal/api/appcontent.go`); websites' decide skips
+  app slots. Web: **New → Mobile app → App content slot**, the slot editor's **Where** switch, card editor with a phone
+  preview (`pages/AppCardEditor.tsx`), app slots listed under Mobile app on Website & app messages.
+- SDKs: Flutter (`PulseSlot`, `Pulse.instance.content`), Android (`PulseSlotView`, `Pulse.content`), iOS
+  (`PulseSlotView`, SwiftUI `PulseSlot`, `PulseClient.content`); each README has an "App content slots" section.
+- Tests: `onsite/appslots_test.go`, `appCard.test.ts`, SDK unit tests (Flutter 18, Android 9, iOS 10 new), e2e
+  `test/e2e/appcontent_test.go`.
+
 ## Docs: final pass done
 
 The documentation for M4–M7 (deferred from M4 on, by the owner's decision of 2026-11-11) was updated in one

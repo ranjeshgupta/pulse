@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Company, type Contact } from "../api";
 import { attrsFromRows, companyProblems, rowsFromAttrs, type AttrRow } from "../accounts";
 import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { askDelete, useEditGuard } from "../guard";
 import "./companies.css";
 import { ContactCount } from "../ContactCount";
 
@@ -86,7 +87,7 @@ function NewCompanyModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="New company" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={issues.length > 0 || create.isPending} onClick={() => create.mutate()}>Create company</button>
+      <button className="btn primary" disabled={issues.length > 0 || create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create company"}</button>
     </>}>
       <Field label="Name"><input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Retail" /></Field>
       <Field label="Domain (optional)"><input className="input" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="acme.com" /></Field>
@@ -111,6 +112,7 @@ export function CompanyDetail() {
   const save = useMutation({
     mutationFn: () => api.put(`/v1/companies/${id}`, { name: form!.name.trim(), domain: form!.domain.trim(), attrs: attrsFromRows(form!.rows) }),
     onSuccess: () => {
+      guard.saved();
       qc.invalidateQueries({ queryKey: ["companies"] });
       qc.invalidateQueries({ queryKey: ["company", id] }).then(() => setForm(null));
       toast({ text: `Saved. ${company?.members ? `Its ${company.members.toLocaleString("en-IN")} contacts update within seconds.` : ""}` });
@@ -118,8 +120,12 @@ export function CompanyDetail() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/companies/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["companies"] }); toast({ text: "Company deleted; its contacts are being unlinked" }); nav("/companies"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["companies"] }); toast({ text: `Deleted ${company?.name ?? "the company"}; its contacts are being unlinked` }); nav("/companies"); },
   });
+  // Unsaved edits make leaving the page ask first; Ctrl/⌘+S saves.
+  const guard = useEditGuard(dirty && issues.length === 0 && !save.isPending ? () => save.mutate() : undefined);
+  const { markDirty, saved } = guard;
+  useEffect(() => { if (dirty) markDirty(); else saved(); }, [dirty, markDirty, saved]);
   const setRow = (i: number, r: AttrRow) => form && setForm({ ...form, rows: form.rows.map((x, j) => (j === i ? r : x)) });
   const members = q.data?.members ?? [];
   return (
@@ -128,7 +134,7 @@ export function CompanyDetail() {
         back={<Link className="back" to="/companies">Companies</Link>}
         title={company?.name ?? "Company"}
         intro={company?.domain || undefined}
-        actions={<button className="btn danger" onClick={() => confirm(`Delete ${company?.name}? Its contacts stay, unlinked from it.`) && remove.mutate()}>Delete</button>}
+        actions={<button className="btn danger" disabled={!company || remove.isPending} onClick={() => void askDelete(company?.name ?? "this company", `Its ${company?.members ? `${company.members.toLocaleString("en-IN")} ` : ""}contacts stay, unlinked from it. This can't be undone.`).then((ok) => ok && remove.mutate())}>Delete</button>}
       />
       <ErrorNote error={q.error ?? remove.error} />
       {form && (
@@ -152,7 +158,7 @@ export function CompanyDetail() {
             </div>
             {issues.length > 0 && dirty && <ul className="small company-issues">{issues.map((p) => <li key={p}>{p}</li>)}</ul>}
             <div className="row">
-              <button className="btn primary" disabled={!dirty || issues.length > 0 || save.isPending} onClick={() => save.mutate()}>Save</button>
+              <button className="btn primary" disabled={!dirty || issues.length > 0 || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save"}</button>
               {dirty && <button className="btn ghost" onClick={() => setForm(null)}>Discard changes</button>}
             </div>
             <ErrorNote error={save.error} />

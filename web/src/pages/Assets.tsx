@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type
 import { api, can, type Asset, type AssetDetail, type AssetList as AssetListData, type Form } from "../api";
 import { useMe } from "../auth";
 import { Drawer, Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast, useCopy } from "../ui";
+import { ask, askDelete, DISCARD } from "../guard";
 import "./assets.css";
 
 // ---------- pure helpers (tested in assets.test.ts) ----------
@@ -337,7 +338,7 @@ function AssetDrawer({ id, forms, canEdit, onClose }: { id: number; forms: Form[
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/assets/${id}`),
     onSuccess: () => {
-      toast({ text: "File deleted" });
+      toast({ text: `Deleted ${a?.title || a?.filename || "the file"}` });
       qc.invalidateQueries({ queryKey: ["assets"] });
       qc.removeQueries({ queryKey: ["asset", id] });
       onClose();
@@ -352,14 +353,18 @@ function AssetDrawer({ id, forms, canEdit, onClose }: { id: number; forms: Form[
 
   const onDelete = () => {
     if (!a) return;
-    if (window.confirm(`Delete "${a.title || a.filename}"? Its link stops working right away. This can't be undone.`)) remove.mutate();
+    const used = templates.length > 0 ? ` ${templates.length} email template${templates.length === 1 ? "" : "s"} attach it and lose the attachment.` : "";
+    void askDelete(a.title || a.filename, `Its link stops working right away.${used} This can't be undone.`).then((ok) => ok && remove.mutate());
   };
+  // The drawer knows exactly what's unsaved (dirty), so it asks itself instead of the Drawer's typing check.
+  const close = () => { if (!dirty) return onClose(); void ask(DISCARD).then((ok) => ok && onClose()); };
 
   return (
     <Drawer
       title={a ? a.title || a.filename : "File"}
       subtitle={a ? `${a.filename} · ${typeLabel(a.filename, a.content_type)} · ${formatSize(a.size)} · added ${timeAgo(a.created_at)}` : undefined}
-      onClose={onClose}
+      onClose={close}
+      guard={false}
     >
       <ErrorNote error={q.error} />
       {q.isLoading && <p className="muted small">Loading…</p>}

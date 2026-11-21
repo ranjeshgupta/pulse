@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, can, type AssetList, type Form, type LandingPage, type LandingPageDetail, type LandingPageList as PageListResponse, type PageStats } from "../api";
 import { useMe } from "../auth";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast, useCopy } from "../ui";
 import { initialPageMode, switchWarning, type PageMode } from "../editorModes";
 import { RichText, type RichTextHandle } from "../RichText";
@@ -167,20 +168,36 @@ export function LandingPageEdit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewOn, d?.title, d?.meta_description, d?.html]);
 
+  // Unsaved changes: every edit outside the builder replaces d, so any d other than the one loaded
+  // or last saved is a change; the drag-and-drop builder reports its own edits.
+  const baseDraft = useRef<Draft | null>(null);
+  const guard = useEditGuard(() => saveRef.current?.());
+  const saveRef = useRef<(() => void) | null>(null);
+  const builderEdited = useRef(false);
+  const { markDirty } = guard;
+  const onBuilderChange = () => { builderEdited.current = true; markDirty(); };
+  useEffect(() => {
+    if (!d) return;
+    if (!baseDraft.current) baseDraft.current = d;
+    else if (d !== baseDraft.current) markDirty();
+  }, [d, markDirty]);
+
   const save = useMutation({
     mutationFn: (body: Omit<LandingPage, "id" | "created_at" | "updated_at">) =>
       isNew ? api.post<{ id: number; status: string; live: boolean }>("/v1/landing-pages", body) : api.put<{ id: number; status: string; live: boolean }>(`/v1/landing-pages/${id}`, body),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["landing-pages"] });
       qc.invalidateQueries({ queryKey: ["landing-page", String(r.id)] });
-      setD((x) => (x ? { ...x, slugAuto: false } : x));
+      guard.saved();
+      builderEdited.current = false;
+      setD((x) => (baseDraft.current = x ? { ...x, slugAuto: false } : x));
       toast({ text: r.status !== "published" ? "Saved as draft" : r.live ? "Saved. The page is live." : "Saved. It's published, but outside its schedule right now." });
       if (isNew) nav(`/landing-pages/${r.id}`, { replace: true });
     },
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/landing-pages/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["landing-pages"] }); toast({ text: "Page deleted" }); nav("/landing-pages"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["landing-pages"] }); toast({ text: "Page deleted" }); nav("/landing-pages"); },
   });
 
   if (!d) return <div className="page"><ErrorNote error={existing.error} /></div>;
@@ -194,6 +211,8 @@ export function LandingPageEdit() {
     if (!builderMounted || !builder.current) return d;
     const { html, project } = builder.current.read();
     const nd = { ...d, html, builder: project };
+    // Reading an untouched builder isn't an edit (its HTML is only re-serialized).
+    if (!builderEdited.current && d === baseDraft.current) baseDraft.current = nd;
     setD(nd);
     return nd;
   };
@@ -204,11 +223,15 @@ export function LandingPageEdit() {
     if (next !== mode) {
       if (isNew && mode === "builder" && next === "richtext") {
         // Nothing saved yet: start the rich text page fresh rather than from the builder's layout.
-        if (!confirm("Write this page in the rich text editor? What's in the drag-and-drop builder is discarded.")) return;
-        setD({ ...cur, html: RICH_STARTER, builder: null });
-      } else {
-        const warning = switchWarning(mode, next, cur.builder != null);
-        if (warning && !confirm(warning)) return;
+        void ask({ title: "Write this page in the rich text editor?", body: "What's in the drag-and-drop builder is discarded.", confirmText: "Switch to rich text", danger: true })
+          .then((ok) => { if (ok) { setD({ ...cur, html: RICH_STARTER, builder: null }); setShowPreview(false); setMode(next); } });
+        return;
+      }
+      const warning = switchWarning(mode, next, cur.builder != null);
+      if (warning) {
+        void ask({ title: "Leave the drag-and-drop builder?", body: warning, confirmText: "Switch", danger: true })
+          .then((ok) => { if (ok) { setShowPreview(false); setMode(next); } });
+        return;
       }
     }
     setShowPreview(false);
@@ -216,6 +239,7 @@ export function LandingPageEdit() {
   };
 
   const onSave = () => {
+    if (blocker || save.isPending) return;
     const cur = readBuilder();
     save.mutate({
       slug: cur.slug.trim(), title: cur.title.trim(), meta_description: cur.meta_description.trim(), html: cur.html,
@@ -243,6 +267,8 @@ export function LandingPageEdit() {
     }
   };
 
+  saveRef.current = canEdit ? onSave : null;
+
   const err = saveError(save.error);
   const slugErr = slugProblem(d.slug.trim());
   const blocker = !d.title.trim() ? "Give the page a title."
@@ -261,7 +287,9 @@ export function LandingPageEdit() {
         back={<Link className="back" to="/landing-pages">Landing pages</Link>}
         title={<span className="lp-title">{isNew ? "New landing page" : d.title || "Untitled page"}{savedState && <StateBadge state={savedState} />}</span>}
         actions={canEdit ? <>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this page? Its address stops working right away. Stats already recorded stay.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(saved?.page.title ? `the page ${saved.page.title}` : "this page",
+            "Its address stops working right away. Stats already recorded stay. This can't be undone.",
+            saved?.page.status === "published" ? saved.page.title || undefined : undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           <button className="btn primary" disabled={!!blocker || save.isPending} title={blocker ?? undefined} onClick={onSave}>{save.isPending ? "Saving…" : "Save"}</button>
         </> : undefined}
       />
@@ -346,7 +374,7 @@ export function LandingPageEdit() {
         ) : mode === "builder" && canEdit ? (
           <>
             <Suspense fallback={<div className="gjs-host" />}>
-              <EmailBuilder ref={builder} html={d.html || STARTER} project={d.builder ?? undefined} />
+              <EmailBuilder ref={builder} html={d.html || STARTER} project={d.builder ?? undefined} onChange={onBuilderChange} />
             </Suspense>
             <p className="xs muted lp-note">Add a form by pasting its <code>{"{form:KEY}"}</code> token (from “Insert form”) into a text block. Check the result in the Preview tab.</p>
           </>

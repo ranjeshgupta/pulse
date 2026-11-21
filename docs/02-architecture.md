@@ -281,6 +281,11 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   `push_dwc` sets `odwc:{tenant}:{contact}` slot → HTML for N days (default 30); the decide API returns it for that slot
   instead of the slot's own content. The decide API also records `dwc_requested {slot, url}` for each requested slot of a
   known contact, which `on_dwc` decisions wait for.
+- **App content slots** (batch O3). A content slot with `platform: app` is served only by `POST /v1/web/content`
+  (`{id, user_hash, platform: android|ios, slots}` → `{content: {slot: {card | html, variant}}}`), from the same
+  few-second cache as the decide API. Segments count for `anon-` ids and ids with a valid user hash; contact-field rules
+  and `{{…}}` in card texts use the contact only for a verified identity. Page-address and device rules don't apply
+  (refused on save). Journey pushes for the slot win, and `dwc_requested {slot, platform: app}` is recorded as on the web.
 - **Inbound replies** (`internal/replies`). Set Settings → Channels → Delivery rules → "Reply tracking address" (`reply_to`, e.g.
   `replies@inbound.example.com`; point that domain's MX at the email provider's inbound parse). Every tracked email then
   gets `Reply-To: replies+r<code>@inbound.example.com`: a random 16-character lower-case code stored in Redis

@@ -1,7 +1,7 @@
 // Custom reports: pick a source (events, messages, contacts), a metric, a grouping and filters, and see
 // the result live as a figure, bars, a line or a table. The editing model lives in reportBuilder.ts.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, CHANNELS, CHANNEL_NAMES, type ReportGroup, type ReportMetric, type ReportResult, type ReportSpec, type SavedReport } from "../api";
 import { useCan } from "../auth";
@@ -13,6 +13,7 @@ import {
 } from "../reportBuilder";
 import { csvFileName, downloadCsv, toCsv } from "../csv";
 import { BUILTIN_ATTRS } from "../segmentRules";
+import { askDelete, useEditGuard } from "../guard";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import "./reports-builder.css";
 
@@ -82,14 +83,24 @@ export function ReportEdit() {
   const [range, setRange] = useState<Range>(() => defaultRange(30));
   const [loaded, setLoaded] = useState(isNew);
 
+  // Unsaved changes (for people who can save): the name or the report's definition differs from
+  // what was loaded or last saved. The date range alone is exploring, not editing.
+  const base = useRef<{ name: string; draft: Draft } | null>(isNew ? { name, draft } : null);
   useEffect(() => {
     if (existing.data && !loaded) {
+      const d = fromSpec(existing.data.spec);
+      base.current = { name: existing.data.name, draft: d };
       setName(existing.data.name);
-      setDraft(fromSpec(existing.data.spec));
+      setDraft(d);
       setRange(rangeFor(existing.data.spec.range_days));
       setLoaded(true);
     }
   }, [existing.data, loaded]);
+  const unsaved = canEdit && loaded && !!base.current && (name !== base.current.name || draft !== base.current.draft);
+  const guard = useEditGuard(() => saveRef.current?.());
+  const saveRef = useRef<(() => void) | null>(null);
+  const { markDirty, saved: markSaved } = guard;
+  useEffect(() => { if (unsaved) markDirty(); else markSaved(); }, [unsaved, markDirty, markSaved]);
 
   // The saved default range: the picked preset; custom dates keep the previous default.
   const rangeDays = range.preset === "custom" ? draft.range_days : range.preset;
@@ -114,6 +125,8 @@ export function ReportEdit() {
   const save = useMutation({
     mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/reports", body()) : api.put<unknown>(`/v1/reports/${id}`, body()).then(() => ({ id: Number(id) }))),
     onSuccess: (r) => {
+      base.current = { name, draft };
+      markSaved();
       qc.invalidateQueries({ queryKey: ["reports"] });
       qc.invalidateQueries({ queryKey: ["report", String(r.id)] });
       toast({ text: isNew ? "Report created" : "Report saved" });
@@ -122,12 +135,13 @@ export function ReportEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/reports/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["reports"] }); toast({ text: "Report deleted" }); nav("/reports"); },
+    onSuccess: () => { base.current = null; markSaved(); qc.invalidateQueries({ queryKey: ["reports"] }); toast({ text: "Report deleted" }); nav("/reports"); },
   });
 
   if (!loaded) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
   const saveProblem = !name.trim() ? "Name the report." : issues[0];
+  saveRef.current = canEdit && !saveProblem ? () => { if (!save.isPending) save.mutate(); } : null;
   const startFrom = (p: (typeof PRESETS)[number]) => {
     setDraft(fromSpec(p.spec));
     if (!name.trim() || PRESETS.some((x) => x.name === name)) setName(p.name);
@@ -141,7 +155,7 @@ export function ReportEdit() {
         title={isNew ? "New report" : name || "Report"}
         intro={canEdit ? undefined : "You can run reports. Saving them needs edit access to reports."}
         actions={canEdit && <>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this report?") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(existing.data?.name ? `the report ${existing.data.name}` : "this report").then((ok) => ok && remove.mutate())}>Delete</button>}
           <button className="btn primary" disabled={!!saveProblem || save.isPending} title={saveProblem} onClick={() => save.mutate()}>{isNew ? "Create report" : "Save report"}</button>
         </>}
       />

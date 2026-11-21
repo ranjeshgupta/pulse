@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { CommandPalette, type Command } from "./CommandPalette";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { can, type Area, type Level } from "./api";
 import { useMe, useSignOut } from "./auth";
@@ -122,6 +123,26 @@ export default function Shell() {
   const loc = useLocation();
   useEffect(() => setMenuOpen(false), [loc.pathname]);
   const allowed = (it: NavItem) => !it.need || can(me?.permissions, it.need[0], it.need[1]) || (!!it.orNeed && can(me?.permissions, it.orNeed[0], it.orNeed[1]));
+  const commands = useMemo((): Command[] => {
+    const out: Command[] = [];
+    for (const g of NAV) for (const it of g.items.filter(allowed)) out.push({ label: it.label, to: it.to, group: g.title ?? "Pages" });
+    for (const g of settings) for (const it of g.items) out.push({ label: it.label, to: it.to, group: "Settings", keywords: it.hint });
+    const create: [string, string, [Area, Exclude<Level, "none">], string?][] = [
+      ["New campaign", "/campaigns?new=1", ["broadcasts", "edit"], "broadcast journey send email sms whatsapp"],
+      ["New segment", "/segments/new", ["segments", "edit"], "audience list"],
+      ["New message template", "/templates/new", ["content", "edit"], "email sms whatsapp push"],
+      ["New landing page", "/landing-pages/new", ["content", "edit"]],
+      ["New form", "/forms/new", ["content", "edit"]],
+      ["New pop-up, bar or slide-in", "/on-site/focus/new", ["content", "edit"], "focus item website"],
+      ["New website content slot", "/on-site/content/new", ["content", "edit"], "dwc dynamic web content"],
+      ["New app content slot", "/on-site/content/new?platform=app", ["content", "edit"], "dwc dynamic content mobile android ios flutter"],
+      ["New in-app message", "/on-site/in-app/new", ["content", "edit"], "mobile app popup banner"],
+      ["Import contacts", "/contacts/import", ["contacts", "edit"], "csv upload"],
+    ];
+    for (const [label, to, need, keywords] of create) if (can(me?.permissions, need[0], need[1])) out.push({ label, to, group: "Create", keywords });
+    if (me?.user) out.push({ label: "Your account", to: "/account", group: "You", keywords: "password two-step 2fa" });
+    return out;
+  }, [me, settings]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="shell">
       <nav className={`sidebar${menuOpen ? " open" : ""}`} aria-label="Main">
@@ -134,6 +155,9 @@ export default function Shell() {
           <button className="menu-toggle" aria-expanded={menuOpen} aria-controls="main-nav" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? "Close" : "Menu"}</button>
         </div>
         <div className="sidebar-nav" id="main-nav">
+          <button className="cmdk-hint" onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}>
+            Search or jump to… <kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
+          </button>
           {NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length > 0).map((g, i) => (
             <div className="nav-group nav" key={g.title ?? i}>
               {g.title && <div className="nav-group-title">{g.title}</div>}
@@ -163,6 +187,7 @@ export default function Shell() {
       <main className="main">
         <Outlet />
       </main>
+      <CommandPalette commands={commands} />
     </div>
   );
 }

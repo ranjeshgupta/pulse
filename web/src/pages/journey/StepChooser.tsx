@@ -91,7 +91,7 @@ export function StepChooser({ graph, at, where, ctx, onPick, onClose }: {
         )}
         <div className="sc-search">
           <input
-            ref={input} className="input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onSearchKey}
+            ref={input} className="input" data-no-dirty value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onSearchKey}
             placeholder={cat ? `Search ${group!.label.toLowerCase()} steps` : "Search every step: form, email, tag…"}
             aria-label={cat ? `Search ${group!.label.toLowerCase()} steps` : "Search steps"}
             role={listing ? "combobox" : undefined} aria-expanded={listing ? true : undefined}

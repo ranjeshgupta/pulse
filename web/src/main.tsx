@@ -49,6 +49,7 @@ import { SettingsHome, SettingsLayout } from "./SettingsLayout";
 import "./styles.css";
 import { OLD_CAMPAIGN_LISTS } from "./campaigns";
 import { ToastProvider } from "./ui";
+import { ConfirmProvider } from "./guard";
 
 // Only server and network failures are worth retrying; a 404 or 403 shows its message right away.
 const queryClient = new QueryClient({
@@ -167,7 +168,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
+        <ConfirmProvider>
         <RouterProvider router={router} />
+        </ConfirmProvider>
       </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,

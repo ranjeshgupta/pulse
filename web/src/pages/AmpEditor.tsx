@@ -13,6 +13,7 @@ import { useDebounced } from "../insights";
 import { formatBytes } from "../messagePreview";
 import { insertAt } from "../personalize";
 import { ErrorNote, Field, useToast } from "../ui";
+import { ask } from "../guard";
 import { TemplatedInput, TemplatedText, VarPicker } from "../VarPicker";
 import "./amp.css";
 import { ContactCount } from "../ContactCount";
@@ -21,8 +22,9 @@ type View = "blocks" | "code";
 const GMAIL_NOTE = "Gmail shows AMP emails only from senders Google has registered (your domain needs SPF, DKIM and DMARC, then a registration with Google). Everyone else sees the normal email.";
 const FORMS_NOTE = "Forms and polls only work in the email for 60 days after it is sent. After that, people see a short note instead.";
 
-/** AmpSection: "AMP version (optional)" for an email template. */
-export function AmpSection({ t, setT }: { t: Template; setT: Dispatch<SetStateAction<Template | null>> }) {
+/** AmpSection: "AMP version (optional)" for an email template. onEdit (the editor page's
+ * guard.markDirty) hears every change, including the ones made with buttons. */
+export function AmpSection({ t, setT, onEdit }: { t: Template; setT: Dispatch<SetStateAction<Template | null>>; onEdit?: () => void }) {
   const c = t.content ?? {};
   const mode = ampMode(c);
   const [view, setView] = useState<View | null>(mode === "off" ? null : mode);
@@ -30,7 +32,7 @@ export function AmpSection({ t, setT }: { t: Template; setT: Dispatch<SetStateAc
   // A template loaded (or swapped, in the campaign wizard) with an AMP part opens on it.
   useEffect(() => { if (mode !== "off" && mode !== view) setView(mode); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const patch = (p: Partial<ChannelContent>) => setT((cur) => cur && { ...cur, content: { ...(cur.content ?? {}), ...p } });
+  const patch = (p: Partial<ChannelContent>) => { onEdit?.(); setT((cur) => cur && { ...cur, content: { ...(cur.content ?? {}), ...p } }); };
   const doc = c.amp_blocks ?? null;
   const setDoc = (d: AmpDoc) => patch({ amp_blocks: d });
 
@@ -44,18 +46,18 @@ export function AmpSection({ t, setT }: { t: Template; setT: Dispatch<SetStateAc
   });
 
   const start = (v: View) => { patch(turnOn(v)); setView(v); };
-  const remove = () => {
-    if (!confirm("Remove the AMP version? Everyone gets the normal email. (Nothing changes until you save.)")) return;
+  const remove = async () => {
+    if (!(await ask({ title: "Remove the AMP version?", body: "Everyone gets the normal email. Nothing changes until you save.", confirmText: "Remove AMP version", danger: true }))) return;
     patch(turnOff());
     setView(null);
   };
-  const switchTo = (v: View) => {
+  const switchTo = async (v: View) => {
     if (v === view) return;
     if (v === "code") {
-      if (doc && !confirm("Switch to code? The code your blocks make is copied in for you to edit, and the blocks are cleared. You can't turn code back into blocks.")) return;
+      if (doc && !(await ask({ title: "Switch to code?", body: "The code your blocks make is copied in for you to edit, and the blocks are cleared. You can't turn code back into blocks.", confirmText: "Switch to code" }))) return;
       if (doc) toCodeM.mutate(); else start("code");
     } else {
-      if ((c.amp ?? "").trim() && !confirm("Start again with blocks? Your AMP code is discarded.")) return;
+      if ((c.amp ?? "").trim() && !(await ask({ title: "Start again with blocks?", body: "Your AMP code is discarded.", confirmText: "Discard code", danger: true }))) return;
       patch(toBlocks());
       setView("blocks");
     }
@@ -83,12 +85,12 @@ export function AmpSection({ t, setT }: { t: Template; setT: Dispatch<SetStateAc
     <section className="panel amp-section" aria-label="AMP version">
       <div className="panel-head">
         <h3>AMP version <span className="muted">(optional)</span></h3>
-        <button type="button" className="btn ghost sm" onClick={remove}>Remove AMP version</button>
+        <button type="button" className="btn ghost sm" onClick={() => void remove()}>Remove AMP version</button>
       </div>
       <div className="panel-body">
         <div className="tabs" role="tablist" aria-label="How to make the AMP version">
-          <button role="tab" aria-selected={view === "blocks"} onClick={() => switchTo("blocks")}>Blocks</button>
-          <button role="tab" aria-selected={view === "code"} onClick={() => switchTo("code")} disabled={toCodeM.isPending}>{toCodeM.isPending ? "Copying code…" : "Code"}</button>
+          <button role="tab" aria-selected={view === "blocks"} onClick={() => void switchTo("blocks")}>Blocks</button>
+          <button role="tab" aria-selected={view === "code"} onClick={() => void switchTo("code")} disabled={toCodeM.isPending}>{toCodeM.isPending ? "Copying code…" : "Code"}</button>
         </div>
         <ErrorNote error={toCodeM.error} />
         <AmpWorkspace view={view} doc={doc} setDoc={setDoc} code={c.amp ?? ""} setCode={(amp) => patch({ amp })} templateId={t.id} />
@@ -345,7 +347,8 @@ function BlocksEditor({ doc, setDoc, problems }: { doc: AmpDoc; setDoc: (d: AmpD
                   <button type="button" className="btn ghost sm" aria-label={`Move block ${i + 1} up`} title="Move up" disabled={i === 0} onClick={() => setDoc(moveBlock(doc, i, -1))}>↑</button>
                   <button type="button" className="btn ghost sm" aria-label={`Move block ${i + 1} down`} title="Move down" disabled={i === doc.blocks.length - 1} onClick={() => setDoc(moveBlock(doc, i, 1))}>↓</button>
                   <button type="button" className="btn ghost sm" disabled={doc.blocks.length >= AMP_MAX_BLOCKS} onClick={() => setDoc(duplicateBlock(doc, i))}>Duplicate</button>
-                  <button type="button" className="btn ghost sm" onClick={() => confirm(`Delete this ${blockLabel(b.type).toLowerCase()} block?`) && setDoc(removeBlock(doc, i))}>Delete</button>
+                  <button type="button" className="btn ghost sm" onClick={() => void ask({ title: `Delete this ${blockLabel(b.type).toLowerCase()} block?`, body: "Nothing changes in the saved template until you save.", confirmText: "Delete block", danger: true })
+                    .then((ok) => ok && setDoc(removeBlock(doc, i)))}>Delete</button>
                 </div>
               </div>
               {mine.length > 0 && <ul className="amp-problems amp-card-problems">{mine.map((p) => <li key={p.message} className="error"><span>{p.message}</span></li>)}</ul>}

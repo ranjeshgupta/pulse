@@ -9,6 +9,7 @@ import {
   MIN_WINDOW, modelDescription, MODELS, normalizeSettings, sameSettings, settingsProblems, share, sourceMedium, unattributed,
   unattributedOrders, windowProblem,
 } from "../revenue";
+import { useEditGuard } from "../guard";
 import { ErrorNote, Field, PageHead, useToast } from "../ui";
 import "./revenue.css";
 
@@ -250,6 +251,11 @@ function SettingsPanel({ query, openByDefault }: { query: { data?: { settings: R
   const problems = settingsProblems(form);
   const unchanged = saved ? sameSettings(form, saved) : true;
   const s = saved ?? DEFAULT_SETTINGS;
+  // Leaving the page with unsaved settings asks first; Ctrl/⌘+S saves them.
+  const unsaved = canEdit && touched && !unchanged;
+  const guard = useEditGuard(() => { if (unsaved && problems.length === 0 && !save.isPending) save.mutate(); });
+  const { markDirty, saved: markSaved } = guard;
+  useEffect(() => { if (unsaved) markDirty(); else markSaved(); }, [unsaved, markDirty, markSaved]);
 
   return (
     <section className="panel section revenue-settings">

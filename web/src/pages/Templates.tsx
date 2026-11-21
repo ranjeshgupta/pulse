@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type Dispatch, type RefObj
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type AssetList, type Channel, type ChannelContent, type Template } from "../api";
 import { formatBytes, MessagePreview, PreviewModal, TestSendModal } from "../messagePreview";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { ChannelLabel, Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import { DuplicateButton } from "../campaignUI";
 import { initialEmailMode, replacesLayout, switchWarning, type EmailMode } from "../editorModes";
@@ -114,35 +115,53 @@ export function TemplateEdit() {
   }, [existing.data, isNew, params, t]);
 
   const warnings = useTemplateWarnings(t, scopeEvent);
+  // Unsaved changes: every edit outside the builder replaces t, so any t other than the one loaded
+  // or last saved is a change; the drag-and-drop builder reports its own edits (onChange).
+  const base = useRef<Template | null>(null);
+  const builderEdited = useRef(false);
+  const guard = useEditGuard(() => { if (!save.isPending) save.mutate(); });
+  const { markDirty } = guard;
+  const onBuilderChange = () => { builderEdited.current = true; markDirty(); };
+  // setT for state read out of an untouched builder (its HTML is only re-serialized): not an edit.
+  const setFromBuilder = (next: Template) => {
+    if (!builderEdited.current && t === base.current) base.current = next;
+    setT(next);
+  };
+  useEffect(() => {
+    if (!t) return;
+    if (!base.current) base.current = t;
+    else if (t !== base.current) markDirty();
+  }, [t, markDirty]);
   const save = useMutation({
     mutationFn: async () => {
       let body = { ...t! };
       if (t!.channel === "email" && emailMode === "visual" && builder.current) {
         const { html, project } = builder.current.read();
         body = { ...body, html, builder: project };
-        setT(body);
+        setFromBuilder(body);
       }
       if (t!.channel === "email" && replacesLayout(emailMode)) body.builder = undefined;
       return isNew ? api.post<{ id: number }>("/v1/templates", body) : api.put<{ id: number }>(`/v1/templates/${id}`, body);
     },
     onSuccess: (r) => {
+      guard.saved();
+      builderEdited.current = false;
+      // What was saved is the new starting point (with its id, for a new template).
+      setT((cur) => (base.current = cur && isNew ? { ...cur, id: r.id } : cur));
       qc.invalidateQueries({ queryKey: ["templates"] });
       toast({ text: warnings ? `Template saved. Check ${warnings === 1 ? "1 variable" : `${warnings} variables`}: they may render empty.` : "Template saved" });
-      if (isNew) {
-        // The page stays mounted under its new address: keep the saved id so Send a test and later saves use it.
-        setT((cur) => (cur ? { ...cur, id: r.id } : cur));
-        nav(`/templates/${r.id}`, { replace: true });
-      }
+      // The page stays mounted under its new address: t keeps the saved id (above) so Send a test and later saves use it.
+      if (isNew) nav(`/templates/${r.id}`, { replace: true });
     },
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/templates/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["templates"] }); nav("/templates"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["templates"] }); toast({ text: "Template deleted" }); nav("/templates"); },
   });
 
   if (!t) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
-  const switchEmailMode = emailModeSwitcher({ t, setT, emailMode, setEmailMode, builder, fresh: isNew });
+  const switchEmailMode = emailModeSwitcher({ t, setT: setFromBuilder, emailMode, setEmailMode, builder, fresh: isNew });
 
   return (
     <PersonalizeScopeProvider value={{ event: scopeEvent || undefined, channel: t.channel }}>
@@ -151,9 +170,10 @@ export function TemplateEdit() {
         back={<Link className="back" to={`/templates?channel=${t.channel}`}>Message templates</Link>}
         title={isNew ? `New ${channelWord(t.channel)} template` : t.name || "Template"}
         actions={<>
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this template? Campaigns that use it will fail to send.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(existing.data?.name ? `the template ${existing.data.name}` : "this template",
+            "Campaigns that use it will fail to send. This can't be undone.", existing.data?.name || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           {!isNew && <DuplicateButton path={`/v1/templates/${id}/duplicate`} open={(nid) => `/templates/${nid}`} invalidate={["templates"]} />}
-          <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setT({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
+          <button className="btn" onClick={() => { if (t.channel === "email" && emailMode === "visual" && builder.current) setFromBuilder({ ...t, html: builder.current.read().html }); setPreviewing(true); }}>Preview as contact</button>
           <button className="btn" disabled={isNew} title={isNew ? "Save the template first" : undefined} onClick={() => setTesting(true)}>Send a test</button>
           <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save template</button>
         </>}
@@ -165,7 +185,7 @@ export function TemplateEdit() {
           <label className="check" style={{ display: "inline-flex", margin: 0 }}><input type="checkbox" checked={!t.hidden} onChange={() => setT({ ...t, hidden: false })} />Make it a reusable template (when saved)</label>
         </div>
       )}
-      <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={switchEmailMode} builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={existing.data?.builder != null} />
+      <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={switchEmailMode} builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={existing.data?.builder != null} onBuilderChange={onBuilderChange} onEdit={markDirty} />
       {testing && <TestSendModal template={t} event={scopeEvent} onClose={() => setTesting(false)} />}
       {previewing && <PreviewModal template={t} event={scopeEvent} onClose={() => setPreviewing(false)} />}
     </div>
@@ -186,25 +206,29 @@ export function emailModeSwitcher({ t, setT, emailMode, setEmailMode, builder, f
       const r = builder.current.read();
       next = { ...t, html: r.html, builder: r.project };
     }
+    const go = (n: Template) => { setT(n); setEmailMode(to); };
     if (fresh && emailMode === "visual" && to === "richtext") {
       // Nothing saved yet: start the rich text email fresh rather than from the builder's layout.
-      if (!confirm("Write this email in the rich text editor? What's in the drag-and-drop builder is discarded.")) return;
-      next = { ...next, html: RICH_STARTER, builder: undefined };
-    } else {
-      const warning = switchWarning(emailMode, to, next.builder != null);
-      if (warning && !confirm(warning)) return;
+      void ask({ title: "Write this email in the rich text editor?", body: "What's in the drag-and-drop builder is discarded.", confirmText: "Switch to rich text", danger: true })
+        .then((ok) => ok && go({ ...next, html: RICH_STARTER, builder: undefined }));
+      return;
     }
-    setT(next);
-    setEmailMode(to);
+    const warning = switchWarning(emailMode, to, next.builder != null);
+    if (!warning) return go(next);
+    void ask({ title: "Leave the drag-and-drop builder?", body: warning, confirmText: "Switch", danger: true }).then((ok) => ok && go(next));
   };
 }
 
 /** TemplateBody is the content editor of a template, for every channel: the personalisation bar, the
  * email builder / rich text / HTML / plain text, and the other channels' fields with a live preview.
  * Used by the template page and by the one-time campaign wizard. */
-export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, scopeEvent, setScope, hadBuilder }: {
+export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, scopeEvent, setScope, hadBuilder, onBuilderChange, onEdit }: {
   t: Template; setT: Dispatch<SetStateAction<Template | null>>; emailMode: EmailMode; switchEmailMode: (m: EmailMode) => void;
   builder: RefObject<EmailBuilderHandle | null>; scopeEvent: string; setScope: (v: string) => void; hadBuilder: boolean;
+  /** onBuilderChange: the drag-and-drop builder was edited (its changes live inside it until read). */
+  onBuilderChange?: () => void;
+  /** onEdit: an edit made with buttons that the caller's change tracking can't see (AMP blocks). */
+  onEdit?: () => void;
 }) {
   const toast = useToast();
   const sample = useSample(scopeEvent, t.channel);
@@ -213,7 +237,8 @@ export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, sco
   return (
     <>
       <div className="vp-toolbar" aria-label="Personalisation">
-        <EventScopePicker value={scopeEvent} onChange={setScope} />
+        {/* The event scope only changes the preview, not the template. */}
+        <span data-no-dirty style={{ display: "contents" }}><EventScopePicker value={scopeEvent} onChange={setScope} /></span>
         <label className="vp-policy">
           <span className="xs muted">When a variable has no value and no default</span>
           <select className="select inline" value={t.missing_values ?? "empty"} onChange={(e) => setT({ ...t, missing_values: e.target.value as "empty" | "skip" })} aria-label="When a variable has no value">
@@ -250,7 +275,7 @@ export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, sco
                     <span className="xs muted">Copy a variable, then paste it into a text block.</span>
                     <VarPicker copyOnly onInsert={(tag) => toast({ text: `Copied ${tag}: paste it into the email` })} />
                   </div>
-                  <Suspense fallback={<div className="gjs-host" />}><EmailBuilder ref={builder} html={t.html} project={t.builder} /></Suspense>
+                  <Suspense fallback={<div className="gjs-host" />}><EmailBuilder ref={builder} html={t.html} project={t.builder} onChange={onBuilderChange} /></Suspense>
                 </>
               ) : emailMode === "richtext" ? (
                 <div className="grid-2" style={{ gap: 18, gridTemplateColumns: "minmax(0, 1.25fr) minmax(0, 1fr)" }}>
@@ -268,7 +293,7 @@ export function TemplateBody({ t, setT, emailMode, switchEmailMode, builder, sco
               {emailMode !== "html" && <BodyProblems html={t.html} />}
               {replacesLayout(emailMode) && hadBuilder && <p className="xs muted" style={{ marginTop: 8 }}>Saving from the {emailMode === "html" ? "HTML" : "Rich text"} tab replaces the visual layout with this HTML.</p>}
               <AttachmentPicker ids={c.attachments ?? []} onChange={(attachments) => setC({ attachments: attachments.length ? attachments : undefined })} />
-              <AmpSection t={t} setT={setT} />
+              <AmpSection t={t} setT={setT} onEdit={onEdit} />
             </>
           )}
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, type AttributeDef, type AttrOption, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type TwoFactorPolicy, type User } from "../api";
 import { policySummary } from "../twoFactor";
 import { useIsAdmin, useMe } from "../auth";
+import { ask, useEditGuard } from "../guard";
 import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { RoleOptions, roleName, useRoles } from "./Roles";
 
@@ -14,7 +15,7 @@ export function Team() {
   const roles = useRoles().data;
   const toast = useToast();
   const [adding, setAdding] = useState(false);
-  const remove = useMutation({ mutationFn: (id: number) => api.del(`/v1/users/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }) });
+  const remove = useMutation({ mutationFn: (u: User) => api.del(`/v1/users/${u.id}`), onSuccess: (_, u) => { qc.invalidateQueries({ queryKey: ["users"] }); toast({ text: `${u.name || u.email} removed` }); } });
   // A lost phone: turn the teammate's two-step sign-in off (recorded in the audit log).
   const resetTwoFactor = useMutation({
     mutationFn: (u: User) => api.del(`/v1/users/${u.id}/two-factor`),
@@ -61,9 +62,15 @@ export function Team() {
               <td className="num">
                 {admin && u.id !== me?.user?.id && u.two_factor && (
                   <button className="btn ghost sm" disabled={resetTwoFactor.isPending}
-                    onClick={() => confirm(`Reset two-step sign-in for ${u.email}? Use this when they've lost their phone. They sign in with just their password until they set it up again (straight away, if your workspace requires it).`) && resetTwoFactor.mutate(u)}>Reset two-step</button>
+                    onClick={() => void ask({
+                      title: `Reset two-step sign-in for ${u.email}?`,
+                      body: "Use this when they've lost their phone. They sign in with just their password until they set it up again (straight away, if your workspace requires it).",
+                      confirmText: "Reset two-step", danger: true,
+                    }).then((ok) => ok && resetTwoFactor.mutate(u))}>Reset two-step</button>
                 )}
-                {admin && u.id !== me?.user?.id && <button className="btn ghost sm" onClick={() => confirm(`Remove ${u.email}? They're signed out everywhere.`) && remove.mutate(u.id)}>Remove</button>}
+                {admin && u.id !== me?.user?.id && <button className="btn ghost sm" disabled={remove.isPending} onClick={() => void ask({
+                  title: `Remove ${u.email} from the team?`, body: "They're signed out everywhere and can't sign in to this workspace any more.", confirmText: "Remove teammate", danger: true,
+                }).then((ok) => ok && remove.mutate(u))}>Remove</button>}
               </td>
             </tr>
           ))}</tbody>
@@ -84,7 +91,7 @@ function AddUser({ onClose }: { onClose: () => void }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["users"] }); toast({ text: `${u.email} added` }); onClose(); },
   });
   return (
-    <Modal title="Add a teammate" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={() => add.mutate()}>Add teammate</button></>}>
+    <Modal title="Add a teammate" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!u.email.trim() || add.isPending} onClick={() => add.mutate()}>Add teammate</button></>}>
       <ErrorNote error={add.error} />
       <Field label="Email"><input className="input" type="email" value={u.email} onChange={(e) => setU({ ...u, email: e.target.value })} autoFocus /></Field>
       <Field label="Name"><input className="input" value={u.name} onChange={(e) => setU({ ...u, name: e.target.value })} /></Field>
@@ -120,6 +127,12 @@ export function Access() {
   });
   const saved = !!q.data?.issuer;
   const rotate = useMutation({ mutationFn: () => api.post<{ api_key: string }>("/v1/settings/api-key"), onSuccess: (r) => setNewKey(r.api_key) });
+  // Leaving with unsaved single sign-on or two-step settings asks first.
+  const [tfDirty, setTfDirty] = useState(false);
+  const ssoDirty = !!sso && !!q.data && JSON.stringify(sso) !== JSON.stringify({ ...q.data, client_secret: "" });
+  const guard = useEditGuard();
+  const { markDirty, saved: markSaved } = guard;
+  useEffect(() => { if (ssoDirty || tfDirty) markDirty(); else markSaved(); }, [ssoDirty, tfDirty, markDirty, markSaved]);
   const callback = `${window.location.origin}/v1/auth/sso/callback`;
 
   return (
@@ -146,14 +159,18 @@ export function Access() {
               <div className="row" style={{ gap: 8 }}>
                 <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save sign-on settings</button>
                 {saved && <button className="btn danger" disabled={remove.isPending}
-                  onClick={() => confirm("Remove single sign-on? The provider settings and client secret are deleted, and teammates sign in with a password (anyone who only used SSO needs a password reset or a new invitation).") && remove.mutate()}>Remove single sign-on</button>}
+                  onClick={() => void ask({
+                    title: "Remove single sign-on?",
+                    body: "The provider settings and client secret are deleted, and teammates sign in with a password (anyone who only used SSO needs a password reset or a new invitation).",
+                    confirmText: "Remove single sign-on", danger: true, typeToConfirm: q.data?.issuer || undefined,
+                  }).then((ok) => ok && remove.mutate())}>Remove single sign-on</button>}
               </div>
             </>
           )}
         </div>
       </section>
 
-      <TwoFactorPolicyPanel />
+      <TwoFactorPolicyPanel onDirty={setTfDirty} />
 
       <section className="panel section">
         <div className="panel-head"><h3>Your website</h3><a className="small" href={`/sdk/demo.html?key=${me?.workspace.site_key}`} target="_blank" rel="noreferrer">Open the test page</a></div>
@@ -178,7 +195,10 @@ export function Access() {
           {newKey ? (
             <div className="alert ok" style={{ marginTop: 16 }}>New API key, shown only now: <code>{newKey}</code><br />The old key has stopped working. Update your servers.</div>
           ) : (
-            <button className="btn danger" style={{ marginTop: 16 }} onClick={() => confirm("Create a new server API key? The current one stops working immediately.") && rotate.mutate()}>Replace API key</button>
+            <button className="btn danger" style={{ marginTop: 16 }} disabled={rotate.isPending} onClick={() => void ask({
+              title: "Create a new server API key?", body: "The current one stops working immediately, so every server that sends events or calls the API needs the new key.",
+              confirmText: "Replace API key", danger: true,
+            }).then((ok) => ok && rotate.mutate())}>Replace API key</button>
           )}
           <ErrorNote error={rotate.error} />
         </div>
@@ -190,7 +210,7 @@ export function Access() {
 // TwoFactorPolicyPanel: who must confirm password sign-ins with an authenticator app. People turn
 // it on for themselves under Your account; this makes it required for everyone, or for some roles
 // and people. Changing it needs every admin permission, like single sign-on.
-function TwoFactorPolicyPanel() {
+function TwoFactorPolicyPanel({ onDirty }: { onDirty: (dirty: boolean) => void }) {
   const me = useMe().data;
   const qc = useQueryClient();
   const toast = useToast();
@@ -199,6 +219,8 @@ function TwoFactorPolicyPanel() {
   const users = useQuery({ queryKey: ["users"], queryFn: () => api.get<{ users: User[] }>("/v1/users") });
   const [p, setP] = useState<TwoFactorPolicy | null>(null);
   useEffect(() => { if (q.data && !p) setP(q.data); }, [q.data, p]);
+  const dirty = !!p && !!q.data && JSON.stringify(p) !== JSON.stringify(q.data);
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
   const save = useMutation({
     mutationFn: () => api.put<TwoFactorPolicy>("/v1/settings/two-factor", p),
     onSuccess: (v) => { qc.setQueryData(["two-factor-policy"], v); setP(v); toast({ text: "Two-step sign-in policy saved" }); },
@@ -287,12 +309,16 @@ function IdentityPanel() {
             </dl>
             <label className="check" style={{ marginBottom: 12 }}>
               <input type="checkbox" checked={v.required} disabled={save.isPending} onChange={(e) => {
-                if (!e.target.checked || confirm("Refuse web events for users without a valid userHash? Deploy the server-side signing first.")) save.mutate(e.target.checked);
+                if (!e.target.checked) return save.mutate(false);
+                void ask({ title: "Refuse web events for users without a valid userHash?", body: "Deploy the server-side signing first, or events from signed-in visitors are lost.", confirmText: "Require verified identity" })
+                  .then((ok) => ok && save.mutate(true));
               }} />
               Require verified identity for web events
             </label>
             <div>
-              <button className="btn danger sm" disabled={rotate.isPending} onClick={() => confirm("Create a new signing secret? Hashes made with the current one stop working immediately.") && rotate.mutate()}>Replace secret</button>
+              <button className="btn danger sm" disabled={rotate.isPending} onClick={() => void ask({
+                title: "Create a new signing secret?", body: "Hashes made with the current one stop working immediately.", confirmText: "Replace secret", danger: true,
+              }).then((ok) => ok && rotate.mutate())}>Replace secret</button>
             </div>
           </>
         )}
@@ -344,7 +370,9 @@ export function Attributes() {
                   <td>{d.pii ? <span className="badge warn">Personal</span> : <span className="faint">No</span>}</td>
                   <td className="num">
                     <button className="btn ghost sm" onClick={() => setEditing(d)}>Edit</button>
-                    <button className="btn ghost sm danger" onClick={() => confirm(`Remove the definition of ${d.key}?`) && remove.mutate(d.key)}>Remove</button>
+                    <button className="btn ghost sm danger" disabled={remove.isPending} onClick={() => void ask({
+                      title: `Remove the definition of ${d.key}?`, body: "Its label, type and options go; the values on contacts stay.", confirmText: "Remove definition", danger: true,
+                    }).then((ok) => ok && remove.mutate(d.key))}>Remove</button>
                   </td>
                 </tr>
               ))}
@@ -427,8 +455,8 @@ export function Scoring() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["point-rules"] }); toast({ text: `${ev.trim()} now gives ${pts} points` }); setEv(""); },
   });
   const remove = useMutation({
-    mutationFn: (id: number) => api.del(`/v1/scoring/rules/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["point-rules"] }),
+    mutationFn: (r: PointRule) => api.del(`/v1/scoring/rules/${r.id}`),
+    onSuccess: (_, r) => { qc.invalidateQueries({ queryKey: ["point-rules"] }); toast({ text: `${r.event} no longer gives points` }); },
   });
   const rules = q.data?.rules ?? [];
   const n = Number(pts);
@@ -464,7 +492,9 @@ export function Scoring() {
                 <tr key={r.id}>
                   <td><code>{r.event}</code></td>
                   <td className="num">{r.points > 0 ? `+${r.points}` : r.points}</td>
-                  <td className="num"><button className="btn ghost sm danger" onClick={() => remove.mutate(r.id)}>Remove</button></td>
+                  <td className="num"><button className="btn ghost sm danger" disabled={remove.isPending} onClick={() => void ask({
+                    title: `Remove the rule for ${r.event}?`, body: "Contacts stop getting points for it. Points already given stay.", confirmText: "Remove rule", danger: true,
+                  }).then((ok) => ok && remove.mutate(r))}>Remove</button></td>
                 </tr>
               ))}
             </tbody>

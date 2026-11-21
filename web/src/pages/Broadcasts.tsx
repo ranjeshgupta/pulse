@@ -16,6 +16,7 @@ import { FUNNEL_OUTCOME, outcomeFilters } from "../contactLinks";
 import { ContactCount } from "../ContactCount";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { ProviderPick } from "../ProviderPick";
 import { TopicPick } from "../TopicPick";
 
@@ -146,6 +147,7 @@ export function BroadcastEdit() {
     onSuccess: ({ id: bid, res }) => {
       qc.invalidateQueries({ queryKey: ["broadcasts"] });
       qc.invalidateQueries({ queryKey: ["broadcast", String(bid)] });
+      guard.saved();
       toast({ text: `Scheduled. First send ${fmt(res.next_run_at)}.` });
       setB(null);
       if (isNew) nav(`/broadcasts/${bid}`, { replace: true });
@@ -153,16 +155,23 @@ export function BroadcastEdit() {
   });
   const saveDraft = useMutation({
     mutationFn: () => save.mutateAsync(),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["broadcasts"] }); toast({ text: "Saved as draft" }); setB(null); if (isNew) nav(`/broadcasts/${r.id}`, { replace: true }); else qc.invalidateQueries({ queryKey: ["broadcast", id] }); },
+    onSuccess: (r) => { guard.saved(); qc.invalidateQueries({ queryKey: ["broadcasts"] }); toast({ text: "Saved as draft" }); setB(null); if (isNew) nav(`/broadcasts/${r.id}`, { replace: true }); else qc.invalidateQueries({ queryKey: ["broadcast", id] }); },
   });
   const cancel = useMutation({
     mutationFn: () => api.post(`/v1/broadcasts/${id}/cancel`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["broadcast", id] }); setB(null); toast({ text: "Campaign cancelled. Nothing more will be sent." }); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["broadcast", id] }); setB(null); toast({ text: "Campaign cancelled. Nothing more will be sent." }); },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/broadcasts/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["broadcasts"] }); nav("/broadcasts"); } });
+  const remove = useMutation({
+    mutationFn: () => api.del(`/v1/broadcasts/${id}`),
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["broadcasts"] }); toast({ text: `Deleted ${existing.data?.broadcast.name || "the campaign"}` }); nav("/broadcasts"); },
+  });
+  // Every edit goes through set(), which marks the page dirty: leaving with unsaved edits asks first;
+  // Ctrl/⌘+S saves a draft (only while the campaign isn't live, like the Save draft button).
+  const liveNow = ["scheduled", "running", "testing"].includes(existing.data?.broadcast.status ?? b?.status ?? "");
+  const guard = useEditGuard(b && !liveNow && !saveDraft.isPending ? () => saveDraft.mutate() : undefined);
 
   if (!b) return <div className="page"><ErrorNote error={existing.error} /></div>;
-  const set = (p: Partial<Broadcast>) => setB({ ...b, ...p });
+  const set = (p: Partial<Broadcast>) => { guard.markDirty(); setB({ ...b, ...p }); };
   const templates = tpls.data?.templates ?? [];
   const channelTemplates = templates.filter((t) => t.channel === b.channel);
   const sms = templates.filter((t) => t.channel === "sms");
@@ -200,14 +209,22 @@ export function BroadcastEdit() {
         intro="Every setting of a one-time campaign, including A/B tests and a conversion goal, with its results below. For a guided set-up, use New campaign or Edit step by step."
         actions={<>
           {!isNew && <Status value={status} />}
-          {!isNew && !live && <button className="btn danger" onClick={() => confirm("Delete this campaign? This can't be undone.") && remove.mutate()}>Delete</button>}
+          {!isNew && !live && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(saved?.name || "this campaign", "Its settings and send history go with it. This can't be undone.").then((ok) => ok && remove.mutate())}>Delete</button>}
           {!isNew && <DuplicateButton path={`/v1/broadcasts/${id}/duplicate`} open={(nid) => `/broadcasts/${nid}`} invalidate={["broadcasts", "campaigns"]} />}
           {!isNew && !live && <Link className="btn" to={`/campaigns/one-time/${id}`} title="The guided set-up: audience, message, schedule, review">Edit step by step</Link>}
-          {live ? <button className="btn" onClick={() => confirm(testing ? "Cancel this campaign? The winner won't be sent to the rest of the audience." : "Cancel all future sends of this campaign?") && cancel.mutate()}>Cancel campaign</button> : (
+          {live ? <button className="btn" disabled={cancel.isPending} onClick={() => void ask({
+            title: `Cancel ${saved?.name || "this campaign"}?`,
+            body: testing ? "The winner won't be sent to the rest of the audience." : "All future sends of this campaign stop. Messages already sent stay sent.",
+            confirmText: "Cancel campaign", cancelText: "Keep it", danger: true,
+          }).then((ok) => ok && cancel.mutate())}>Cancel campaign</button> : (
             <>
-              <button className="btn" disabled={saveDraft.isPending} onClick={() => saveDraft.mutate()}>Save draft</button>
+              <button className="btn" disabled={saveDraft.isPending} onClick={() => saveDraft.mutate()}>{saveDraft.isPending ? "Saving…" : "Save draft"}</button>
               <button className="btn primary" disabled={!!fullProblem || schedule.isPending} title={fullProblem ?? undefined}
-                onClick={() => (status === "completed" || status === "cancelled" ? confirm(status === "completed" ? "This campaign already went out. Schedule it again? Everyone in its audience then gets it again at the time set below." : "Schedule this cancelled campaign again?") : true) && schedule.mutate()}>
+                onClick={() => void (status === "completed" || status === "cancelled"
+                  ? ask(status === "completed"
+                    ? { title: "Send this campaign again?", body: "It already went out. Everyone in its audience then gets it again at the time set below.", confirmText: "Schedule again" }
+                    : { title: "Schedule this cancelled campaign again?", confirmText: "Schedule again" })
+                  : Promise.resolve(true)).then((ok) => ok && schedule.mutate())}>
                 {status === "completed" ? "Send again" : "Schedule"}</button>
             </>
           )}
@@ -390,7 +407,8 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
     counts: r?.by_variant?.[label],
     highlight: !!shown?.winner && shown.winner === label,
     trail: target ? [
-      <button key="p" className="btn sm" disabled={pick.isPending} onClick={() => confirm(`Send ${label} to the other ${rest}% of the audience? This can't be undone.`) && pick.mutate({ runId: target.id, variant: label })}>Pick {label} as winner</button>,
+      <button key="p" className="btn sm" disabled={pick.isPending} onClick={() => void ask({ title: `Pick ${label} as the winner?`, body: `${label} is sent to the other ${rest}% of the audience. This can't be undone.`, confirmText: `Send ${label}` })
+        .then((ok) => ok && pick.mutate({ runId: target.id, variant: label }))}>Pick {label} as winner</button>,
     ] : undefined,
   }));
   if (r?.by_variant?.winner) {

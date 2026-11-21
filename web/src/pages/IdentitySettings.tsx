@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { api, type AutomationResponse, type IdentityKey, type IdentityMode } from "../api";
 import { useIsAdmin } from "../auth";
 import { addKey, BUILT_IN, DEFAULT_KEYS, EXTERNAL_ID, explain, keyLabel, MAX_KEYS, move, problem, progress, removeKey } from "../identityKeys";
+import { useEditGuard } from "../guard";
 import { ErrorNote, PageHead, useToast } from "../ui";
 import { useAttributes } from "./segmentData";
 
@@ -41,6 +42,10 @@ export function IdentitySettings() {
       toast({ text: "Identity keys saved. Events use them within 30 seconds; new keys are filled in for existing contacts in the background." });
     },
   });
+  // Leaving with unsaved key changes asks first; Ctrl/⌘+S saves.
+  const guard = useEditGuard(() => { if (canEdit && dirty && !why && !save.isPending) save.mutate(); });
+  const { markDirty, saved: markSaved } = guard;
+  useEffect(() => { if (dirty) markDirty(); else markSaved(); }, [dirty, markDirty, markSaved]);
   const setMode = (i: number, mode: IdentityMode) => setDraft(keys.map((k, j) => (j === i ? { ...k, mode } : k)));
 
   return (

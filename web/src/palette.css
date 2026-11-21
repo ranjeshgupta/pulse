@@ -1,0 +1,14 @@
+.cmdk-backdrop { z-index: 50; }
+.cmdk { position: fixed; z-index: 51; top: 14vh; left: 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 32px));
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: 0 24px 60px rgba(16, 24, 40, 0.28); overflow: hidden; }
+.cmdk-input { width: 100%; border: 0; border-bottom: 1px solid var(--rule); padding: 16px 18px; font-size: 16px; outline: none; background: transparent; color: inherit; }
+.cmdk-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow: auto; }
+.cmdk-list li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: var(--r-sm); cursor: pointer; }
+.cmdk-list li.on { background: var(--cobalt-wash); }
+.cmdk-group { color: var(--muted, #6b7280); font-size: var(--fs-xs); }
+.cmdk-empty { color: var(--muted, #6b7280); cursor: default !important; }
+.cmdk-foot { padding: 8px 14px; border-top: 1px solid var(--rule); }
+kbd { font-family: inherit; font-size: 0.85em; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; background: var(--surface); }
+.cmdk-hint { display: flex; align-items: center; gap: 6px; width: 100%; margin: 6px 0 10px; padding: 7px 10px; border-radius: var(--r-sm);
+  border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.06); color: #c6cfdf; font-size: var(--fs-xs); cursor: pointer; text-align: left; }
+.cmdk-hint kbd { background: transparent; color: inherit; border-color: rgba(255, 255, 255, 0.25); margin-left: auto; }

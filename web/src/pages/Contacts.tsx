@@ -8,6 +8,7 @@ import { contactCompany, isAccountAttr } from "../accounts";
 import { useCan } from "../auth";
 import { currentWord, freeText, isLinkFilter, joinQuery, splitQuery, suggest, takeChip, type Suggestion } from "../contactFilters";
 import { Drawer, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { ask } from "../guard";
 import { useCompanyOptions } from "./Companies";
 import { ContactInbox } from "./InApp";
 import { useStages } from "./Stages";
@@ -261,7 +262,7 @@ function ColumnChooser({ columns, choices, onChange, onClose }: { columns: strin
   // Columns keep the chooser's order, whatever order they were ticked in.
   const toggle = (k: string, on: boolean) => onChange(choices.map((c) => c.key).filter((c) => (c === k ? on : columns.includes(c))));
   return (
-    <Modal title="Columns" onClose={onClose} footer={<>
+    <Modal title="Columns" onClose={onClose} guard={false} footer={<>
       <button className="btn" onClick={() => onChange(DEFAULT_COLUMNS)}>Reset</button>
       <button className="btn primary" onClick={onClose}>Done</button>
     </>}>
@@ -291,7 +292,7 @@ function SaveSegmentModal({ rule, labels, onClose }: { rule: Rule; labels: strin
   return (
     <Modal title="Save as segment" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Create segment</button>
+      <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Creating…" : "Create segment"}</button>
     </>}>
       <p className="small muted" style={{ marginBottom: 12 }}>
         Creates a dynamic segment with these filters. Contacts then join and leave it on their own as they start or stop matching.
@@ -316,7 +317,7 @@ function SnapshotSegmentModal({ q, count, approximate, labels, onClose }: { q: s
   return (
     <Modal title="Create segment from this list" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>Create static segment</button>
+      <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Creating…" : "Create static segment"}</button>
     </>}>
       <p className="small muted" style={{ marginBottom: 12 }}>
         Makes a static segment of the {approximate ? "about " : ""}{count.toLocaleString("en-IN")} contacts in this list now, for example to send them a follow-up.
@@ -344,7 +345,8 @@ function ContactDrawer({ externalId, onClose }: { externalId: string; onClose: (
   const canEdit = useCan("contacts", "edit");
 
   return (
-    <Drawer title={externalId} subtitle={contact?.email} onClose={onClose}>
+    // Not an editing drawer: its controls save as soon as they change, so closing never asks.
+    <Drawer title={externalId} subtitle={contact?.email} onClose={onClose} guard={false}>
       <ErrorNote error={c.error} />
       {merged && (
         <div className="alert">This contact was merged into <strong>{String(contact!.attrs.merged_into)}</strong>. Their history now belongs to that contact; new events go there too.</div>
@@ -427,9 +429,9 @@ export function DeleteContactModal({ contact, onClose, onDeleted }: { contact: C
     },
   });
   return (
-    <Modal title={`Delete ${contact.external_id}?`} onClose={onClose} footer={<>
+    <Modal title={`Delete ${contact.external_id}?`} onClose={onClose} guard={false} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn danger" disabled={typed !== "DELETE" || remove.isPending} onClick={() => remove.mutate()}>Delete contact</button>
+      <button className="btn danger" disabled={typed !== "DELETE" || remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Deleting…" : "Delete contact"}</button>
     </>}>
       <p className="small muted" style={{ marginBottom: 12 }}>
         This permanently deletes the contact with their attributes, event history, segment memberships, devices, inbox messages, journey progress and files they uploaded through forms. It can't be undone. Download their data first if you need a copy. If your website or servers send new events for this ID, a new contact is created.
@@ -535,9 +537,9 @@ export function MergeModal({ loser, onClose }: { loser: Contact; onClose: () => 
     },
   });
   return (
-    <Modal title={`Merge ${loser.external_id} into…`} onClose={onClose} footer={<>
+    <Modal title={`Merge ${loser.external_id} into…`} onClose={onClose} guard={false} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!winner || merge.isPending} onClick={() => merge.mutate()}>Merge</button>
+      <button className="btn primary" disabled={!winner || merge.isPending} onClick={() => merge.mutate()}>{merge.isPending ? "Merging…" : "Merge"}</button>
     </>}>
       <p className="small muted" style={{ marginBottom: 12 }}>
         The contact you pick is kept: its values win, and this contact's other attributes, history, tags, points and static segments move to it. This contact then leaves every segment and its later events go to the kept one. A merge can't be undone.
@@ -592,7 +594,9 @@ export function TagsAndPoints({ contact }: { contact: Contact }) {
         {tags.map((t) => (
           <span className="tag-chip" key={t}>
             {t}
-            <button aria-label={`Remove tag ${t}`} disabled={tagMut.isPending} onClick={() => tagMut.mutate({ remove: [t] })}>×</button>
+            <button aria-label={`Remove tag ${t}`} disabled={tagMut.isPending}
+              onClick={() => void ask({ title: `Remove the tag ${t}?`, body: "Segments and journeys that use the tag see the change right away.", confirmText: "Remove tag", danger: true })
+                .then((ok) => ok && tagMut.mutate({ remove: [t] }))}>×</button>
           </span>
         ))}
       </div>
@@ -655,7 +659,9 @@ export function ConsentPanel({ contact }: { contact: Contact }) {
           })}
         </tbody>
       </table>
-      {!all && <button className="btn ghost sm danger" style={{ marginTop: 6 }} onClick={() => confirm("Stop all messages to this contact?") && change.mutate({ ch: "all", sub: false })}>Unsubscribe from everything</button>}
+      {!all && <button className="btn ghost sm danger" style={{ marginTop: 6 }} disabled={change.isPending}
+        onClick={() => void ask({ title: "Unsubscribe from everything?", body: "Nothing is sent to this contact on any channel until they subscribe again.", confirmText: "Unsubscribe from everything", danger: true })
+          .then((ok) => ok && change.mutate({ ch: "all", sub: false }))}>Unsubscribe from everything</button>}
       <ErrorNote error={change.error} />
     </section>
   );

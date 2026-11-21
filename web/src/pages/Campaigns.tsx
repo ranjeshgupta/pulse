@@ -14,6 +14,7 @@ import { initialEmailMode, replacesLayout, type EmailMode } from "../editorModes
 import { TestSendModal } from "../messagePreview";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, Status, STATUS_TEXT, timeAgo, useToast } from "../ui";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { PersonalizeScopeProvider } from "../VarPicker";
 import { browserZone, localClock } from "./Broadcasts";
 import type { EmailBuilderHandle } from "./EmailBuilder";
@@ -77,9 +78,13 @@ export function CampaignHub() {
     onError: (e) => toast({ text: (e as Error).message, error: true }),
   });
   const run = (j: Journey, action: ListAction) => {
-    const ask = action === "delete" ? `Delete "${j.name}"? This can't be undone.`
-      : action === "archive" ? `Archive "${j.name}"? It's hidden from this list (choose the Archived status to see it); its history and reports are kept, and you can restore it.` : null;
-    if (!ask || confirm(ask)) act.mutate({ j, action });
+    // A journey that ever ran has people and reports behind it: deleting it needs its name typed.
+    const sure = action === "delete"
+      ? askDelete(j.name, j.status === "draft" ? "This can't be undone." : "Its history and reports are deleted with it. This can't be undone.", j.status === "draft" ? undefined : j.name)
+      : action === "archive"
+        ? ask({ title: `Archive ${j.name}?`, body: "It's hidden from this list (choose the Archived status to see it); its history and reports are kept, and you can restore it.", confirmText: "Archive" })
+        : Promise.resolve(true);
+    void sure.then((ok) => ok && act.mutate({ j, action }));
   };
 
   return (
@@ -344,7 +349,7 @@ export function OneTimeWizard() {
   };
   const draft = useMutation({
     mutationFn: save,
-    onSuccess: (bid) => { qc.invalidateQueries({ queryKey: ["campaigns"] }); qc.invalidateQueries({ queryKey: ["broadcasts"] }); toast({ text: "Saved as draft" }); if (!editing) nav(`/campaigns/one-time/${bid}`, { replace: true }); },
+    onSuccess: (bid) => { guard.saved(); qc.invalidateQueries({ queryKey: ["campaigns"] }); qc.invalidateQueries({ queryKey: ["broadcasts"] }); toast({ text: "Saved as draft" }); if (!editing) nav(`/campaigns/one-time/${bid}`, { replace: true }); },
   });
   const launch = useMutation({
     mutationFn: async () => {
@@ -356,6 +361,7 @@ export function OneTimeWizard() {
       qc.invalidateQueries({ queryKey: ["campaigns"] });
       qc.invalidateQueries({ queryKey: ["broadcasts"] });
       qc.invalidateQueries({ queryKey: ["broadcast", String(bid)] });
+      guard.saved();
       toast({ text: new Date(next).getTime() <= Date.now() + 60_000 ? "Sending now." : `Scheduled for ${fmt(next)}.` });
       nav(`/broadcasts/${bid}`);
     },
@@ -368,10 +374,17 @@ export function OneTimeWizard() {
     onSuccess: (tpl) => setTesting(tpl),
   });
 
+  // The wizard is an editor: typing (track) and every other change (set, edit) make leaving ask
+  // first; Ctrl/⌘+S saves a draft when the Save draft button could.
+  const canDraft = !!s && !live && !draft.isPending && !launch.isPending && !!s.name.trim() && s.include.length > 0;
+  const guard = useEditGuard(canDraft ? () => draft.mutate() : undefined);
+  const edit = <T,>(fn: (v: T) => void) => (v: T) => { guard.markDirty(); fn(v); };
+
   if (!s || !t) return <div className="page"><ErrorNote error={existing.error} /></div>;
   const segments = segs.data?.segments ?? [];
   const reusableTemplates = (tpls.data?.templates ?? []).filter((x) => x.channel === s.channel);
-  const set = (p: Partial<WizardState>) => setS({ ...s, ...p });
+  const set = (p: Partial<WizardState>) => { guard.markDirty(); setS({ ...s, ...p }); };
+  const editT = edit(setT) as typeof setT;
   const content = { subject: t.subject, body: hasBody(t) };
   const problem = stepProblem(s, step, content) ?? (step === "schedule" ? scheduleProblem(s.start_at, s.end_at) : null);
   const allProblem = (["audience", "content", "schedule"] as WizardStep[]).map((x) => stepProblem(s, x, content)).find(Boolean) ?? scheduleProblem(s.start_at, s.end_at);
@@ -383,14 +396,14 @@ export function OneTimeWizard() {
 
   return (
     <PersonalizeScopeProvider value={{ event: scopeEvent || undefined, channel: s.channel }}>
-    <div className="page" style={step === "content" && s.channel === "email" ? { maxWidth: "none" } : undefined}>
+    <div className="page" style={step === "content" && s.channel === "email" ? { maxWidth: "none" } : undefined} {...guard.track}>
       <PageHead
         back={<Link className="back" to="/campaigns?tab=one_time">Campaigns · One-time</Link>}
         title={s.name || `New one-time ${CHANNEL_NAMES[s.channel]} campaign`}
         actions={<>
           {status && <Status value={status} />}
           {editing && <Link className="btn ghost" to={`/broadcasts/${id}`} title="A/B tests, conversion goal, results">All settings and results</Link>}
-          {!live && <button className="btn" disabled={busy || !s.name.trim() || s.include.length === 0} title={!s.name.trim() || s.include.length === 0 ? "Name it and choose an audience first" : undefined} onClick={() => draft.mutate()}>Save draft</button>}
+          {!live && <button className="btn" disabled={busy || !s.name.trim() || s.include.length === 0} title={!s.name.trim() || s.include.length === 0 ? "Name it and choose an audience first" : undefined} onClick={() => draft.mutate()}>{draft.isPending ? "Saving…" : "Save draft"}</button>}
         </>}
       />
       <ErrorNote error={draft.error ?? launch.error ?? test.error ?? existing.error} />
@@ -412,7 +425,7 @@ export function OneTimeWizard() {
               <Field label="Channel"><div><ChannelLabel channel={s.channel} /> <span className="xs muted">To use another channel, start a new campaign for it.</span></div></Field>
               <SegmentPicker label="Send to members of" hint="Anyone in any of these segments, when it sends." segments={segments.filter((x) => !s.exclude.includes(x.id))} value={s.include} onChange={(include) => set({ include })} />
               <SegmentPicker label="Leave out members of (optional)" hint="Nobody in these segments gets it, even if they're in the audience." segments={segments.filter((x) => !s.include.includes(x.id))} value={s.exclude} onChange={(exclude) => set({ exclude })} />
-              <TagEditor value={tags} onChange={setTags} />
+              <TagEditor value={tags} onChange={edit(setTags)} />
             </div>
             <aside className="wizard-aside"><h3 className="small">Who it reaches</h3><AudienceEstimate include={s.include} exclude={s.exclude} channel={s.channel} /></aside>
           </div>
@@ -432,18 +445,18 @@ export function OneTimeWizard() {
               </Field>
             ) : (
               <>
-                <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={emailModeSwitcher({ t, setT, emailMode, setEmailMode, builder, fresh: !t.id })}
-                  builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={false} />
+                <TemplateBody t={t} setT={editT} emailMode={emailMode} switchEmailMode={emailModeSwitcher({ t, setT: editT, emailMode, setEmailMode, builder, fresh: !t.id })}
+                  builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={false} onBuilderChange={guard.markDirty} onEdit={guard.markDirty} />
                 <label className="check"><input type="checkbox" checked={reusable} onChange={(e) => setReusable(e.target.checked)} />Also save it as a reusable template (it then shows in template lists and journey steps)</label>
               </>
             )}
             {(s.channel === "whatsapp" || s.channel === "rcs") && (
               <Field label="If it can't be delivered, send this SMS instead (optional)">
-                <FallbackPick value={fallback} onChange={setFallback} />
+                <FallbackPick value={fallback} onChange={edit(setFallback)} />
               </Field>
             )}
-            <ProviderPick channel={s.channel} value={provider} onChange={setProvider} />
-            <TopicPick value={topic} onChange={setTopic} />
+            <ProviderPick channel={s.channel} value={provider} onChange={edit(setProvider)} />
+            <TopicPick value={topic} onChange={edit(setTopic)} />
             <div className="row">
               <button type="button" className="btn" disabled={test.isPending || !content.body && s.templateMode === "write" || s.templateMode === "pick" && !s.pickedTemplate} onClick={() => test.mutate()}>Send a test</button>
               <span className="xs muted">Saves the content, then sends it to a contact or a saved test contact.</span>
@@ -488,7 +501,7 @@ export function OneTimeWizard() {
         {step !== "review" ? (
           <button type="button" className="btn primary" disabled={!!problem} onClick={() => go(WIZARD_STEPS[idx + 1].key)}>Next: {WIZARD_STEPS[idx + 1].label}</button>
         ) : !live && (
-          <button type="button" className="btn primary" disabled={!!allProblem || busy} title={allProblem ?? undefined} onClick={() => launch.mutate()}>{sendsNow ? "Send now" : "Schedule"}</button>
+          <button type="button" className="btn primary" disabled={!!allProblem || busy} title={allProblem ?? undefined} onClick={() => launch.mutate()}>{launch.isPending ? "Scheduling…" : sendsNow ? "Send now" : "Schedule"}</button>
         )}
       </div>
       {testing && <TestSendModal template={testing} event={scopeEvent} onClose={() => setTesting(null)} />}

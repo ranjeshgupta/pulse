@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ErrorNote, Field, timeAgo, useToast } from "../ui";
+import { ask, DISCARD } from "../guard";
 
 // Bounce mailboxes: IMAP mailboxes Pulse reads every 5 minutes for bounce reports (RFC 3464
 // delivery status notifications) and spam complaints (RFC 5965 feedback-loop reports). A workspace
@@ -61,7 +62,8 @@ export function folderProblem(folders: MailboxFolder[]): string {
 
 type MailboxView = { mailbox: BounceMailbox; password?: string };
 
-export function BounceMailboxPanel() {
+/** BounceMailboxPanel lists the bounce mailboxes; onDirty tells the page while a mailbox being edited has unsaved changes. */
+export function BounceMailboxPanel({ onDirty }: { onDirty?: (dirty: boolean) => void } = {}) {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["bounce-mailboxes"], queryFn: () => api.get<{ mailboxes: MailboxView[] }>("/v1/settings/bounce-mailboxes"), refetchInterval: 15000 });
@@ -72,7 +74,7 @@ export function BounceMailboxPanel() {
   });
   const remove = useMutation({
     mutationFn: (id: number) => api.del(`/v1/settings/bounce-mailboxes/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["bounce-mailboxes"] }); toast({ text: "Bounce mailbox removed." }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["bounce-mailboxes"] }); toast({ text: "Bounce mailbox removed" }); },
   });
   const boxes = q.data?.mailboxes ?? [];
   return (
@@ -98,7 +100,9 @@ export function BounceMailboxPanel() {
                 <span style={{ flex: 1 }} />
                 <button className="btn sm" onClick={() => setEditing({ form: formFrom(m, password ?? ""), saved: m })}>Edit</button>
                 {m.enabled && <button className="btn sm" disabled={check.isPending} onClick={() => check.mutate(m.id)}>Check now</button>}
-                <button className="btn sm ghost danger" onClick={() => { if (confirm(`Remove the mailbox "${m.name}"?`)) remove.mutate(m.id); }}>Remove</button>
+                <button className="btn sm ghost danger" disabled={remove.isPending}
+                  onClick={() => void ask({ title: `Remove the mailbox ${m.name}?`, body: "Pulse stops reading it. Bounces and complaints already recorded stay.", confirmText: "Remove", danger: true })
+                    .then((ok) => ok && remove.mutate(m.id))}>Remove</button>
               </div>
               <div className="xs muted">
                 {m.username} on {m.host}:{m.port} · {m.folders.map((f) => `${f.name} (${FOLDER_KINDS.find((k) => k.value === f.kind)?.label.toLowerCase()})`).join(", ")}
@@ -111,13 +115,13 @@ export function BounceMailboxPanel() {
             </li>
           ))}
         </ul>
-        {editing && <MailboxEditor start={editing.form} saved={editing.saved} onDone={() => setEditing(null)} />}
+        {editing && <MailboxEditor start={editing.form} saved={editing.saved} onDirty={onDirty} onDone={() => { onDirty?.(false); setEditing(null); }} />}
       </div>
     </section>
   );
 }
 
-function MailboxEditor({ start, saved, onDone }: { start: MailboxForm; saved: BounceMailbox | null; onDone: () => void }) {
+function MailboxEditor({ start, saved, onDone, onDirty }: { start: MailboxForm; saved: BounceMailbox | null; onDone: () => void; onDirty?: (dirty: boolean) => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const [f, setF] = useState(start);
@@ -138,12 +142,15 @@ function MailboxEditor({ start, saved, onDone }: { start: MailboxForm; saved: Bo
   const needPw = passwordNeeded(saved, f);
   const problem = folderProblem(f.folders);
   const ready = f.host.trim() !== "" && f.username.trim() !== "" && !needPw && !problem;
+  const dirty = JSON.stringify(f) !== JSON.stringify(start);
+  useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
+  const cancel = () => { if (!dirty) return onDone(); void ask(DISCARD).then((ok) => ok && onDone()); };
   return (
     <div className="mbx-editor">
       <h4>{f.id ? `Edit ${saved?.name}` : "Add a bounce mailbox"}</h4>
       <ErrorNote error={save.error ?? test.error} />
       <div className="grid-2">
-        <Field label="Name"><input className="input" value={f.name} placeholder="Bounces for acme.com" onChange={(e) => set({ name: e.target.value })} /></Field>
+        <Field label="Name"><input className="input" autoFocus={!f.id} value={f.name} placeholder="Bounces for acme.com" onChange={(e) => set({ name: e.target.value })} /></Field>
         <Field label="IMAP server"><input className="input" value={f.host} placeholder="imap.example.com" onChange={(e) => set({ host: e.target.value })} /></Field>
         <div className="row" style={{ alignItems: "flex-end" }}>
           <Field label="Encryption">
@@ -177,9 +184,9 @@ function MailboxEditor({ start, saved, onDone }: { start: MailboxForm; saved: Bo
       {problem && <div className="alert error">{problem}</div>}
       <label className="check"><input type="checkbox" checked={f.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Check this mailbox every 5 minutes</label>
       <div className="row" style={{ gap: 8 }}>
-        <button className="btn primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>Save mailbox</button>
+        <button className="btn primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save mailbox"}</button>
         <button className="btn" disabled={!ready || test.isPending} onClick={() => test.mutate()}>{test.isPending ? "Connecting…" : "Test connection"}</button>
-        <button className="btn ghost" onClick={onDone}>Cancel</button>
+        <button className="btn ghost" onClick={cancel}>Cancel</button>
       </div>
     </div>
   );

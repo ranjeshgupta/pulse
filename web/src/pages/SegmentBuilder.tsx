@@ -146,7 +146,8 @@ function AddControls({ group, path }: { group: Group; path: Path }) {
           <span className="xs muted">Groups can be nested {MAX_GROUP_LEVELS} levels deep, the most a segment can hold; this group is the deepest.</span>
         )}
       </div>
-      {open === key && <FilterPicker items={items} recent={recent} onPick={add} onClose={close} nestingBlocked={!nest} />}
+      {/* The picker's search box isn't an edit to the segment (data-no-dirty). */}
+      {open === key && <div data-no-dirty><FilterPicker items={items} recent={recent} onPick={add} onClose={close} nestingBlocked={!nest} /></div>}
     </div>
   );
 }
@@ -180,7 +181,7 @@ function FilterRow({ node, path }: { node: Exclude<Node, Group>; path: Path }) {
   return (
     <div className="fb-row">
       <div className="fb-row-main">{body}{remove}</div>
-      {open === key && <FilterPicker title="Change the filter" items={items} recent={recent} onPick={change} onClose={() => setOpen(null)} nestingBlocked={!parentNest} />}
+      {open === key && <div data-no-dirty><FilterPicker title="Change the filter" items={items} recent={recent} onPick={change} onClose={() => setOpen(null)} nestingBlocked={!parentNest} /></div>}
     </div>
   );
 }
@@ -680,7 +681,7 @@ function GroupClipboard({ group, path }: { group: Group; path: Path }) {
       {manual !== null && (
         <Modal title="Paste filters" onClose={() => setManual(null)} footer={<><button className="btn" onClick={() => setManual(null)}>Cancel</button><button className="btn primary" disabled={!manual.trim()} onClick={() => apply(manual)}>Paste</button></>}>
           <Field label="Copied filters" hint="Your browser didn't let Pulse read the clipboard: paste here (Ctrl+V).">
-            <textarea className="textarea code-editor" value={manual} onChange={(e) => setManual(e.target.value)} aria-label="Copied filters" />
+            <textarea className="textarea code-editor" data-no-dirty value={manual} onChange={(e) => setManual(e.target.value)} aria-label="Copied filters" />
           </Field>
         </Modal>
       )}

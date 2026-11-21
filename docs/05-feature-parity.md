@@ -153,6 +153,7 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 |---|---|---|---|---|
 | Focus items: pop-up, bar, slide-in; segment and page targeting; triggers; frequency | ✅ | ✅ | ✅ | |
 | Dynamic Web Content: per-segment variants | ✅ | ✅ | ✅ M6: variants with audiences (segments in and out, page URL, devices, contact-field conditions) in priority order, the first match wins; warnings for variants that can never show; an overlap view of how many contacts would see each | Overlap counts segments only (page, device and field rules aren't counted) |
+| App content slots (dynamic content inside mobile apps) | ⬜ | ✅ | ✅ O3: a content slot's **Where: App**; variants by segment and contact fields; a card (title, text, image, button, deep link, custom values, live phone preview) or HTML; `POST /v1/web/content`; SDKs: Flutter `PulseSlot`, Android `PulseSlotView`, iOS `PulseSlotView` / SwiftUI `PulseSlot`, `Pulse.content.fetch`; `app_content_viewed` / `app_content_clicked`; journey "push dynamic content" steps fill app slots too | HTML content needs the app's own renderer (no web view in the SDKs); the UIKit / SwiftUI views were never compiled (no Xcode), the Android view never ran on a device; content is cached in memory only |
 | Ordering focus items | 🟡 | ✅ | ✅ M6: the same audience rules and an order; one pop-up, one bar and one slide-in per page, the first allowed; overlap per kind | |
 | Schedule on-site content (start, optional end) | 🟡 | ✅ | ✅ Phase 2 | |
 | "See what a contact would see" check | 🟡 | 🟡 | ✅ Phase 2 | |
@@ -180,6 +181,7 @@ In the app: **one-time campaigns** (since M7 the word "broadcast" appears only i
 
 | Feature | Mautic | WebEngage | Pulse | |
 |---|---|---|---|---|
+| Nothing lost by accident; modern keyboard use | 🟡 | 🟡 | ✅ Every editor page and editing dialog asks "Discard your changes?" before leaving, Esc, backdrop click, Close or Cancel with unsaved changes (and the browser warns on closing the tab); every delete, archive, cancel, reset or revoke asks in a styled dialog, typing the name for big ones (live journeys, providers, roles in use…); ⌘K / Ctrl+K command palette (jump to any page, create anything, search contacts); `/` to search a page; ⌘S / Ctrl+S saves editors; `?` lists the shortcuts | Delete has no undo (data is removed at once) |
 | Multi-tenant workspaces | ⬜ | ✅ | ✅ | |
 | Password sign-in, SSO (OIDC: Keycloak, Entra ID, Okta, Google) | 🟡 SAML | ✅ | ✅ tested against Keycloak; settings can be removed (`DELETE /v1/settings/sso`) | |
 | Two-step sign-in (authenticator app) | ⬜ (plugins) | ✅ | ✅ after M7: TOTP with a QR code and 10 recovery codes on Your account; workspace policy (optional, everyone, some roles or people); admins reset a teammate's | Password sign-ins only (SSO leaves it to the identity provider) |

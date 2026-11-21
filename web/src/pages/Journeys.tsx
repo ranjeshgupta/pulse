@@ -19,6 +19,7 @@ import { FunnelPanel, StepReasons } from "../funnel";
 import { FUNNEL_OUTCOME, outcomeFilters, type ContactFilter } from "../contactLinks";
 import { ContactCount } from "../ContactCount";
 import { nowISO, scheduleProblem } from "../schedule";
+import { useEditGuard } from "../guard";
 import { ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
 import { DuplicateButton, TagEditor } from "../campaignUI";
 import { campaignTypeOf, CATEGORIES, startTrigger } from "../campaigns";
@@ -81,10 +82,18 @@ function JourneyEditor() {
   const statsOn = showStats && !isNew;
   const report = useQuery({ queryKey: ["journey-report", id], queryFn: () => api.get<JourneyReport>(`/v1/journeys/${id}/report`), enabled: statsOn && view === "canvas", refetchInterval: 5000 });
 
+  // Unsaved changes: the graph differs from the one loaded or last saved (undo back to it is clean
+  // again only after a save), or a field was typed in.
+  const baseline = useRef<JourneyGraph>(graph);
+  const guard = useEditGuard(() => { if (!locked && !save.isPending) save.mutate(); });
+  const { markDirty } = guard;
+  useEffect(() => { if (loaded && graph !== baseline.current) markDirty(); }, [graph, loaded, markDirty]);
+
   const fit = useCallback(() => flow.fitView({ padding: 0.25, maxZoom: 1, duration: 250 }), [flow]);
   useEffect(() => {
     if (existing.data && !loaded) {
       setName(existing.data.name);
+      baseline.current = existing.data.graph;
       setHist(startHistory(existing.data.graph));
       setWin({ start_at: existing.data.start_at, end_at: existing.data.end_at ?? undefined });
       setLoaded(true);
@@ -246,6 +255,8 @@ function JourneyEditor() {
       return isNew ? api.post<{ id: number }>("/v1/journeys", body) : api.put<{ id: number }>(`/v1/journeys/${id}`, body);
     },
     onSuccess: (r) => {
+      baseline.current = graph;
+      guard.saved();
       qc.invalidateQueries({ queryKey: ["journeys"] });
       qc.invalidateQueries({ queryKey: ["journey", String(r.id)] });
       toast({ text: "Saved" });
@@ -277,7 +288,7 @@ function JourneyEditor() {
   };
 
   return (
-    <div className="page" style={{ maxWidth: "none" }}>
+    <div className="page" style={{ maxWidth: "none" }} {...guard.track}>
       <PageHead
         back={<Link className="back" to={`/campaigns?tab=${campaignTypeOf(graph.trigger)}`}>Campaigns · {CATEGORIES.find((c) => c.key === campaignTypeOf(graph.trigger))?.label}</Link>}
         title={<input className="input" style={{ fontSize: "var(--fs-xl)", fontWeight: 650, border: 0, padding: 0, background: "transparent" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="Campaign name" disabled={locked} />}
@@ -341,7 +352,7 @@ function JourneyEditor() {
                 <button type="button" className="btn sm" onClick={fit}>Zoom to fit</button>
                 <button type="button" className="btn sm" onClick={copySelection} disabled={!selected && picked.size === 0} title="Copy the selected steps (Ctrl+C). Ctrl/Cmd-click or Shift-drag to select several." aria-keyshortcuts="Control+C Meta+C">Copy{picked.size > 1 ? ` ${picked.size}` : ""}</button>
                 <button type="button" className="btn sm" onClick={startPaste} disabled={locked} title="Paste copied steps after the selected step (Ctrl+V)" aria-keyshortcuts="Control+V Meta+V">Paste</button>
-                {!isNew && <label className="check j-toolbar-check"><input type="checkbox" checked={showStats} onChange={(e) => setShowStats(e.target.checked)} />Show stats</label>}
+                {!isNew && <label className="check j-toolbar-check"><input type="checkbox" data-no-dirty checked={showStats} onChange={(e) => setShowStats(e.target.checked)} />Show stats</label>}
               </Panel>
               <Panel position="bottom-center" className="j-legend" aria-hidden="true">
                 <span className="lg lg-yes">Yes</span><span className="lg lg-no">No</span><span className="lg lg-path">Split path</span><span className="lg lg-jump">Jump</span>
@@ -375,7 +386,7 @@ function JourneyEditor() {
             <p className="small muted" style={{ marginTop: 0 }}>The steps go {whereText(graph, numbers, defaultInsertPoint(graph, selected))}. Links to steps that weren't copied, and templates or segments from another workspace, are left for you to choose again.</p>
             <ErrorNote error={paste.error} />
             <Field label="Copied steps" hint="Filled in from the clipboard when your browser allows it; otherwise paste here (Ctrl+V).">
-              <textarea className="textarea code-editor" style={{ minHeight: 120 }} value={pasting} onChange={(e) => setPasting(e.target.value)} aria-label="Copied steps" spellCheck={false} />
+              <textarea className="textarea code-editor" data-no-dirty style={{ minHeight: 120 }} value={pasting} onChange={(e) => setPasting(e.target.value)} aria-label="Copied steps" spellCheck={false} />
             </Field>
           </Modal>
         )}
@@ -398,7 +409,7 @@ function Palette({ q, setQ, locked, graph, at, atText, ctx, onAdd }: {
   return (
     <aside className="palette" aria-label="Steps">
       <h4>Add a step</h4>
-      <input className="input palette-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps" aria-label="Search the step palette" />
+      <input className="input palette-search" data-no-dirty value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps" aria-label="Search the step palette" />
       <p className="xs faint palette-at">Click adds it: {atText.charAt(0).toLowerCase() + atText.slice(1)}.</p>
       <div ref={listRef}>
         {STEP_GROUPS.map((grp) => {
@@ -567,7 +578,8 @@ function JourneyTags({ id, tags }: { id: string; tags: string[] }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["journey", id] }); qc.invalidateQueries({ queryKey: ["campaign-tags"] }); },
   });
   return (
-    <div style={{ maxWidth: 640, marginBottom: 6 }}>
+    // Tags save as soon as they change, so typing here isn't an unsaved edit.
+    <div style={{ maxWidth: 640, marginBottom: 6 }} data-no-dirty>
       <TagEditor value={tags} onChange={(t) => save.mutate(t)} />
       <ErrorNote error={save.error} />
     </div>

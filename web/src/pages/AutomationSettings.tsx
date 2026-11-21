@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   api, CHANNEL_NAMES, type AutomationResponse, type AutomationRetention, type AutomationSettings, type Channel,
   type ProviderLimits, type RetentionPreview,
@@ -10,6 +10,7 @@ import {
   sameSettings, validate, type OverrideRow,
 } from "../automation";
 import { ErrorNote, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { useEditGuard } from "../guard";
 import "./automation.css";
 
 // Settings → Automation & limits: every automatic behaviour of the workspace with its current
@@ -31,6 +32,7 @@ export function AutomationSettingsPage() {
   const save = useMutation({
     mutationFn: (s: AutomationSettings) => api.put<{ settings: AutomationSettings }>("/v1/settings/automation", s),
     onSuccess: () => {
+      guard.saved();
       setDraft(null); setRows(null); setPreview(null);
       qc.invalidateQueries({ queryKey: ["automation"] });
       qc.invalidateQueries({ queryKey: ["data-settings"] });
@@ -40,6 +42,16 @@ export function AutomationSettingsPage() {
   const check = useMutation({
     mutationFn: (s: AutomationSettings) => api.post<RetentionPreview>("/v1/settings/automation/preview", s),
   });
+  // Unsaved settings make leaving the page ask first (the Save button may need the deletion preview, so no Ctrl/⌘+S).
+  const guard = useEditGuard();
+  const unsaved = (() => {
+    if (!data || (!draft && !rows)) return false;
+    const c = draft ?? data.settings;
+    const ov = rowsToOverrides(rows ?? overridesToRows(c.retention.event_overrides), data.limits["retention.event_overrides"]).value;
+    return !sameSettings({ ...c, retention: { ...c.retention, event_overrides: ov } }, data.settings);
+  })();
+  const { markDirty, saved } = guard;
+  useEffect(() => { if (unsaved) markDirty(); else saved(); }, [unsaved, markDirty, saved]);
   if (!data) return <div className="page"><ErrorNote error={q.error} /></div>;
   const { defaults: def, limits, server } = data;
   const cur = draft ?? data.settings;
@@ -209,7 +221,7 @@ export function AutomationSettingsPage() {
         {admin && (
           <div className="row save-bar">
             <button className="btn primary" disabled={!dirty || !!problem || save.isPending || check.isPending} onClick={onSave}>
-              {check.isPending ? "Counting what would be deleted…" : "Save"}
+              {check.isPending ? "Counting what would be deleted…" : save.isPending ? "Saving…" : "Save"}
             </button>
             {dirty && <button className="btn" type="button" onClick={() => { setDraft(null); setRows(null); }}>Discard changes</button>}
             {problem && dirty && <span className="small danger-text">{problem}</span>}

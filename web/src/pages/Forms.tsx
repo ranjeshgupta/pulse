@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Form, type FormField, type FormFieldType, type FormSettings, type FormStats, type Segment } from "../api";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast, useCopy } from "../ui";
+import { askDelete, useEditGuard } from "../guard";
 import { DEFAULT_FILE_MB, formPages, layoutProblems, MAX_FILE_MB, UPLOAD_KINDS, uploadOf } from "./formPages";
 import "./forms.css";
 import { ContactCount } from "../ContactCount";
@@ -188,6 +189,7 @@ export function FormEdit() {
     mutationFn: (body: ReturnType<typeof toForm>) => (isNew ? api.post<{ id: number }>("/v1/forms", body) : api.put<{ id: number }>(`/v1/forms/${id}`, body)),
     onSuccess: (r, body) => {
       saved.current = JSON.stringify(body);
+      guard.saved();
       qc.invalidateQueries({ queryKey: ["forms"] });
       toast({ text: body.status === "active" ? "Saved. The form is live." : "Saved as draft" });
       if (isNew) nav(`/forms/${r.id}`, { replace: true });
@@ -196,16 +198,24 @@ export function FormEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/forms/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["forms"] }); toast({ text: "Form deleted" }); nav("/forms"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["forms"] }); toast({ text: `Deleted ${existing.data?.form.name || "the form"}` }); nav("/forms"); },
   });
 
   const body = useMemo(() => (d ? toForm(d) : null), [d]);
+  // Every edit goes through edit(), which marks the page dirty; an existing form that's back to its
+  // saved version is clean again. Leaving with unsaved changes asks first; Ctrl/⌘+S saves.
+  const dirty = !isNew && !!body && saved.current !== "" && JSON.stringify(body) !== saved.current;
+  const saveNow = useRef<(() => void) | undefined>(undefined);
+  const guard = useEditGuard(() => saveNow.current?.());
+  const { saved: clean } = guard;
+  useEffect(() => { if (!isNew && !dirty) clean(); }, [isNew, dirty, clean]);
   if (!d || !body) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
-  const set = (p: Partial<Draft>) => setD({ ...d, ...p });
-  const setS = (p: Partial<FormSettings>) => setD({ ...d, settings: { ...d.settings, ...p } });
+  const edit = (nd: Draft) => { guard.markDirty(); setD(nd); };
+  const set = (p: Partial<Draft>) => edit({ ...d, ...p });
+  const setS = (p: Partial<FormSettings>) => edit({ ...d, settings: { ...d.settings, ...p } });
   const setRow = (uid: number, p: Partial<Row>, fp?: Partial<FormField>) =>
-    setD({ ...d, rows: d.rows.map((r) => (r.uid === uid ? { ...r, ...p, f: { ...r.f, ...fp } } : r)) });
+    edit({ ...d, rows: d.rows.map((r) => (r.uid === uid ? { ...r, ...p, f: { ...r.f, ...fp } } : r)) });
   const move = (i: number, dir: -1 | 1) => {
     const rows = [...d.rows];
     [rows[i], rows[i + dir]] = [rows[i + dir], rows[i]];
@@ -218,7 +228,7 @@ export function FormEdit() {
 
   const { rowErr, problems } = check(d);
   const blocker = !body.name ? "Name the form." : rowErr.size ? "Fix the fields marked in red." : problems[0];
-  const dirty = !isNew && saved.current !== "" && JSON.stringify(body) !== saved.current;
+  saveNow.current = !blocker && !save.isPending ? () => save.mutate(body) : undefined;
   const consentOn = !!d.settings.consent_text?.trim();
   const tags = splitList(d.tagText, false);
   const suggestions = allTags.filter((t) => !tags.includes(t)).slice(0, 12);
@@ -232,7 +242,12 @@ export function FormEdit() {
         back={<Link className="back" to="/forms">Forms</Link>}
         title={isNew ? "New form" : d.name || "Untitled form"}
         actions={<>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this form? Its link and embeds stop working. Contacts it created stay.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => {
+            const formName = existing.data?.form.name || "this form";
+            // A live form is taking sign-ups: deleting it needs its name typed.
+            void askDelete(formName, "Its link and embeds stop working. Contacts it created stay. This can't be undone.", savedLive && existing.data?.form.name ? formName : undefined)
+              .then((ok) => ok && remove.mutate());
+          }}>Delete</button>}
           <button className="btn primary" disabled={!!blocker || save.isPending} title={blocker} onClick={() => save.mutate(body)}>{save.isPending ? "Saving…" : "Save"}</button>
         </>}
       />

@@ -2,31 +2,51 @@
 // workspace's bounce rules, the "bounces" section of the automation settings), where email
 // services and mailboxes report them, and how people unsubscribe.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, CHANNEL_NAMES, type AutomationResponse, type BounceAction, type ChannelBounces, type Channel, type UnsubscribeSettings } from "../api";
 import { useIsAdmin } from "../auth";
 import { ErrorNote, PageHead, useToast } from "../ui";
+import { useEditGuard } from "../guard";
 import { BounceMailboxPanel } from "./BounceMailbox";
 import { BouncesPanel } from "./Channels";
 import { BOUNCE_ACTIONS, BOUNCE_CHANNELS, BOUNCE_TYPES, ruleProblem, ruleSentence } from "../bounceRules";
 import { topicKeyFrom, unsubscribeProblem } from "../unsubscribeRules";
 
+type ReportDirty = (dirty: boolean) => void;
+
+/** useDirtyParts guards a page made of panels that each keep their own draft: leaving the page
+ * asks first while any of them has unsaved changes. part(key) is the callback a panel reports to. */
+function useDirtyParts() {
+  const [parts, setParts] = useState<Record<string, boolean>>({});
+  const { markDirty, saved } = useEditGuard();
+  const any = Object.values(parts).some(Boolean);
+  useEffect(() => { if (any) markDirty(); else saved(); }, [any, markDirty, saved]);
+  const report = useCallback((key: string, dirty: boolean) => setParts((p) => (!!p[key] === dirty ? p : { ...p, [key]: dirty })), []);
+  const [cbs] = useState(() => new Map<string, ReportDirty>());
+  return (key: string): ReportDirty => {
+    let cb = cbs.get(key);
+    if (!cb) { cb = (d) => report(key, d); cbs.set(key, cb); }
+    return cb;
+  };
+}
+
 export function BounceSettings() {
   const admin = useIsAdmin();
+  const part = useDirtyParts();
   return (
     <div className="page">
       <PageHead title="Bounces & unsubscribes"
         intro="What Pulse does when a message bounces or someone marks it as spam, on every channel; where your email service and bounce mailboxes report them; and how people unsubscribe." />
-      <BounceRulesPanel canEdit={admin} />
-      <UnsubscribePanel canEdit={admin} />
-      {admin && <BouncesPanel />}
-      {admin && <BounceMailboxPanel />}
+      <BounceRulesPanel canEdit={admin} onDirty={part("rules")} />
+      <UnsubscribePanel canEdit={admin} onDirty={part("unsubscribe")} />
+      {admin && <BouncesPanel onDirty={part("signing")} />}
+      {admin && <BounceMailboxPanel onDirty={part("mailbox")} />}
     </div>
   );
 }
 
 /** BounceRulesPanel: per channel, after how many hard bounces, soft bounces and complaints which action runs. */
-function BounceRulesPanel({ canEdit }: { canEdit: boolean }) {
+function BounceRulesPanel({ canEdit, onDirty }: { canEdit: boolean; onDirty: ReportDirty }) {
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ["automation"], queryFn: () => api.get<AutomationResponse>("/v1/settings/automation") });
@@ -36,6 +56,7 @@ function BounceRulesPanel({ canEdit }: { canEdit: boolean }) {
   useEffect(() => { if (saved && !draft) setDraft(structuredClone(saved)); }, [saved, draft]);
   const rules = draft?.[ch] ?? saved?.[ch];
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  useEffect(() => { onDirty(!!draft && !!saved && dirty); }, [draft, saved, dirty, onDirty]);
   const problem = draft ? BOUNCE_CHANNELS.map((c) => draft[c] && ruleProblem(draft[c])).find(Boolean) : "";
   const save = useMutation({
     mutationFn: () => api.put<{ settings: unknown }>("/v1/settings/automation", { bounces: draft }),
@@ -82,7 +103,7 @@ function BounceRulesPanel({ canEdit }: { canEdit: boolean }) {
         {problem && <div className="alert error" style={{ marginTop: 12 }}>{problem}</div>}
         {canEdit && (
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="btn primary" disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()}>Save bounce rules</button>
+            <button className="btn primary" disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save bounce rules"}</button>
             {dirty && <button className="btn ghost" onClick={() => setDraft(structuredClone(saved!))}>Discard changes</button>}
             <button className="btn ghost" onClick={() => setDraft(structuredClone(q.data!.defaults.bounces ?? null))}>Back to the defaults</button>
           </div>
@@ -95,7 +116,7 @@ function BounceRulesPanel({ canEdit }: { canEdit: boolean }) {
 
 /** UnsubscribePanel: what the unsubscribe link does, whether email unsubscribes stop email by
  * themselves, and the workspace's topics (lists people can leave on their own). */
-function UnsubscribePanel({ canEdit }: { canEdit: boolean }) {
+function UnsubscribePanel({ canEdit, onDirty }: { canEdit: boolean; onDirty: ReportDirty }) {
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ["automation"], queryFn: () => api.get<AutomationResponse>("/v1/settings/automation") });
@@ -104,6 +125,7 @@ function UnsubscribePanel({ canEdit }: { canEdit: boolean }) {
   useEffect(() => { if (saved && !draft) setDraft(structuredClone(saved)); }, [saved, draft]);
   const u = draft ?? saved;
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(saved);
+  useEffect(() => { onDirty(!!saved && dirty); }, [saved, dirty, onDirty]);
   const problem = u ? unsubscribeProblem(u) : "";
   const save = useMutation({
     mutationFn: () => api.put<{ settings: unknown }>("/v1/settings/automation", { unsubscribe: draft }),
@@ -177,7 +199,7 @@ function UnsubscribePanel({ canEdit }: { canEdit: boolean }) {
         {problem && <div className="alert error" style={{ marginTop: 12 }}>{problem}</div>}
         {canEdit && (
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="btn primary" disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()}>Save unsubscribe settings</button>
+            <button className="btn primary" disabled={!dirty || !!problem || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save unsubscribe settings"}</button>
             {dirty && <button className="btn ghost" onClick={() => setDraft(structuredClone(saved!))}>Discard changes</button>}
           </div>
         )}

@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Segment } from "../api";
 import { useCan } from "../auth";
 import { describe, segmentRefs } from "../segmentRules";
 import { SegmentType, viewContactsHref } from "./Segments";
 import { useSegments } from "./segmentData";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { ErrorNote, Field, PageHead, useToast } from "../ui";
 import { ContactCount } from "../ContactCount";
 
@@ -27,6 +28,12 @@ export function StaticSegmentDetail() {
   const canImport = useCan("contacts", "edit");
   const [name, setName] = useState<string | null>(null);
   const parsed = [...new Set(ids.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))];
+  // Leaving with IDs typed but not added, a rename not saved, or preference changes not saved asks first.
+  const [prefDirty, setPrefDirty] = useState(false);
+  const dirty = ids.trim() !== "" || (name !== null && name !== (seg.data?.name ?? "")) || prefDirty;
+  const guard = useEditGuard();
+  const { markDirty, saved: markSaved } = guard;
+  useEffect(() => { if (dirty) markDirty(); else markSaved(); }, [dirty, markDirty, markSaved]);
 
   const members = useMutation({
     mutationFn: (action: "add" | "remove") => api.post<{ accepted: number }>(`/v1/lists/${id}/members`, { external_ids: parsed, action }),
@@ -38,7 +45,7 @@ export function StaticSegmentDetail() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/segments/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["lists"] }); qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Segment deleted" }); nav("/segments?type=static"); },
+    onSuccess: () => { markSaved(); qc.invalidateQueries({ queryKey: ["lists"] }); qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Segment deleted" }); nav("/segments?type=static"); },
   });
   const list = seg.data;
 
@@ -57,7 +64,8 @@ export function StaticSegmentDetail() {
           {list && <Link className="btn" to={viewContactsHref(list.id)}>View contacts</Link>}
           {canEdit && name === null && <button className="btn" onClick={() => setName(list?.name ?? "")}>Rename</button>}
           {canEdit && <button className="btn danger" disabled={usedBy.length > 0} title={usedBy.length ? "Other segments use this one" : undefined}
-            onClick={() => confirm("Delete this static segment? Its contacts stay; journeys that start from it stop enrolling.") && remove.mutate()}>Delete</button>}
+            onClick={() => void askDelete(list?.name ? `the static segment ${list.name}` : "this static segment",
+              "Its contacts stay; journeys that start from it stop enrolling. This can't be undone.", list?.name || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           {canImport && list && <Link className="btn primary" to={`/contacts/import?segment=${list.id}`}>Import CSV</Link>}
         </>}
       />
@@ -71,7 +79,11 @@ export function StaticSegmentDetail() {
             <button className="btn primary" disabled={parsed.length === 0 || parsed.length > 10000 || members.isPending} onClick={() => members.mutate("add")}>
               Add {parsed.length > 0 ? parsed.length.toLocaleString("en-IN") : ""} to segment
             </button>
-            <button className="btn" disabled={parsed.length === 0 || parsed.length > 10000 || members.isPending} onClick={() => members.mutate("remove")}>Remove from segment</button>
+            <button className="btn" disabled={parsed.length === 0 || parsed.length > 10000 || members.isPending} onClick={() => void ask({
+              title: `Remove ${parsed.length.toLocaleString("en-IN")} ${parsed.length === 1 ? "contact" : "contacts"} from this segment?`,
+              body: "The contacts themselves stay; only their place in this segment goes.",
+              confirmText: "Remove from segment", danger: true,
+            }).then((ok) => ok && members.mutate("remove"))}>Remove from segment</button>
             {parsed.length > 10000 && <span className="small" style={{ color: "var(--danger)" }}>Up to 10,000 at a time; import a CSV for more.</span>}
           </div>
           <ErrorNote error={members.error} />
@@ -87,13 +99,13 @@ export function StaticSegmentDetail() {
           </div>
         </aside>
       </div>
-      {list?.kind === "static" && <PreferenceSettings list={list} />}
+      {list?.kind === "static" && <PreferenceSettings list={list} onDirty={setPrefDirty} />}
     </div>
   );
 }
 
 /** PreferenceSettings offers a static segment on the preference center, where contacts join or leave it themselves. */
-function PreferenceSettings({ list }: { list: Segment }) {
+function PreferenceSettings({ list, onDirty }: { list: Segment; onDirty: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [pub, setPub] = useState<boolean | null>(null);
@@ -101,6 +113,7 @@ function PreferenceSettings({ list }: { list: Segment }) {
   const isPublic = pub ?? list.public;
   const description = desc ?? list.description;
   const dirty = (pub !== null && pub !== list.public) || (desc !== null && desc !== list.description);
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
   const save = useMutation({
     mutationFn: () => api.put(`/v1/lists/${list.id}`, { name: list.name, public: isPublic, description }),
     onSuccess: () => {

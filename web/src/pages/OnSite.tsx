@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, type AttributeDef, type Device, type DWCShadow, type DWCSlot, type DWCVariant, type FocusItem, type OnsiteAudience, type OnsiteCondition, type Overlap, type Segment } from "../api";
 import { useMe } from "../auth";
 import {
   cleanAudience, CONDITION_OPS, conditionOp, conditionValueText, describeAudience, DEVICES, firstEveryone, isEveryone, localShadows, MAX_CONDITIONS,
   MAX_VARIANTS, moveBy, moveVariant, normaliseVariant, overlapPairs, overlapRows, parseConditionValue, setConditionOp, splitList,
 } from "../onsiteVariants";
+import { AppContentEditor, cardProblem, emptyCard } from "./AppCardEditor";
 import { RichText } from "../RichText";
 import { nowISO, ScheduleFields, scheduleProblem } from "../schedule";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import "./onsite-variants.css";
 import { ContactCount } from "../ContactCount";
@@ -17,6 +19,21 @@ import { audienceFilters, overlapPairFilters, overlapSeesFilters, type SegmentAu
 const KIND_LABEL = { modal: "Pop-up", bar: "Banner bar", slide: "Slide-in" };
 const TRIGGER_LABEL: Record<string, string> = { load: "As the page loads", exit_intent: "When they're about to leave", scroll: "After scrolling", delay: "After a delay" };
 const FREQ_LABEL: Record<string, string> = { once: "Once per visitor", session: "Once per visit", daily: "At most once a day", always: "On every matching page" };
+
+/** useChangeGuard: an editor page whose every edit replaces one state value (value). Any value other
+ * than the first one or the last saved one is an unsaved change, and leaving then asks first.
+ * Call savedAs(v) with the value a save leaves the page showing. */
+export function useChangeGuard<T>(value: T | null) {
+  const base = useRef<T | null>(null);
+  const guard = useEditGuard();
+  const { markDirty, saved } = guard;
+  useEffect(() => {
+    if (value === null) return;
+    if (base.current === null) base.current = value;
+    else if (value !== base.current) markDirty();
+  }, [value, markDirty]);
+  return { savedAs: (v: T | null) => { base.current = v; saved(); }, left: saved };
+}
 
 function useSegments() {
   return useQuery({ queryKey: ["segments"], queryFn: () => api.get<{ segments: Segment[] }>("/v1/segments") }).data?.segments ?? [];
@@ -89,6 +106,7 @@ export function FocusEdit() {
   const existing = useQuery({ queryKey: ["focus", id], queryFn: () => api.get<FocusItem>(`/v1/focus-items/${id}`), enabled: !isNew });
   const [f, setF] = useState<FocusItem | null>(isNew ? { ...NEW_FOCUS, start_at: nowISO() } : null);
   useEffect(() => { if (existing.data && !f) setF(existing.data); }, [existing.data, f]);
+  const changes = useChangeGuard(f);
 
   const save = useMutation({
     mutationFn: (item: FocusItem) => (isNew ? api.post<{ id: number }>("/v1/focus-items", item) : api.put<{ id: number }>(`/v1/focus-items/${id}`, item)),
@@ -96,11 +114,13 @@ export function FocusEdit() {
       qc.invalidateQueries({ queryKey: ["focus"] });
       toast({ text: item.status === "active" ? "Published. Visitors see it within seconds." : "Saved as draft" });
       // Keep the id the create call returned: the page stays mounted under its new address.
-      setF(isNew ? { ...item, id: r.id } : item);
+      const next = isNew ? { ...item, id: r.id } : item;
+      changes.savedAs(next);
+      setF(next);
       if (isNew) nav(`/on-site/focus/${r.id}`, { replace: true });
     },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/focus-items/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["focus"] }); nav("/on-site?channel=website"); } });
+  const remove = useMutation({ mutationFn: () => api.del(`/v1/focus-items/${id}`), onSuccess: () => { changes.left(); qc.invalidateQueries({ queryKey: ["focus"] }); toast({ text: "Focus item deleted" }); nav("/on-site?channel=website"); } });
   if (!f) return <div className="page"><ErrorNote error={existing.error} /></div>;
   const c = f.content, t = f.targeting;
   const setC = (p: Partial<FocusItem["content"]>) => setF({ ...f, content: { ...c, ...p } });
@@ -112,8 +132,13 @@ export function FocusEdit() {
         back={<Link className="back" to="/on-site?channel=website">Website &amp; app messages</Link>}
         title={isNew ? "New focus item" : f.name}
         actions={<>
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this focus item?") && remove.mutate()}>Delete</button>}
-          <button className="btn" disabled={save.isPending} onClick={() => save.mutate({ ...f, status: "draft" })}>{f.status === "active" ? "Unpublish" : "Save draft"}</button>
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(f.name ? `the focus item ${f.name}` : "this focus item",
+            f.status === "active" ? "Visitors stop seeing it right away, and its stats go too. This can't be undone." : "This can't be undone.").then((ok) => ok && remove.mutate())}>Delete</button>}
+          <button className="btn" disabled={save.isPending} onClick={() => {
+            if (f.status !== "active") return save.mutate({ ...f, status: "draft" });
+            void ask({ title: "Unpublish this focus item?", body: "Visitors stop seeing it within seconds. It's kept as a draft, with your changes.", confirmText: "Unpublish" })
+              .then((ok) => ok && save.mutate({ ...f, status: "draft" }));
+          }}>{f.status === "active" ? "Unpublish" : "Save draft"}</button>
           <button className="btn primary" disabled={save.isPending || !!scheduleProblem(f.start_at, f.end_at)} onClick={() => save.mutate({ ...f, status: "active" })}>Publish</button>
         </>}
       />
@@ -294,18 +319,22 @@ function ConditionRows({ value, onChange }: { value: OnsiteCondition[]; onChange
 }
 
 /** AudienceEditor edits who sees something: segments in and out, pages, devices and contact fields. */
-function AudienceEditor({ value, onChange, segments, segmentsHint = "Leave empty to show everyone, including anonymous visitors." }: {
+function AudienceEditor({ value, onChange, segments, segmentsHint = "Leave empty to show everyone, including anonymous visitors.", app = false }: {
   value: OnsiteAudience; onChange: (p: Partial<OnsiteAudience>) => void; segments: Segment[]; segmentsHint?: string;
+  /** app: an app slot, where page addresses and device types don't apply. */
+  app?: boolean;
 }) {
   return (
     <div className="ov-audience">
       <SegmentPicker label="Show to members of any of" hint={segmentsHint} segments={segments} value={value.segment_ids ?? []} taken={value.exclude_segment_ids} onChange={(segment_ids) => onChange({ segment_ids })} />
       <SegmentPicker label="Never show to members of" segments={segments} value={value.exclude_segment_ids ?? []} taken={value.segment_ids} onChange={(exclude_segment_ids) => onChange({ exclude_segment_ids })} />
-      <div className="grid-2">
-        <PageRules label="Only on pages whose address contains" hint="Comma-separated, e.g. /pricing, /checkout. Leave empty for every page." value={value.url_contains ?? []} onChange={(url_contains) => onChange({ url_contains })} />
-        <PageRules label="Not on pages whose address contains" hint="Comma-separated. These pages never show it." value={value.url_not_contains ?? []} onChange={(url_not_contains) => onChange({ url_not_contains })} />
-      </div>
-      <DeviceChecks value={value.devices ?? []} onChange={(devices) => onChange({ devices })} />
+      {!app && <>
+        <div className="grid-2">
+          <PageRules label="Only on pages whose address contains" hint="Comma-separated, e.g. /pricing, /checkout. Leave empty for every page." value={value.url_contains ?? []} onChange={(url_contains) => onChange({ url_contains })} />
+          <PageRules label="Not on pages whose address contains" hint="Comma-separated. These pages never show it." value={value.url_not_contains ?? []} onChange={(url_not_contains) => onChange({ url_not_contains })} />
+        </div>
+        <DeviceChecks value={value.devices ?? []} onChange={(devices) => onChange({ devices })} />
+      </>}
       <ConditionRows value={value.conditions ?? []} onChange={(conditions) => onChange({ conditions })} />
     </div>
   );
@@ -386,7 +415,8 @@ const newKey = () => `k${++keySeq}`;
 type SaveResp = { id: number; variants: DWCVariant[]; shadowed: DWCShadow[] | null; default_never_shown: boolean };
 
 const toPayload = (vs: DWCVariant[]): DWCVariant[] =>
-  vs.map((v) => ({ ...(v.id ? { id: v.id } : {}), ...(v.name?.trim() ? { name: v.name.trim() } : {}), audience: cleanAudience(v.audience), html: v.html }));
+  vs.map((v) => ({ ...(v.id ? { id: v.id } : {}), ...(v.name?.trim() ? { name: v.name.trim() } : {}), audience: cleanAudience(v.audience), html: v.html,
+    ...(v.card && !emptyCard(v.card) ? { card: v.card } : {}) }));
 
 export function DWCEdit() {
   const { id } = useParams();
@@ -397,7 +427,8 @@ export function DWCEdit() {
   const segments = useSegments();
   const segNames = useMemo(() => new Map(segments.map((s) => [s.id, s.name])), [segments]);
   const existing = useQuery({ queryKey: ["dwc", id], queryFn: () => api.get<DWCSlot>(`/v1/dwc/${id}`), enabled: !isNew });
-  const [d, setD] = useState<DWCSlot | null>(isNew ? { id: 0, slot: "", name: "", default_html: "", variants: [], status: "draft", start_at: nowISO() } : null);
+  const [search] = useSearchParams();
+  const [d, setD] = useState<DWCSlot | null>(isNew ? { id: 0, slot: "", name: "", platform: search.get("platform") === "app" ? "app" : "web", default_html: "", variants: [], status: "draft", start_at: nowISO() } : null);
   // Stable keys keep each card's editor with its variant while the list is reordered.
   const [keys, setKeys] = useState<string[]>([]);
   // The server's shadow report (from loading or saving) holds until the variants change.
@@ -412,10 +443,12 @@ export function DWCEdit() {
       setServer({ shadowed: existing.data.shadowed ?? [], defaultNeverShown: !!existing.data.default_never_shown });
     }
   }, [existing.data, d]);
+  // Every edit (typing, adding, removing or reordering variants) replaces d.
+  const changes = useChangeGuard(d);
 
   const save = useMutation({
     mutationFn: (s: DWCSlot) => {
-      const body = { ...s, variants: toPayload(s.variants) };
+      const body = { ...s, variants: toPayload(s.variants), default_card: s.default_card && !emptyCard(s.default_card) ? s.default_card : null };
       delete body.shadowed;
       delete body.default_never_shown;
       return isNew ? api.post<SaveResp>("/v1/dwc", body) : api.put<SaveResp>(`/v1/dwc/${id}`, body);
@@ -425,12 +458,14 @@ export function DWCEdit() {
       toast({ text: s.status === "active" ? "Published" : "Saved as draft" });
       const vs = (r.variants ?? s.variants).map(normaliseVariant);
       // Keep the id the create call returned: the page stays mounted under its new address.
-      setD({ ...s, id: isNew ? r.id : s.id, variants: vs });
+      const next = { ...s, id: isNew ? r.id : s.id, variants: vs };
+      changes.savedAs(next);
+      setD(next);
       setServer({ shadowed: r.shadowed ?? [], defaultNeverShown: !!r.default_never_shown });
       if (isNew) nav(`/on-site/content/${r.id}`, { replace: true });
     },
   });
-  const remove = useMutation({ mutationFn: () => api.del(`/v1/dwc/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["dwc"] }); nav("/on-site?channel=website"); } });
+  const remove = useMutation({ mutationFn: () => api.del(`/v1/dwc/${id}`), onSuccess: () => { changes.left(); qc.invalidateQueries({ queryKey: ["dwc"] }); toast({ text: "Content slot deleted" }); nav(`/on-site?channel=${d?.platform === "app" ? "app" : "website"}`); } });
   const overlap = useMutation({
     mutationFn: async ({ vs, at }: { vs: DWCVariant[]; at: number }) => {
       try {
@@ -443,6 +478,9 @@ export function DWCEdit() {
 
   const auds = useMemo(() => (d?.variants ?? []).map((v) => cleanAudience(v.audience)), [d?.variants]);
   if (!d) return <div className="page"><ErrorNote error={existing.error} /></div>;
+  const app = d.platform === "app";
+  const cardIssue = [d.default_card, ...d.variants.map((v) => v.card)].map(cardProblem).find(Boolean) ?? "";
+  const hasDefault = d.default_html.trim() !== "" || !emptyCard(d.default_card);
 
   // Every change to the variants goes through here: the server's shadow report no longer applies.
   const setVariants = (vs: DWCVariant[], ks: string[] = keys) => {
@@ -487,21 +525,36 @@ export function DWCEdit() {
   return (
     <div className="page">
       <PageHead
-        back={<Link className="back" to="/on-site?channel=website">Website &amp; app messages</Link>}
-        title={isNew ? "New content slot" : d.name}
+        back={<Link className="back" to={`/on-site?channel=${app ? "app" : "website"}`}>Website &amp; app messages</Link>}
+        title={isNew ? (app ? "New app content slot" : "New content slot") : d.name}
         actions={<>
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this slot? The placeholder on your pages will stay empty.") && remove.mutate()}>Delete</button>}
-          <button className="btn" disabled={save.isPending} onClick={() => save.mutate({ ...d, status: "draft" })}>{d.status === "active" ? "Unpublish" : "Save draft"}</button>
-          <button className="btn primary" disabled={save.isPending || !!scheduleProblem(d.start_at, d.end_at)} onClick={() => save.mutate({ ...d, status: "active" })}>Publish</button>
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(d.name ? `the slot ${d.name}` : "this slot",
+            `${app ? "The place in your app stays empty." : "The placeholder on your pages stays empty."} This can't be undone.`,
+            d.status === "active" ? d.name || undefined : undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
+          <button className="btn" disabled={save.isPending} onClick={() => {
+            if (d.status !== "active") return save.mutate({ ...d, status: "draft" });
+            void ask({ title: "Unpublish this slot?", body: app ? "The place in your app shows nothing from Pulse within seconds. It's kept as a draft, with your changes." : "The placeholder on your pages stays empty within seconds. It's kept as a draft, with your changes.", confirmText: "Unpublish" })
+              .then((ok) => ok && save.mutate({ ...d, status: "draft" }));
+          }}>{d.status === "active" ? "Unpublish" : "Save draft"}</button>
+          <button className="btn primary" disabled={save.isPending || !!scheduleProblem(d.start_at, d.end_at) || !!cardIssue} onClick={() => save.mutate({ ...d, status: "active" })}>Publish</button>
         </>}
       />
       <ErrorNote error={save.error ?? remove.error} />
       <div className="grid-2">
         <Field label="Name"><input className="input" value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} placeholder="Homepage hero" /></Field>
-        <Field label="Slot key" hint={<>Matches <code>{`data-pulse-slot="${d.slot || "home-hero"}"`}</code> on your page.</>}>
-          <input className="input code" value={d.slot} onChange={(e) => setD({ ...d, slot: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "-") })} placeholder="home-hero" />
+        <Field label="Slot key" hint={app
+          ? <>Your app shows it with <code>{`PulseSlot(id: '${d.slot || "home_banner"}')`}</code> (Flutter), <code>PulseSlotView</code> (Android, iOS).</>
+          : <>Matches <code>{`data-pulse-slot="${d.slot || "home-hero"}"`}</code> on your page.</>}>
+          <input className="input code" value={d.slot} onChange={(e) => setD({ ...d, slot: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "-") })} placeholder={app ? "home_banner" : "home-hero"} />
         </Field>
       </div>
+      <Field label="Where">
+        <div className="seg-toggle sm" role="radiogroup" aria-label="Where" style={{ width: "fit-content" }}>
+          <button role="radio" aria-checked={!app} aria-pressed={!app} disabled={!isNew && app} onClick={() => setD({ ...d, platform: "web", default_card: null, variants: d.variants.map((v) => ({ ...v, card: null })) })}>Website</button>
+          <button role="radio" aria-checked={app} aria-pressed={app} disabled={!isNew && !app} onClick={() => setD({ ...d, platform: "app" })}>App</button>
+        </div>
+      </Field>
+      {cardIssue && <div className="alert error">{cardIssue}</div>}
       <h3 style={{ margin: "8px 0 4px" }}>Variants</h3>
       <p className="small muted" style={{ marginBottom: 12 }}>
         Checked top to bottom: a visitor sees the first variant they match, and everyone else sees the default content at the bottom. Drag a variant by its handle, or use the arrows, to change the order.
@@ -525,14 +578,19 @@ export function DWCEdit() {
               <div className="panel-body">
                 <p className="small ov-who"><strong>Who sees it:</strong> {describeAudience(auds[i], segNames)}{i > 0 && !shadow ? ", unless they match a variant above" : ""}.</p>
                 {shadow && <div className="alert error" role="alert">{shadow.note}</div>}
-                {everyoneAt === i && (i < d.variants.length - 1 || d.default_html.trim() !== "") && (
+                {everyoneAt === i && (i < d.variants.length - 1 || hasDefault) && (
                   <div className="alert info">This variant shows to everyone, so {i < d.variants.length - 1 ? "the variants below it and " : ""}the default content are never shown. Add a rule, or move it to the bottom.</div>
                 )}
                 <Collapsible title="Audience rules" startOpen={!v.id || isEveryone(v.audience)}>
-                  <AudienceEditor value={v.audience} onChange={(p) => setAud(i, p)} segments={segments} segmentsHint="Leave empty for everyone who matches the other rules." />
+                  <AudienceEditor app={app} value={v.audience} onChange={(p) => setAud(i, p)} segments={segments} segmentsHint="Leave empty for everyone who matches the other rules." />
                 </Collapsible>
-                <RichText allowImages allowTables label={`Variant ${i + 1} content`} minHeight={140} value={v.html}
-                  onChange={(html) => setD((x) => x && { ...x, variants: x.variants.map((w, j) => (j === i ? { ...w, html } : w)) })} />
+                {app ? (
+                  <AppContentEditor label={`Variant ${i + 1} content`} card={v.card} html={v.html}
+                    onChange={(p) => setD((x) => x && { ...x, variants: x.variants.map((w, j) => (j === i ? { ...w, ...p } : w)) })} />
+                ) : (
+                  <RichText allowImages allowTables label={`Variant ${i + 1} content`} minHeight={140} value={v.html}
+                    onChange={(html) => setD((x) => x && { ...x, variants: x.variants.map((w, j) => (j === i ? { ...w, html } : w)) })} />
+                )}
               </div>
             </li>
           );
@@ -546,13 +604,18 @@ export function DWCEdit() {
         <div className="panel-head ov-card-head"><span className="ov-num">∗</span><strong>Everyone else</strong></div>
         <div className="panel-body">
           {report.defaultNeverShown && d.variants.length > 0 && (
-            d.default_html.trim()
+            hasDefault
               ? <div className="alert error" role="alert">Never shown: {everyoneAt >= 0 ? `variant ${everyoneAt + 1}` : "a variant above"} shows to everyone. Add a rule to it to show this content to the rest.</div>
               : <p className="xs muted" style={{ marginBottom: 8 }}>Not used: {everyoneAt >= 0 ? `variant ${everyoneAt + 1}` : "a variant above"} shows to everyone.</p>
           )}
-          <RichText allowImages allowTables label="Everyone else sees" minHeight={140} value={d.default_html} placeholder="Leave empty to show nothing."
-            onChange={(default_html) => setD((x) => x && { ...x, default_html })} />
-          <small className="muted">Visitors who match no variant, including anonymous visitors. Leave empty to show nothing.</small>
+          {app ? (
+            <AppContentEditor label="Everyone else sees" card={d.default_card} html={d.default_html}
+              onChange={(p) => setD((x) => x && { ...x, ...(p.card !== undefined ? { default_card: p.card } : {}), ...(p.html !== undefined ? { default_html: p.html } : {}) })} />
+          ) : (
+            <RichText allowImages allowTables label="Everyone else sees" minHeight={140} value={d.default_html} placeholder="Leave empty to show nothing."
+              onChange={(default_html) => setD((x) => x && { ...x, default_html })} />
+          )}
+          <small className="muted">{app ? "App users" : "Visitors"} who match no variant, including anonymous ones. Leave empty to show nothing.</small>
         </div>
       </div>
 
@@ -572,8 +635,28 @@ export function DWCEdit() {
 
       <h3 style={{ margin: "6px 0 12px" }}>Schedule</h3>
       <ScheduleFields start={d.start_at} end={d.end_at} onChange={(w) => setD({ ...d, start_at: w.start_at, end_at: w.end_at ?? null })} startLabel="Show from" />
-      {!isNew && d.slot && <ContactCheck slot={d.slot} />}
-      <SdkNote />
+      {!isNew && d.slot && !app && <ContactCheck slot={d.slot} />}
+      {app ? <AppSdkNote slot={d.slot || "home_banner"} /> : <SdkNote />}
     </div>
+  );
+}
+
+/** AppSdkNote: how an app shows a slot, in each SDK. */
+function AppSdkNote({ slot }: { slot: string }) {
+  return (
+    <section className="panel section">
+      <div className="panel-head"><h3>Show it in your app</h3></div>
+      <div className="panel-body small">
+        <p style={{ marginTop: 0 }}>Put the slot where it should appear. The SDK fetches it, draws the card (or hands it to your own view), and records <code>app_content_viewed</code> and <code>app_content_clicked</code>.</p>
+        <pre className="code">{`// Flutter
+PulseSlot(id: '${slot}')
+
+// Android (Kotlin)
+findViewById<PulseSlotView>(R.id.banner).slotId = "${slot}"
+
+// iOS (SwiftUI)
+PulseSlot(id: "${slot}")`}</pre>
+      </div>
+    </section>
   );
 }

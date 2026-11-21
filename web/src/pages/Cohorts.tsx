@@ -10,6 +10,7 @@ import {
 import { count, defaultRange, EVENT_RE, FilterRows, filterProblems, fromFilter, pct, RangePicker, rangeBounds, rangeProblem, SegmentPicker, toFilter, useDebounced, type Range } from "../insights";
 import type { Where } from "../segmentRules";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
+import { askDelete, useEditGuard } from "../guard";
 import "./cohorts.css";
 
 type Cohort = SavedReport<CohortSpec>;
@@ -165,6 +166,7 @@ export function CohortEdit() {
     mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/cohorts", body()) : api.put<{ id: number }>(`/v1/cohorts/${id}`, body())),
     onSuccess: (r) => {
       const savedId = isNew ? r.id : Number(id);
+      guard.saved();
       qc.invalidateQueries({ queryKey: ["cohorts"] });
       qc.invalidateQueries({ queryKey: ["cohort", String(savedId)] });
       toast({ text: isNew ? "Cohort report created" : "Cohort report saved" });
@@ -173,12 +175,17 @@ export function CohortEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/cohorts/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["cohorts"] }); toast({ text: "Cohort report deleted" }); nav("/cohorts"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["cohorts"] }); toast({ text: `Deleted ${existing.data?.name || "the cohort report"}` }); nav("/cohorts"); },
   });
+  // Changes to the report's definition (not the range shown) are a draft until saved: leaving asks
+  // first, for people who can save it; Ctrl/⌘+S saves.
+  const saveBlocked = !name.trim() || issues.length > 0 || save.isPending;
+  const guard = useEditGuard(canEdit && !saveBlocked ? () => save.mutate() : undefined);
+  const edited = () => { if (canEdit) guard.markDirty(); };
 
   if (!loaded) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
-  const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
+  const set = (patch: Partial<Draft>) => { edited(); setDraft({ ...draft, ...patch }); };
   const setPeriod = (period: Period) => {
     set({ period, periods: clampInt(draft.periods, MAX_PERIODS[period]) });
     if (show.mode === "last") setShow({ mode: "last", last: clampInt(show.last, MAX_RECENT[period]) });
@@ -193,14 +200,14 @@ export function CohortEdit() {
         title={isNew ? "New cohort report" : name || "Cohort report"}
         intro={canEdit ? undefined : "You can run this report; saving it needs edit access to reports."}
         actions={canEdit ? <>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this cohort report?") && remove.mutate()}>Delete</button>}
-          <button className="btn primary" disabled={!!saveProblem || save.isPending} title={saveProblem} onClick={() => save.mutate()}>{isNew ? "Create report" : "Save report"}</button>
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(existing.data?.name || "this cohort report", "The saved report goes; contacts and events aren't touched. This can't be undone.").then((ok) => ok && remove.mutate())}>Delete</button>}
+          <button className="btn primary" disabled={!!saveProblem || save.isPending} title={saveProblem} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : isNew ? "Create report" : "Save report"}</button>
         </> : undefined}
       />
       <ErrorNote error={save.error ?? remove.error ?? existing.error} />
       <div className="cohort-split">
         <div>
-          <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Weekly signups coming back" /></Field>
+          <Field label="Name"><input className="input" value={name} onChange={(e) => { edited(); setName(e.target.value); }} placeholder="Weekly signups coming back" autoFocus={isNew} /></Field>
 
           <div className="panel">
             <div className="panel-head"><h3>Group contacts by</h3></div>

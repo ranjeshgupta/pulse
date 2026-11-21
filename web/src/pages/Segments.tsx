@@ -1,11 +1,12 @@
 import { DuplicateButton, ReachByChannel } from "../campaignUI";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AutomationResponse, type Segment, type SegmentRefresh } from "../api";
 import { dailySegmentDefault } from "../automation";
 import { useCan } from "../auth";
 import { describe, newGroup, problems, rootFromRule, toRule, type Group } from "../segmentRules";
+import { askDelete, useEditGuard } from "../guard";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, timeAgo, useToast } from "../ui";
 import { ContactCount } from "../ContactCount";
 import { GroupEditor } from "./SegmentBuilder";
@@ -143,12 +144,18 @@ function DynamicSegmentEdit() {
   const [root, setRoot] = useState<Group>(newGroup());
   const [refresh, setRefresh] = useState<SegmentRefresh>({ mode: "live" });
   const [loaded, setLoaded] = useState(isNew);
+  // Unsaved changes: typing is noticed on the page; rule and refresh edits made with buttons
+  // (add / remove a condition or group) are noticed by comparing with what was loaded.
+  const start = useRef<{ root: Group; refresh: SegmentRefresh }>({ root, refresh });
 
   useEffect(() => {
     if (existing.data && !loaded) {
+      const r = rootFromRule(existing.data.rule ?? undefined);
+      const f = existing.data.refresh ?? { mode: "live" as const };
+      start.current = { root: r, refresh: f };
       setName(existing.data.name);
-      setRoot(rootFromRule(existing.data.rule ?? undefined));
-      setRefresh(existing.data.refresh ?? { mode: "live" });
+      setRoot(r);
+      setRefresh(f);
       setLoaded(true);
     }
   }, [existing.data, loaded]);
@@ -169,9 +176,17 @@ function DynamicSegmentEdit() {
     enabled: debounced !== "null",
   });
 
+  const guard = useEditGuard(() => { if (rule && name && !save.isPending) save.mutate(); });
+  const { markDirty } = guard;
+  useEffect(() => {
+    if (loaded && (root !== start.current.root || refresh !== start.current.refresh)) markDirty();
+  }, [root, refresh, loaded, markDirty]);
+
   const save = useMutation({
     mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/segments", { name, rule, refresh }) : api.put<{ id: number }>(`/v1/segments/${id}`, { name, rule, refresh })),
     onSuccess: (r) => {
+      start.current = { root, refresh };
+      guard.saved();
       qc.invalidateQueries({ queryKey: ["segments"] });
       toast({ text: isNew ? "Segment created. Pulse is filling it now." : "Segment saved. Pulse is rebuilding it now." });
       nav(`/segments/${r.id}`, { replace: true });
@@ -179,18 +194,21 @@ function DynamicSegmentEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/segments/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Segment deleted" }); nav("/segments"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["segments"] }); toast({ text: "Segment deleted" }); nav("/segments"); },
   });
 
+  const segName = existing.data?.name || "";
   return (
-    <div className="page">
+    <div className="page" {...guard.track}>
       <PageHead
         back={<Link className="back" to="/segments">Segments</Link>}
         title={<>{isNew ? "New dynamic segment" : name || "Segment"} {!isNew && <SegmentType kind="rule" />}</>}
         actions={<>
           {!isNew && <Link className="btn" to={viewContactsHref(Number(id))}>View contacts</Link>}
           {!isNew && <DuplicateButton path={`/v1/segments/${id}/duplicate`} open={(nid) => `/segments/${nid}`} invalidate={["segments"]} />}
-          {!isNew && <button className="btn danger" onClick={() => confirm("Delete this segment? Journeys that use it stop enrolling.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(segName ? `the segment ${segName}` : "this segment",
+            "Campaigns and journeys that use it stop enrolling, and segments built on it stop matching. This can't be undone.",
+            segName || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
           <button className="btn primary" disabled={!rule || !name || save.isPending} onClick={() => save.mutate()}>{isNew ? "Create segment" : "Save segment"}</button>
         </>}
       />

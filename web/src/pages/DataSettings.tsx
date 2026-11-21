@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useIsAdmin } from "../auth";
 import { Link } from "react-router-dom";
 import { ErrorNote, PageHead, useToast } from "../ui";
+import { useEditGuard } from "../guard";
 
 const keep = (d: number) => (d ? `${d} days` : "forever");
 
@@ -23,8 +24,12 @@ export function DataPrivacy() {
   const cur = d ?? q.data?.settings;
   const save = useMutation({
     mutationFn: () => api.put("/v1/settings/data", cur),
-    onSuccess: () => { setD(null); qc.invalidateQueries({ queryKey: ["data-settings"] }); toast({ text: "Saved." }); },
+    onSuccess: () => { guard.saved(); setD(null); qc.invalidateQueries({ queryKey: ["data-settings"] }); toast({ text: "Saved." }); },
   });
+  // Unsaved tracking choices: leaving the page asks first; Ctrl/⌘+S saves.
+  const guard = useEditGuard(admin && d && !save.isPending ? () => save.mutate() : undefined);
+  const { markDirty, saved } = guard;
+  useEffect(() => { if (d) markDirty(); else saved(); }, [d, markDirty, saved]);
   if (!cur) return <div className="page"><ErrorNote error={q.error} /></div>;
   return (
     <div className="page">
@@ -47,7 +52,7 @@ export function DataPrivacy() {
           with a preview of what a shorter setting would delete.
           <span className="muted"> Now: events {keep(cur.retention.event_days)}, anonymous visitors {cur.retention.anonymous_days ? `deleted after ${cur.retention.anonymous_days} idle days` : "kept"}, audit log {keep(cur.retention.audit_days)}.</span>
         </div></section>
-        {admin && <button className="btn primary" disabled={!d || save.isPending} onClick={() => save.mutate()}>Save</button>}
+        {admin && <button className="btn primary" disabled={!d || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save"}</button>}
       </fieldset>
     </div>
   );

@@ -390,9 +390,12 @@ export type Device = "desktop" | "mobile" | "tablet";
 export interface OnsiteCondition { prop: string; op: string; value?: unknown }
 export interface OnsiteAudience { segment_ids?: number[]; exclude_segment_ids?: number[]; url_contains?: string[]; url_not_contains?: string[]; devices?: Device[]; conditions?: OnsiteCondition[] }
 /** Variants are tried in order; the first whose audience matches is shown, else default_html. segment_id is pre-M6 (folded into audience on save). */
-export interface DWCVariant { id?: string; name?: string; segment_id?: number; audience: OnsiteAudience; html: string }
+/** App slot content drawn natively by the app SDKs. */
+export interface AppCard { title?: string; body?: string; image_url?: string; button_text?: string; deep_link?: string; data?: Record<string, string> }
+export type SlotPlatform = "web" | "app";
+export interface DWCVariant { id?: string; name?: string; segment_id?: number; audience: OnsiteAudience; html: string; card?: AppCard | null }
 export interface DWCShadow { index: number; by: number; note: string }
-export interface DWCSlot { id: number; slot: string; name: string; default_html: string; variants: DWCVariant[]; status: "draft" | "active"; updated_at?: string; start_at?: string; end_at?: string | null;
+export interface DWCSlot { id: number; slot: string; name: string; platform?: SlotPlatform; default_card?: AppCard | null; default_html: string; variants: DWCVariant[]; status: "draft" | "active"; updated_at?: string; start_at?: string; end_at?: string | null;
   /** GET only: variants that can never be shown, and whether an "everyone" variant hides the default. */
   shadowed?: DWCShadow[]; default_never_shown?: boolean }
 /** POST /v1/dwc/overlap {slot_id} | {variants}; POST /v1/focus-items/overlap {kind} | {ids}. */

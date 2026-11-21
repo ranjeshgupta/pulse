@@ -4,7 +4,7 @@
 // mapping and pushes, Shopify its webhook URL, REST hooks their API key and subscriptions, and ad
 // platforms the segments linked to their audiences.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   api, type AttributeDef, type AudienceSync, type FieldMap, type Integration, type IntegrationKind, type IntegrationLogEntry,
@@ -14,6 +14,7 @@ import { useCan, useIsAdmin } from "../auth";
 import {
   CATEGORY_LABELS, CATEGORY_ORDER, mappingProblems, normalizeCatalog, normalizeIntegration, normalizeKind, PULL_EVERY, type IntegrationCatalog,
 } from "../integrations";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useCopy, useToast } from "../ui";
 import "./integrations.css";
 import "./webhooks.css";
@@ -129,6 +130,17 @@ export function IntegrationEdit() {
       setOwner({ id: id!, kind: i.kind });
     }
   }, [isNew, id, kind, existing.data, d, owner]);
+  // Unsaved changes: every edit replaces d, so a d other than the first or last saved one is a
+  // change. Leaving then asks; Ctrl/⌘+S saves.
+  const baseDraft = useRef<Draft | null>(null);
+  const guard = useEditGuard(() => saveRef.current?.());
+  const saveRef = useRef<(() => void) | null>(null);
+  const { markDirty } = guard;
+  useEffect(() => {
+    if (!d) return;
+    if (!baseDraft.current) baseDraft.current = d;
+    else if (d !== baseDraft.current) markDirty();
+  }, [d, markDirty]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -140,7 +152,8 @@ export function IntegrationEdit() {
       if (r.api_key) setNewKey(r.api_key);
       toast({ text: isNew ? "Integration connected" : "Integration saved" });
       // Keep the saved values in the form; typed secrets are stored now, so clear them (empty keeps them).
-      setD((cur) => (cur ? { ...cur, secrets: {} } : cur));
+      guard.saved();
+      setD((cur) => (baseDraft.current = cur ? { ...cur, secrets: {} } : cur));
       if (isNew) {
         setOwner({ id: String(r.id), kind: kind!.id });
         nav(`/settings/integrations/${r.id}`, { replace: true });
@@ -149,7 +162,7 @@ export function IntegrationEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/integrations/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["integrations"] }); toast({ text: "Integration deleted" }); nav("/settings/integrations"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["integrations"] }); toast({ text: "Integration deleted" }); nav("/settings/integrations"); },
   });
 
   const back = <Link className="back" to="/settings/integrations">Integrations</Link>;
@@ -169,6 +182,8 @@ export function IntegrationEdit() {
   const problem = !d.name.trim() ? "Name the integration."
     : missing.length ? `Fill in ${missing[0].label}.`
     : mapIssues.some(Boolean) ? "Fix the field mapping." : null;
+  saveRef.current = admin && !problem ? () => { if (!save.isPending) save.mutate(); } : null;
+  const savedName = saved?.name ?? kind.name;
 
   return (
     <div className="page">
@@ -177,7 +192,8 @@ export function IntegrationEdit() {
         title={isNew ? `Connect ${kind.name}` : saved?.name ?? kind.name}
         intro={kind.description}
         actions={admin && <>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this integration? Its settings, log and audience links go too. Contacts already synced stay.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(`the integration ${savedName}`,
+            "Syncing stops right away, and its settings, log and audience links go too. Contacts already synced stay. This can't be undone.", savedName).then((ok) => ok && remove.mutate())}>Delete</button>}
           <button className="btn primary" disabled={!!problem || save.isPending} title={problem ?? undefined} onClick={() => save.mutate()}>{isNew ? "Connect" : "Save"}</button>
         </>}
       />
@@ -331,7 +347,8 @@ function PullPanel({ id }: { id: string }) {
         <h3>Pull contacts</h3>
         <div className="row" style={{ gap: 6 }}>
           <button className="btn sm" disabled={pull.isPending} onClick={() => pull.mutate(false)}>Pull now</button>
-          <button className="btn sm" disabled={pull.isPending} onClick={() => confirm("Pull every record again, from the start? Unchanged contacts stay as they are.") && pull.mutate(true)}>Pull everything again</button>
+          <button className="btn sm" disabled={pull.isPending} onClick={() => void ask({ title: "Pull every record again, from the start?", body: "Unchanged contacts stay as they are.", confirmText: "Pull everything" })
+            .then((ok) => ok && pull.mutate(true))}>Pull everything again</button>
         </div>
       </div>
       <div className="panel-body">
@@ -434,7 +451,8 @@ function HooksPanel({ id, detail, admin, onKey }: { id: string; detail: Detail; 
   const segs = useQuery({ queryKey: ["segments"], queryFn: () => api.get<{ segments: Segment[] }>("/v1/segments") });
   const segName = (sid?: number) => segs.data?.segments.find((s) => s.id === sid)?.name ?? `segment ${sid}`;
   const rotate = useMutation({ mutationFn: () => api.post<{ api_key: string }>(`/v1/integrations/${id}/key`), onSuccess: (r) => { onKey(r.api_key); qc.invalidateQueries({ queryKey: ["integration", id] }); } });
-  const unsub = useMutation({ mutationFn: (sub: number) => api.del(`/v1/integrations/${id}/subscriptions/${sub}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["integration", id] }) });
+  const toast = useToast();
+  const unsub = useMutation({ mutationFn: (sub: number) => api.del(`/v1/integrations/${id}/subscriptions/${sub}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["integration", id] }); toast({ text: "Subscription removed" }); } });
   const base = detail.hooks_url ?? "";
   const subs = detail.subscriptions ?? [];
   const ds = detail.deliveries ?? [];
@@ -445,7 +463,8 @@ function HooksPanel({ id, detail, admin, onKey }: { id: string; detail: Detail; 
         <div className="panel-body">
           <div className="wh-secret">
             <code>{detail.integration.key_hint ? "pzk_••••••••" + detail.integration.key_hint : "No key"}</code>
-            {admin && <button className="btn sm danger" disabled={rotate.isPending} onClick={() => confirm("Create a new API key? The current one stops working right away, so update Zapier or Make too.") && rotate.mutate()}>Rotate key</button>}
+            {admin && <button className="btn sm danger" disabled={rotate.isPending} onClick={() => void ask({ title: "Create a new API key?", body: "The current one stops working right away, so update Zapier or Make too.", confirmText: "Rotate key", danger: true })
+              .then((ok) => ok && rotate.mutate())}>Rotate key</button>}
           </div>
           <p className="small muted" style={{ margin: "12px 0 6px" }}>Send <code>Authorization: Bearer pzk_…</code> to these endpoints under</p>
           <div className="wh-secret"><code>{base}</code><button className="btn sm" onClick={() => copy(base, "URL copied")}>Copy</button></div>
@@ -468,7 +487,8 @@ function HooksPanel({ id, detail, admin, onKey }: { id: string; detail: Detail; 
                   <td className="small">{s.segment_id ? segName(s.segment_id) : s.form_id ? `form ${s.form_id}` : <span className="muted">All</span>}</td>
                   <td className="xs muted int-url">{s.url}</td>
                   <td className="small muted">{timeAgo(s.created_at)}</td>
-                  <td>{admin && <button className="btn sm" disabled={unsub.isPending} onClick={() => confirm("Remove this subscription? The Zap stops getting this trigger.") && unsub.mutate(s.id)}>Remove</button>}</td>
+                  <td>{admin && <button className="btn sm" disabled={unsub.isPending} onClick={() => void ask({ title: "Remove this subscription?", body: "The Zap or scenario stops getting this trigger.", confirmText: "Remove", danger: true })
+                    .then((ok) => ok && unsub.mutate(s.id))}>Remove</button>}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -521,7 +541,7 @@ function AudiencesPanel({ id, audiences, admin }: { id: string; audiences: Audie
   });
   const toggle = useMutation({ mutationFn: (a: AudienceSync) => api.put(`/v1/integrations/${id}/audiences/${a.id}`, { active: !a.active }), onSuccess: refresh });
   const sync = useMutation({ mutationFn: (a: AudienceSync) => api.post(`/v1/integrations/${id}/audiences/${a.id}/reconcile`), onSuccess: () => { toast({ text: "A full sync starts within seconds" }); refresh(); } });
-  const unlink = useMutation({ mutationFn: (a: AudienceSync) => api.del(`/v1/integrations/${id}/audiences/${a.id}`), onSuccess: refresh });
+  const unlink = useMutation({ mutationFn: (a: AudienceSync) => api.del(`/v1/integrations/${id}/audiences/${a.id}`), onSuccess: (_, a) => { refresh(); toast({ text: `${segName(a.segment_id)} unlinked` }); } });
   const mayLink = admin && canSegments;
   return (
     <>
@@ -552,7 +572,9 @@ function AudiencesPanel({ id, audiences, admin }: { id: string; audiences: Audie
                     <td className="int-actions">{mayLink && <>
                       <button className="btn sm" onClick={() => sync.mutate(a)}>Sync now</button>
                       <button className="btn sm" onClick={() => toggle.mutate(a)}>{a.active ? "Pause" : "Resume"}</button>
-                      <button className="btn sm danger" onClick={() => confirm("Unlink this segment? Pulse stops updating the audience; the audience keeps contacts already uploaded.") && unlink.mutate(a)}>Unlink</button>
+                      <button className="btn sm danger" disabled={unlink.isPending} onClick={() => void ask({
+                        title: `Unlink ${segName(a.segment_id)}?`, body: "Pulse stops updating the audience; the audience keeps contacts already uploaded.", confirmText: "Unlink", danger: true,
+                      }).then((ok) => ok && unlink.mutate(a))}>Unlink</button>
                     </>}</td>
                   </tr>
                 ))}</tbody>

@@ -5,6 +5,7 @@ import { api, type Funnel, type FunnelResult, type FunnelStep, type PropFilter }
 import { NUMERIC_OPS, newWhere, type AttrOp, type Where } from "../segmentRules";
 import { CompareFields, count, daysAgo, EVENT_RE, KEY_RE, MAX_FILTERS, pct, RangePicker, rangeBounds, rangeProblem, SegmentPicker, ymd, type Range } from "../insights";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, timeAgo, useToast } from "../ui";
+import { askDelete, useEditGuard } from "../guard";
 import "./funnels.css";
 
 const MIN_STEPS = 2;
@@ -109,7 +110,7 @@ export function FunnelEdit() {
   const eventNames = useQuery({ queryKey: ["event-names"], queryFn: () => api.get<{ names: string[] }>("/v1/events/names"), staleTime: 60_000 });
 
   const [name, setName] = useState("");
-  const [steps, setSteps] = useState<EditStep[]>(NEW_STEPS);
+  const [steps, setStepsRaw] = useState<EditStep[]>(NEW_STEPS);
   const [windowDays, setWindowDays] = useState(7);
   const [loaded, setLoaded] = useState(isNew);
   const [range, setRange] = useState<Range>({ preset: 30, from: ymd(daysAgo(30)), to: ymd(new Date()) });
@@ -119,7 +120,7 @@ export function FunnelEdit() {
   useEffect(() => {
     if (existing.data && !loaded) {
       setName(existing.data.name);
-      setSteps(existing.data.steps.map(fromStep));
+      setStepsRaw(existing.data.steps.map(fromStep));
       setWindowDays(existing.data.window_days);
       setLoaded(true);
     }
@@ -154,6 +155,7 @@ export function FunnelEdit() {
   const save = useMutation({
     mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/funnels", body()) : api.put<{ id: number }>(`/v1/funnels/${id}`, body())),
     onSuccess: (r) => {
+      guard.saved();
       qc.invalidateQueries({ queryKey: ["funnels"] });
       qc.invalidateQueries({ queryKey: ["funnel", String(r.id)] });
       toast({ text: isNew ? "Funnel created" : "Funnel saved" });
@@ -162,8 +164,14 @@ export function FunnelEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/funnels/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["funnels"] }); toast({ text: "Funnel deleted" }); nav("/funnels"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["funnels"] }); toast({ text: `Deleted ${existing.data?.name || "the funnel"}` }); nav("/funnels"); },
   });
+  // The name, steps and window are saved; the range, segment and breakdown only explore. Changing
+  // what's saved makes leaving ask first; Ctrl/⌘+S saves.
+  const canSave = !!name.trim() && issues.length === 0 && !save.isPending;
+  const guard = useEditGuard(canSave ? () => save.mutate() : undefined);
+  const edited = <T,>(fn: (v: T) => void) => (v: T) => { guard.markDirty(); fn(v); };
+  const setSteps = edited(setStepsRaw);
 
   if (!loaded) return <div className="page"><ErrorNote error={existing.error} /></div>;
 
@@ -181,17 +189,17 @@ export function FunnelEdit() {
         back={<Link className="back" to="/funnels">Funnels</Link>}
         title={isNew ? "New funnel" : name || "Funnel"}
         actions={<>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this funnel?") && remove.mutate()}>Delete</button>}
-          <button className="btn primary" disabled={!!saveProblem || save.isPending} title={saveProblem} onClick={() => save.mutate()}>{isNew ? "Create funnel" : "Save funnel"}</button>
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(existing.data?.name || "this funnel", "The saved funnel goes; events and contacts aren't touched. This can't be undone.").then((ok) => ok && remove.mutate())}>Delete</button>}
+          <button className="btn primary" disabled={!!saveProblem || save.isPending} title={saveProblem} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : isNew ? "Create funnel" : "Save funnel"}</button>
         </>}
       />
       <ErrorNote error={save.error ?? remove.error ?? existing.error} />
       <div className="funnel-split">
         <div>
           <div className="grid-2">
-            <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Pricing to purchase" /></Field>
+            <Field label="Name"><input className="input" value={name} onChange={(e) => edited(setName)(e.target.value)} placeholder="Pricing to purchase" autoFocus={isNew} /></Field>
             <Field label="Conversion window (days)" hint={`Contacts must do every step, in order, within ${days(windowDays || 0)} of step 1. Other events in between are fine.`}>
-              <input className="input" type="number" min={1} max={90} value={windowDays || ""} onChange={(e) => setWindowDays(Number(e.target.value))} />
+              <input className="input" type="number" min={1} max={90} value={windowDays || ""} onChange={(e) => edited(setWindowDays)(Number(e.target.value))} />
             </Field>
           </div>
 

@@ -22,9 +22,13 @@ const STARTER = `
   </td></tr>
 </table>`;
 
-export default forwardRef<EmailBuilderHandle, { html: string; project?: unknown }>(function EmailBuilder({ html, project }, ref) {
+/** onChange: called when the user changes the email in the builder (not while it loads), so the
+ * page can ask before unsaved builder edits are lost. */
+export default forwardRef<EmailBuilderHandle, { html: string; project?: unknown; onChange?: () => void }>(function EmailBuilder({ html, project, onChange }, ref) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor | null>(null);
+  const changed = useRef(onChange);
+  changed.current = onChange;
 
   useEffect(() => {
     if (!host.current) return;
@@ -41,7 +45,12 @@ export default forwardRef<EmailBuilderHandle, { html: string; project?: unknown 
       projectData: project ? (project as never) : undefined,
     });
     editor.current = e;
-    return () => e.destroy();
+    // Loading the design counts as changes inside GrapesJS: start counting once it has settled.
+    let ready = false;
+    let settle = 0;
+    e.on("load", () => { settle = window.setTimeout(() => { e.clearDirtyCount(); ready = true; }, 0); });
+    e.on("update", () => { if (ready && e.getDirtyCount() > 0) changed.current?.(); });
+    return () => { window.clearTimeout(settle); e.destroy(); };
     // Initialise once per mounted template; later edits live inside the editor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

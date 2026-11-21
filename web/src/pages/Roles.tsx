@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, LEVELS, type Area, type BuiltinRole, type CustomRole, type Level, type Perms, type RoleKey } from "../api";
 import { useIsAdmin } from "../auth";
+import { ask, askDelete, DISCARD } from "../guard";
 import { Drawer, Empty, ErrorNote, Field, PageHead, useToast } from "../ui";
 import "./roles.css";
 
@@ -145,7 +146,11 @@ export function Roles() {
                       <button
                         className="btn ghost sm danger"
                         disabled={remove.isPending}
-                        onClick={() => confirm(`Delete the role ${r.name}? This can't be undone.`) && remove.mutate(r)}
+                        onClick={() => void askDelete(`the role ${r.name}`,
+                          r.users > 0
+                            ? `${r.users} ${r.users === 1 ? "person has" : "people have"} this role and lose the access it gives. This can't be undone.`
+                            : "This can't be undone.",
+                          r.users > 0 ? r.name : undefined).then((ok) => ok && remove.mutate(r))}
                       >Delete</button>
                     )}
                   </td>
@@ -181,10 +186,14 @@ function RoleEditor({ role, roles, readOnly, onClose }: { role: CustomRole; role
       onClose();
     },
   });
+  // Unsaved changes (typed or picked with the access buttons) ask before the drawer closes.
+  const startPerms = useState(() => JSON.stringify(perms))[0];
+  const changed = !readOnly && (name !== role.name || description !== role.description || JSON.stringify(perms) !== startPerms);
+  const tryClose = () => { if (!changed) onClose(); else void ask(DISCARD).then((ok) => ok && onClose()); };
   const title = readOnly ? role.name : isNew ? "New role" : `Edit ${role.name}`;
 
   return (
-    <Drawer title={title} subtitle={!isNew && role.users > 0 ? `${role.users} ${role.users === 1 ? "person has" : "people have"} this role. Changes apply to them right away.` : undefined} onClose={onClose}>
+    <Drawer title={title} subtitle={!isNew && role.users > 0 ? `${role.users} ${role.users === 1 ? "person has" : "people have"} this role. Changes apply to them right away.` : undefined} onClose={tryClose} guard={false}>
       <ErrorNote error={save.error} />
       <Field label="Name"><input className="input" value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} placeholder="Content writer" autoFocus={!readOnly} /></Field>
       <Field label="Description"><input className="input" value={description} disabled={readOnly} onChange={(e) => setDescription(e.target.value)} placeholder="Writes templates and web content" /></Field>
@@ -219,7 +228,7 @@ function RoleEditor({ role, roles, readOnly, onClose }: { role: CustomRole; role
       {!readOnly && (
         <div className="row">
           <button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>{isNew ? "Create role" : "Save role"}</button>
-          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={tryClose}>Cancel</button>
         </div>
       )}
     </Drawer>

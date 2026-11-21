@@ -8,6 +8,7 @@ import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type AssetList } from "./api";
+import { ask } from "./guard";
 import { richTextExtensions, roundTrip } from "./richTextExtensions";
 import { EMAIL_LINK_TAGS, normalizeLink, richTextLoss } from "./richTextHtml";
 import { useVariables } from "./VarPicker";
@@ -80,7 +81,14 @@ export default forwardRef<RichTextHandle, RichTextProps>(function RichTextEditor
 
   const toVisual = () => {
     const problem = richTextLoss(value, roundTrip);
-    if (problem && !confirm(`The visual editor can't keep ${problem}. Switching rewrites the HTML to what it can show, and that changes the layout. Switch anyway?`)) return;
+    if (!problem) return switchToVisual(null);
+    void ask({
+      title: "Switch to the visual editor?",
+      body: `The visual editor can't keep ${problem}. Switching rewrites the HTML to what it can show, and that changes the layout.`,
+      confirmText: "Switch anyway", danger: true,
+    }).then((ok) => ok && switchToVisual(problem));
+  };
+  const switchToVisual = (problem: string | null) => {
     editor.commands.setContent(value, { emitUpdate: false });
     last.current = value;
     if (problem) {

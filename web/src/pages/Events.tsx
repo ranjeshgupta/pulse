@@ -11,6 +11,7 @@ import {
   pathOf, problemWords, PROP_TYPES, propFromDiscovered, TYPE_NAMES, validateSchema,
 } from "../eventSchemas";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { askDelete, useEditGuard } from "../guard";
 import "./events.css";
 import { ContactCount } from "../ContactCount";
 import { addDays, period, todayUTC } from "../contactLinks";
@@ -151,7 +152,7 @@ function NewEventModal({ known, onClose }: { known: CatalogEntry[]; onClose: () 
   return (
     <Modal wide title="New event" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={!trimmed || !!nameProblem || problems.length > 0 || save.isPending} onClick={() => save.mutate()}>Add event</button>
+      <button className="btn primary" disabled={!trimmed || !!nameProblem || problems.length > 0 || save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Adding…" : "Add event"}</button>
     </>}>
       <p className="small muted" style={{ marginTop: 0, marginBottom: 16 }}>
         Describe an event before your site, app or server first sends it, so you can build segments and campaigns on it now.
@@ -253,7 +254,7 @@ function SuggestedModal({ onClose }: { onClose: () => void }) {
     },
   });
   return (
-    <Modal title="Add suggested events" onClose={onClose} footer={<>
+    <Modal title="Add suggested events" onClose={onClose} guard={false} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
       <button className="btn primary" disabled={chosen.size === 0 || add.isPending} onClick={() => add.mutate()}>
         {chosen.size ? `Add ${chosen.size} ${chosen.size === 1 ? "event" : "events"}` : "Add"}
@@ -317,6 +318,9 @@ export function EventDetail() {
     if (!dirty) setDraft(draftOf(saved));
   }, [saved?.updated_at, saved == null]); // only when the saved version changes
   const edit = (d: Draft | null) => { setDraft(d); setDirty(true); };
+  // An unsaved schema makes leaving the page ask first.
+  const { markDirty, saved: clean } = useEditGuard();
+  useEffect(() => { if (dirty) markDirty(); else clean(); }, [dirty, markDirty, clean]);
   const addToSchema = (d: DiscoveredProp) => {
     const base = draft ?? { label: "", description: "", mode: "warn" as SchemaMode, props: [] };
     let p = propFromDiscovered(d);
@@ -493,7 +497,7 @@ function SchemaPanel({ name, saved, draft, dirty, canEdit, discovered, onChange,
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/events/${encodeURIComponent(name)}/schema`),
-    onSuccess: () => { onSaved(null); refresh(); toast({ text: `Removed the schema of ${name}` }); },
+    onSuccess: () => { onSaved(null); refresh(); toast({ text: `Deleted the schema of ${name}` }); },
   });
 
   if (!draft) {
@@ -590,7 +594,8 @@ function SchemaPanel({ name, saved, draft, dirty, canEdit, discovered, onChange,
         <span style={{ flex: 1 }} />
         {saved && (
           <button className="btn danger" disabled={remove.isPending}
-            onClick={() => confirm(`Delete the schema of ${name}? Its events are kept; they're no longer checked, and segments lose its typed filters.`) && remove.mutate()}>
+            onClick={() => void askDelete(`the schema of ${name}`, "Its events are kept; they're no longer checked, and segments and journeys lose its typed filters. This can't be undone.", name)
+              .then((ok) => ok && remove.mutate())}>
             Delete schema
           </button>
         )}
@@ -610,7 +615,7 @@ function SchemaPanel({ name, saved, draft, dirty, canEdit, discovered, onChange,
 function EnforceModal({ name, onClose, onConfirm }: { name: string; onClose: () => void; onConfirm: () => void }) {
   const [text, setText] = useState("");
   return (
-    <Modal title={`Enforce the schema of ${name}?`} onClose={onClose} footer={<>
+    <Modal title={`Enforce the schema of ${name}?`} onClose={onClose} guard={false} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
       <button className="btn primary" disabled={text !== "ENFORCE"} onClick={onConfirm}>Turn on Enforce</button>
     </>}>

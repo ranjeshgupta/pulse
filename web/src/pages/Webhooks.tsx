@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type Webhook, type WebhookDelivery } from "../api";
 import { useIsAdmin } from "../auth";
+import { ask, askDelete, useEditGuard } from "../guard";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast, useCopy } from "../ui";
 import "./webhooks.css";
 
@@ -105,6 +106,17 @@ export function WebhookEdit() {
       setW({ name: h.name, url: h.url, events: h.events ?? [], active: h.active });
     }
   }, [existing.data, w]);
+  // Unsaved changes: every edit replaces w; a w other than the one loaded is a change. After a
+  // save the form reloads from the server and that becomes the starting point.
+  const baseDraft = useRef<Draft | null>(null);
+  const guard = useEditGuard(() => saveRef.current?.());
+  const saveRef = useRef<(() => void) | null>(null);
+  const { markDirty } = guard;
+  useEffect(() => {
+    if (!w) return;
+    if (!baseDraft.current) baseDraft.current = w;
+    else if (w !== baseDraft.current) markDirty();
+  }, [w, markDirty]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -112,6 +124,8 @@ export function WebhookEdit() {
       return isNew ? api.post<{ id: number }>("/v1/settings/webhooks", body) : api.put<{ id: number }>(`/v1/settings/webhooks/${id}`, body);
     },
     onSuccess: (r) => {
+      guard.saved();
+      baseDraft.current = null;
       qc.invalidateQueries({ queryKey: ["webhooks"] });
       if (isNew) {
         toast({ text: "Webhook added. Copy its signing secret below." });
@@ -125,7 +139,7 @@ export function WebhookEdit() {
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/v1/settings/webhooks/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["webhooks"] }); toast({ text: "Webhook deleted" }); nav("/settings/webhooks"); },
+    onSuccess: () => { guard.saved(); qc.invalidateQueries({ queryKey: ["webhooks"] }); toast({ text: "Webhook deleted" }); nav("/settings/webhooks"); },
   });
 
   if (!admin) {
@@ -142,6 +156,7 @@ export function WebhookEdit() {
   const problem = !w.name.trim() ? "Name the webhook."
     : !/^https?:\/\/\S+$/.test(w.url.trim()) ? "Enter the full URL, starting with https://."
     : w.events.length === 0 ? "Choose at least one event, or send every event." : null;
+  saveRef.current = problem ? null : () => { if (!save.isPending) save.mutate(); };
 
   return (
     <div className="page">
@@ -149,7 +164,8 @@ export function WebhookEdit() {
         back={<Link className="back" to="/settings/webhooks">Webhooks</Link>}
         title={isNew ? "New webhook" : saved?.name ?? "Webhook"}
         actions={<>
-          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => confirm("Delete this webhook? Pulse stops sending to it right away.") && remove.mutate()}>Delete</button>}
+          {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(saved?.name ? `the webhook ${saved.name}` : "this webhook",
+            "Pulse stops sending to it right away. This can't be undone.").then((ok) => ok && remove.mutate())}>Delete</button>}
           <button className="btn primary" disabled={!!problem || save.isPending} title={problem ?? undefined} onClick={() => save.mutate()}>{isNew ? "Add webhook" : "Save"}</button>
         </>}
       />
@@ -238,7 +254,8 @@ function SecretPanel({ webhook }: { webhook: Webhook }) {
           {secret && <button className="btn sm" onClick={() => setShown(!shown)}>{shown ? "Hide" : "Reveal"}</button>}
           {secret && <button className="btn sm" onClick={() => copy(secret, "Secret copied")}>Copy</button>}
           <button className="btn sm danger" disabled={rotate.isPending}
-            onClick={() => confirm("Create a new secret? The current one stops working right away, so update your server too.") && rotate.mutate()}>Rotate secret</button>
+            onClick={() => void ask({ title: "Create a new signing secret?", body: "The current one stops working right away, so update your server too.", confirmText: "Rotate secret", danger: true })
+              .then((ok) => ok && rotate.mutate())}>Rotate secret</button>
         </div>
         <ErrorNote error={rotate.error} />
       </div>

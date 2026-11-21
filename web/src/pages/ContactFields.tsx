@@ -64,7 +64,7 @@ function FieldModal({ contact, def, onClose }: { contact: Contact; def: Attribut
   return (
     <Modal title={`${def.label || def.key}`} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save</button>
+      <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save"}</button>
     </>}>
       {def.type === "list" ? (
         <>
