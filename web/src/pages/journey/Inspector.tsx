@@ -1,5 +1,6 @@
 // Inspector: the right-hand panel that sets up the selected step, one editor per step type, plus
 // Start (trigger, re-entry, goal, schedule).
+import { chosenNote, pickerOption } from "../../publishing";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { CHANNEL_NAMES, CHANNELS, type Channel, type ChannelRule, type JourneyGraph, type JourneyNode, type PropFilter, type Rule, type Segment, type SplitDecision, type SplitWinner, type Template } from "../../api";
@@ -9,7 +10,7 @@ import {
 } from "../../journeyGraph";
 import { itemForNode } from "../../journeyCatalog";
 import { TemplateActions } from "../../messagePreview";
-import { describeWindow, fromLocalInput, ScheduleFields, toLocalInput } from "../../schedule";
+import { describeWindow, fromLocalInput, ScheduleFields, scheduleProblem, toLocalInput } from "../../schedule";
 import { filtersFromWhere, OP_LABELS, problems as ruleProblems, rootFromRule, toRule, whereFromFilters, type AttrOp, type Where } from "../../segmentRules";
 import { Field } from "../../ui";
 import { DeadlineFields, ReachByChannel } from "../../campaignUI";
@@ -28,14 +29,16 @@ import {
 type SetN = (p: Partial<JourneyNode>) => void;
 type Win = { start_at?: string; end_at?: string };
 
-export function Inspector({ graph, setGraph, win, setWin, selected, locked, decisions, pickers, templates, journeyId, numbers, canEditContacts, onDelete, onDeleteBranch }: {
+export function Inspector({ graph, setGraph, win, setWin, selected, locked, decisions, pickers, templates, journeyId, numbers, canEditContacts, onDelete, onDeleteBranch, liveDates }: {
   graph: JourneyGraph; setGraph: (g: JourneyGraph, key?: string) => void; selected: string | null; locked: boolean;
+  /** liveDates: a live campaign's dates can still change; save them with this (dirty: they differ from what's saved). */
+  liveDates?: { dirty: boolean; saving: boolean; onSave: () => void };
   decisions: Record<string, SplitDecision>; win: Win; setWin: (w: Win) => void; pickers: Pickers; templates: Template[];
   journeyId?: number; numbers: Record<string, number>; canEditContacts: boolean;
   onDelete: (id: string) => void; onDeleteBranch: (id: string) => void;
 }) {
   if (!selected) return <p className="small muted">Select a step to set it up, or use a <strong>+</strong> on the canvas to add one.</p>;
-  if (selected === TRIGGER_ID) return <StartFields graph={graph} setGraph={setGraph} win={win} setWin={setWin} locked={locked} segments={pickers.lists.segments} forms={pickers.lists.forms} />;
+  if (selected === TRIGGER_ID) return <StartFields graph={graph} setGraph={setGraph} win={win} setWin={setWin} locked={locked} segments={pickers.lists.segments} forms={pickers.lists.forms} liveDates={liveDates} />;
   const n = graph.nodes[selected];
   if (!n) return null;
   const setN: SetN = (patch) => setGraph({ ...graph, nodes: { ...graph.nodes, [selected]: { ...n, ...patch } } }, `node:${selected}`);
@@ -550,10 +553,11 @@ function CompanyAttrFields({ value, onChange }: { value: Record<string, string |
 
 // ---- Start ----
 
-function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: { graph: JourneyGraph; setGraph: (g: JourneyGraph, key?: string) => void; win: Win; setWin: (w: Win) => void; locked: boolean; segments: Segment[]; forms: Pickers["lists"]["forms"] }) {
+function StartFields({ graph, setGraph, win, setWin, locked, segments, forms, liveDates }: { graph: JourneyGraph; setGraph: (g: JourneyGraph, key?: string) => void; win: Win; setWin: (w: Win) => void; locked: boolean; segments: Segment[]; forms: Pickers["lists"]["forms"]; liveDates?: { dirty: boolean; saving: boolean; onSave: () => void } }) {
   const t = graph.trigger;
   const setT = (patch: Partial<JourneyGraph["trigger"]>) => setGraph({ ...graph, trigger: { ...t, ...patch } }, "trigger");
   return (
+    <>
     <fieldset disabled={locked} className="insp">
       <div className="insp-head c-start">
         <span className="insp-icon"><JIcon name="play" size={18} /></span>
@@ -571,9 +575,10 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
           <Field label="Segment">
             <select className="select" value={t.segment_id ?? ""} onChange={(e) => setT({ segment_id: Number(e.target.value) || undefined })}>
               <option value="">Choose a segment</option>
-              {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {segments.map((s) => { const o = pickerOption(s); return <option key={s.id} value={s.id} disabled={o.disabled && s.id !== t.segment_id}>{o.label}</option>; })}
             </select>
           </Field>
+          {!!t.segment_id && chosenNote(segments, t.segment_id) && <p className="xs" style={{ color: "var(--danger)", marginTop: -6 }}>This segment is {chosenNote(segments, t.segment_id)}: nobody new joins it, so nobody starts this campaign, and it can't go live. Publish the segment, or choose another.</p>}
           <label className="check"><input type="checkbox" checked={!!t.include_backfill} onChange={(e) => setT({ include_backfill: e.target.checked })} />Also start it for contacts added when the segment is rebuilt</label>
           <p className="xs muted">Off: only people who newly join the segment from now on start. On: when Pulse rebuilds the segment (after you edit its filters, or its daily refresh), everyone added starts too, which can be many people at once.</p>
           {!!t.segment_id && <ReachByChannel segmentId={t.segment_id} channels={journeyChannels(graph)} title="Members it can reach now" />}
@@ -611,10 +616,14 @@ function StartFields({ graph, setGraph, win, setWin, locked, segments, forms }: 
           <input className="input" value={graph.goal.event} onChange={(e) => setGraph({ ...graph, goal: { event: e.target.value.trim() } }, "goal")} />
         </Field>
       )}
-      <h4 className="small" style={{ margin: "18px 0 8px" }}>Schedule</h4>
-      <ScheduleFields stacked start={win.start_at} end={win.end_at} onChange={setWin} startLabel="Contacts can enter from" />
-      <p className="xs muted">Contacts already inside keep going after the end.</p>
     </fieldset>
+    <div className="insp">
+      <h4 className="small" style={{ margin: "18px 0 8px" }}>Publish window</h4>
+      <ScheduleFields stacked start={win.start_at} end={win.end_at} onChange={setWin} startLabel="Contacts can enter from" />
+      <p className="xs muted">Contacts already inside keep going after the end.{locked && " While it's live you can still change these dates: move the end later, or clear it, to let people in again."}</p>
+      {locked && liveDates && <button className="btn primary sm" disabled={!liveDates.dirty || liveDates.saving || !!scheduleProblem(win.start_at, win.end_at)} onClick={liveDates.onSave}>Save dates</button>}
+    </div>
+    </>
   );
 }
 

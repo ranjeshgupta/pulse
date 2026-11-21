@@ -134,13 +134,15 @@ func (s *Server) createSegment(w http.ResponseWriter, r *http.Request, tenant in
 		Name    string           `json:"name"`
 		Rule    json.RawMessage  `json:"rule"`
 		Refresh *segment.Refresh `json:"refresh"`
+		publishReq
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	rule, err := segment.Parse(req.Rule)
-	if req.Name == "" || err != nil {
-		writeErr(w, http.StatusBadRequest, errors.Join(errIf(req.Name == "", "name is required"), err).Error())
+	published, win, werr := req.settings(s.now())
+	if req.Name == "" || err != nil || werr != nil {
+		writeErr(w, http.StatusBadRequest, errors.Join(errIf(req.Name == "", "name is required"), err, werr).Error())
 		return
 	}
 	if req.Refresh != nil {
@@ -162,6 +164,13 @@ func (s *Server) createSegment(w http.ResponseWriter, r *http.Request, tenant in
 		s.fail(w, err)
 		return
 	}
+	if req.given() {
+		seg := model.Segment{ID: id, TenantID: tenant, Kind: "rule", Status: "new", StartAt: s.now()}
+		if _, err := s.applyPublishing(r.Context(), seg, published, win); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "new"})
 }
 
@@ -171,11 +180,13 @@ func (s *Server) listSegments(w http.ResponseWriter, r *http.Request, tenant int
 		s.fail(w, err)
 		return
 	}
+	now := s.now()
 	for i := range segs {
 		if segs[i].Size, err = s.Members.Size(r.Context(), tenant, segs[i].ID); err != nil {
 			s.fail(w, err)
 			return
 		}
+		segs[i] = segs[i].WithState(now)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"segments": segs})
 }
@@ -194,7 +205,7 @@ func (s *Server) getSegment(w http.ResponseWriter, r *http.Request, tenant int64
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, seg)
+	writeJSON(w, http.StatusOK, seg.WithState(s.now()))
 }
 
 func (s *Server) createJourney(w http.ResponseWriter, r *http.Request, p model.Principal) {
@@ -226,6 +237,10 @@ func (s *Server) journeyAction(w http.ResponseWriter, r *http.Request, p model.P
 		s.archiveJourney(w, r, tenant, id, action == "archive")
 		return
 	}
+	if action == "unpublish" {
+		s.unpublishJourney(w, r, p, id)
+		return
+	}
 	status := map[string]string{"activate": "active", "pause": "paused"}[action]
 	if status == "" {
 		writeErr(w, http.StatusNotFound, "unknown action")
@@ -251,8 +266,20 @@ func (s *Server) setJourneyStatus(w http.ResponseWriter, r *http.Request, p mode
 				writeErr(w, http.StatusConflict, "restore the journey from the archive before activating it")
 				return false
 			}
-			if g, err := journey.ParseGraph(j.Graph); err == nil && !deletePermOK(w, p, g) {
-				return false
+			if g, err := journey.ParseGraph(j.Graph); err == nil {
+				if !deletePermOK(w, p, g) {
+					return false
+				}
+				if g.Trigger.SegmentID != 0 {
+					if err := s.segmentsLiveFor(r.Context(), tenant, []int64{g.Trigger.SegmentID}, j.StartAt); err != nil {
+						if errors.Is(err, errSegmentNotLive) {
+							writeErr(w, http.StatusConflict, err.Error())
+						} else {
+							s.fail(w, err)
+						}
+						return false
+					}
+				}
 			}
 		}
 	}

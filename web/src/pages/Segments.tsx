@@ -10,6 +10,9 @@ import { askDelete, useEditGuard } from "../guard";
 import { SegmentFromWords } from "../AIHelp";
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, timeAgo, useToast } from "../ui";
 import { ContactCount } from "../ContactCount";
+import { confirmUnpublishSegment, SegmentStateBadge } from "../Publishing";
+import { sameWindow, segmentState, segmentStateHint, windowProblem } from "../publishing";
+import { ScheduleFields, nowISO } from "../schedule";
 import { GroupEditor } from "./SegmentBuilder";
 import { StaticSegmentDetail } from "./StaticSegment";
 import { useRefObjects, useSegmentNames, useSegments } from "./segmentData";
@@ -82,7 +85,7 @@ export function SegmentList() {
                       {s.refresh?.mode === "daily" && <div className="xs">Refreshed daily at {s.refresh.at} ({s.refresh.tz})</div>}
                     </td>
                     <td className="num"><ContactCount live value={s.size} filters={[["in", s.id]]} /></td>
-                    <td>{s.kind === "static" ? <Status value="ready" /> : <Status value={s.status} />}</td>
+                    <td>{segmentState(s) !== "live" ? <SegmentStateBadge seg={s} /> : s.kind === "static" ? <Status value="ready" /> : <Status value={s.status} />}</td>
                     <td className="num"><Link className="btn sm" to={viewContactsHref(s.id)}>View contacts</Link></td>
                   </tr>
                 ))}
@@ -144,19 +147,22 @@ function DynamicSegmentEdit() {
   const [name, setName] = useState("");
   const [root, setRoot] = useState<Group>(newGroup());
   const [refresh, setRefresh] = useState<SegmentRefresh>({ mode: "live" });
+  const [win, setWin] = useState<Win>(() => ({ start_at: nowISO(), end_at: null }));
   const [loaded, setLoaded] = useState(isNew);
-  // Unsaved changes: typing is noticed on the page; rule and refresh edits made with buttons
-  // (add / remove a condition or group) are noticed by comparing with what was loaded.
-  const start = useRef<{ root: Group; refresh: SegmentRefresh }>({ root, refresh });
+  // Unsaved changes: typing is noticed on the page; rule, refresh and date edits made with buttons
+  // (add / remove a condition or group, clear the end) are noticed by comparing with what was loaded.
+  const start = useRef<{ root: Group; refresh: SegmentRefresh; win: Win }>({ root, refresh, win });
 
   useEffect(() => {
     if (existing.data && !loaded) {
       const r = rootFromRule(existing.data.rule ?? undefined);
       const f = existing.data.refresh ?? { mode: "live" as const };
-      start.current = { root: r, refresh: f };
+      const w = { start_at: existing.data.start_at, end_at: existing.data.end_at ?? null };
+      start.current = { root: r, refresh: f, win: w };
       setName(existing.data.name);
       setRoot(r);
       setRefresh(f);
+      setWin(w);
       setLoaded(true);
     }
   }, [existing.data, loaded]);
@@ -177,19 +183,34 @@ function DynamicSegmentEdit() {
     enabled: debounced !== "null",
   });
 
-  const guard = useEditGuard(() => { if (rule && name && !save.isPending) save.mutate(); });
+  const saved = existing.data;
+  const published = isNew || saved?.published !== false;
+  const winIssue = windowProblem(win.start_at, win.end_at);
+  const guard = useEditGuard(() => { if (rule && name && !winIssue && !save.isPending) save.mutate(published); });
   const { markDirty } = guard;
   useEffect(() => {
-    if (loaded && (root !== start.current.root || refresh !== start.current.refresh)) markDirty();
-  }, [root, refresh, loaded, markDirty]);
+    if (loaded && (root !== start.current.root || refresh !== start.current.refresh || !sameWindow(win, start.current.win))) markDirty();
+  }, [root, refresh, win, loaded, markDirty]);
 
+  // save stores the segment as it is in the editor, published or not (Publish / Unpublish save too,
+  // like on-site content). Only what changed is sent: saving the rule rebuilds the segment.
   const save = useMutation({
-    mutationFn: () => (isNew ? api.post<{ id: number }>("/v1/segments", { name, rule, refresh }) : api.put<{ id: number }>(`/v1/segments/${id}`, { name, rule, refresh })),
-    onSuccess: (r) => {
-      start.current = { root, refresh };
+    mutationFn: async (pub: boolean) => {
+      const publishing = { published: pub, start_at: win.start_at, end_at: win.end_at ?? null };
+      if (isNew) return api.post<{ id: number }>("/v1/segments", { name, rule, refresh, ...publishing });
+      const ruleChanged = name !== saved?.name || root !== start.current.root || refresh !== start.current.refresh;
+      if (ruleChanged) await api.put(`/v1/segments/${id}`, { name, rule, refresh });
+      if (pub !== published || !sameWindow(win, start.current.win)) await api.put(`/v1/segments/${id}/publishing`, publishing);
+      return { id: Number(id), ruleChanged };
+    },
+    onSuccess: (r, pub) => {
+      start.current = { root, refresh, win };
       guard.saved();
       qc.invalidateQueries({ queryKey: ["segments"] });
-      toast({ text: isNew ? "Segment created. Pulse is filling it now." : "Segment saved. Pulse is rebuilding it now." });
+      qc.invalidateQueries({ queryKey: ["segment", id] });
+      toast({ text: isNew ? "Segment created. Pulse is filling it now."
+        : pub !== published ? (pub ? "Published. Pulse is bringing it up to date." : "Unpublished. Its contacts stay as they are now.")
+        : "ruleChanged" in r && r.ruleChanged ? "Segment saved. Pulse is rebuilding it now." : "Segment saved." });
       nav(`/segments/${r.id}`, { replace: true });
     },
   });
@@ -210,7 +231,10 @@ function DynamicSegmentEdit() {
           {!isNew && <button className="btn danger" disabled={remove.isPending} onClick={() => void askDelete(segName ? `the segment ${segName}` : "this segment",
             "Campaigns and journeys that use it stop enrolling, and segments built on it stop matching. This can't be undone.",
             segName || undefined).then((ok) => ok && remove.mutate())}>Delete</button>}
-          <button className="btn primary" disabled={!rule || !name || save.isPending} onClick={() => save.mutate()}>{isNew ? "Create segment" : "Save segment"}</button>
+          {!isNew && saved && (published
+            ? <button className="btn" disabled={!rule || !name || !!winIssue || save.isPending} onClick={() => void confirmUnpublishSegment(Number(id)).then((ok) => ok && save.mutate(false))}>Unpublish</button>
+            : <button className="btn" disabled={!rule || !name || !!winIssue || save.isPending} onClick={() => save.mutate(true)}>Publish</button>)}
+          <button className="btn primary" disabled={!rule || !name || !!winIssue || save.isPending} onClick={() => save.mutate(published)}>{isNew ? "Create segment" : "Save segment"}</button>
         </>}
       />
       <ErrorNote error={save.error ?? remove.error ?? existing.error} />
@@ -220,6 +244,7 @@ function DynamicSegmentEdit() {
           <SegmentFromWords hasRule={!!rule} onRule={(r) => setRoot(rootFromRule(r))} />
           <GroupEditor group={root} onChange={setRoot} self={isNew ? undefined : Number(id)} />
           <RefreshField value={refresh} onChange={setRefresh} />
+          <PublishWindowField value={win} onChange={setWin} seg={saved} />
           {issues.length > 0 && <ul className="small muted" style={{ marginTop: 10 }}>{[...new Set(issues)].map((p) => <li key={p}>{p}</li>)}</ul>}
         </div>
         <aside className="panel" style={{ position: "sticky", top: 20 }}>
@@ -234,6 +259,7 @@ function DynamicSegmentEdit() {
             {!isNew && existing.data && (
               <dl className="kv" style={{ marginTop: 18 }}>
                 <dt>In segment now</dt><dd><ContactCount live value={existing.data.size} filters={[["in", existing.data.id]]} /></dd>
+                <dt>Published</dt><dd><SegmentStateBadge seg={existing.data} /></dd>
                 <dt>State</dt><dd><Status value={existing.data.status} /></dd>
                 <dt>Last rebuilt</dt><dd>{timeAgo(existing.data.built_at)}</dd>
                 {existing.data.refresh?.mode === "daily" && existing.data.next_refresh_at && (
@@ -256,6 +282,21 @@ function DynamicSegmentEdit() {
   );
 }
 
+type Win = { start_at?: string; end_at?: string | null };
+
+/** PublishWindowField: when the segment is live (start required, end optional), like on-site content. */
+export function PublishWindowField({ value, onChange, seg }: { value: Win; onChange: (w: Win) => void; seg?: Segment }) {
+  return (
+    <fieldset className="seg-refresh panel">
+      <legend className="small">Publish window</legend>
+      <ScheduleFields start={value.start_at} end={value.end_at} startLabel="Live from" onChange={(w) => onChange({ start_at: w.start_at, end_at: w.end_at ?? null })} />
+      <p className="xs muted" style={{ marginTop: -4 }}>
+        Outside this window, or while unpublished, Pulse stops updating who's in it (its contacts stay as they were) and new campaigns can't send to it.
+        {seg && <> Now: {segmentStateHint(seg)}</>}
+      </p>
+    </fieldset>
+  );
+}
 
 const ZONES = ["UTC", "Asia/Kolkata", "Asia/Dubai", "Asia/Singapore", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "Australia/Sydney"];
 

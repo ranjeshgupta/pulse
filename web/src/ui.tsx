@@ -54,12 +54,13 @@ export function ChannelLabel({ channel }: { channel: Channel }) {
 const STATUS_TONE: Record<string, string> = {
   active: "ok", ready: "ok", completed: "ok", delivered: "ok", sent: "ok",
   draft: "", paused: "warn", building: "warn", new: "warn", waiting: "info",
-  scheduled: "info", running: "warn", testing: "info", failed: "bad", cancelled: "",
+  scheduled: "info", running: "warn", testing: "info", failed: "bad", cancelled: "", ended: "", unpublished: "",
 };
 // M7: one word per state everywhere (badges, filters): live things say Live, finished ones Finished.
 export const STATUS_TEXT: Record<string, string> = {
   new: "Queued", building: "Building", ready: "Live", testing: "A/B test: waiting for winner", active: "Live", running: "Sending",
   completed: "Finished", draft: "Draft", scheduled: "Scheduled", paused: "Paused", cancelled: "Cancelled", archived: "Archived",
+  ended: "Ended", unpublished: "Unpublished",
 };
 
 export function Status({ value }: { value: string }) {

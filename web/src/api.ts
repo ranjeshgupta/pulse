@@ -134,6 +134,8 @@ export interface SegmentRefresh { mode: "live" | "daily"; at?: string; tz?: stri
 export interface Segment {
   id: number; name: string; kind: "rule" | "static"; rule: Rule | null; has_window: boolean; status: string; built_at?: string; size: number; public: boolean; description: string;
   refresh?: SegmentRefresh | null; next_refresh_at?: string | null;
+  /** Publishing: unpublished, or outside start_at..end_at, it's frozen (not updated, not offered for new sends). */
+  published: boolean; start_at: string; end_at?: string | null; state?: "live" | "upcoming" | "ended" | "unpublished";
 }
 
 /** "Why is this contact in this segment": the rule evaluated for one contact, node by node. */

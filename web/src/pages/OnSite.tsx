@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { chosenNote, pickerOption } from "../publishing";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, type AttributeDef, type Device, type DWCShadow, type DWCSlot, type DWCVariant, type FocusItem, type OnsiteAudience, type OnsiteCondition, type Overlap, type Segment } from "../api";
@@ -230,14 +231,14 @@ function SegmentPicker({ label, hint, segments, value, taken = [], onChange }: {
       <span>{label}</span>
       <div className="row">
         {value.map((id) => (
-          <span key={id} className="badge info">{segments.find((s) => s.id === id)?.name ?? `Segment ${id}`}
+          <span key={id} className={`badge ${chosenNote(segments, id) ? "warn" : "info"}`} title={chosenNote(segments, id) ? `This segment is ${chosenNote(segments, id)}: Pulse isn't updating who's in it` : undefined}>{segments.find((s) => s.id === id)?.name ?? `Segment ${id}`}{chosenNote(segments, id) ? ` (${chosenNote(segments, id)})` : ""}
             <button className="btn ghost sm" style={{ height: 18, padding: "0 2px" }} onClick={() => onChange(value.filter((v) => v !== id))} aria-label="Remove">×</button>
           </span>
         ))}
         {rest.length > 0 && (
           <select className="select inline" value="" onChange={(e) => e.target.value && onChange([...value, Number(e.target.value)])} aria-label={label}>
             <option value="">Add a segment</option>
-            {rest.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {rest.map((s) => { const o = pickerOption(s); return <option key={s.id} value={s.id} disabled={o.disabled}>{o.label}</option>; })}
           </select>
         )}
       </div>

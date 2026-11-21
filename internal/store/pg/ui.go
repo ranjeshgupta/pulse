@@ -86,6 +86,17 @@ func (s *Store) UpdateJourney(ctx context.Context, tenant, id int64, name string
 	return nil
 }
 
+// SetJourneyWindow changes a journey's dates, live or not: the window decides who enters, and people
+// already inside finish either way.
+func (s *Store) SetJourneyWindow(ctx context.Context, tenant, id int64, w schedule.Window) error {
+	tag, err := s.db.Exec(ctx, `UPDATE journeys SET start_at = $3, end_at = $4, updated_at = now() WHERE tenant_id = $1 AND id = $2`,
+		tenant, id, w.Start, w.End)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
+}
+
 // DeleteJourney removes a journey that has never been activated (no enrollments).
 func (s *Store) DeleteJourney(ctx context.Context, tenant, id int64) error {
 	tag, err := s.db.Exec(ctx, `

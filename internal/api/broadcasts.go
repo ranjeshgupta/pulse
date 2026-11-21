@@ -372,6 +372,12 @@ func (s *Server) scheduleBroadcastNow(ctx context.Context, tenant, id int64) (ma
 	if !ok {
 		return nil, http.StatusBadRequest, errors.New("the schedule has already ended; move the end later or remove it")
 	}
+	if err := s.segmentsLiveFor(ctx, tenant, broadcastSegmentIDs(b), first); err != nil {
+		if errors.Is(err, errSegmentNotLive) {
+			return nil, http.StatusConflict, err
+		}
+		return nil, 0, err
+	}
 	if err := s.bcStore().SetBroadcastSchedule(ctx, tenant, id, "scheduled", &first); err != nil {
 		return nil, 0, err
 	}

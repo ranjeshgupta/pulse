@@ -283,13 +283,15 @@ func (s *Store) ContactByID(ctx context.Context, tenant int64, id uint32) (model
 
 // ---- segments ----
 
-const segmentCols = `id, tenant_id, name, kind, rule, has_window, status, built_at, public, description, refresh, next_refresh_at`
+const segmentCols = `id, tenant_id, name, kind, rule, has_window, status, built_at, public, description, refresh, next_refresh_at, published, start_at, end_at`
 
 func scanSegments(rows pgx.Rows) ([]model.Segment, error) {
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (model.Segment, error) {
 		var s model.Segment
 		var refresh []byte
-		err := r.Scan(&s.ID, &s.TenantID, &s.Name, &s.Kind, &s.Rule, &s.HasWindow, &s.Status, &s.BuiltAt, &s.Public, &s.Description, &refresh, &s.NextRefreshAt)
+		var published bool
+		err := r.Scan(&s.ID, &s.TenantID, &s.Name, &s.Kind, &s.Rule, &s.HasWindow, &s.Status, &s.BuiltAt, &s.Public, &s.Description, &refresh, &s.NextRefreshAt, &published, &s.StartAt, &s.EndAt)
+		s.Unpublished = !published
 		if err == nil && len(refresh) > 0 {
 			var rf segment.Refresh
 			if json.Unmarshal(refresh, &rf) == nil && rf.Daily() {
@@ -309,6 +311,20 @@ func (s *Store) SetSegmentRefresh(ctx context.Context, tenant, id int64, rf *seg
 		raw = b
 	}
 	tag, err := s.db.Exec(ctx, `UPDATE segments SET refresh = $3, next_refresh_at = NULL WHERE tenant_id = $1 AND id = $2 AND kind = 'rule'`, tenant, id, raw)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
+	return err
+}
+
+// SetSegmentPublishing publishes or unpublishes a segment and sets its window. rebuild marks a
+// rule segment for a fresh build from history (it's waking up after being frozen, or waits for a
+// later start); the engine claims it once it's live.
+func (s *Store) SetSegmentPublishing(ctx context.Context, tenant, id int64, published bool, start time.Time, end *time.Time, rebuild bool) error {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE segments SET published = $3, start_at = $4, end_at = $5,
+		       status = CASE WHEN $6 AND kind = 'rule' THEN 'new' ELSE status END
+		WHERE tenant_id = $1 AND id = $2`, tenant, id, published, start, end, rebuild)
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}
@@ -358,7 +374,7 @@ func (s *Store) AllSegments(ctx context.Context) ([]model.Segment, error) {
 	return scanSegments(rows)
 }
 
-// ClaimSegmentWork claims one segment that needs a backfill (status 'new'), else a daily segment
+// ClaimSegmentWork claims, among live segments (published and inside their window), one segment that needs a backfill (status 'new'), else a daily segment
 // whose refresh time has come, else a sweep (event windows, not swept within the workspace's sweep
 // interval: Settings → Automation & limits, else sweepEvery; daily segments are never swept).
 // The interval is one indexed lookup of the segment's workspace settings per candidate, and
@@ -369,8 +385,8 @@ func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) 
 		UPDATE segments SET status = 'building', swept_at = now()
 		WHERE id = (
 			SELECT id FROM segments
-			WHERE status = 'new'
-			   OR (status = 'building' AND swept_at < now() - interval '10 minutes')
+			WHERE (status = 'new' OR (status = 'building' AND swept_at < now() - interval '10 minutes'))
+			  AND published AND start_at <= now() AND (end_at IS NULL OR end_at > now())
 			ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
 		RETURNING `+segmentCols)
 	if err != nil {
@@ -388,6 +404,7 @@ func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) 
 		WHERE id = (
 			SELECT id FROM segments
 			WHERE status = 'ready' AND refresh->>'mode' = 'daily' AND coalesce(next_refresh_at, '-infinity') <= now()
+			  AND published AND start_at <= now() AND (end_at IS NULL OR end_at > now())
 			ORDER BY next_refresh_at NULLS FIRST LIMIT 1 FOR UPDATE SKIP LOCKED)
 		RETURNING `+segmentCols)
 	if err != nil {
@@ -404,7 +421,7 @@ func (s *Store) ClaimSegmentWork(ctx context.Context, sweepEvery time.Duration) 
 		UPDATE segments SET swept_at = now()
 		WHERE id = (
 			SELECT id FROM segments
-			WHERE status = 'ready' AND has_window AND refresh IS NULL
+			WHERE status = 'ready' AND has_window AND refresh IS NULL AND published AND start_at <= now() AND (end_at IS NULL OR end_at > now())
 			  AND (swept_at IS NULL OR swept_at < now() - least($1::interval, interval '1 minute') AND swept_at < now() - coalesce(
 			      (SELECT make_interval(mins => nullif(ts.automation->'schedules'->>'sweep_minutes', '')::int)
 			       FROM tenant_settings ts WHERE ts.tenant_id = segments.tenant_id

@@ -131,7 +131,7 @@ func (s *Server) prefState(ctx context.Context, tenant int64, c model.Contact) (
 	}
 	var lists []prefList
 	for _, l := range all {
-		if !l.Public {
+		if !l.Public || !l.Live(s.now()) { // unpublished or outside its window: not offered
 			continue
 		}
 		in, err := s.Members.IsMember(ctx, tenant, l.ID, c.ID)

@@ -217,6 +217,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/contacts/{external_id}", s.tenant(s.getContact))
 	mux.HandleFunc("GET /v1/contacts/{external_id}/segments/{id}/explain", s.tenant(s.explainSegment))
 	s.uiRoutes(mux)
+	s.publishingRoutes(mux)
 	s.channelRoutes(mux)
 	s.onsiteRoutes(mux)
 	s.appContentRoutes(mux)

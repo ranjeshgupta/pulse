@@ -1,4 +1,6 @@
 import { CampaignTimeline, DecisionTable } from "./CampaignTimeline";
+import { UnpublishJourneyModal } from "../Publishing";
+import { journeyState, sameWindow } from "../publishing";
 import { ApprovalBar, AskApprovalModal } from "../ApprovalBar";
 import { needsApproval } from "../approvals";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,7 +23,7 @@ import { CountsTable, DailyBars, metricsFor, ReportPanel, TopLinks, type CountsR
 import { FunnelPanel, StepReasons } from "../funnel";
 import { FUNNEL_OUTCOME, outcomeFilters, type ContactFilter } from "../contactLinks";
 import { ContactCount } from "../ContactCount";
-import { nowISO, scheduleProblem } from "../schedule";
+import { describeWindow, nowISO, scheduleProblem } from "../schedule";
 import { useEditGuard } from "../guard";
 import { copyText, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
 import { DuplicateButton, TagEditor } from "../campaignUI";
@@ -80,6 +82,9 @@ function JourneyEditor() {
 
   const status = existing.data?.status ?? "draft";
   const locked = status === "active";
+  const state = existing.data ? journeyState(existing.data) : "draft";
+  const inside = (stats.data?.status?.active ?? 0) + (stats.data?.status?.waiting ?? 0);
+  const [unpublishing, setUnpublishing] = useState(false);
   const archived = !!existing.data?.archived_at;
   const journeyId = isNew ? undefined : Number(id);
   const statsOn = showStats && !isNew;
@@ -266,6 +271,20 @@ function JourneyEditor() {
       if (isNew) nav(`/journeys/${r.id}`, { replace: true });
     },
   });
+  // A live campaign's dates can change (the steps can't): move the end later to let people in again.
+  const savedWin = { start_at: existing.data?.start_at, end_at: existing.data?.end_at ?? null };
+  const datesDirty = locked && !sameWindow(win, savedWin);
+  const saveDates = useMutation({
+    mutationFn: () => api.put(`/v1/journeys/${id}/schedule`, { start_at: win.start_at, end_at: win.end_at ?? null }),
+    onSuccess: () => {
+      guard.saved();
+      qc.invalidateQueries({ queryKey: ["journey", id] });
+      qc.invalidateQueries({ queryKey: ["journeys"] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+      toast({ text: "Dates saved" });
+    },
+  });
+  useEffect(() => { if (datesDirty) markDirty(); }, [datesDirty, markDirty]);
   const canPublishJ = useCan("journeys", "publish");
   const [asking, setAsking] = useState<string | null>(null); // the reason shown, or "" for the plain ask
   const setStatus = useMutation({
@@ -280,7 +299,7 @@ function JourneyEditor() {
     onSuccess: (_, action) => {
       qc.invalidateQueries({ queryKey: ["journey", id] });
       qc.invalidateQueries({ queryKey: ["journeys"] });
-      toast({ text: action === "activate" ? "Campaign is live. People who match start it right away." : action === "pause" ? "Campaign paused" : "Campaign restored from the archive" });
+      toast({ text: action === "activate" ? "Published. People who match start it right away." : action === "pause" ? "Campaign paused" : "Campaign restored from the archive" });
     },
   });
 
@@ -306,23 +325,27 @@ function JourneyEditor() {
         title={<input className="input" style={{ fontSize: "var(--fs-xl)", fontWeight: 650, border: 0, padding: 0, background: "transparent" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="Campaign name" disabled={locked} />}
         intro={`${CATEGORIES.find((c) => c.key === campaignTypeOf(graph.trigger))?.hint} Change what starts it in the Start step.`}
         actions={<>
-          {!isNew && <Status value={status} />}
+          {!isNew && <span title={describeWindow(existing.data?.start_at, existing.data?.end_at)}><Status value={state} /></span>}
           {!isNew && <DuplicateButton path={`/v1/journeys/${id}/duplicate`} open={(nid) => `/journeys/${nid}`} invalidate={["journeys", "campaigns"]} />}
           {!locked && <button className="btn" disabled={save.isPending} onClick={() => save.mutate()}>Save draft</button>}
           {archived && <button className="btn" disabled={setStatus.isPending} onClick={() => setStatus.mutate("unarchive")}>Restore</button>}
           {!isNew && status !== "active" && !archived && (canPublishJ
-            ? <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and go live</button>
+            ? <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and publish</button>
             : <button className="btn primary" disabled={allIssues.length > 0 || save.isPending} title="Your role can't launch campaigns: someone who can approves it" onClick={async () => { await save.mutateAsync(); setAsking(""); }}>Save and ask for approval</button>)}
-          {status === "active" && <button className="btn" onClick={() => setStatus.mutate("pause")}>Pause to edit</button>}
+          {status === "active" && canPublishJ && <button className="btn" onClick={() => setUnpublishing(true)}>Unpublish</button>}
         </>}
       />
-      <ErrorNote error={save.error ?? (needsApproval(setStatus.error) ? null : setStatus.error) ?? existing.error} />
+      <ErrorNote error={save.error ?? (needsApproval(setStatus.error) ? null : setStatus.error) ?? saveDates.error ?? existing.error} />
       {!isNew && id && <ApprovalBar kind="journey" id={Number(id)} />}
+      {unpublishing && id && <UnpublishJourneyModal id={Number(id)} name={existing.data?.name ?? name} inside={inside} onClose={() => setUnpublishing(false)}
+        onDone={(people) => { if (people === "finish") void api.get<Journey>(`/v1/journeys/${id}`).then((j) => setWin({ start_at: j.start_at, end_at: j.end_at ?? undefined })); }} />}
       {asking !== null && id && <AskApprovalModal kind="journey" id={Number(id)} reason={asking || undefined} onClose={() => setAsking(null)} />}
       {!isNew && <JourneyTags id={id!} tags={existing.data?.tags ?? []} />}
       {archived && <div className="alert info">This campaign is archived: it's hidden from Campaigns (choose the Archived status to see it) and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
-      {existing.data?.problem && <div className="alert error" role="alert"><strong>This campaign isn't running:</strong> {existing.data.problem}. Nobody moves through it until it's fixed: choose Pause to edit, change that step, then go live again.</div>}
-      {locked && <div className="alert info">This campaign is live, so its steps are locked. Pause it to make changes; people already in it wait where they are.</div>}
+      {existing.data?.problem && <div className="alert error" role="alert"><strong>This campaign isn't running:</strong> {existing.data.problem}. Nobody moves through it until it's fixed: choose Unpublish and hold the people in it, change that step, then publish again.</div>}
+      {locked && state === "ended" && <div className="alert info">Its publish window has ended, so nobody new enters{inside > 0 ? `; ${inside.toLocaleString("en-IN")} ${inside === 1 ? "person is" : "people are"} finishing its steps` : ""}. To let people in again, move the end later (or clear it) in the Start step and save the dates.</div>}
+      {locked && state === "scheduled" && <div className="alert info">Published: contacts can enter from {describeWindow(existing.data?.start_at, existing.data?.end_at).replace(/^Starts /, "")}.</div>}
+      {locked && state !== "ended" && <div className="alert info">This campaign is live, so its steps are locked; its dates can still change in the Start step. To change steps, choose Unpublish and hold the people in it where they are.</div>}
       {!isNew && (
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={view === "canvas"} onClick={() => setView("canvas")}>Steps</button>
@@ -378,6 +401,7 @@ function JourneyEditor() {
           <aside className="inspector" aria-label="Step settings">
             <Inspector
               graph={graph} setGraph={setGraph} win={win} setWin={setWin} selected={selected} locked={locked}
+              liveDates={{ dirty: datesDirty, saving: saveDates.isPending, onSave: () => saveDates.mutate() }}
               decisions={existing.data?.split_winners ?? {}} pickers={pickers} templates={tpls.data?.templates ?? []}
               journeyId={journeyId} numbers={numbers} canEditContacts={canEditContacts}
               onDelete={(nid) => { setGraph(deleteStep(graph, nid)); setSelected(null); }}

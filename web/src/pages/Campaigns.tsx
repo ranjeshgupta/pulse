@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { journeyState } from "../publishing";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -157,8 +158,8 @@ export function CampaignHub() {
                   <td className="small" title={CATEGORIES.find((c) => c.key === r.category)?.hint}>{CATEGORIES.find((c) => c.key === r.category)?.label}</td>
                   <td><div className="row" style={{ gap: 4 }}>{r.channels.length ? r.channels.map((c) => <ChannelLabel key={c} channel={c} />) : <span className="muted small">None yet</span>}</div></td>
                   <td>
-                    <Status value={r.status} />
-                    {r.problem && <div className="xs camp-problem" title={`Not running: ${r.problem}. Open it, choose Pause to edit and fix that step.`}>Not running: needs a fix</div>}
+                    <Status value={r.kind === "journey" ? journeyState(r) : r.status} />
+                    {r.problem && <div className="xs camp-problem" title={`Not running: ${r.problem}. Open it, choose Unpublish (hold the people in it) and fix that step.`}>Not running: needs a fix</div>}
                   </td>
                   <td className="small muted">{schedule(r)}</td>
                   <td className="num">{r.audience === null ? <span className="muted" title="Contacts start when they do the trigger">—</span> : <ContactCount live value={r.audience} filters={r.segment_id ? [["in", r.segment_id]] : null} />}</td>
