@@ -102,6 +102,9 @@ type Receipt struct {
 	// Kind qualifies email receipts from the custom gateway: status "bounced" with kind hard|soft,
 	// or status "complained".
 	Kind string `json:"kind,omitempty"`
+	// Ref is the message reference (Outbound.Ref) when the provider echoes it in its report.
+	// Empty when the report doesn't carry one.
+	Ref  string `json:"ref,omitempty"`
 	From string `json:"from,omitempty"` // inbound: the sender's E.164 number
 	Text string `json:"text,omitempty"` // inbound: the message text
 	// inbound RCS: a tapped suggestion ("reply" or "action") and its postback data
