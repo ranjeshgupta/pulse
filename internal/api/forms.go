@@ -132,6 +132,17 @@ func (s *Server) saveForm(w http.ResponseWriter, r *http.Request, tenant int64) 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if f.Settings.DoubleOptIn {
+		t, err := s.uiStore().Template(r.Context(), tenant, f.Settings.ConfirmTemplateID)
+		if err != nil || t.Channel != "email" {
+			writeErr(w, http.StatusBadRequest, "double opt-in: choose an email template for the confirmation email")
+			return
+		}
+		if !strings.Contains(t.HTML+string(t.Content), "event.confirm_url") {
+			writeErr(w, http.StatusBadRequest, "double opt-in: the confirmation email must contain the link {{event.confirm_url}}")
+			return
+		}
+	}
 	id, err := s.formStore().SaveForm(r.Context(), f)
 	if err != nil {
 		s.fail(w, err)
@@ -347,7 +358,13 @@ func (s *Server) submit(ctx context.Context, f model.Form, t model.Tenant, in fo
 	if sub.Consent {
 		meta["consent"], meta["consent_text"] = true, f.Settings.ConsentText
 	}
-	if err := s.publishEvents(ctx, t.ID, forms.Events(f, sub, ext, anon, meta)); err != nil {
+	confirm := ""
+	if forms.NeedsConfirming(f, sub) {
+		if confirm = s.optinURL(t, f, ext, sub.Email); confirm == "" {
+			return nil, http.StatusServiceUnavailable, "", errors.New("this form can't send its confirmation email right now")
+		}
+	}
+	if err := s.publishEvents(ctx, t.ID, forms.Events(f, sub, ext, anon, meta, confirm)); err != nil {
 		return nil, http.StatusServiceUnavailable, "", errors.New("we couldn't save that; please try again")
 	}
 	return nil, http.StatusOK, ext, nil

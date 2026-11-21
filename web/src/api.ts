@@ -551,6 +551,8 @@ export interface FormField {
 export interface FormSettings {
   submit_text?: string; success_message?: string; redirect_url?: string; list_ids?: number[]; tags?: string[];
   consent_text?: string; resubscribe?: Channel[]; description?: string; theme?: string;
+  /** Double opt-in: the confirmation email (an email template with {{event.confirm_url}}) and what confirming shows. */
+  double_optin?: boolean; confirm_template_id?: number; confirmed_message?: string; confirmed_redirect?: string;
 }
 export interface Form { id: number; name: string; public_key: string; fields: FormField[]; settings: FormSettings; status: "draft" | "active"; updated_at?: string }
 export interface FormStats {

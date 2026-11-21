@@ -744,6 +744,13 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - Tests: `identity_test.go` (package and profile), `identityKeys.test.ts`, e2e `test/e2e/identity_test.go`.
 - How the ranking, rerouting and backfill work: [architecture](02-architecture.md#profiles-and-reserved-attributes).
 
+### O6 as built (in progress)
+
+- **1 Double opt-in**: `FormSettings.double_optin`, `confirm_template_id`, `confirmed_message`, `confirmed_redirect`;
+  `forms.NeedsConfirming` / `ConfirmEvents`; `tracking.OptinToken` (sealed); `internal/api/optin.go`
+  (`GET /f/confirm/{token}`); the journeys role sends the confirmation (`Engine.sendOptin`); events `optin_requested`,
+  `optin_confirmed` (server- and platform-only); form editor section with "Create the standard one"; e2e `TestDoubleOptIn`.
+
 ### O5 as built
 
 - Backend: ClickHouse 008 `segment_changes`; hourly step counters (`journey.StepHourKey`, `ReadStepHours`);

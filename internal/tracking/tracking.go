@@ -225,3 +225,36 @@ func (c *Codec) Headers(token string) map[string]string {
 var Pixel = []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
 	0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b}
+
+// OptinToken is a double opt-in confirmation link's payload (sealed: it names a person).
+type OptinToken struct {
+	TenantID   int64  `json:"t"`
+	FormID     int64  `json:"f"`
+	ExternalID string `json:"e"`
+	Email      string `json:"m"`
+	Issued     int64  `json:"i"` // unix seconds
+}
+
+const optinPrefix = "optin:"
+
+// EncodeOptin seals a confirmation link's token.
+func (c *Codec) EncodeOptin(t OptinToken) string {
+	b, _ := json.Marshal(t)
+	return c.box.SealString(optinPrefix + string(b))
+}
+
+// DecodeOptin opens a confirmation token (expiry is the caller's check).
+func (c *Codec) DecodeOptin(s string) (OptinToken, error) {
+	if len(s) > 2048 {
+		return OptinToken{}, errors.New("invalid confirmation token")
+	}
+	plain, err := c.box.OpenString(s)
+	if err != nil || !strings.HasPrefix(plain, optinPrefix) {
+		return OptinToken{}, errors.New("invalid confirmation token")
+	}
+	var t OptinToken
+	if err := json.Unmarshal([]byte(plain[len(optinPrefix):]), &t); err != nil || t.TenantID == 0 || t.FormID == 0 || t.ExternalID == "" {
+		return OptinToken{}, errors.New("invalid confirmation token")
+	}
+	return t, nil
+}

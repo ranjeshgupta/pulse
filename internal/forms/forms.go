@@ -147,6 +147,12 @@ func Validate(f model.Form, listOK func(int64) bool) error {
 			errs = append(errs, fmt.Errorf("unknown channel %q", ch))
 		}
 	}
+	if st.DoubleOptIn && st.ConfirmTemplateID <= 0 {
+		errs = append(errs, errors.New("double opt-in needs the confirmation email (an email template with {{event.confirm_url}})"))
+	}
+	if st.ConfirmedRedirect != "" && !strings.HasPrefix(st.ConfirmedRedirect, "https://") && !strings.HasPrefix(st.ConfirmedRedirect, "http://") {
+		errs = append(errs, errors.New("the page after confirming must be an http(s) address"))
+	}
 	if len(st.Resubscribe) > 0 && strings.TrimSpace(st.ConsentText) == "" {
 		errs = append(errs, errors.New("opting people in needs consent text they agree to"))
 	}
@@ -388,15 +394,46 @@ func Parse(f model.Form, visible []model.FormField, values map[string]string) (S
 }
 
 // Events are the events a submission records for externalID. anonymousID (a web SDK visitor) is
-// merged into the contact.
-func Events(f model.Form, sub Submission, externalID, anonymousID string, meta map[string]any) []event.Event {
+// merged into the contact. With double opt-in and an email address, the opt-ins, lists and tags
+// wait for the confirmation: optin_requested (with confirmURL) is recorded instead.
+func Events(f model.Form, sub Submission, externalID, anonymousID string, meta map[string]any, confirmURL string) []event.Event {
 	id := event.NewID()
 	identify := event.Event{ID: id + ":id", ExternalID: externalID, Name: event.Identify, Email: sub.Email, Attrs: sub.Attrs}
 	if anonymousID != "" && anonymousID != externalID {
 		identify.Props = map[string]any{"anonymous_id": anonymousID}
 	}
 	evs := []event.Event{identify}
-	if sub.Consent {
+	props := map[string]any{"form_id": f.ID, "form_name": f.Name, "fields": sub.Values}
+	for k, v := range meta {
+		props[k] = v
+	}
+	if NeedsConfirming(f, sub) {
+		props["optin"] = "pending"
+		evs = append(evs, event.Event{ID: id + ":oi", ExternalID: externalID, Name: event.OptinRequested, Props: map[string]any{
+			"form_id": f.ID, "form_name": f.Name, "template_id": f.Settings.ConfirmTemplateID, "email": sub.Email, "confirm_url": confirmURL}})
+		return append(evs, event.Event{ID: id, ExternalID: externalID, Name: Submitted, Props: props})
+	}
+	evs = append(evs, joinEvents(f, sub.Consent, externalID, id)...)
+	return append(evs, event.Event{ID: id, ExternalID: externalID, Name: Submitted, Props: props})
+}
+
+// NeedsConfirming reports whether a submission waits for its double opt-in confirmation.
+func NeedsConfirming(f model.Form, sub Submission) bool {
+	return f.Settings.DoubleOptIn && f.Settings.ConfirmTemplateID > 0 && sub.Email != ""
+}
+
+// ConfirmEvents are what a confirmed double opt-in records: the form's opt-ins (its consent was
+// given on the form, which requires it), lists and tags, then optin_confirmed. id makes them
+// idempotent (a second click records nothing new).
+func ConfirmEvents(f model.Form, externalID, id string) []event.Event {
+	evs := joinEvents(f, true, externalID, id)
+	return append(evs, event.Event{ID: id + ":ok", ExternalID: externalID, Name: event.OptinConfirmed,
+		Props: map[string]any{"form_id": f.ID, "form_name": f.Name}})
+}
+
+func joinEvents(f model.Form, consented bool, externalID, id string) []event.Event {
+	var evs []event.Event
+	if consented {
 		for _, ch := range f.Settings.Resubscribe {
 			evs = append(evs, event.Event{ID: id + ":rs:" + ch, ExternalID: externalID, Name: consent.Resubscribed,
 				Props: map[string]any{"channel": ch, "source": "form", "form_id": f.ID}})
@@ -413,9 +450,5 @@ func Events(f model.Form, sub Submission, externalID, anonymousID string, meta m
 		}
 		evs = append(evs, event.Event{ID: id + ":t", ExternalID: externalID, Name: event.TagAdded, Props: map[string]any{"tags": tags, "source": "form"}})
 	}
-	props := map[string]any{"form_id": f.ID, "form_name": f.Name, "fields": sub.Values}
-	for k, v := range meta {
-		props[k] = v
-	}
-	return append(evs, event.Event{ID: id, ExternalID: externalID, Name: Submitted, Props: props})
+	return evs
 }

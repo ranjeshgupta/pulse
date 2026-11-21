@@ -213,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 	s.accountRoutes(mux)
 	s.reportRoutes(mux)
 	s.formRoutes(mux)
+	s.optinRoutes(mux)
 	s.roleRoutes(mux)
 	s.webhookRoutes(mux)
 	s.backgroundImportRoutes(mux)

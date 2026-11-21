@@ -532,6 +532,13 @@ type FormSettings struct {
 	Resubscribe    []string `json:"resubscribe,omitempty"`  // channels the submitter opts in to (lifts an opt-out)
 	Description    string   `json:"description,omitempty"`  // shown above the fields
 	Theme          string   `json:"theme,omitempty"`        // accent color, e.g. #2747d6
+	// Double opt-in (O6): the submitter gets ConfirmTemplateID (an email with {{event.confirm_url}})
+	// and joins lists, gets tags and is opted in only when they click it. ConfirmedMessage or
+	// ConfirmedRedirect is what they see then.
+	DoubleOptIn       bool   `json:"double_optin,omitempty"`
+	ConfirmTemplateID int64  `json:"confirm_template_id,omitempty"`
+	ConfirmedMessage  string `json:"confirmed_message,omitempty"`
+	ConfirmedRedirect string `json:"confirmed_redirect,omitempty"`
 }
 
 // Funnel is an ordered list of steps a contact completes within WindowDays.

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Form, type FormField, type FormFieldType, type FormSettings, type FormStats, type Segment } from "../api";
+import { api, CHANNEL_NAMES, CHANNELS, type Channel, type Form, type FormField, type FormFieldType, type FormSettings, type FormStats, type Segment, type Template } from "../api";
 import { Empty, ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast, useCopy } from "../ui";
 import { askDelete, useEditGuard } from "../guard";
 import { DEFAULT_FILE_MB, formPages, layoutProblems, MAX_FILE_MB, UPLOAD_KINDS, uploadOf } from "./formPages";
@@ -125,6 +125,10 @@ function toForm(d: Draft): Omit<Form, "id" | "public_key"> {
     consent_text: s.consent_text?.trim() || undefined,
     resubscribe: s.consent_text?.trim() ? s.resubscribe ?? [] : [],
     theme: s.theme || undefined,
+    double_optin: s.double_optin || undefined,
+    confirm_template_id: s.double_optin ? s.confirm_template_id || undefined : undefined,
+    confirmed_message: s.double_optin ? s.confirmed_message?.trim() || undefined : undefined,
+    confirmed_redirect: s.double_optin ? s.confirmed_redirect?.trim() || undefined : undefined,
   };
   return { name: d.name.trim(), status: d.status, fields, settings };
 }
@@ -462,6 +466,8 @@ export function FormEdit() {
             </div>
           </section>
 
+          <DoubleOptIn settings={d.settings} set={setS} />
+
           {!isNew && hosted && publicKey && <UseIt hosted={hosted} publicKey={publicKey} name={body.name} live={savedLive} />}
           {!isNew && id && <Submissions id={id} />}
         </div>
@@ -668,6 +674,62 @@ function Submissions({ id }: { id: string }) {
               </div>
             </div>
           )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** The standard confirmation email, created on request (editable like any template). */
+export const CONFIRM_EMAIL = {
+  name: "Confirm your subscription",
+  channel: "email",
+  subject: "Please confirm your subscription",
+  html: `<p>Hi {{contact.first_name | default: 'there'}},</p><p>Thanks for signing up. Please confirm your email address so we can keep you posted.</p><p><a href="{{event.confirm_url}}">Yes, subscribe me</a></p><p>If you didn't sign up, ignore this email: nothing happens until you confirm.</p>`,
+  content: { text: "Thanks for signing up. Confirm your email address: {{event.confirm_url}}" },
+  transactional: true,
+};
+
+/** DoubleOptIn: lists, tags and opt-ins wait until the person clicks the link in a confirmation email. */
+function DoubleOptIn({ settings: s, set }: { settings: FormSettings; set: (p: Partial<FormSettings>) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const tpls = useQuery({ queryKey: ["templates", "email"], queryFn: () => api.get<{ templates: Template[] }>("/v1/templates?channel=email"), enabled: !!s.double_optin });
+  const create = useMutation({
+    mutationFn: () => api.post<{ id: number }>("/v1/templates", CONFIRM_EMAIL),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      set({ confirm_template_id: r.id });
+      toast({ text: "Created the confirmation email. Edit it under Message templates any time." });
+    },
+  });
+  return (
+    <section className="section">
+      <h3>Double opt-in</h3>
+      <label className="check">
+        <input type="checkbox" checked={!!s.double_optin} onChange={(e) => set({ double_optin: e.target.checked })} />
+        Ask people to confirm their email address first
+      </label>
+      <p className="small muted" style={{ marginTop: -4 }}>
+        They get an email with a link. Only when they click it do they join the lists, get the tags and the opt-ins above. Proves the
+        address is theirs (better deliverability, consent you can show). Links work for 7 days.
+      </p>
+      {s.double_optin && (
+        <>
+          <Field label="Confirmation email" hint={<>An email template with the link <code>{"{{event.confirm_url}}"}</code>.</>}>
+            <div className="row" style={{ flexWrap: "nowrap" }}>
+              <select className="select" value={s.confirm_template_id ?? ""} onChange={(e) => set({ confirm_template_id: Number(e.target.value) || undefined })}>
+                <option value="">Choose an email template…</option>
+                {(tpls.data?.templates ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <button type="button" className="btn" disabled={create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "✨ Create the standard one"}</button>
+            </div>
+          </Field>
+          <ErrorNote error={create.error} />
+          <div className="grid-2">
+            <Field label="After confirming, show (optional)"><input className="input" value={s.confirmed_message ?? ""} placeholder="Thanks — you're subscribed." onChange={(e) => set({ confirmed_message: e.target.value })} /></Field>
+            <Field label="Or send them to (optional)" hint="A page on your site; wins over the message."><input className="input" value={s.confirmed_redirect ?? ""} placeholder="https://example.com/welcome" onChange={(e) => set({ confirmed_redirect: e.target.value })} /></Field>
+          </div>
         </>
       )}
     </section>

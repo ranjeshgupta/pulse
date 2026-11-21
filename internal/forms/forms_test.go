@@ -60,7 +60,7 @@ func TestParseAndEvents(t *testing.T) {
 	if _, ok := sub.Attrs["email"]; ok {
 		t.Error("email goes to the contact's email, not an attribute")
 	}
-	evs := Events(f, sub, "asha@example.com", "anon-1", map[string]any{"source": "hosted"})
+	evs := Events(f, sub, "asha@example.com", "anon-1", map[string]any{"source": "hosted"}, "")
 	names := []string{}
 	for _, e := range evs {
 		names = append(names, e.Name)

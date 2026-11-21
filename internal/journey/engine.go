@@ -198,6 +198,10 @@ func (e *Engine) Handle(ctx context.Context, r *kgo.Record) error {
 			}
 			return e.exec.Deleter.DeleteContacts(ctx, ev.TenantID, []uint32{ev.ContactID})
 		}
+		// Double opt-in: the form's confirmation email, with the event (its confirm_url) for {{event.x}}.
+		if ev.Name == event.OptinRequested && ev.ContactID != 0 {
+			return e.sendOptin(ctx, ev)
+		}
 		// Goals first: a contact who converts leaves before anything else reacts to this event.
 		if js := idx.goals[ev.TenantID][ev.Name]; len(js) > 0 {
 			if _, err := e.store.Convert(ctx, ev.TenantID, ev.ContactID, js); err != nil {
@@ -426,4 +430,16 @@ func messageTrigger(ev *event.Event, s *eventschema.Schema) json.RawMessage {
 		return nil
 	}
 	return eventschema.MessageProps(s, ev.Props)
+}
+
+// sendOptin sends a double opt-in confirmation email (one per optin_requested event: the message
+// id is the event's, so a redelivered event is deduplicated by the dispatcher).
+func (e *Engine) sendOptin(ctx context.Context, ev event.Event) error {
+	tid, ok := attr.Number(attr.String(ev.Props["template_id"]))
+	if !ok || tid <= 0 || e.exec.Sender == nil {
+		return nil
+	}
+	props, _ := json.Marshal(ev.Props)
+	return e.exec.Sender.Send(ctx, model.Message{ID: "optin:" + ev.ID, TenantID: ev.TenantID, ContactID: ev.ContactID,
+		Channel: channel.Email, TemplateID: int64(tid), Campaign: "Double opt-in", Event: props})
 }

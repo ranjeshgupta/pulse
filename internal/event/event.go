@@ -70,6 +70,11 @@ const (
 	// AMP email post-backs (POST /v1/amp/{token}): props block, message ids, and the answers
 	AMPFormSubmitted = "amp_form_submitted" // a form in an AMP email: one prop per field
 	AMPPollAnswered  = "amp_poll_answered"  // a poll in an AMP email: props question, answer
+
+	// Double opt-in (O6): a form asked the person to confirm (props form_id, template_id, email,
+	// confirm_url; the journeys role sends the confirmation email), and they did (props form_id).
+	OptinRequested = "optin_requested"
+	OptinConfirmed = "optin_confirmed"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -78,7 +83,8 @@ func ServerOnly(name string) bool {
 	switch name {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
 		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged,
-		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered:
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered,
+		OptinRequested, OptinConfirmed:
 		return true
 	}
 	return false
@@ -106,7 +112,8 @@ func PlatformOnly(name string) bool {
 	}
 	switch name {
 	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
-		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered:
+		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered,
+		OptinRequested, OptinConfirmed:
 		return true
 	}
 	return false
