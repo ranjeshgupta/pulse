@@ -30,13 +30,12 @@ func (s *Server) sessionCookieName() string {
 	return sessionCookie
 }
 
-// sessionToken reads the session cookie: the current name first, then the name sessions had before
-// (pulse_session), so people signed in before an upgrade stay signed in.
+// sessionToken reads the session cookie under its one current name. Over https that's only the
+// __Host- name: a plain-named cookie could be planted by a sibling subdomain, so it is never read
+// there (the plain name is for local http, where __Host- cookies can't be set).
 func (s *Server) sessionToken(r *http.Request) string {
-	for _, name := range []string{s.sessionCookieName(), sessionCookie} {
-		if c, err := r.Cookie(name); err == nil && c.Value != "" {
-			return c.Value
-		}
+	if c, err := r.Cookie(s.sessionCookieName()); err == nil {
+		return c.Value
 	}
 	return ""
 }

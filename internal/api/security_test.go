@@ -129,7 +129,7 @@ func (m sessionMem) SetPassword(_ context.Context, tenant, user int64, hash stri
 }
 
 // Behind https the session cookie is __Host- prefixed (Secure, Path=/, no Domain), HSTS is sent,
-// and sessions from before the rename (pulse_session) still work.
+// and a plain-named cookie (which a sibling subdomain could plant) is never read over https.
 func TestSecureSessionCookieAndHSTS(t *testing.T) {
 	s, store, _ := newServer()
 	var logs bytes.Buffer
@@ -155,9 +155,9 @@ func TestSecureSessionCookieAndHSTS(t *testing.T) {
 	if w := browser(t, h, "GET", "/v1/auth/me", "", c, false); w.Code != 200 {
 		t.Errorf("new cookie: %d", w.Code)
 	}
-	old := &http.Cookie{Name: sessionCookie, Value: c.Value}
-	if w := browser(t, h, "GET", "/v1/auth/me", "", old, false); w.Code != 200 {
-		t.Errorf("old cookie name during the transition: %d", w.Code)
+	planted := &http.Cookie{Name: sessionCookie, Value: c.Value}
+	if w := browser(t, h, "GET", "/v1/auth/me", "", planted, false); w.Code != http.StatusUnauthorized {
+		t.Errorf("plain-named cookie over https: %d, want 401", w.Code)
 	}
 	w = browser(t, h, "POST", "/v1/auth/logout", "", c, true)
 	cleared := map[string]bool{}
