@@ -37,7 +37,11 @@ func TestCustomerValue(t *testing.T) {
 		return len(asList(jsonCall(t, c, "GET", "/v1/contacts?q="+url.QueryEscape("is:identified"), nil, 200)["contacts"])) == 13
 	})
 	jsonCall(t, c, "POST", "/v1/revenue/customer-value/refresh", nil, 202)
-	jsonCall(t, c, "POST", "/v1/revenue/customer-value/refresh", nil, 429)
+	// Asking again right away: 409 while the run still holds its lock, 429 once it has finished
+	// (one start every 5 minutes).
+	if r := jsonCall(t, c, "POST", "/v1/revenue/customer-value/refresh", nil, -1); r["error"] == nil {
+		t.Errorf("second Score now was accepted: %v", r)
+	}
 	attrs := func(ext string) map[string]any {
 		ct, _ := jsonCall(t, c, "GET", "/v1/contacts/"+ext, nil, -1)["contact"].(map[string]any)
 		a, _ := ct["attrs"].(map[string]any)

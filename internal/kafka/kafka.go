@@ -12,7 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -94,6 +97,9 @@ type Consumer struct {
 	dlq     Publisher
 	log     *slog.Logger
 	retries int
+
+	transientMu     sync.Mutex
+	transientLogged time.Time
 }
 
 func NewConsumer(brokers []string, group string, dlq Publisher, log *slog.Logger, topics ...string) (*Consumer, error) {
@@ -155,6 +161,13 @@ func (c *Consumer) RunPartitionBatches(ctx context.Context, h BatchHandler) erro
 				for attempt := 0; attempt <= c.retries; attempt++ {
 					if err = h(ctx, part); err == nil || ctx.Err() != nil {
 						return
+					}
+					if Transient(err) {
+						// A store or the network is down, not a bad record: wait for it rather than
+						// splitting the batch and sending records to the DLQ.
+						attempt = -1
+						c.waitTransient(ctx, err)
+						continue
 					}
 					time.Sleep(time.Duration(100<<attempt) * time.Millisecond)
 				}
@@ -225,6 +238,11 @@ func (c *Consumer) handleWithRetry(ctx context.Context, h RecordHandler, r *kgo.
 		if err = h(ctx, r); err == nil || ctx.Err() != nil {
 			return
 		}
+		if Transient(err) { // never DLQ a record because a store was briefly unavailable
+			attempt = -1
+			c.waitTransient(ctx, err)
+			continue
+		}
 		time.Sleep(time.Duration(100<<attempt) * time.Millisecond)
 	}
 	c.log.Error("record failed, sending to DLQ", "topic", r.Topic, "partition", r.Partition, "offset", r.Offset, "err", err)
@@ -237,4 +255,48 @@ func (c *Consumer) handleWithRetry(ctx context.Context, h RecordHandler, r *kgo.
 	if perr := c.dlq.Publish(ctx, dead); perr != nil {
 		c.log.Error("DLQ publish failed", "err", perr)
 	}
+}
+
+// waitTransient pauses before retrying after a transient error, logging at most every 30 s.
+func (c *Consumer) waitTransient(ctx context.Context, err error) {
+	c.transientMu.Lock()
+	if time.Since(c.transientLogged) > 30*time.Second {
+		c.transientLogged = time.Now()
+		c.log.Warn("store or network unavailable, waiting to retry", "err", err)
+	}
+	c.transientMu.Unlock()
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+	}
+}
+
+// Transient reports whether an error comes from infrastructure that is briefly unavailable (Redis
+// still loading or failing over, a refused or dropped connection, a network timeout, a Postgres
+// connection or shutdown error) rather than from the record itself. Such errors are retried until
+// the store is back, never sent to the DLQ.
+func Transient(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) || errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var st interface{ SQLState() string }
+	if errors.As(err, &st) {
+		code := st.SQLState()
+		// 08: connection exceptions; 53: insufficient resources; 57P0x: shutdown / cannot connect now.
+		return strings.HasPrefix(code, "08") || strings.HasPrefix(code, "53") || strings.HasPrefix(code, "57P0")
+	}
+	msg := err.Error()
+	for _, s := range []string{"LOADING ", "TRYAGAIN", "CLUSTERDOWN", "MASTERDOWN", "READONLY You can't write against a read only replica",
+		"connection refused", "connection reset", "broken pipe", "i/o timeout", "no such host", "server closed the connection",
+		"failed to connect", "conn closed"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
