@@ -62,6 +62,8 @@ var special = map[string]need{
 	"GET /v1/journeys/{id}/report":                    {auth.AreaReports, auth.View},
 	"GET /v1/broadcasts/{id}/report":                  {auth.AreaReports, auth.View},
 	"GET /v1/templates/{id}/report":                   {auth.AreaReports, auth.View},
+	"GET /v1/journeys/{id}/timeline":                  {auth.AreaReports, auth.View},
+	"GET /v1/broadcasts/{id}/timeline":                {auth.AreaReports, auth.View},
 	"GET /v1/forms/{id}/submissions":                  {auth.AreaContent, auth.View},
 	"GET /v1/forms/{id}/uploads/{upload}":             {auth.AreaContacts, auth.View}, // files contacts uploaded: personal data
 	"GET /v1/contacts/export":                         {auth.AreaContacts, auth.Edit}, // a full copy of the data

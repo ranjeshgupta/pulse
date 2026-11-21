@@ -10,9 +10,10 @@ import { templateFilters } from "../contactLinks";
 import { daysAgo, rangeProblem, RangePicker, ymd, type Range } from "../insights";
 import { COUNT_LABELS, CountsTable, ReportFigures, ReportPanel, TopLinks, type CountKey, type CountLink } from "../reports";
 import {
-  bestTime, buckets, heatLevel, hourLabel, SERIES_COLORS, seriesKinds, templateKeys, WEEKDAYS, type TemplateReportResponse,
+  bestTime, heatLevel, hourLabel, SERIES_COLORS, seriesKinds, templateKeys, WEEKDAYS, type TemplateReportResponse,
 } from "../templateReport";
 import { Empty, ErrorNote } from "../ui";
+import { SeriesChart } from "../SeriesChart";
 import "./template-report.css";
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Kolkata";
@@ -66,7 +67,7 @@ export function TemplateReport({ id, channel }: { id: number; channel: Channel }
         <>
           <ReportFigures totals={rep.totals} keys={keys} link={link} />
           <ReportPanel title="Over time" body>
-            <SeriesChart data={q.data!} channel={channel} />
+            <TemplateSeries data={q.data!} channel={channel} />
           </ReportPanel>
           <div className="grid-2 trep-grid">
             <ReportPanel title="When people engage" aside={<span className="xs muted">{channel === "email" ? "Opens and clicks" : "Reads and clicks"}</span>} body>
@@ -124,51 +125,11 @@ function outcomeOf(k: CountKey): string {
   return k === "failed" ? "failed" : k;
 }
 
-/** SeriesChart draws one line per outcome, by day or hour; the legend turns lines on and off. */
-function SeriesChart({ data, channel }: { data: TemplateReportResponse; channel: Channel }) {
-  const kinds = seriesKinds(channel);
-  const [off, setOff] = useState<Set<string>>(() => new Set(kinds.filter((k) => k === "complained" || k === "unsubscribed")));
-  const [hover, setHover] = useState<number | null>(null);
-  const rows = buckets(data.report.series, data.from, data.to, data.bucket === "hour");
-  const shown = kinds.filter((k) => !off.has(k));
-  const max = Math.max(1, ...rows.flatMap((r) => shown.map((k) => r.values[k] ?? 0)));
-  const W = 900, H = 220, P = 28;
-  const x = (i: number) => P + (rows.length <= 1 ? 0 : (i / (rows.length - 1)) * (W - 2 * P));
-  const y = (n: number) => H - P - (n / max) * (H - 2 * P);
-  const label = (t: string) => data.bucket === "hour" ? t.slice(5) : new Date(`${t}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
-  const every = Math.max(1, Math.ceil(rows.length / 8));
-  return (
-    <div className="trep-chart">
-      <div className="trep-legend" role="group" aria-label="Lines">
-        {kinds.map((k) => (
-          <button key={k} type="button" aria-pressed={!off.has(k)} onClick={() => setOff((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; })}>
-            <i style={{ background: SERIES_COLORS[k] }} />{COUNT_LABELS[k as CountKey]}
-          </button>
-        ))}
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Outcomes over time" onMouseLeave={() => setHover(null)}
-        onMouseMove={(e) => {
-          const box = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-          const px = ((e.clientX - box.left) / box.width) * W;
-          setHover(Math.max(0, Math.min(rows.length - 1, Math.round(((px - P) / (W - 2 * P)) * (rows.length - 1)))));
-        }}>
-        {[0, 0.5, 1].map((f) => <line key={f} x1={P} x2={W - P} y1={y(max * f)} y2={y(max * f)} className="trep-grid-line" />)}
-        <text x={4} y={y(max) + 4} className="trep-axis">{max.toLocaleString("en-IN")}</text>
-        {rows.map((r, i) => i % every === 0 && <text key={r.t} x={x(i)} y={H - 6} textAnchor="middle" className="trep-axis">{label(r.t)}</text>)}
-        {shown.map((k) => (
-          <polyline key={k} fill="none" stroke={SERIES_COLORS[k]} strokeWidth={2} strokeLinejoin="round"
-            points={rows.map((r, i) => `${x(i)},${y(r.values[k] ?? 0)}`).join(" ")} />
-        ))}
-        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={P / 2} y2={H - P} className="trep-hover" />}
-      </svg>
-      {hover !== null && rows[hover] && (
-        <div className="trep-tip small">
-          <strong>{data.bucket === "hour" ? rows[hover].t : label(rows[hover].t)}</strong>
-          {shown.map((k) => <span key={k}><i style={{ background: SERIES_COLORS[k] }} />{COUNT_LABELS[k as CountKey]}: {(rows[hover].values[k] ?? 0).toLocaleString("en-IN")}</span>)}
-        </div>
-      )}
-    </div>
-  );
+/** SeriesChart (shared) with the template's outcome lines. */
+function TemplateSeries({ data, channel }: { data: TemplateReportResponse; channel: Channel }) {
+  const lines = seriesKinds(channel).map((k) => ({ key: k, label: COUNT_LABELS[k as CountKey], color: SERIES_COLORS[k] }));
+  return <SeriesChart series={data.report.series} from={data.from} to={data.to} hourly={data.bucket === "hour"} lines={lines}
+    startOff={["complained", "unsubscribed"]} label="Outcomes over time" />;
 }
 
 function Heatmap({ heat }: { heat: number[][] }) {

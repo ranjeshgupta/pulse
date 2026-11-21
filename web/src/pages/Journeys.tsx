@@ -1,3 +1,4 @@
+import { CampaignTimeline, DecisionTable } from "./CampaignTimeline";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Background, Controls, MarkerType, MiniMap, Panel, ReactFlow, ReactFlowProvider, useReactFlow,
@@ -448,6 +449,7 @@ function Palette({ q, setQ, locked, graph, at, atText, ctx, onAdd }: {
 function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: string; graph: JourneyGraph; templates: Map<number, Template>; numbers: Record<string, number>; onStep: (stepId: string) => void }) {
   const q = useQuery({ queryKey: ["journey-report", id], queryFn: () => api.get<JourneyReport>(`/v1/journeys/${id}/report`), refetchInterval: 5000 });
   const r = q.data;
+  const [timeStep, setTimeStep] = useState("");
   const st = r?.enrollments.status ?? {};
   // M7: every count opens the contacts behind it.
   const jid = Number(id);
@@ -469,7 +471,7 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
       key: sid,
       lead: [
         <span key="s">{n ? <><span className="faint xs">{numbers[sid]}.</span> {ch ? <span className={`chan chan-${ch}`}>{stepLabel(graph, n)}</span> : stepLabel(graph, n)}</> : <span className="muted">Removed step</span>}</span>,
-        tpl ? tpl.name : <span className="faint">–</span>,
+        tpl ? <Link key="t" to={`/templates/${tpl.id}?tab=report`} onClick={(e) => e.stopPropagation()} title="Open the template's report">{tpl.name}</Link> : <span className="faint">–</span>,
       ],
       counts,
       onClick: n ? () => onStep(sid) : undefined,
@@ -495,6 +497,14 @@ function JourneyReportView({ id, graph, templates, numbers, onStep }: { id: stri
           <div><strong>{money(m.revenue.revenue, m.revenue.currency)}</strong><span>revenue from contacts in it <small>({m.revenue.event} within {m.revenue.days} days of a message)</small></span></div>
           <div><strong><LiveNumber value={m.revenue.orders} /></strong><span>{m.revenue.orders === 1 ? "order" : "orders"}</span></div>
           <div><strong><LiveNumber value={m.revenue.buyers} /></strong><span>{m.revenue.buyers === 1 ? "buyer" : "buyers"}</span></div>
+        </div>
+      )}
+      <div style={{ marginBottom: 24 }}>
+        <CampaignTimeline kind="journey" id={jid} graph={graph} numbers={numbers} step={timeStep || undefined} onStep={setTimeStep} />
+      </div>
+      {r?.steps && (
+        <div style={{ marginBottom: 24 }}>
+          <DecisionTable graph={graph} numbers={numbers} steps={r.steps} onPick={(sid) => { setTimeStep(sid); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </div>
       )}
       {Object.entries(r?.splits ?? {}).map(([sid, sp]) => (

@@ -744,6 +744,18 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - Tests: `identity_test.go` (package and profile), `identityKeys.test.ts`, e2e `test/e2e/identity_test.go`.
 - How the ranking, rerouting and backfill work: [architecture](02-architecture.md#profiles-and-reserved-attributes).
 
+### O5 as built
+
+- Backend: ClickHouse 008 `segment_changes`; hourly step counters (`journey.StepHourKey`, `ReadStepHours`);
+  `ch.CampaignTimeline`; `GET /v1/journeys/{id}/timeline` (`step=` for one step) and `/v1/broadcasts/{id}/timeline`;
+  `reportPeriod` shared with the template report.
+- Web: `SeriesChart.tsx` (shared line chart; coinciding lines stay visible), `pages/CampaignTimeline.tsx` (Over time
+  panel with the step picker, Decisions and conditions table), wired into the journey report and one-time results;
+  template names in Messages by step open the template report.
+- Tests: `campaignTimeline.test.ts`, e2e `TestCampaignTimeline`; checked in a headless browser.
+- Mautic / Listmonk parity notes: per-message rows were already in Messages by step and By channel (M4); what was
+  missing was time, decisions and segment movement.
+
 ### O4 as built
 
 - Backend (ff020b6): ClickHouse 007 (`message_events.template_id`, `provider_id`, mv4, backfill); `Message.SentVia` and

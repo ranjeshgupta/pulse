@@ -1,3 +1,4 @@
+import { CampaignTimeline } from "./CampaignTimeline";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -487,6 +488,9 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
               </ReportPanel>
             </div>
           )}
+          <div style={{ marginBottom: 24 }}>
+            <CampaignTimeline kind="broadcast" id={Number(id)} />
+          </div>
           <div className="report-cols" style={{ marginTop: 0 }}>
             {(bc.channel === "email" || r.links.length > 0) && <TopLinks links={r.links} />}
             <DailyBars daily={r.daily} link={(kind, day) => [...outcome(kind), ["period", day]]} />

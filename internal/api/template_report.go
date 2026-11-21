@@ -7,8 +7,6 @@ package api
 import (
 	"context"
 	"net/http"
-	"strconv"
-	"time"
 
 	"pulse/internal/store/ch"
 )
@@ -38,50 +36,8 @@ func (s *Server) templateReport(w http.ResponseWriter, r *http.Request, tenant i
 		s.fail(w, err)
 		return
 	}
-	q := r.URL.Query()
-	zone := q.Get("tz")
-	if zone == "" {
-		zone = "Asia/Kolkata"
-	}
-	loc, err := time.LoadLocation(zone)
-	if err != nil || zone == "Local" {
-		writeErr(w, http.StatusBadRequest, "tz: unknown time zone")
-		return
-	}
-	today := s.now().In(loc)
-	day := func(name string, def time.Time) (time.Time, bool) {
-		v := q.Get(name)
-		if v == "" {
-			return def, true
-		}
-		d, err := time.ParseInLocation("2006-01-02", v, loc)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, name+": use a date like 2026-11-21")
-			return d, false
-		}
-		return d, true
-	}
-	start := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
-	from, ok := day("from", start.AddDate(0, 0, -29))
+	from, end, hourly, zone, ok := s.reportPeriod(w, r, maxReportDays)
 	if !ok {
-		return
-	}
-	to, ok := day("to", start)
-	if !ok {
-		return
-	}
-	end := to.AddDate(0, 0, 1) // to is inclusive
-	days := int(end.Sub(from).Hours() / 24)
-	hourly := q.Get("bucket") == "hour"
-	switch {
-	case !end.After(from):
-		writeErr(w, http.StatusBadRequest, "from must be on or before to")
-		return
-	case days > maxReportDays:
-		writeErr(w, http.StatusBadRequest, "at most "+strconv.Itoa(maxReportDays)+" days")
-		return
-	case hourly && days > maxHourlyDays:
-		writeErr(w, http.StatusBadRequest, "hour by hour covers at most "+strconv.Itoa(maxHourlyDays)+" days")
 		return
 	}
 	rep, err := tr.TemplateReport(r.Context(), ch.TemplateQuery{Tenant: tenant, Template: id, From: from, To: end, Hourly: hourly, Zone: zone})
@@ -89,9 +45,8 @@ func (s *Server) templateReport(w http.ResponseWriter, r *http.Request, tenant i
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"template": map[string]any{"id": t.ID, "name": t.Name, "channel": t.Channel},
-		"from":     from.Format("2006-01-02"), "to": to.Format("2006-01-02"), "tz": zone, "bucket": map[bool]string{true: "hour", false: "day"}[hourly],
-		"report": rep,
-	})
+	out := periodOut(from, end, hourly, zone)
+	out["template"] = map[string]any{"id": t.ID, "name": t.Name, "channel": t.Channel}
+	out["report"] = rep
+	writeJSON(w, http.StatusOK, out)
 }

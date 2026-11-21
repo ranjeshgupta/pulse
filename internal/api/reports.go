@@ -29,6 +29,8 @@ type FunnelStore interface {
 
 func (s *Server) reportRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/journeys/{id}/report", s.tenant(s.journeyReport))
+	mux.HandleFunc("GET /v1/journeys/{id}/timeline", s.tenant(s.journeyTimeline))
+	mux.HandleFunc("GET /v1/broadcasts/{id}/timeline", s.tenant(s.broadcastTimeline))
 	mux.HandleFunc("GET /v1/events/names", s.tenant(s.eventNames))
 	mux.HandleFunc("GET /v1/attributes/{key}/values", s.tenant(s.attrValues))
 	mux.HandleFunc("GET /v1/events/{name}/values", s.tenant(s.propValues))

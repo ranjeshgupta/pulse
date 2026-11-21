@@ -456,6 +456,12 @@ A journey is a trigger plus a graph of nodes, stored as JSON:
   backfilled once) feed template reports (`GET /v1/templates/{id}/report`) and the `template:` contact filter. The
   dispatcher records the provider a message went through as `props.provider_id` (`Message.SentVia`, kept in the receipt
   lookup so delivery reports carry it too). ClickHouse migrations run on every start, so 006 no longer creates mv3.
+- `segment_changes` (O5, ClickHouse 008): every segment join and leave, from a view over `segment_members` inserts
+  (the pipeline publishes changes only), kept 400 days, for the trigger segment's joined / left on campaign timelines.
+  Journey step counts are also kept per UTC hour in Redis (`jsteps:<workspace>:<journey>:h:<yyyymmddhh>`, 400 days)
+  beside the running totals; `GET /v1/journeys/{id}/timeline` folds them into the period's days or hours in the
+  viewer's zone (half-hour zones split an hour by its start), with `journey_entered` / `journey_completed` from `events`
+  and outcomes from `message_events`; `GET /v1/broadcasts/{id}/timeline` has the outcomes.
 - `active_users_daily` (M4): `AggregatingMergeTree` of `uniqState(contact_id)` per workspace, UTC day, platform and UTM
   source, and `first_active` (the first active day per contact), both fed by materialized views and backfilled once
   (400 days), for the Users dashboard.
