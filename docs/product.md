@@ -76,6 +76,10 @@ means what Pulse does **not** do today.
 - **Static segments** (manual lists) filled by imports, forms, journey steps or by hand.
 - **Daily-refresh segments** recomputed once a day at a chosen time, for heavy rules that don't
   need to be live.
+- **Publish and unpublish segments**, with a publish window (start and optional end): outside it a
+  segment is frozen (members kept, not recomputed) and can't be used for new sends; publishing it
+  again catches it up. Live campaigns can be unpublished too, letting the people inside finish or
+  holding them where they are.
 - **Exact reach per channel**: how many members can actually be reached by email, SMS, WhatsApp,
   RCS or push (address present, not unsubscribed, not bounced).
 - **"Why is this contact in this segment?"**, rule by rule, with the contact's values.

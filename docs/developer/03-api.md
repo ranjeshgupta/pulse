@@ -781,6 +781,33 @@ refresh, so it can differ from `match` until the next one.
 rebuilds); `DELETE` answers 409 while another segment uses it. How rules are evaluated:
 [architecture, segment rules](../architecture.md#8-segmentation-engine).
 
+**Publishing.** Every segment (dynamic or static) has `published` (default `true`), `start_at`
+(required; default: when it was created) and `end_at` (optional), plus `state`: `live`, `upcoming`
+(before `start_at`), `ended` (from `end_at`) or `unpublished`. Outside `live` a segment is frozen:
+the segment engine stops recomputing it (members stay as they were; segments that read it see
+them), its daily refresh and sweeps stop, a public static segment leaves the preference center, and
+new sends can't use it: `POST /v1/broadcasts/{id}/schedule` answers 409 when any of its segments
+(audience, extra or excluded) is unpublished, ended, or starts after the first send, and
+`activate` answers 409 for a journey whose trigger segment is unpublished or ended. What already
+uses it keeps running on the frozen members.
+
+```bash
+curl -s -X PUT $PULSE/v1/segments/14/publishing -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"published":false,"start_at":"2026-11-01T00:00:00Z","end_at":null}'
+# 200 {"id":14, …, "published":false, "start_at":"2026-11-01T00:00:00Z", "state":"unpublished", …}
+
+curl -s $PULSE/v1/segments/14/usage -H "Authorization: Bearer $KEY"
+# 200 {"uses":[{"kind":"journey","id":8,"name":"Welcome series","status":"active"}]}
+```
+
+`PUT /v1/segments/{id}/publishing` needs `published` and `start_at` (400 otherwise, or when
+`end_at` isn't after `start_at`). When a dynamic segment wakes up (published again, or a window
+moved so it's live) or waits for a later start, its `status` turns `new`: it's rebuilt from history
+once it's live, catching up on what it missed. `POST /v1/segments` takes the same three fields
+(all optional). `GET /v1/segments/{id}/usage` lists what uses a segment now (`kind`: `segment`,
+`journey` live or paused, `broadcast` scheduled or sending, `focus`, `content` and `inapp` when
+published), for the app's Unpublish prompt.
+
 ### Static segments (lists)
 
 Static segments have members you add and remove, by API, import, form or journey step.
@@ -1044,7 +1071,16 @@ The step types (each one's fields are in `journey.Node`, `internal/journey/graph
 | End | `exit`, `jump` (`target`), `delete_contact` (`confirm: "DELETE"`) |
 
 `PUT /v1/journeys/{id}` replaces name, graph and schedule; it answers 409 while the journey is active,
-so pause it first (`POST /v1/journeys/{id}/pause`). `DELETE /v1/journeys/{id}` deletes a journey
+so pause it first (`POST /v1/journeys/{id}/pause`).
+
+**Unpublishing and the window.** `start_at` / `end_at` bound who enters; people inside always finish.
+`POST /v1/journeys/{id}/unpublish` stops a live journey: `{"people":"finish"}` ends its window now
+(it stays `active`, nobody new enters, people inside finish; a journey that hasn't started yet is
+paused instead), `{"people":"hold"}` pauses it like `pause`. It answers 409 for a journey that isn't
+live. `PUT /v1/journeys/{id}/schedule` with `{"start_at", "end_at"}` changes the window at any
+status, also while live (needs journeys publish). Reopening a live journey whose window has ended
+is a launch: the trigger segment must be live, the caller needs what `activate` needs, and a
+workspace with approvals answers 409 for a signed-in user; an archived journey answers 409. `DELETE /v1/journeys/{id}` deletes a journey
 nobody has entered (409 otherwise). One that has run is archived instead:
 `POST /v1/journeys/{id}/archive` (paused or draft only) hides it from the app's list and stops it
 going live (`activate` answers 409) while keeping its enrollments and reports;
@@ -1897,9 +1933,11 @@ the path, a signature, or nothing).
 | `GET` | `/v1/attributes` | Defined contact fields, and keys seen on contacts but not defined | segments view |
 | `PUT` | `/v1/attributes/{key}` | Define a field: `label`, `type` (string, number, boolean, date, list, enum), `options` (enum: `[{value, label}]`), `pii`, `description` | segments edit |
 | `DELETE` | `/v1/attributes/{key}` | Remove a definition (values stay on contacts) | segments edit |
-| `POST` | `/v1/segments` | Create a dynamic segment (`name`, `rule`, optional `refresh`); 201, built in the background | segments edit |
-| `GET` | `/v1/segments` | List segments (dynamic and static) with sizes | segments view |
-| `GET` | `/v1/segments/{id}` | A segment with `status` and `size` | segments view |
+| `POST` | `/v1/segments` | Create a dynamic segment (`name`, `rule`, optional `refresh`, `published`, `start_at`, `end_at`); 201, built in the background | segments edit |
+| `GET` | `/v1/segments` | List segments (dynamic and static) with sizes and publish `state` | segments view |
+| `GET` | `/v1/segments/{id}` | A segment with `status`, `size`, `published`, `start_at`, `end_at` and `state` | segments view |
+| `PUT` | `/v1/segments/{id}/publishing` | Publish or unpublish, and set the window (`published`, `start_at`, `end_at`) | segments edit |
+| `GET` | `/v1/segments/{id}/usage` | What uses the segment now (live journeys, scheduled broadcasts, published on-site and in-app messages, segments) | segments view |
 | `PUT` | `/v1/segments/{id}` | Change name, rule and `refresh` (rebuilt) | segments edit |
 | `DELETE` | `/v1/segments/{id}` | Delete (409 while other segments use it) | segments edit |
 | `POST` | `/v1/segments/preview` | Count who a rule matches now, without saving | segments view |
@@ -1993,7 +2031,8 @@ the path, a signature, or nothing).
 | Method | Path | Does | Needs |
 |---|---|---|---|
 | `POST` | `/v1/journeys` | Create a journey (`name`, `graph`, optional `start_at`, `end_at`); 201, draft | journeys edit |
-| `POST` | `/v1/journeys/{id}/{action}` | `activate`, `pause`, `archive` or `unarchive` (409 for a signed-in user's `activate` when approvals are required) | journeys publish |
+| `POST` | `/v1/journeys/{id}/{action}` | `activate`, `pause`, `unpublish` (`{"people":"finish"\|"hold"}`), `archive` or `unarchive` (409 for a signed-in user's `activate` when approvals are required, or when its trigger segment isn't live) | journeys publish |
+| `PUT` | `/v1/journeys/{id}/schedule` | Change `start_at` / `end_at`, also while live (reopening an ended live journey is checked like `activate`) | journeys publish |
 | `GET` | `/v1/journeys/{id}/stats` | Enrollments by status and by current step | journeys view |
 | `GET` | `/v1/journeys` | List journeys with enrollment counts, `archived_at`, `has_run` and `problem` | journeys view |
 | `GET` | `/v1/journeys/{id}` | A journey with its graph | journeys view |
@@ -2012,7 +2051,7 @@ the path, a signature, or nothing).
 | `GET` | `/v1/broadcasts/{id}` | A broadcast and its runs | broadcasts view |
 | `PUT` | `/v1/broadcasts/{id}` | Change a broadcast | broadcasts edit |
 | `DELETE` | `/v1/broadcasts/{id}` | Delete a broadcast; 204 | broadcasts edit |
-| `POST` | `/v1/broadcasts/{id}/schedule` | Schedule it (its `start_at`, repeating per `repeat`); 409 while it's sending, or for a signed-in user when approvals are required | broadcasts publish |
+| `POST` | `/v1/broadcasts/{id}/schedule` | Schedule it (its `start_at`, repeating per `repeat`); 409 while it's sending, when one of its segments isn't live, or for a signed-in user when approvals are required | broadcasts publish |
 | `POST` | `/v1/broadcasts/{id}/cancel` | Cancel the schedule | broadcasts publish |
 | `POST` | `/v1/broadcasts/{id}/runs/{run}/winner` | Pick an A/B winner by hand (`variant`) | broadcasts publish |
 | `PUT` | `/v1/broadcasts/{id}/tags` | Set its tags (any status) | broadcasts edit |

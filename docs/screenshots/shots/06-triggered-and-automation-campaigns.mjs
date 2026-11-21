@@ -163,19 +163,19 @@ export default async function (browser) {
 
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  // 10. Schedule on Start.
+  // 10. Publish window on Start.
   await page.locator(".jnode.c-start").click();
   await settle(page);
-  const sched = insp.locator("h4", { hasText: "Schedule" });
+  const sched = insp.locator("h4", { hasText: "Publish window" });
   await sched.scrollIntoViewIfNeeded();
-  await shot(page, AREA, "06-schedule", { clip: insp.locator("h4:has-text('Schedule'), h4:has-text('Schedule') ~ *"), pad: 8 });
+  await shot(page, AREA, "06-schedule", { clip: insp.locator("h4:has-text('Publish window'), h4:has-text('Publish window') ~ *"), pad: 8 });
 
-  // 11. Save draft, then go live.
+  // 11. Save draft, then publish.
   await page.getByRole("button", { name: "Save draft" }).click();
   await page.waitForURL((u) => /\/journeys\/\d+$/.test(u.pathname));
   await settle(page, { quiet: 800 });
   const id = page.url().split("/").pop();
-  const live = page.getByRole("button", { name: "Save and go live" });
+  const live = page.getByRole("button", { name: "Save and publish" });
   await highlight(live);
   await shot(page, AREA, "06-go-live", { clip: page.locator(".page-head"), pad: 8 });
   await clearHighlights(page);
@@ -238,14 +238,20 @@ export default async function (browser) {
   await shot(page, AREA, "06-report", { clip: page.locator(".page > *").filter({ hasNot: page.locator(".toast") }), pad: 8 });
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  // 15. Pause it (and leave it paused).
+  // 15. Unpublish it, holding the people inside (it's left paused).
   await page.getByRole("tab", { name: "Steps" }).click();
-  const pause = page.getByRole("button", { name: "Pause to edit" });
+  const pause = page.getByRole("button", { name: "Unpublish" });
   await highlight(pause);
   await shot(page, AREA, "06-pause", { clip: page.locator(".page-head, .alert.info"), pad: 8 });
   await clearHighlights(page);
   await pause.click();
-  await until(async () => (await api(context, "GET", `/v1/journeys/${id}`)).status === "paused", { what: "the journey to pause" });
+  const unpub = page.getByRole("dialog", { name: /^Unpublish / });
+  await unpub.waitFor();
+  await unpub.getByRole("radio", { name: /Hold them where they are/ }).click();
+  await settle(page, { quiet: 400 });
+  await shot(page, AREA, "06-unpublish", { clip: unpub, pad: 8 });
+  await unpub.getByRole("button", { name: "Unpublish", exact: true }).click();
+  await until(async () => (await api(context, "GET", `/v1/journeys/${id}`)).status === "paused", { what: "the journey to unpublish" });
 
   // 16. Delete or archive: the Campaigns page's row buttons and the Archived status (nothing is clicked).
   await page.setViewportSize({ width: 1440, height: 1000 });

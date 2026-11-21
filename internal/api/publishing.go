@@ -395,18 +395,12 @@ func (s *Server) putJourneySchedule(w http.ResponseWriter, r *http.Request, p mo
 	}
 	now := s.now()
 	if j.Status == "active" && win.State(now) != "ended" {
+		// Reopening a live journey whose window had ended is a launch.
 		if (schedule.Window{Start: j.StartAt, End: j.EndAt}).State(now) == "ended" && s.fourEyes(w, r, p) {
-			return // reopening an ended live journey is a launch
+			return
 		}
-		if g, err := journey.ParseGraph(j.Graph); err == nil && g.Trigger.SegmentID != 0 {
-			if err := s.segmentsLiveFor(r.Context(), tenant, []int64{g.Trigger.SegmentID}, win.Start); err != nil {
-				if errors.Is(err, errSegmentNotLive) {
-					writeErr(w, http.StatusConflict, err.Error())
-				} else {
-					s.fail(w, err)
-				}
-				return
-			}
+		if !s.launchOK(w, r, p, j, win.Start, true) {
+			return
 		}
 	}
 	if err := js.SetJourneyWindow(r.Context(), tenant, id, win); err != nil {

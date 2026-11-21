@@ -257,7 +257,8 @@ func TestJourneyScheduleWhileLive(t *testing.T) {
 	s, ps := newPubServer(t)
 	h := s.Handler()
 	end := pubNow.Add(-time.Minute)
-	ps.journeys[7] = model.Journey{ID: 7, TenantID: 1, Name: "Welcome", Status: "active", StartAt: pubNow.Add(-time.Hour), EndAt: &end}
+	ps.journeys[7] = model.Journey{ID: 7, TenantID: 1, Name: "Welcome", Status: "active", StartAt: pubNow.Add(-time.Hour), EndAt: &end,
+		Graph: json.RawMessage(`{"trigger":{"type":"event","event":"visit"},"entry":"a","nodes":{"a":{"type":"exit"}}}`)}
 	start := pubNow.Add(-time.Hour).Format(time.RFC3339)
 	w := do(t, h, "PUT", "/v1/journeys/7/schedule", "key-1", `{"start_at":"`+start+`","end_at":null}`)
 	if w.Code != http.StatusOK || ps.journeys[7].EndAt != nil {
@@ -284,6 +285,11 @@ func TestJourneyScheduleWhileLive(t *testing.T) {
 	sooner := pubNow.Add(-30 * time.Minute).Format(time.RFC3339)
 	if w = do(t, h, "PUT", "/v1/journeys/7/schedule", "key-1", `{"start_at":"`+start+`","end_at":"`+sooner+`"}`); w.Code != http.StatusOK {
 		t.Errorf("end sooner: %d %s", w.Code, w.Body)
+	}
+	// Steps that don't pass the checks any more can't take people in again.
+	ps.journeys[9] = model.Journey{ID: 9, TenantID: 1, Name: "Broken", Status: "active", StartAt: pubNow.Add(-time.Hour), EndAt: &end, Graph: json.RawMessage(`{}`)}
+	if w = do(t, h, "PUT", "/v1/journeys/9/schedule", "key-1", `{"start_at":"`+start+`"}`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "fix the campaign's steps") {
+		t.Errorf("reopen a broken journey: %d %s", w.Code, w.Body)
 	}
 	// An archived journey keeps its dates.
 	archived := pubNow

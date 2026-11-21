@@ -262,24 +262,8 @@ func (s *Server) setJourneyStatus(w http.ResponseWriter, r *http.Request, p mode
 				s.fail(w, err)
 				return false
 			}
-			if j.ArchivedAt != nil {
-				writeErr(w, http.StatusConflict, "restore the journey from the archive before activating it")
+			if !s.launchOK(w, r, p, j, j.StartAt, false) {
 				return false
-			}
-			if g, err := journey.ParseGraph(j.Graph); err == nil {
-				if !deletePermOK(w, p, g) {
-					return false
-				}
-				if g.Trigger.SegmentID != 0 {
-					if err := s.segmentsLiveFor(r.Context(), tenant, []int64{g.Trigger.SegmentID}, j.StartAt); err != nil {
-						if errors.Is(err, errSegmentNotLive) {
-							writeErr(w, http.StatusConflict, err.Error())
-						} else {
-							s.fail(w, err)
-						}
-						return false
-					}
-				}
 			}
 		}
 	}
@@ -289,6 +273,40 @@ func (s *Server) setJourneyStatus(w http.ResponseWriter, r *http.Request, p mode
 	}
 	s.journeysChanged(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": status})
+	return true
+}
+
+// launchOK runs the checks a journey passes before it takes people in (going live, or reopening a
+// live one whose window had ended): not archived, the caller may delete what its steps delete, and
+// its trigger segment is live by start. strict refuses a journey whose saved steps don't parse
+// (activation lets the workers report that instead, as journeyProblem). Four-eyes approval is the
+// caller's: an approval runs these checks without it.
+func (s *Server) launchOK(w http.ResponseWriter, r *http.Request, p model.Principal, j model.Journey, start time.Time, strict bool) bool {
+	if j.ArchivedAt != nil {
+		writeErr(w, http.StatusConflict, "restore the journey from the archive before activating it")
+		return false
+	}
+	g, err := journey.ParseGraph(j.Graph)
+	if err != nil {
+		if strict {
+			writeErr(w, http.StatusConflict, "fix the campaign's steps first: "+err.Error())
+			return false
+		}
+		return true
+	}
+	if !deletePermOK(w, p, g) {
+		return false
+	}
+	if g.Trigger.SegmentID != 0 {
+		if err := s.segmentsLiveFor(r.Context(), p.TenantID, []int64{g.Trigger.SegmentID}, start); err != nil {
+			if errors.Is(err, errSegmentNotLive) {
+				writeErr(w, http.StatusConflict, err.Error())
+			} else {
+				s.fail(w, err)
+			}
+			return false
+		}
+	}
 	return true
 }
 
