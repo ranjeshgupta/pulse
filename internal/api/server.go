@@ -202,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 	s.channelRoutes(mux)
 	s.onsiteRoutes(mux)
 	s.appContentRoutes(mux)
+	s.gatewayCheckRoutes(mux)
 	s.ampRoutes(mux)
 	s.broadcastRoutes(mux)
 	s.campaignRoutes(mux)

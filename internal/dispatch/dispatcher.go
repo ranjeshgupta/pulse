@@ -270,16 +270,23 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	var token, ref string
 	var headers map[string]string
 	unsub := ""
-	if m.Channel == channel.Email && d.cfg.Tracking != nil {
+	if d.cfg.Tracking != nil {
 		tok := tracking.Token{TenantID: m.TenantID, ExternalID: c.ExternalID, MessageID: m.ID,
 			Channel: m.Channel, TemplateID: m.TemplateID, JourneyID: m.JourneyID,
 			BroadcastID: m.BroadcastID, Run: m.Run, Variant: m.Variant, Topic: m.Topic}
-		token = d.cfg.Tracking.Encode(tok)
-		// The message reference links bounces, complaints and delivery reports back to this message.
+		// The message reference links bounces, complaints and delivery reports back to this message,
+		// its campaign and template, on every channel ({{message.ref}} in gateway templates).
 		ref = d.cfg.Tracking.Ref(tracking.RefFromToken(tok, c.ID))
-		unsub, headers = d.cfg.Tracking.UnsubscribeURL(token), d.cfg.Tracking.Headers(token)
-		if err := d.replyTo(ctx, m, token, headers); err != nil {
-			return err
+		if m.Channel == channel.Email {
+			token = d.cfg.Tracking.Encode(tok)
+			unsub, headers = d.cfg.Tracking.UnsubscribeURL(token), d.cfg.Tracking.Headers(token)
+			if headers == nil {
+				headers = map[string]string{}
+			}
+			headers["Feedback-ID"] = FeedbackID(m)
+			if err := d.replyTo(ctx, m, token, headers); err != nil {
+				return err
+			}
 		}
 	}
 	prefs := ""
@@ -372,6 +379,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 
 	var sent, unreachable int
 	var lastErr, transient error
+	chosen := via // the configured provider (via is the target's sender in the loop)
 	for _, tg := range targets {
 		via := p
 		if m.Channel == channel.Push && providers.IsWebPushSubscription(tg.to) {
@@ -393,8 +401,17 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 		switch {
 		case err == nil:
 			sent++
-			if res.ProviderMessageID != "" {
-				d.remember(ctx, m, res.ProviderMessageID)
+			key := res.ProviderMessageID
+			_, polled := chosen.p.(providers.Poller)
+			if key == "" && polled && via == chosen.p {
+				key = m.ID // a status request can still ask by Pulse's id
+			}
+			if key != "" {
+				d.remember(ctx, m, key)
+			}
+			if polled && via == chosen.p {
+				d.queuePoll(ctx, chosen, m, pollItem{Key: key, MessageID: m.ID, ProviderID: res.ProviderMessageID, Ref: ref,
+					To: tg.to, Channel: m.Channel, Sent: d.now().Unix()})
 			}
 		case errors.Is(err, providers.ErrUnreachable):
 			unreachable++
@@ -1299,4 +1316,18 @@ func (d *Dispatcher) log(msg string, m model.Message, err error) {
 	if d.cfg.Log != nil {
 		d.cfg.Log.Warn(msg, "tenant", m.TenantID, "message", m.ID, "channel", m.Channel, "err", err)
 	}
+}
+
+// FeedbackID is the email's Feedback-ID header (Gmail Postmaster Tools groups spam rates by it):
+// campaign:template:workspace:pulse, where the campaign is b<one-time campaign id>, j<journey id>
+// or "direct" (tests, API sends). Ids only, the same for every message of a campaign.
+func FeedbackID(m model.Message) string {
+	camp := "direct"
+	switch {
+	case m.BroadcastID != 0:
+		camp = "b" + strconv.FormatInt(m.BroadcastID, 10)
+	case m.JourneyID != 0:
+		camp = "j" + strconv.FormatInt(m.JourneyID, 10)
+	}
+	return fmt.Sprintf("%s:t%d:w%d:pulse", camp, m.TemplateID, m.TenantID)
 }

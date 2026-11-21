@@ -66,6 +66,8 @@ type Outbound struct {
 	// Vars are the message's personalisation variables (contact, event, campaign), for providers
 	// whose request is a template (the gateway's custom-request mode). Nil in provider tests.
 	Vars *personalize.Vars
+	// ProviderMessageID is the provider's id of an earlier send, for status requests (polls).
+	ProviderMessageID string
 }
 
 // Attachment is one file attached to an email.

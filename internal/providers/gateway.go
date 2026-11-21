@@ -194,7 +194,12 @@ func (g *Gateway) Send(ctx context.Context, o Outbound) (Result, error) {
 		return Result{}, err
 	}
 	if g.Custom != nil {
-		return g.Custom.Result(code, resp, hdr)
+		res, err := g.Custom.Result(code, resp, hdr)
+		if err == nil && g.Custom.MatchBy == MatchPulse {
+			// Reports carry Pulse's own id (sent with {{message.id}}): match them by it.
+			res.ProviderMessageID = o.MessageID
+		}
+		return res, err
 	}
 	switch {
 	case code >= 200 && code < 300:

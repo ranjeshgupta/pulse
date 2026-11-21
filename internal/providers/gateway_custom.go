@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"pulse/internal/channel"
 	"pulse/internal/httpauth"
@@ -40,6 +41,65 @@ type CustomRequest struct {
 	// IDPath is where the provider's message id is in a JSON answer (empty: none).
 	IDPath  string          `json:"id_path,omitempty"`
 	Receipt *ReceiptMapping `json:"receipt,omitempty"`
+	// Failure marks answers that refuse the message even with a success status (e.g. HTTP 200 with
+	// "status": "error"), checked before the success rule.
+	Failure *FailureRule `json:"failure,omitempty"`
+	// MatchBy is what delivery reports carry to find their message: "provider" (default: the
+	// provider's message id read at IDPath) or "pulse" (Pulse's own message id, which the request
+	// sends with {{message.id}} in a field the provider echoes back, such as a client reference).
+	MatchBy string `json:"match_by,omitempty"`
+	// Poll asks the provider for each message's status, for providers without delivery webhooks.
+	Poll *PollRequest `json:"poll,omitempty"`
+}
+
+// Match-by values.
+const (
+	MatchProvider = "provider"
+	MatchPulse    = "pulse"
+)
+
+// FailureRule: the answer's value at JSONPath is one of Values (case-insensitive). Unreachable
+// says the recipient can't get messages on this channel, so the SMS fallback runs.
+type FailureRule struct {
+	JSONPath    string   `json:"json_path"`
+	Values      []string `json:"values"`
+	Unreachable bool     `json:"unreachable,omitempty"`
+}
+
+// PollRequest is a status request sent for each message still waiting for a final status, every
+// EveryMinutes for ForHours after it was sent; its answer is read with the receipt mapping.
+// Templates take {{message.provider_id}} (the provider's id), {{message.id}}, {{message.ref}} and
+// {{message.to}}.
+type PollRequest struct {
+	Method       string            `json:"method"`
+	URL          string            `json:"url"`
+	Headers      []httpauth.Header `json:"headers,omitempty"`
+	ContentType  string            `json:"content_type,omitempty"`
+	Body         string            `json:"body,omitempty"`
+	EveryMinutes int               `json:"every_minutes,omitempty"` // default 10
+	ForHours     int               `json:"for_hours,omitempty"`     // default 24
+}
+
+// Poll limits.
+const (
+	DefaultPollEvery = 10
+	DefaultPollFor   = 24
+	MaxPollFor       = 72
+)
+
+// Every and For are the poll's interval and how long a message is followed.
+func (p PollRequest) Every() time.Duration {
+	if p.EveryMinutes <= 0 {
+		return DefaultPollEvery * time.Minute
+	}
+	return time.Duration(p.EveryMinutes) * time.Minute
+}
+
+func (p PollRequest) For() time.Duration {
+	if p.ForHours <= 0 {
+		return DefaultPollFor * time.Hour
+	}
+	return time.Duration(p.ForHours) * time.Hour
 }
 
 // SuccessRule: the status is within [StatusMin, StatusMax] (default 200–299) and, when JSONPath is
@@ -72,8 +132,9 @@ type ReceiptMapping struct {
 	VerifyName string `json:"verify_name"`
 }
 
-// Receipt statuses a mapping may produce.
-var receiptStatuses = map[string]bool{"delivered": true, "read": true, "failed": true, "undeliverable": true, "bounced": true}
+// Receipt statuses a mapping may produce. "pending" names a status that isn't final (queued,
+// sent to the operator…): it is read and ignored, so a status request asks again later.
+var receiptStatuses = map[string]bool{"delivered": true, "read": true, "failed": true, "undeliverable": true, "bounced": true, "pending": true}
 
 // ParseCustomRequest reads config["request"].
 func ParseCustomRequest(raw string) (CustomRequest, error) {
@@ -130,16 +191,67 @@ func (c CustomRequest) Validate() error {
 			return errors.New("gateway: the success status range must be within 100–599, lowest first")
 		}
 	}
+	if f := c.Failure; f != nil {
+		if strings.TrimSpace(f.JSONPath) == "" || len(f.Values) == 0 {
+			return errors.New("gateway: the failure rule needs a field and at least one value")
+		}
+	}
+	switch c.MatchBy {
+	case "", MatchProvider, MatchPulse:
+	default:
+		return errors.New("gateway: reports are matched by the provider's id or Pulse's message id")
+	}
+	if p := c.Poll; p != nil {
+		switch strings.ToUpper(p.Method) {
+		case "GET", "POST":
+		default:
+			return errors.New("gateway: the status request's method must be GET or POST")
+		}
+		if _, err := fixedOrigin(p.URL); err != nil {
+			return fmt.Errorf("gateway: status request: %w", err)
+		}
+		for _, h := range p.Headers {
+			if !headerNameOK(h.Name) {
+				return fmt.Errorf("gateway: status request: %q isn't a valid header name", h.Name)
+			}
+			if err := checkTemplate("status request header "+h.Name, h.Value); err != nil {
+				return err
+			}
+		}
+		if err := checkTemplate("status request URL", p.URL); err != nil {
+			return err
+		}
+		if err := checkTemplate("status request body", p.Body); err != nil {
+			return err
+		}
+		if p.EveryMinutes < 0 || p.EveryMinutes > 1440 {
+			return errors.New("gateway: ask for the status every 1 to 1,440 minutes")
+		}
+		if p.ForHours < 0 || p.ForHours > MaxPollFor {
+			return fmt.Errorf("gateway: follow a message for 1 to %d hours", MaxPollFor)
+		}
+		if c.Receipt == nil {
+			return errors.New("gateway: the status request needs the report mapping (where the id and status are)")
+		}
+		if c.MatchBy != MatchPulse && c.IDPath == "" && !strings.Contains(p.URL+p.Body, "message.id") && !strings.Contains(p.URL+p.Body, "message.ref") {
+			return errors.New("gateway: the status request needs the provider's message id (set where it is in the answer) or {{message.id}}")
+		}
+	}
 	if r := c.Receipt; r != nil {
 		if r.IDPath == "" || r.StatusPath == "" || len(r.Statuses) == 0 {
 			return errors.New("gateway: the receipt mapping needs an id path, a status path and status values")
 		}
 		for k, v := range r.Statuses {
 			if !receiptStatuses[v] {
-				return fmt.Errorf("gateway: receipt status %q maps to %q; use delivered, read, failed, undeliverable or bounced", k, v)
+				return fmt.Errorf("gateway: receipt status %q maps to %q; use delivered, read, failed, undeliverable, bounced or pending", k, v)
 			}
 		}
 		switch r.Verify {
+		case "":
+			if c.Poll == nil {
+				return errors.New("gateway: receipts are verified by a header token, a query token or an HMAC")
+			}
+			// Only polled: the webhook accepts nothing.
 		case "header", "hmac":
 			if !headerNameOK(r.VerifyName) {
 				return errors.New("gateway: name the receipt header that carries the token or signature")
@@ -202,7 +314,7 @@ func MessageVars(o Outbound) map[string]any {
 		"subject": o.Rendered.Subject, "html": o.Rendered.HTML, "text": c.Text, "title": c.Title, "body": c.Body,
 		"image_url": c.ImageURL, "url": c.URL, "sender_id": c.SenderID, "dlt_template_id": c.DLTTemplateID,
 		"dlt_entity_id": c.DLTEntityID, "template_name": c.TemplateName, "language": c.Language,
-		"header_image_url": c.HeaderImageURL, "ref": o.Ref, "amp": c.AMP,
+		"header_image_url": c.HeaderImageURL, "ref": o.Ref, "amp": c.AMP, "provider_id": o.ProviderMessageID,
 	}
 	if o.Channel == channel.WhatsApp || len(c.BodyParams) > 0 {
 		params := make([]any, len(c.BodyParams))
@@ -362,6 +474,20 @@ func (c CustomRequest) Result(code int, body []byte, hdr http.Header) (Result, e
 	ok := code >= lo && code <= hi
 	var doc any
 	parsed := json.Unmarshal(body, &doc) == nil
+	if f := c.Failure; f != nil && parsed {
+		if v, found := httpauth.Lookup(doc, f.JSONPath); found {
+			got := httpauth.Scalar(v)
+			for _, want := range f.Values {
+				if strings.EqualFold(got, want) {
+					why := fmt.Sprintf("gateway: HTTP %d, %s is %q: %.300s", code, f.JSONPath, got, body)
+					if f.Unreachable {
+						return Result{}, Unreachable(why)
+					}
+					return Result{}, Permanent(why)
+				}
+			}
+		}
+	}
 	if ok && c.Success.JSONPath != "" {
 		v, found := httpauth.Lookup(doc, c.Success.JSONPath)
 		got := httpauth.Scalar(v)
@@ -404,22 +530,19 @@ func (c CustomRequest) ParseReceipts(r *http.Request, body []byte, token string)
 	if token == "" || !verifyReceipt(r, body, m, token) {
 		return nil, ErrUnauthorized
 	}
-	var doc any
-	if err := json.Unmarshal(body, &doc); err != nil {
-		// Some providers post forms: read them as a flat object.
-		form, ferr := url.ParseQuery(string(body))
-		if ferr != nil || len(form) == 0 {
-			if len(r.URL.Query()) == 0 {
-				return nil, errors.New("receipt body isn't JSON or a form")
-			}
-			form = r.URL.Query()
-		}
-		obj := map[string]any{}
-		for k := range form {
-			obj[k] = form.Get(k)
-		}
-		doc = obj
+	doc, err := decodeReport(body, r.URL.Query())
+	if err != nil {
+		return nil, err
 	}
+	return m.Map(doc), nil
+}
+
+// Map reads receipts from a decoded webhook or status answer.
+func (m *ReceiptMapping) Map(doc any) []Receipt { return m.mapWith(doc, "") }
+
+// mapWith is Map where an entry without an id is about the message with id fallback (a status
+// answer about one message); fallback "" skips such entries.
+func (m *ReceiptMapping) mapWith(doc any, fallback string) []Receipt {
 	items := []any{doc}
 	if m.ItemsPath != "" {
 		v, _ := httpauth.Lookup(doc, m.ItemsPath)
@@ -433,6 +556,9 @@ func (c CustomRequest) ParseReceipts(r *http.Request, body []byte, token string)
 		idv, _ := httpauth.Lookup(it, m.IDPath)
 		stv, _ := httpauth.Lookup(it, m.StatusPath)
 		id, st := httpauth.Scalar(idv), httpauth.Scalar(stv)
+		if id == "" {
+			id = fallback
+		}
 		mapped := ""
 		for k, v := range m.Statuses {
 			if strings.EqualFold(k, st) {
@@ -463,7 +589,7 @@ func (c CustomRequest) ParseReceipts(r *http.Request, body []byte, token string)
 		}
 		out = append(out, rc)
 	}
-	return out, nil
+	return out
 }
 
 func verifyReceipt(r *http.Request, body []byte, m *ReceiptMapping, token string) bool {
@@ -481,4 +607,31 @@ func verifyReceipt(r *http.Request, body []byte, m *ReceiptMapping, token string
 			equalSecret(base64.StdEncoding.EncodeToString(sum), sig))
 	}
 	return false
+}
+
+// decodeReport reads a delivery report or status answer: JSON, or a form (in the body, or in the
+// query string when the body is empty) read as a flat object.
+func decodeReport(body []byte, query url.Values) (any, error) {
+	var doc any
+	if err := json.Unmarshal(body, &doc); err == nil {
+		return doc, nil
+	}
+	form, ferr := url.ParseQuery(string(body))
+	if ferr != nil || len(form) == 0 || strings.TrimSpace(string(body)) == "" {
+		if len(query) == 0 {
+			return nil, errors.New("the report isn't JSON or a form")
+		}
+		form = query
+	}
+	obj := map[string]any{}
+	for k := range form {
+		obj[k] = form.Get(k)
+	}
+	return obj, nil
+}
+
+// pollRequest is the status request as a CustomRequest, so it renders the same way.
+func (c CustomRequest) pollRequest() CustomRequest {
+	p := c.Poll
+	return CustomRequest{Method: p.Method, URL: p.URL, Headers: p.Headers, ContentType: p.ContentType, Body: p.Body}
 }

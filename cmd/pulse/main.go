@@ -528,6 +528,7 @@ func runDispatch(ctx context.Context, d *deps) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return c.Run(ctx, disp.Handle) })
 	g.Go(func() error { return disp.RunDeferred(ctx) })
+	g.Go(func() error { return disp.RunPolls(ctx) })
 	return g.Wait()
 }
 
