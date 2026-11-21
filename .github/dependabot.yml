@@ -1,0 +1,24 @@
+# Version updates, grouped into one pull request per ecosystem a month so they stay reviewable.
+# Security updates (Dependabot alerts) are separate and arrive as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      go: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: monthly }
+    groups:
+      web: { patterns: ["*"], update-types: [minor, patch] }
+  - package-ecosystem: gradle
+    directory: /sdks/android
+    schedule: { interval: monthly }
+    groups:
+      android: { patterns: ["*"] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }

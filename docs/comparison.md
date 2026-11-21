@@ -77,8 +77,8 @@ Notes:
    per account [W10].
 4. MoEngage evaluates segments over the last 30 days in real time for event-triggered campaigns;
    other segments are precomputed [E3].
-5. Pulse has web, Flutter, Android (Kotlin) and iOS (Swift) SDKs. The Android SDK has been compiled
-   but not run on a device, and the iOS SDK has not been compiled; iOS push goes through FCM.
+5. Pulse has web, Flutter, Android (Kotlin) and iOS (Swift) SDKs. Both native SDKs are compiled on
+   every push but haven't been run on a device; iOS push goes through FCM.
 6. Plunk documents delay, condition, wait-for-event and webhook workflow steps; whether the editor
    is a visual canvas, and an A/B split, are not documented [P7].
 7. Pulse's adapters for SMS (Twilio, MSG91, Gupshup), WhatsApp (Meta, Gupshup), RCS (Google RBM,

@@ -1187,9 +1187,11 @@ outage.
 | Browser checks | Headless-browser walkthroughs of new screens; documentation screenshots retaken by script | `make docs-shots` |
 
 What the tests do **not** cover: provider adapters and connectors against live accounts (they are
-tested against mocks built from public documentation), the Android module on a device, the iOS
-UIKit code (not yet compiled with Xcode), and analytics at billions of events. There is no CI
-pipeline in this repository; tests are run with `make`.
+tested against mocks built from public documentation), the Android and iOS SDKs on a device (CI
+compiles both on every push), and analytics at billions of events. GitHub Actions runs the Go unit
+tests and vet, the web app's tests and build, the iOS SDK's tests and simulator build, and CodeQL
+(which also builds the Android SDK) on every push; the end-to-end tests and the UI crawl need the
+full Docker stack and run locally with `make`.
 
 ---
 

@@ -194,8 +194,8 @@ means what Pulse does **not** do today.
   forms, pop-ups, bars and slide-ins with triggers and frequency limits, personalised content
   slots with audience rules and priority, web push opt-in prompt, app inbox.
 - **Mobile SDKs** for Flutter, Android and iOS: events, push, inbox, in-app messages and **app
-  content slots** (personalised cards or HTML inside the app). *Limit: the Android UI was compiled
-  but not run on a device and the iOS UI was not yet compiled; the Flutter SDK doesn't report push
+  content slots** (personalised cards or HTML inside the app). *Limit: the Android and iOS UI code is
+  compiled on every push but hasn't been run on a device; the Flutter SDK doesn't report push
   taps.*
 - **Overlap and "never shown" checks** for website content variants, and a "see what a contact
   would see" preview.

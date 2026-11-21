@@ -132,8 +132,28 @@ docker run --rm --network host -u $(id -u):$(id -g) -v $PWD:/src -w /src -e GOCA
 | Flutter | `cd sdks/flutter/pulse_sdk && flutter test` |
 | Android core | `cd sdks/android && docker run --rm -u $(id -u):$(id -g) -v "$PWD":/w -w /w -e GRADLE_USER_HOME=/w/.gradle gradle:8-jdk17 gradle :pulse-core:test --no-daemon` |
 | iOS core | `cd sdks/ios && docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/w -w /w swift:5.10 swift test` |
+| Android, both modules | `cd sdks/android && gradle assemble` (needs the Android SDK: `ANDROID_HOME` or `sdk.dir` in `local.properties`) |
+| iOS, every target | `cd sdks/ios && xcodebuild build -scheme Pulse-Package -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` (macOS with Xcode) |
 
 What each SDK's tests do and don't cover: [5. Mobile SDKs](05-mobile-sdks.md#what-has-been-tested).
+
+### Continuous integration
+
+GitHub Actions checks every push and pull request:
+
+| Workflow | Checks |
+|---|---|
+| [CI](../../.github/workflows/ci.yml) | `go vet` and the Go unit tests; the web app's tests and production build; the iOS SDK's tests and a build of every target for the iOS Simulator (macOS) |
+| [CodeQL](../../.github/workflows/codeql.yml) | Code scanning for Go, JavaScript/TypeScript, Kotlin (it builds the Android SDK with Gradle) and Swift (it builds the iOS SDK); also weekly |
+
+Dependabot opens grouped pull requests for Go modules, npm packages, Gradle plugins and GitHub
+Actions once a month, and at once for security advisories
+([.github/dependabot.yml](../../.github/dependabot.yml)).
+
+The end-to-end tests and the UI crawl need the whole Docker stack, so they don't run in CI: run
+`make e2e` and `make ui-crawl` before sending a change that touches the API, the roles or the UI.
+A pull request needs both workflows green; a CodeQL finding is either fixed or, if it's a false
+positive, dismissed on GitHub with the reason.
 
 ---
 

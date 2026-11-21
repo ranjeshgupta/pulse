@@ -296,8 +296,9 @@ likely to matter:
 - Plain SMTP relays, Gmail, FCM and web push don't report deliveries, so those show "—".
 - Contacts don't leave an automation campaign when they leave its segment; add a condition or a
   goal instead.
-- The Android and iOS SDKs have not been run on devices, and the iOS SDK has not yet been built
-  with Xcode (its core logic is tested on Linux).
+- The Android and iOS SDKs have not been run on devices. Both are compiled on every push (the
+  Android modules with Gradle, the iOS SDK with Xcode for the simulator) and their core logic is
+  unit-tested.
 - Postgres row-level security isn't enabled; workspaces are kept apart in every query instead.
 
 ## Contributing

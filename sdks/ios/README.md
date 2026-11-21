@@ -408,9 +408,10 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/w -w /w swift:5.10 
   keeping the cache, events). On Linux the `Pulse` target compiles to
   just the re-export, because UIKit and UserNotifications are missing.
 - The `Pulse` target's UIKit and UserNotifications code (`PulseClient.start`, lifecycle observers,
-  `UIDevice` details, `PulseNotificationDelegate`, the in-app view controller and banner, `PulseSlotView` and `PulseSlot`) was **not**
-  built or run here: there is no Xcode on this machine. Expect to fix small compile issues the first
-  time it is built for iOS.
+  `UIDevice` details, `PulseNotificationDelegate`, the in-app view controller and banner, `PulseSlotView` and `PulseSlot`)
+  compiles: the repository's CI builds every target with Xcode for the iOS Simulator
+  (`xcodebuild build -scheme Pulse-Package -destination 'generic/platform=iOS Simulator'`) and runs
+  the `PulseCore` tests on macOS, on every push. It has **not** been run on a simulator or device.
 - `URLSessionHTTPClient` was compiled but not exercised (the tests use a fake client). Nothing was
   tested against a running Pulse server or a real device.
 

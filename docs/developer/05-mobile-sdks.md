@@ -28,7 +28,7 @@ Read this before shipping. From the SDK READMEs and [the product overview's limi
 | | Flutter | Android | iOS |
 |---|---|---|---|
 | Core logic (queue, batching, backoff, sessions, validation, inbox, in-app rules, push tracking) | Unit tests with `flutter test` (mock HTTP client, in-memory storage) | `pulse-core`: 44 JVM unit tests, passing (Gradle 8, JDK 17, in Docker) | `PulseCore`: 33 tests, passing (Swift 5.10 on Linux, in Docker) |
-| Platform layer (lifecycle, storage, device details, notifications, in-app UI) | Widget tests for the inbox view and in-app messages | **Compiled and linted only** (`assembleRelease`, `lintRelease`); never run on a device or emulator | **Never compiled**: the UIKit / UserNotifications code needs Xcode, which wasn't available. Expect small compile fixes the first time |
+| Platform layer (lifecycle, storage, device details, notifications, in-app UI) | Widget tests for the inbox view and in-app messages | **Compiled only**: `assembleRelease` and `lintRelease`, and built on every push (CodeQL workflow); never run on a device or emulator | **Compiled only**: built with Xcode for the iOS Simulator on every push (CI), `PulseCore` tests also run on macOS; never run on a device or simulator |
 | Against a running Pulse server | Optional integration test (`tool/integration_test.dart`, needs `PULSE_SITE_KEY` and `PULSE_HOST`) | No | No |
 | Push open / dismissal tracking | **Not implemented** (taps aren't reported) | Yes | Yes |
 | Local opt-out (`optOut()`) | **Not implemented** | Yes | Yes |
