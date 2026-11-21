@@ -401,7 +401,7 @@ function JourneyEditor() {
           <aside className="inspector" aria-label="Step settings">
             <Inspector
               graph={graph} setGraph={setGraph} win={win} setWin={setWin} selected={selected} locked={locked}
-              liveDates={{ dirty: datesDirty, saving: saveDates.isPending, onSave: () => saveDates.mutate() }}
+              liveDates={canPublishJ ? { dirty: datesDirty, saving: saveDates.isPending, onSave: () => saveDates.mutate() } : undefined}
               decisions={existing.data?.split_winners ?? {}} pickers={pickers} templates={tpls.data?.templates ?? []}
               journeyId={journeyId} numbers={numbers} canEditContacts={canEditContacts}
               onDelete={(nid) => { setGraph(deleteStep(graph, nid)); setSelected(null); }}

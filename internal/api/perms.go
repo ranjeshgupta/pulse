@@ -67,6 +67,7 @@ var special = map[string]need{
 	"POST /v1/channels/test":                          {auth.AreaContent, auth.Edit},  // a test send of a template
 	"POST /v1/channels/domain-check":                  {auth.AreaChannels, auth.View}, // reads public DNS only
 	"POST /v1/journeys/{id}/{action}":                 {auth.AreaJourneys, auth.Publish},
+	"PUT /v1/journeys/{id}/schedule":                  {auth.AreaJourneys, auth.Publish}, // can reopen a live journey
 	"POST /v1/broadcasts/{id}/schedule":               {auth.AreaBroadcasts, auth.Publish},
 	"POST /v1/broadcasts/{id}/cancel":                 {auth.AreaBroadcasts, auth.Publish},
 	"POST /v1/broadcasts/{id}/runs/{run}/winner":      {auth.AreaBroadcasts, auth.Publish},
