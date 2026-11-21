@@ -265,3 +265,10 @@ likely to matter:
 - The Android and iOS SDKs have not been run on devices or compiled for iOS (no Xcode was
   available).
 - Postgres row-level security isn't enabled; workspaces are kept apart in every query instead.
+
+## License
+
+Pulse is free software under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
+You may use, change and share it. If you change it and let people use it over a network (for
+example as a hosted service), you must offer them the source of your changed version under the
+same license.
