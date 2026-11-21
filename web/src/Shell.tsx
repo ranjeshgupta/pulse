@@ -96,6 +96,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] },
       { to: "/cohorts", label: "Cohorts", icon: I.grid, need: ["reports", "view"] },
       { to: "/revenue", label: "Revenue", icon: I.coin, need: ["reports", "view"] },
+      { to: "/customer-value", label: "Customer value", icon: I.users, need: ["reports", "view"] },
     ],
   },
 ];

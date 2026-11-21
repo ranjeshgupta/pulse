@@ -140,6 +140,12 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 		removes = companyUpdates(cur, e, updates)
 	case event.OwnerChanged:
 		removes = ownerUpdates(e, updates)
+	case event.RFMChanged:
+		for k, p := range map[string]string{event.AttrRFMGroup: "group", event.AttrRFMScore: "score", event.AttrChurn: "churn_risk"} {
+			if v := attr.String(e.Props[p]); v != "" {
+				updates[k] = v
+			}
+		}
 	}
 	if event.IsBounceAction(e.Name) {
 		bounceActionUpdates(e, updates)
@@ -788,7 +794,9 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 			}
 		}
 		merged, changed := MergeScored(cur, e, scoring[e.TenantID][e.Name])
-		merged, changed = StampSeen(merged, changed, e.Ts)
+		if e.Name != event.RFMChanged { // Pulse's scoring of a buyer isn't the buyer being active
+			merged, changed = StampSeen(merged, changed, e.Ts)
+		}
 		merged, changed = StampDates(merged, changed, e.Ts, c.CreatedAt, e.ExternalID)
 		// Bounces and complaints count on the contact; a rule that fires adds its action next.
 		merged, changed = resetBounces(cur, merged, changed)

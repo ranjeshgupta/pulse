@@ -226,6 +226,11 @@ func purchases(t uint64, rs RevenueSettings, from, to time.Time) (string, []any)
 		" WHERE tenant_id = ? AND name = ? AND ts >= ? AND ts < ? GROUP BY id", args
 }
 
+// PurchasesSQL is one row per revenue event in [from, to): (id, buyer, at, amount).
+func PurchasesSQL(tenantID int64, rs RevenueSettings, from, to time.Time) (string, []any) {
+	return purchases(uint64(tenantID), rs, from.UTC(), to.UTC())
+}
+
 // RevenueTotalsSQL: (orders, revenue, buyers) of revenue events in [from, to).
 func RevenueTotalsSQL(tenantID int64, rs RevenueSettings, from, to time.Time) Query {
 	p, args := purchases(uint64(tenantID), rs, from.UTC(), to.UTC())

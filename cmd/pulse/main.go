@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"log/slog"
 	"net"
 	"net/http"
@@ -60,6 +61,7 @@ import (
 	"pulse/internal/profile"
 	"pulse/internal/providers"
 	"pulse/internal/reach"
+	"pulse/internal/rfm"
 	"pulse/internal/safehttp"
 	"pulse/internal/segengine"
 	"pulse/internal/segment"
@@ -578,6 +580,7 @@ func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
 	}()
 	go runIdentityBackfills(ctx, pgs, d)
 	go runBestTimes(ctx, pgs, chs, d)
+	go runRFM(ctx, pgs, chs, d)
 	return c.Loop(ctx, d.cfg.MaintenanceInterval)
 }
 
@@ -600,6 +603,58 @@ func runBestTimes(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 		case <-ctx.Done():
 			return
 		case <-time.After(6 * time.Hour):
+		}
+	}
+}
+
+// runRFM scores every workspace's buyers (package rfm) once a day, a few minutes after start.
+func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
+	prod, err := d.producer()
+	if err != nil {
+		d.log.Error("customer value: kafka", "err", err)
+		return
+	}
+	pub := func(ctx context.Context, tenant int64, evs []event.Event) error {
+		recs := make([]*kgo.Record, 0, len(evs))
+		for i := range evs {
+			e := &evs[i]
+			e.TenantID = tenant
+			if err := e.Normalize(time.Now()); err != nil {
+				return err
+			}
+			rec, err := kafka.JSON(event.TopicRaw, e.RawKey(), e)
+			if err != nil {
+				return err
+			}
+			recs = append(recs, rec)
+		}
+		return prod.Publish(ctx, recs...)
+	}
+	rdb := d.redis()
+	wait := 2 * time.Minute
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = d.cfg.RFMInterval
+		ids, err := pgs.TenantIDs(ctx)
+		if err != nil {
+			d.log.Error("customer value: list workspaces", "err", err)
+			continue
+		}
+		for _, id := range ids {
+			rs, err := pgs.RevenueSettings(ctx, id)
+			if err != nil || rs.Event == "" {
+				continue
+			}
+			n, changed, err := rfm.Refresh(ctx, chs, rdb, pub, id, rs.Event, rs.AmountProp, time.Now())
+			if err != nil && ctx.Err() == nil {
+				d.log.Error("customer value", "tenant", id, "err", err)
+			} else if n > 0 {
+				d.log.Info("customer value scored", "tenant", id, "buyers", n, "changed", changed)
+			}
 		}
 	}
 }

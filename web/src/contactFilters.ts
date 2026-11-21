@@ -2,7 +2,11 @@
 // server parses the same syntax (internal/api/contactview.go) and compiles filters into a segment
 // rule, so this file only splits, joins and suggests.
 
-export type FilterKey = "is" | "segment" | "list" | "tag" | "stage" | "company" | "owner" | "points" | "email" | "name" | "unsubscribed";
+export type FilterKey = "is" | "segment" | "list" | "tag" | "stage" | "company" | "owner" | "points" | "email" | "name" | "unsubscribed" | "value" | "churn";
+
+/** Customer-value groups (internal/rfm), best first, and churn risks. */
+export const VALUE_GROUPS = ["Champions", "Loyal", "Potential loyalists", "New customers", "Promising", "Need attention", "About to sleep", "At risk", "Can't lose them", "Hibernating", "Lost"];
+export const CHURN_RISKS = ["low", "medium", "high", "lost"];
 
 export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = [
   { key: "is", hint: "anonymous, identified, unsubscribed, bounced or Do Not Contact", example: "is:anonymous" },
@@ -14,6 +18,8 @@ export const FILTER_KEYS: { key: FilterKey; hint: string; example: string }[] = 
   { key: "points", hint: "points above, below or equal to a number", example: "points:>50" },
   { key: "email", hint: "email contains", example: "email:@example.com" },
   { key: "name", hint: "name contains", example: "name:asha" },
+  { key: "value", hint: "customer-value group (from purchases)", example: "value:\"At risk\"" },
+  { key: "churn", hint: "churn risk: low, medium, high or lost", example: "churn:high" },
   { key: "unsubscribed", hint: "unsubscribed from a channel, from everything (all) or from a topic", example: "unsubscribed:email" },
 ];
 
@@ -205,6 +211,10 @@ export function suggest(input: string, d: SuggestData, max = 8): Suggestion[] {
     case "points":
       if (/^(>=|<=|>|<|=)?\d+(\.\d+)?$/.test(partial)) return [chip(partial, `points:${partial}`, "Press Enter to add")];
       return [">0", ">=50", ">=100", "<10", "=0"].filter((v) => v.startsWith(partial)).map((v) => ({ label: `points:${v}`, fill: `${before}points:${v}` }));
+    case "value":
+      return VALUE_GROUPS.filter(match).map((g) => chip(g, g, "Customer value"));
+    case "churn":
+      return CHURN_RISKS.filter(match).map((r) => chip(r, `churn:${r}`, "Churn risk"));
     case "email":
     case "name":
       return partial ? [chip(partial, `${key}:${partial}`, key === "email" ? "Email contains this" : "Name contains this")] : [];

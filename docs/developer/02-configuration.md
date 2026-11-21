@@ -84,6 +84,7 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 | `PULSE_SWEEP_INTERVAL` | `5m` | `segments`, `api` | How often segments with event windows ("within the last N days") or relative dates are re-checked in ClickHouse, so membership decays without new events. The default for workspaces that leave **Re-check time-window segments every** (Settings → Automation & limits) at 0 | Shorter for fresher "within N days" segments, longer to take load off ClickHouse |
 | `PULSE_MAINTENANCE_INTERVAL` | `1h` | `journeys` | How often the maintenance pass runs. Each pass runs the daily retention cleanup of the workspaces whose hour it is (each workspace once a day, in UTC hour `workspace id % 24`, by its Settings → Automation & limits) | Rarely; keep it at an hour or less so no workspace's hour is skipped |
 | `PULSE_AUDIENCE_RECONCILE_INTERVAL` | `24h` | `integrations` | How often each ad audience sync (Facebook Custom Audiences, Google Ads Customer Match) re-checks its whole segment. Entries and exits stream in between | You want drift corrected sooner, or fewer API calls to the ad platforms |
+| `PULSE_RFM_INTERVAL` | `24h` | `journeys` | How often buyers' customer value (RFM group, score and churn risk) is scored from the revenue event; the first pass runs two minutes after start. A contact whose group, score or risk changed gets an `rfm_changed` event | You want churn risk to react faster (each pass reads two years of purchases) |
 
 ### Variables that aren't server settings
 

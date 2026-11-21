@@ -781,6 +781,13 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   `/p/{workspace}/archive`, `/archive/{run}`, `/archive.rss` and `POST /v1/broadcasts/feed-preview`
   (`internal/api/archive.go`); a landing page can't take the slug `archive`; `FeedFields.tsx` in campaign settings.
   Unit tests `feed`, `TestFeedRuns`; e2e `TestRSSArchive` (hooks phase: the feed is served from the test container).
+- **12 RFM and churn risk**: `internal/rfm` (quintile scores, the R×F group grid, churn from each buyer's order rhythm,
+  `Refresh` records `rfm_changed` only on a change, state in Redis `rfm:{tenant}`); `ch.RFMCuts` / `RFMBuyers` /
+  `RFMReport` over the revenue event (`analytics.PurchasesSQL`); maintenance `runRFM` (`PULSE_RFM_INTERVAL`, 24h);
+  profile folds `rfm_changed` into `rfm_group` / `rfm_score` / `churn_risk` (event-only attributes; not activity for
+  `last_seen`); `GET /v1/revenue/customer-value`, `POST …/refresh` (once per 5 minutes); Contacts `value:` / `churn:`
+  filters; `pages/CustomerValue.tsx`, `customerValue.ts`. Tests `rfm`, `customerValue.test.ts`, e2e `TestCustomerValue`;
+  checked in a headless browser.
 
 ### O5 as built
 

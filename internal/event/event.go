@@ -75,6 +75,11 @@ const (
 	// confirm_url; the journeys role sends the confirmation email), and they did (props form_id).
 	OptinRequested = "optin_requested"
 	OptinConfirmed = "optin_confirmed"
+
+	// RFMChanged is recorded by Pulse when a buyer's customer-value group, score or churn risk
+	// changes (package rfm; props group, previous_group, score, r, f, m, churn_risk, orders,
+	// revenue, days_since_last). It sets rfm_group, rfm_score and churn_risk.
+	RFMChanged = "rfm_changed"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -84,7 +89,7 @@ func ServerOnly(name string) bool {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
 		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged,
 		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered,
-		OptinRequested, OptinConfirmed:
+		OptinRequested, OptinConfirmed, RFMChanged:
 		return true
 	}
 	return false
@@ -113,7 +118,7 @@ func PlatformOnly(name string) bool {
 	switch name {
 	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
 		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered,
-		OptinRequested, OptinConfirmed:
+		OptinRequested, OptinConfirmed, RFMChanged:
 		return true
 	}
 	return false
@@ -146,6 +151,10 @@ const (
 	// AttrSMSBounced marks a phone number whose SMS a bounce rule stopped: SMS to it is suppressed.
 	// Set by the profile role's bounce rules; a server can clear it, and a new phone number clears it.
 	AttrSMSBounced = "sms_bounced"
+	// Customer value (package rfm), set by rfm_changed only.
+	AttrRFMGroup = "rfm_group"
+	AttrRFMScore = "rfm_score"
+	AttrChurn    = "churn_risk"
 )
 
 // DeviceProps maps the device properties the SDKs send on identify, page_view, screen_view and
@@ -181,7 +190,7 @@ func CarriesDevice(name string) bool {
 func EventOnlyAttr(k string) bool {
 	switch k {
 	case AttrMergedInto, AttrStage, AttrStageChangedAt, AttrDateAdded, AttrDateIdentified, AttrDateModified,
-		AttrEmailDomain, AttrPhoneCountry, AttrOwnerID, AttrOwnerName:
+		AttrEmailDomain, AttrPhoneCountry, AttrOwnerID, AttrOwnerName, AttrRFMGroup, AttrRFMScore, AttrChurn:
 		return true
 	}
 	return strings.HasPrefix(k, CompanyAttrPrefix) || DeviceAttr(k)

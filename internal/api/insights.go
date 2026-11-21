@@ -64,6 +64,8 @@ func (s *Server) insightRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/revenue/settings", s.tenant(s.getRevenueSettings))
 	mux.HandleFunc("PUT /v1/revenue/settings", s.tenant(s.putRevenueSettings))
 	mux.HandleFunc("POST /v1/revenue/report", s.tenant(s.revenueReport))
+	mux.HandleFunc("GET /v1/revenue/customer-value", s.tenant(s.customerValue))
+	mux.HandleFunc("POST /v1/revenue/customer-value/refresh", s.tenant(s.refreshCustomerValue))
 }
 
 func (s *Server) insights(w http.ResponseWriter) (InsightsAnalytics, bool) {

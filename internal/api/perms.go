@@ -57,6 +57,7 @@ var special = map[string]need{
 	"GET /v1/templates/sample-event":                  {auth.AreaContacts, auth.View}, // a contact's real event
 	"POST /v1/funnels/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/cohorts/run":                            {auth.AreaReports, auth.View},
+	"POST /v1/revenue/customer-value/refresh":         {auth.AreaReports, auth.View},
 	"POST /v1/reports/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/revenue/report":                         {auth.AreaReports, auth.View},
 	"PUT /v1/revenue/settings":                        {auth.AreaSettings, auth.Edit}, // a workspace setting

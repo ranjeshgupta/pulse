@@ -12,6 +12,7 @@ import { FormEdit, FormList } from "./pages/Forms";
 import { FunnelEdit, FunnelList } from "./pages/Funnels";
 import { CohortEdit, CohortList } from "./pages/Cohorts";
 import { Revenue } from "./pages/Revenue";
+import { CustomerValue } from "./pages/CustomerValue";
 import { UsersDashboard } from "./pages/UsersDashboard";
 import { CampaignsDashboard } from "./pages/CampaignsDashboard";
 import { ProductsDashboard } from "./pages/ProductsDashboard";
@@ -122,6 +123,7 @@ const router = createBrowserRouter([
       { path: "cohorts", element: <CohortList /> },
       { path: "cohorts/:id", element: <CohortEdit /> },
       { path: "revenue", element: <Revenue /> },
+      { path: "customer-value", element: <CustomerValue /> },
       { path: "analytics/users", element: <UsersDashboard /> },
       { path: "analytics/campaigns", element: <CampaignsDashboard /> },
       { path: "analytics/products", element: <ProductsDashboard /> },

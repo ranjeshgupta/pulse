@@ -3,6 +3,7 @@
 // only make sense together (an event and its dates, a campaign and what happened) are one choice.
 import type { ContactFilter } from "./contactLinks";
 import { period } from "./contactLinks";
+import { CHURN_RISKS, VALUE_GROUPS } from "./contactFilters";
 
 export type FieldKind = "text" | "number" | "date" | "select";
 export type MenuField = {
@@ -64,6 +65,10 @@ export const FILTER_MENU: { group: string; items: MenuItem[] }[] = [
       { id: "not_in", label: "Not in a segment", hint: "Everyone outside it", fields: [{ key: "id", label: "Segment", kind: "select", source: "segmentIds" }], build: (v) => [["not_in", v.id]] },
       { id: "tag", label: "Has a tag", hint: "", fields: [{ key: "tag", label: "Tag", kind: "select", source: "tags" }], build: (v) => [["tag", v.tag]] },
       { id: "stage", label: "Lifecycle stage", hint: "", fields: [{ key: "stage", label: "Stage", kind: "select", source: "stages" }], build: (v) => [["stage", v.stage]] },
+      { id: "value", label: "Customer value", hint: "From their purchases (RFM)", fields: [{ key: "g", label: "Group", kind: "select",
+        options: VALUE_GROUPS.map((g) => ({ value: g, label: g })) }], build: (v) => [["value", v.g]] },
+      { id: "churn", label: "Churn risk", hint: "How likely they are to stop buying", fields: [{ key: "r", label: "Risk", kind: "select",
+        options: CHURN_RISKS.map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) })) }], build: (v) => [["churn", v.r]] },
       { id: "company", label: "Works at a company", hint: "", fields: [{ key: "company", label: "Company", kind: "select", source: "companies" }], build: (v) => [["company", v.company]] },
       { id: "owner", label: "Owner", hint: "The teammate who owns the contact", fields: [{ key: "owner", label: "Owner", kind: "select", source: "users" }], build: (v) => [["owner", v.owner]] },
       { id: "points", label: "Points", hint: "", fields: [

@@ -48,6 +48,8 @@ type Config struct {
 	GeoIPDB string
 	// MaintenanceInterval is how often retention cleanup runs.
 	MaintenanceInterval time.Duration
+	// RFMInterval is how often buyers' customer value is scored (package rfm).
+	RFMInterval time.Duration
 	// AudienceReconcile is how often each audience sync re-checks its whole segment (ad audiences).
 	AudienceReconcile time.Duration
 }
@@ -81,6 +83,7 @@ func Load() (Config, error) {
 		GeoIPDB:              env("PULSE_GEOIP_DB", ""),
 		PagesURL:             env("PULSE_PAGES_URL", ""),
 		MaintenanceInterval:  r.duration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
+		RFMInterval:          r.duration("PULSE_RFM_INTERVAL", 24*time.Hour),
 		AudienceReconcile:    r.duration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
 	}
 	for _, ch := range RateChannels {

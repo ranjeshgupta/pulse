@@ -1,0 +1,10 @@
+.cv-figures { margin-bottom: 16px; }
+.cv-table td { vertical-align: top; }
+.cv-note { max-width: 42ch; margin-top: 2px; }
+.cv-empty td { opacity: .55; }
+.cv-risks { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-risk { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, #eef0f5); white-space: nowrap; }
+.cv-risk-low { background: color-mix(in srgb, #1d9a6c 14%, transparent); }
+.cv-risk-medium { background: color-mix(in srgb, #e8890c 16%, transparent); }
+.cv-risk-high { background: color-mix(in srgb, #d64545 16%, transparent); }
+.cv-risk-lost { background: color-mix(in srgb, #8a8f99 18%, transparent); }

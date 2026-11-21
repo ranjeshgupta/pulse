@@ -25,7 +25,9 @@ import (
 	"pulse/internal/automation"
 	"pulse/internal/channel"
 	"pulse/internal/consent"
+	"pulse/internal/event"
 	"pulse/internal/model"
+	"pulse/internal/rfm"
 	"pulse/internal/segment"
 )
 
@@ -101,7 +103,7 @@ func viewTokens(q string) []string {
 
 // viewKeys are the filter names; list: is the old name of segment: (static segments were lists).
 var viewKeys = map[string]bool{"is": true, "segment": true, "list": true, "tag": true, "stage": true, "company": true,
-	"owner": true, "points": true, "email": true, "name": true, "unsubscribed": true}
+	"owner": true, "points": true, "email": true, "name": true, "unsubscribed": true, "value": true, "churn": true}
 
 // parseContactView compiles a search into a rule and free text. Words that don't start with a
 // known key are free text.
@@ -195,6 +197,18 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 			if r, label, err = unsubscribedFilter(strings.ToLower(val)); err != nil {
 				return v, err
 			}
+		case "value": // customer-value group (package rfm)
+			g, ok := rfmGroup(val)
+			if !ok {
+				return v, fmt.Errorf("value:%s: the groups are %s", val, strings.Join(rfm.Groups, ", "))
+			}
+			r, label = segment.Rule{Attr: event.AttrRFMGroup, Op: "eq", Value: g}, "Customer value: "+g
+		case "churn":
+			risk := strings.ToLower(val)
+			if risk != rfm.RiskLow && risk != rfm.RiskMedium && risk != rfm.RiskHigh && risk != rfm.RiskLost {
+				return v, fmt.Errorf("churn:%s: low, medium, high or lost", val)
+			}
+			r, label = segment.Rule{Attr: event.AttrChurn, Op: "eq", Value: risk}, "Churn risk: "+risk
 		case "email":
 			r, label = containsAny([]string{"email"}, val), "Email contains "+val
 		case "name":
@@ -223,7 +237,17 @@ func parseContactView(q string, lk viewLookup) (contactView, error) {
 	return v, nil
 }
 
-var viewExample = map[string]string{"is": "is:anonymous", "segment": "segment:\"VIP buyers\"", "list": "list:\"Webinar guests\"",
+// rfmGroup finds a customer-value group by name, ignoring case.
+func rfmGroup(v string) (string, bool) {
+	for _, g := range rfm.Groups {
+		if strings.EqualFold(g, v) {
+			return g, true
+		}
+	}
+	return "", false
+}
+
+var viewExample = map[string]string{"value": "value:\"At risk\"", "churn": "churn:high", "is": "is:anonymous", "segment": "segment:\"VIP buyers\"", "list": "list:\"Webinar guests\"",
 	"tag": "tag:vip", "stage": "stage:Customer", "company": "company:Acme", "owner": "owner:me", "points": "points:>50",
 	"email": "email:@example.com", "name": "name:asha", "unsubscribed": "unsubscribed:email"}
 

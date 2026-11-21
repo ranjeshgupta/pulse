@@ -486,6 +486,18 @@ migrate one at a time.
   contact (no contact data; workspace blocks and the run's feed content), under the same nonce CSP and page rate limit.
   The slug `archive` is reserved for landing pages.
 
+## Customer value: RFM and churn risk (O6)
+
+`internal/rfm`, run by the journeys role's maintenance loop every `PULSE_RFM_INTERVAL` (24h; two minutes after start)
+and by `POST /v1/revenue/customer-value/refresh`. ClickHouse aggregates the revenue event (Settings → Revenue) per
+buyer over two years and returns the workspace's 20/40/60/80 % cut points (`quantiles`) for days since the last order,
+orders and revenue; the buyers then stream through, joined to the contact snapshot for their external id. Each gets
+R, F, M 1-5, a group from the R×F grid and a churn risk from their own average gap between orders. Only changes are
+recorded: the last state per contact is a Redis hash `rfm:{tenant}`, and a changed buyer gets an `rfm_changed` event
+on `events.raw` (published before the state is stored, so a failed publish is retried next pass). The profile role
+folds it into the event-only attributes `rfm_group`, `rfm_score` and `churn_risk`; it does not count as activity
+(`last_seen`). The report reads the same aggregate joined to those attributes.
+
 ## RSS-to-email (O6)
 
 A campaign with `feed_url` (email, not A/B) reads the feed (`internal/feed`, RSS 2.0 or Atom, through `safehttp`, 2 MB
