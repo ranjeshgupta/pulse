@@ -201,6 +201,8 @@ type Message struct {
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	// Holdout: the contact is in the campaign's control group: recorded as kept back, not sent.
 	Holdout bool `json:"holdout,omitempty"`
+	// BestTime holds the message until its contact's best hour after the run's start (Run).
+	BestTime bool `json:"best_time,omitempty"`
 	// Personalisation context: Event holds the properties of the event that started the journey
 	// (personal properties removed, at most 16 KB) for {{event.x}}; Campaign is the journey's or
 	// broadcast's name and Step the journey step, for {{campaign.name}} and {{campaign.step}}.
@@ -421,12 +423,15 @@ type Broadcast struct {
 	SendPerHour int `json:"send_per_hour,omitempty"`
 	// HoldoutPercent keeps this share of the audience (0-50 %) from getting the campaign, the same
 	// people every run, so its effect can be measured against them (uplift).
-	HoldoutPercent int        `json:"holdout_percent,omitempty"`
-	SegmentID      int64      `json:"segment_id"`
-	StartAt        time.Time  `json:"start_at"`
-	EndAt          *time.Time `json:"end_at,omitempty"`
-	Repeat         string     `json:"repeat"` // none | daily | weekly | monthly
-	NextRunAt      *time.Time `json:"next_run_at,omitempty"`
+	HoldoutPercent int `json:"holdout_percent,omitempty"`
+	// BestTime sends each message at its contact's best hour (package besttime), within a day of
+	// the run's start (one-time campaigns; not with local time or a sending speed).
+	BestTime  bool       `json:"best_time,omitempty"`
+	SegmentID int64      `json:"segment_id"`
+	StartAt   time.Time  `json:"start_at"`
+	EndAt     *time.Time `json:"end_at,omitempty"`
+	Repeat    string     `json:"repeat"` // none | daily | weekly | monthly
+	NextRunAt *time.Time `json:"next_run_at,omitempty"`
 	// draft | scheduled | running | testing (an A/B test waits for its winner) | completed | cancelled
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`

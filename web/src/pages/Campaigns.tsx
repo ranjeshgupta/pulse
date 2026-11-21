@@ -286,7 +286,7 @@ export function OneTimeWizard() {
     const b = existing.data?.broadcast;
     if (!b) return;
     setS({ name: b.name, channel: b.channel, include: [b.segment_id, ...(b.include_segment_ids ?? [])].filter(Boolean), exclude: b.exclude_segment_ids ?? [],
-      templateMode: "write", start_at: b.start_at, end_at: b.end_at, repeat: b.repeat, local_time: b.local_time, deadline: b.deadline ?? null, send_per_hour: b.send_per_hour || undefined });
+      templateMode: "write", start_at: b.start_at, end_at: b.end_at, repeat: b.repeat, local_time: b.local_time, deadline: b.deadline ?? null, send_per_hour: b.send_per_hour || undefined, best_time: b.best_time || undefined });
     setTags(b.tags ?? []);
     setFallback(b.fallback_template_id ?? 0);
     setProvider(b.provider_id ?? 0);
@@ -336,7 +336,7 @@ export function OneTimeWizard() {
     const body = {
       name: st.name.trim(), channel: st.channel, template_id: tid, segment_id: st.include[0], include_segment_ids: st.include.slice(1),
       exclude_segment_ids: st.exclude, start_at: st.start_at, end_at: st.end_at ?? null, repeat: st.repeat as Repeat,
-      local_time: !!st.local_time, timezone: st.local_time ? browserZone() : "", deadline: st.deadline ?? null, tags, send_per_hour: st.send_per_hour || 0,
+      local_time: !!st.local_time, timezone: st.local_time ? browserZone() : "", deadline: st.deadline ?? null, tags, send_per_hour: st.send_per_hour || 0, best_time: st.repeat === "none" && !!st.best_time,
       fallback_template_id: fallback || 0, provider_id: provider || 0, topic, conversion_days: 3,
     };
     if (bcId) {
@@ -476,14 +476,20 @@ export function OneTimeWizard() {
             </div>
             <ScheduleFields start={s.start_at} end={s.end_at} onChange={(w) => set({ start_at: w.start_at ?? "", end_at: w.end_at ?? null })} startLabel={s.repeat === "none" ? "Send at" : "First send"} once={s.repeat === "none"} />
             {s.repeat === "none" && (
-              <label className="check"><input type="checkbox" checked={!!s.local_time} onChange={(e) => set({ local_time: e.target.checked })} />Send at {localClock(s.start_at)} in each contact's own time zone</label>
+              <label className="check"><input type="checkbox" checked={!!s.local_time} onChange={(e) => set({ local_time: e.target.checked, best_time: e.target.checked ? false : s.best_time })} />Send at {localClock(s.start_at)} in each contact's own time zone</label>
+            )}
+            {s.repeat === "none" && (
+              <label className="check" title="From when each person usually opens, clicks or reads (last 90 days); people without history get the hour your audience is busiest">
+                <input type="checkbox" checked={!!s.best_time} onChange={(e) => set({ best_time: e.target.checked, local_time: e.target.checked ? false : s.local_time, send_per_hour: e.target.checked ? undefined : s.send_per_hour })} />
+                ⏰ Send at each contact's best time (within 24 hours of the start)
+              </label>
             )}
             <DeadlineFields value={s.deadline} onChange={(deadline) => set({ deadline })} localTime={!!s.local_time} zone={browserZone()} />
             <div className="field" style={{ marginTop: 12 }}>
               <span>Sending speed</span>
               <div className="seg-toggle sm" role="radiogroup" aria-label="Sending speed" style={{ width: "fit-content" }}>
                 <button type="button" role="radio" aria-checked={!s.send_per_hour} aria-pressed={!s.send_per_hour} onClick={() => set({ send_per_hour: undefined })}>As fast as possible</button>
-                <button type="button" role="radio" aria-checked={!!s.send_per_hour} aria-pressed={!!s.send_per_hour} onClick={() => set({ send_per_hour: s.send_per_hour || 10000 })}>Spread it out</button>
+                <button type="button" role="radio" aria-checked={!!s.send_per_hour} aria-pressed={!!s.send_per_hour} disabled={!!s.best_time} title={s.best_time ? "Best time already spreads the sends" : undefined} onClick={() => set({ send_per_hour: s.send_per_hour || 10000 })}>Spread it out</button>
               </div>
               {!!s.send_per_hour && (
                 <div className="row" style={{ alignItems: "center", marginTop: 8 }}>
@@ -504,7 +510,7 @@ export function OneTimeWizard() {
               <dt>Channel</dt><dd><ChannelLabel channel={s.channel} />{fallback ? " with an SMS fallback" : ""}</dd>
               <dt>Audience</dt><dd>{s.include.map(segName).join(", ")}{s.exclude.length > 0 && <>, leaving out {s.exclude.map(segName).join(", ")}</>}</dd>
               <dt>Content</dt><dd>{s.templateMode === "pick" ? `Template "${reusableTemplates.find((x) => x.id === s.pickedTemplate)?.name}"` : s.channel === "email" ? `Email "${t.subject}"` : "Written here"}{reusable && s.templateMode === "write" ? ", also saved as a reusable template" : ""}</dd>
-              <dt>When</dt><dd>{sendsNow ? "Right away" : s.local_time ? `${fmt(s.start_at)} in each contact's time zone` : REPEAT_LABEL[s.repeat] + ", " + (describeWindow(s.start_at, s.end_at) || fmt(s.start_at))}</dd>
+              <dt>When</dt><dd>{s.best_time && s.repeat === "none" ? `Each contact at their best time, within 24 hours of ${sendsNow ? "now" : fmt(s.start_at)}` : sendsNow ? "Right away" : s.local_time ? `${fmt(s.start_at)} in each contact's time zone` : REPEAT_LABEL[s.repeat] + ", " + (describeWindow(s.start_at, s.end_at) || fmt(s.start_at))}</dd>
               <dt>Deadline</dt><dd>{describeDeadline(s.deadline, !!s.local_time)}</dd>
               <dt>Speed</dt><dd>{speedWords(s.send_per_hour)}</dd>
             </dl>

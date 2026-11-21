@@ -756,6 +756,9 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - **3 Control groups**: `Broadcast.HoldoutPercent` (pg 034), `broadcast.InHoldout` / `InControlGroup`, `Message.Holdout`,
   `automation.Messages.ControlPercent`; reason codes `holdout` / `control_group` (skip group `control`); the report's
   `holdout` (contacts, converted) and the Uplift panel; e2e `TestHoldout`.
+- **4 Best time to send**: `internal/besttime` (Refresh every 6 h in the maintenance role, `Hour`, `NextAt`),
+  `ch.BestHours` / `DefaultHour`, `Broadcast.BestTime` (pg 035), `Message.BestTime` held by the dispatcher (kind `best`);
+  wizard and settings checkboxes; e2e `TestBestTime`.
 
 ### O5 as built
 

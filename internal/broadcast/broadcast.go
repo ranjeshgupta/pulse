@@ -396,7 +396,7 @@ func PickWinner(ab *model.ABTest, counts map[string]model.MessageCounts) (string
 func (r *Runner) message(b model.Broadcast, run int64, contact uint32, template int64, variant string) model.Message {
 	return model.Message{ID: fmt.Sprintf("bc%d:%d:%d", b.ID, run, contact), TenantID: b.TenantID, ContactID: contact,
 		Channel: b.Channel, TemplateID: template, FallbackTemplateID: b.FallbackTemplateID, ProviderID: b.ProviderID, Topic: b.Topic,
-		BroadcastID: b.ID, Run: run, Variant: variant, Campaign: b.Name, Holdout: InHoldout(b, contact)}
+		BroadcastID: b.ID, Run: run, Variant: variant, Campaign: b.Name, Holdout: InHoldout(b, contact), BestTime: b.BestTime && b.Repeat == "none"}
 }
 
 func (r *Runner) publish(ctx context.Context, ms []model.Message) error {
@@ -515,6 +515,12 @@ const (
 
 // ValidateSpeed checks a sending speed.
 func ValidateSpeed(b model.Broadcast) error {
+	if b.BestTime && (b.LocalTime || b.SendPerHour > 0) {
+		return errors.New("send at each contact's best time, or at a clock time in their zone, or at a sending speed: one of them")
+	}
+	if b.BestTime && b.Repeat != "none" {
+		return errors.New("best time to send is for campaigns sent once")
+	}
 	if b.HoldoutPercent < 0 || b.HoldoutPercent > MaxHoldout {
 		return fmt.Errorf("control group: 0 to %d %% of the audience", MaxHoldout)
 	}

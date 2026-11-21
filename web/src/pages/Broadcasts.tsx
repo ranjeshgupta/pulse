@@ -298,6 +298,12 @@ export function BroadcastEdit() {
             Each contact gets it at {localClock(b.start_at, b.timezone)} their time, from their <code>timezone</code> attribute (or the zone located from their IP); contacts with neither get it at {localClock(b.start_at, b.timezone)} in {b.timezone || "UTC"}. Sending starts when that time comes in the first time zone (UTC+14), up to a day before; anyone whose time has already passed when you schedule gets it right away.
           </p>
         )}
+        {b.repeat === "none" && (
+          <label className="check" title="From when each person usually opens, clicks or reads; people without history get the hour your audience is busiest">
+            <input type="checkbox" checked={!!b.best_time} onChange={(e) => set({ best_time: e.target.checked, local_time: e.target.checked ? false : b.local_time, send_per_hour: e.target.checked ? 0 : b.send_per_hour })} />
+            ⏰ Send at each contact's best time (within 24 hours of the start)
+          </label>
+        )}
         <DeadlineFields value={b.deadline} onChange={(deadline) => set({ deadline })} localTime={b.repeat === "none" && !!b.local_time} zone={b.timezone || browserZone()} />
         <h3 style={{ margin: "18px 0 12px" }}>Conversion goal</h3>
         <div className="grid-2">

@@ -126,6 +126,8 @@ export interface WizardState {
   start_at: string; end_at?: string | null; repeat: string; local_time?: boolean; deadline?: Deadline | null;
   /** Sending speed: at most this many messages an hour (0 / undefined: as fast as possible). */
   send_per_hour?: number;
+  /** Each contact at their best hour within a day of the start (one-time sends only). */
+  best_time?: boolean;
 }
 
 /** speedWords says what a sending speed means for an audience: "Everyone has it within about 3 h". */

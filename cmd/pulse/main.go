@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"pulse/internal/besttime"
 	"strings"
 	"syscall"
 	"time"
@@ -572,7 +573,31 @@ func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
 		}
 	}()
 	go runIdentityBackfills(ctx, pgs, d)
+	go runBestTimes(ctx, pgs, chs, d)
 	return c.Loop(ctx, d.cfg.MaintenanceInterval)
+}
+
+// runBestTimes recomputes every workspace's best send hours (package besttime) every 6 hours.
+func runBestTimes(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
+	rdb := d.redis()
+	for {
+		if ids, err := pgs.TenantIDs(ctx); err != nil {
+			if ctx.Err() == nil {
+				d.log.Error("best send times: list workspaces", "err", err)
+			}
+		} else {
+			for _, id := range ids {
+				if _, err := besttime.Refresh(ctx, chs, rdb, id, time.Now()); err != nil && ctx.Err() == nil {
+					d.log.Error("best send times", "tenant", id, "err", err)
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(6 * time.Hour):
+		}
+	}
 }
 
 // runIdentityBackfills fills the stored values of identity keys added to a workspace's settings

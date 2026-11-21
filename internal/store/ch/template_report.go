@@ -181,3 +181,42 @@ func (s *Store) TemplateReport(ctx context.Context, q TemplateQuery) (TemplateRe
 	}
 	return rep, lrows.Err()
 }
+
+// BestHours calls fn with each contact's UTC hour with the most opens, clicks and reads since since.
+func (s *Store) BestHours(ctx context.Context, tenant int64, since time.Time, fn func(contact uint32, hour uint8) error) error {
+	rows, err := s.conn.Query(ctx, `SELECT contact_id, argMax(h, n) FROM (
+		SELECT contact_id, toHour(ts) AS h, count() AS n FROM message_events
+		WHERE tenant_id = ? AND kind IN ('opened', 'clicked', 'read') AND ts >= ? GROUP BY contact_id, h) GROUP BY contact_id`,
+		uint64(tenant), since.UTC())
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c uint32
+		var h uint8
+		if err := rows.Scan(&c, &h); err != nil {
+			return err
+		}
+		if err := fn(c, h); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// DefaultHour is the workspace's busiest engagement hour (UTC) since since.
+func (s *Store) DefaultHour(ctx context.Context, tenant int64, since time.Time) (uint8, bool, error) {
+	var h uint8
+	var n uint64
+	err := s.conn.QueryRow(ctx, `SELECT toHour(ts) AS h, count() AS n FROM message_events
+		WHERE tenant_id = ? AND kind IN ('opened', 'clicked', 'read') AND ts >= ? GROUP BY h ORDER BY n DESC LIMIT 1`,
+		uint64(tenant), since.UTC()).Scan(&h, &n)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return h, n > 0, nil
+}

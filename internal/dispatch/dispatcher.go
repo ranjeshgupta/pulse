@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"pulse/internal/besttime"
 	"regexp"
 	"strconv"
 	"strings"
@@ -238,6 +239,14 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 		}
 		if (m.BroadcastID != 0 || m.JourneyID != 0) && broadcast.InControlGroup(m.TenantID, c.ID, d.automation(ctx, m.TenantID).Messages.ControlPercent) {
 			return d.finish(ctx, sentKey, m, c, "suppressed", reasons.ControlGroupReason)
+		}
+	}
+	// Best time to send: each contact's busiest hour, within a day of the run's start.
+	if m.BestTime && m.Run > 0 {
+		if h, ok := besttime.Hour(ctx, d.rdb, m.TenantID, c.ID); ok {
+			if due := besttime.NextAt(time.Unix(m.Run, 0), h); due.After(d.now()) {
+				return d.holdUntil(ctx, m, c, due, "best", "")
+			}
 		}
 	}
 	// A paced campaign spreads its sends (its sending speed).
@@ -826,8 +835,8 @@ func (d *Dispatcher) holdUntil(ctx context.Context, m model.Message, c model.Con
 	if err := d.rdb.ZAdd(ctx, deferredKey, redis.Z{Score: float64(until.UnixMilli()), Member: string(b)}).Err(); err != nil {
 		return err
 	}
-	if kind == "speed" {
-		return nil // pacing is the campaign's plan, not a hold to report (it would count every message)
+	if kind == "speed" || kind == "best" {
+		return nil // the campaign's own timing, not a hold to report (it would count every message)
 	}
 	rec, err := d.eventRecord("msg:"+m.ID+":"+kind, m, c, "deferred", reason)
 	if err != nil {

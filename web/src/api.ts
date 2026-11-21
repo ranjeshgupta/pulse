@@ -417,6 +417,8 @@ export interface Broadcast {
   send_per_hour?: number;
   /** The campaign's control group: this share of the audience is kept back to measure the uplift. */
   holdout_percent?: number;
+  /** Send each message at its contact's best hour (from their opens, clicks and reads), within a day. */
+  best_time?: boolean;
   start_at: string; end_at?: string | null; repeat: Repeat; next_run_at?: string | null;
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;
