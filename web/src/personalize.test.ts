@@ -95,3 +95,13 @@ describe("send_message rules", () => {
     expect(channelRuleProblems([{ ...rules[0] }, { channel: "sms", template_id: 3 }])).toEqual([]);
   });
 });
+
+describe("exampleEvent with a list and a path through it", () => {
+  it("uses sample objects when a property goes through the list", () => {
+    const ev = exampleEvent({ props: [
+      { key: "items", label: "Items", type: "list" },
+      { key: "item_product_code", path: "items[].product_code", label: "Item product code", type: "string" },
+    ] } as never);
+    expect(ev.items).toEqual([{ product_code: "Sample Item product code" }]);
+  });
+});

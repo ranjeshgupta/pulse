@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Fragment, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { RouteError } from "./RouteError";
 import { createBrowserRouter, Navigate, RouterProvider, useParams } from "react-router-dom";
 import { ApiError } from "./api";
 import { RequireAuth } from "./auth";
@@ -85,6 +86,7 @@ const router = createBrowserRouter([
   {
     path: "/",
     element: <RequireAuth><Shell /></RequireAuth>,
+    errorElement: <RouteError />,
     children: [
       { index: true, element: <Dashboard /> },
       { path: "contacts", element: <Contacts /> },

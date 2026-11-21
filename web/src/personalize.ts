@@ -388,7 +388,10 @@ function setPath(obj: Record<string, unknown>, path: string, v: unknown) {
     const last = i === keys.length - 1;
     if (last && after === undefined) { if (!(k in cur)) cur[k] = v; return; }
     if (last) {
-      const items = (Array.isArray(cur[k]) ? cur[k] : [{}]) as Record<string, unknown>[];
+      // A path through the list (items[].code) means its items are objects: a sample list of
+      // plain values from a "list" property (["item 1", …]) gives way to one sample object.
+      const isObj = (x: unknown) => !!x && typeof x === "object" && !Array.isArray(x);
+      const items = (Array.isArray(cur[k]) && isObj((cur[k] as unknown[])[0]) ? cur[k] : [{}]) as Record<string, unknown>[];
       setPath(items[0], after.replace(/^\./, ""), v);
       cur[k] = items;
       return;

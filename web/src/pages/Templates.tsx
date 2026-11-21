@@ -122,7 +122,9 @@ export function TemplateEdit() {
 
   useEffect(() => {
     if (isNew && !t) {
-      const ch = (params.get("channel") ?? "email") as Channel;
+      // An unknown ?channel= (a typo or an old link) starts an email template rather than failing.
+      const asked = params.get("channel") as Channel | null;
+      const ch: Channel = asked && CHANNELS.includes(asked) ? asked : "email";
       setT({ id: 0, name: "", channel: ch, subject: "", html: "", content: { ...BLANK[ch] }, updated_at: "" });
     } else if (existing.data && !t) {
       setT({ ...existing.data, content: existing.data.content ?? {} });
