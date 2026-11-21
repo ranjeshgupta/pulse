@@ -10,7 +10,7 @@
 .fn-fill.fn-delivered { background: var(--ok); }
 .fn-fill.fn-opened, .fn-fill.fn-read { background: var(--ch-rcs); }
 .fn-fill.fn-clicked { background: var(--signal); }
-.fn-num { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.fn-num { display: flex; flex-direction: column; }
 .fn-num strong { font-size: var(--fs-md); font-weight: 650; }
 .fn-rates { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: var(--fs-xs); color: var(--muted); }
 
@@ -18,7 +18,7 @@
 .fn-figs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 0; }
 .fn-figs dt { font-size: var(--fs-xs); color: var(--muted); }
 .fn-figs dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
-.fn-figs dd strong { font-size: var(--fs-lg); font-weight: 650; font-variant-numeric: tabular-nums; }
+.fn-figs dd strong { font-size: var(--fs-lg); font-weight: 650; }
 .fn-figs dd small { flex-basis: 100%; font-size: var(--fs-xs); }
 .fn-figs .tone-bad dd strong { color: var(--danger); }
 .fn-figs .tone-warn dd strong { color: #8a5c00; }
@@ -28,7 +28,6 @@
 .fn-skips li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: var(--fs-sm); }
 .fn-skips li > span { display: flex; flex-direction: column; }
 .fn-skips li small { font-size: var(--fs-xs); }
-.fn-skips li strong { font-variant-numeric: tabular-nums; }
 
 .fn-reasons .fn-share-col { width: 34%; }
 .fn-share { display: grid; grid-template-columns: minmax(40px, 1fr) 44px; align-items: center; gap: 8px; }

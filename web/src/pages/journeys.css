@@ -39,7 +39,7 @@
 .jnode-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jnode-num {
   flex: none; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--ink); color: #fff;
-  font-size: 11.5px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums;
+  font-size: 11.5px; font-weight: 650; display: inline-flex; align-items: center; justify-content: center;
 }
 .jnode-icon { flex: none; display: inline-flex; color: var(--muted); }
 .jnode.c-start .jnode-icon { color: #8a5c00; }
@@ -48,7 +48,7 @@
 .jnode.c-condition .jnode-icon { color: var(--c-condition); }
 .jnode.c-split .jnode-icon { color: var(--c-split); }
 .jnode .jnode-body { color: var(--text); font-size: var(--fs-xs); line-height: 1.4; padding: 0 10px 9px; overflow-wrap: anywhere; }
-.jnode .jnode-stat { color: var(--ink-2); line-height: 1.45; font-variant-numeric: tabular-nums; }
+.jnode .jnode-stat { color: var(--ink-2); line-height: 1.45; }
 .jnode .react-flow__handle { width: 9px; height: 9px; background: var(--surface); border: 2px solid var(--ink-3); }
 .jnode .react-flow__handle.h-yes { border-color: var(--yes); background: var(--yes-wash); }
 .jnode .react-flow__handle.h-no { border-color: var(--no); background: var(--no-wash); }
@@ -155,7 +155,7 @@
 .sc-cat-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .sc-cat-text strong { font-size: var(--fs-sm); }
 .sc-cat-text small { font-size: var(--fs-xs); color: var(--muted); line-height: 1.35; }
-.sc-cat-count { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.sc-cat-count { font-size: 11px; color: var(--faint); }
 .c-action.sc-cat { border-left-color: var(--c-action); } .c-action .sc-cat-icon, .sc-item.c-action .sc-item-icon { color: var(--c-action); }
 .c-decision.sc-cat { border-left-color: var(--c-decision); } .c-decision .sc-cat-icon, .sc-item.c-decision .sc-item-icon { color: var(--c-decision); }
 .c-condition.sc-cat { border-left-color: var(--c-condition); } .c-condition .sc-cat-icon, .sc-item.c-condition .sc-item-icon { color: var(--c-condition); }

@@ -28,7 +28,7 @@
 .as-progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .as-progress { flex: 1; height: 8px; background: #eef1f5; border-radius: 4px; overflow: hidden; }
 .as-progress > div { height: 100%; background: var(--cobalt); border-radius: 4px; transition: width 0.2s; }
-.as-pct { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+.as-pct { font-size: var(--fs-xs); color: var(--muted); min-width: 64px; text-align: right; }
 
 .as-short { min-height: 64px; }
 
@@ -43,7 +43,7 @@
 
 .as-stats { display: flex; flex-wrap: wrap; gap: 8px 36px; margin-bottom: 6px; }
 .as-stats div { display: flex; flex-direction: column; }
-.as-stats strong { font-size: var(--fs-2xl); font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.as-stats strong { font-size: var(--fs-2xl); font-weight: 650; line-height: 1.1; }
 .as-stats span { color: var(--muted); font-size: var(--fs-sm); }
 .as-note { margin: 6px 0 0; }
 .as-edit { margin-top: 22px; }

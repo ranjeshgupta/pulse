@@ -20,7 +20,7 @@
 }
 .live-row:last-child { border-bottom: 0; }
 .live-row.open { background: #f7f9fb; }
-.live-time { font-variant-numeric: tabular-nums; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-xs); }
+.live-time { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-xs); }
 .live-name { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .live-contact { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-props {

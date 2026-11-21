@@ -69,7 +69,7 @@ export function GatewayWizard({ channel, config, setKey, auth, authType, draft, 
         {note}
         {step === 1 && (
           <>
-            <p className="small muted gw-lead">As the gateway's documentation says. With <strong>Login, then a token</strong> Pulse calls the login address, picks the token out of the answer, adds it to every send (a header, a query parameter or a body field — you choose), and logs in again when it expires or a send is refused.</p>
+            <p className="small muted gw-lead">As the gateway's documentation says. With <strong>Login request</strong> Pulse calls the login address, picks the token out of the answer, adds it to every send (a header, a query parameter or a body field — you choose), and logs in again when it expires or a send is refused.</p>
             {auth}
             <TryBox title="Try it" hint="Logs in with the details above and shows the token Pulse got.">
               <ProviderTools draft={draft} canAuth canPreview={false} />

@@ -17,5 +17,5 @@
 .cal-pill.journey.paused { opacity: 0.6; }
 .cal-pill.ch-sms { border-left-color: #6b7280; } .cal-pill.ch-whatsapp { border-left-color: #1d9a6c; } .cal-pill.ch-rcs { border-left-color: #7c3aed; }
 .cal-pill.ch-push { border-left-color: #e8890c; } .cal-pill.ch-inbox { border-left-color: #9b3fb5; }
-.cal-time { color: var(--muted, #6b7280); font-variant-numeric: tabular-nums; }
+.cal-time { color: var(--muted, #6b7280); }
 @media (max-width: 760px) { .cal-day { min-height: 70px; } .cal-pill .cal-time { display: none; } }

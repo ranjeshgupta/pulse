@@ -10,7 +10,7 @@
 .ov-card-head > .row { margin-left: auto; }
 .ov-handle { cursor: grab; color: var(--faint); font-size: 15px; letter-spacing: -3px; padding: 4px 6px 4px 2px; user-select: none; line-height: 1; }
 .ov-handle:active { cursor: grabbing; }
-.ov-num { display: inline-grid; place-items: center; min-width: 24px; height: 24px; border-radius: 999px; background: var(--cobalt-wash); color: var(--cobalt-dark); font-size: var(--fs-xs); font-weight: 650; font-variant-numeric: tabular-nums; }
+.ov-num { display: inline-grid; place-items: center; min-width: 24px; height: 24px; border-radius: 999px; background: var(--cobalt-wash); color: var(--cobalt-dark); font-size: var(--fs-xs); font-weight: 650; }
 .ov-default .ov-num { background: #eef1f5; color: var(--ink-3); }
 .ov-name { max-width: 320px; height: 32px; }
 .ov-who { margin-bottom: 10px; }

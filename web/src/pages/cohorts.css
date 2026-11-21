@@ -13,7 +13,7 @@
 .cohort-rule .rule-where-add { margin: 2px 0 0; }
 
 .cohort-headline { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--rule); }
-.cohort-headline .big { font-size: var(--fs-3xl); font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+.cohort-headline .big { font-size: var(--fs-3xl); font-weight: 650; line-height: 1; }
 
 .cohort-results { margin-top: 24px; }
 .cohort-results .busy { opacity: 0.45; transition: opacity 0.15s; }
@@ -28,7 +28,7 @@
 }
 .cohort-table th[scope="row"] { font-weight: 560; color: var(--text); }
 .cohort-table tr.cohort-all th, .cohort-table tr.cohort-all td { border-bottom: 2px solid var(--rule-strong); font-weight: 600; }
-.cohort-table td.cohort-cell { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; border: 1px solid var(--surface); white-space: nowrap; }
+.cohort-table td.cohort-cell { min-width: 64px; text-align: right; border: 1px solid var(--surface); white-space: nowrap; }
 .cohort-table td.cohort-cell.none { color: var(--faint); }
 .cohort-count { display: block; font-size: 11px; font-weight: 450; }
 

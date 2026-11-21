@@ -12,7 +12,7 @@
 .ov-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
 .ov-stats { display: flex; flex-wrap: wrap; gap: 14px 44px; }
 .ov-stat { display: flex; flex-direction: column; min-width: 0; }
-.ov-stat strong { font-size: var(--fs-xl); font-weight: 650; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ov-stat strong { font-size: var(--fs-xl); font-weight: 650; line-height: 1.15; }
 .ov-stat > span { color: var(--muted); font-size: var(--fs-sm); }
 .ov-stat .ov-change { font-size: var(--fs-xs); font-weight: 560; color: var(--muted); }
 .ov-change.up::before { content: "▲ "; font-size: 0.8em; }

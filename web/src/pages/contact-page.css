@@ -28,13 +28,13 @@
 .cp-stat dl { margin: 0; display: grid; gap: 2px; }
 .cp-stat dl > div { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); }
 .cp-stat dt { color: var(--muted); }
-.cp-stat dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cp-stat dd { margin: 0; font-weight: 600; }
 .cp-top { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .cp-top li { display: grid; grid-template-columns: minmax(100px, 220px) minmax(0, 1fr) 60px; align-items: center; gap: 10px; font-size: var(--fs-sm); }
 .cp-top-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-top-bar { height: 8px; background: var(--porcelain); border-radius: var(--r-sm); overflow: hidden; }
 .cp-top-bar span { display: block; height: 100%; background: var(--cobalt); }
-.cp-top .num { text-align: right; font-variant-numeric: tabular-nums; }
+.cp-top .num { text-align: right; }
 
 .cp-figures { margin: 0; padding: 16px 20px 4px; }
 .cp-products h4 { margin: 0 0 8px; }

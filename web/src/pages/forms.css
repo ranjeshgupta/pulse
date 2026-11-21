@@ -9,7 +9,7 @@
 .ff-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .ff-foot .check { margin-bottom: 0; }
 .ff-err { color: var(--danger); font-size: var(--fs-xs); margin: -2px 0 8px; }
-.ff-num { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.ff-num { color: var(--faint); font-size: var(--fs-xs); }
 
 .tag-input-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .tag-suggest { border: 1px dashed var(--rule-strong); background: none; border-radius: 999px; padding: 1px 9px; font: inherit; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; }

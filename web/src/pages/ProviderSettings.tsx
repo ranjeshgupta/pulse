@@ -300,7 +300,7 @@ export function RequestBody({ channel, config, setConfig }: { channel: Channel; 
       </details>
       <details className="pf-more" open={headers.length > 0 || undefined}>
         <summary>Extra headers{headers.length ? ` (${headers.length})` : " (optional)"}</summary>
-        <HeadersEditor headers={headers} onChange={(h) => set({ headers: h })} hint="Only if the gateway asks for one. Sign-in headers are added by step 2." />
+        <HeadersEditor headers={headers} onChange={(h) => set({ headers: h })} hint="Only if the gateway asks for one. Sign-in headers are added by step 1." />
       </details>
     </>
   );

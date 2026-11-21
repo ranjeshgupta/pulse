@@ -23,7 +23,7 @@
 .revenue-kind.kind-journey { background: var(--ok-wash); color: var(--ok); }
 .revenue-share-col { width: 220px; }
 .revenue-share { display: grid; grid-template-columns: 48px minmax(60px, 1fr); gap: 10px; align-items: center; }
-.revenue-share .num { text-align: right; font-variant-numeric: tabular-nums; }
+.revenue-share .num { text-align: right; }
 .revenue-share .bar-fill { background: var(--cobalt); }
 .revenue-share .bar-fill.muted { background: var(--rule-strong); }
 .revenue-table tfoot tr td, .revenue-table tfoot tr th { border-top: 1px solid var(--rule-strong); border-bottom: 0; color: var(--muted); }

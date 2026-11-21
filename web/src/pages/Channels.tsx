@@ -177,7 +177,11 @@ function ProviderForm({ channel, provider, kinds, sendRate, onClose }: { channel
 
       {gateway ? (
         <>
-          <GatewayModeChoice mode={config.mode ?? "standard"} onChange={(m) => setKey("mode", m)} />
+          <GatewayModeChoice mode={config.mode ?? "standard"} onChange={(m) => setConfig((c) => ({
+            ...c, mode: m,
+            // Store the request the steps show, so Test connection and Save use it even before step 2 is edited.
+            ...(m === "custom" && !c.request?.trim() ? { request: serializeRequest(parseRequest("", channel)) } : {}),
+          }))} />
           {!custom ? (
             <>
               <Step n={1} title="Your endpoint" hint={<>Pulse posts each message to this address as JSON and signs it with the secret, so your endpoint knows it's genuine. <strong>Preview request</strong> below shows exactly what arrives; the developer guide documents the format.</>}>
