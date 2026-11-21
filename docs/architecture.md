@@ -727,7 +727,8 @@ sequenceDiagram
 - **Web SDK** (`/sdk/pulse.js`): identify, track, page views with session and UTM capture, device
   data, forms, focus items (pop-up, bar, slide-in with triggers and frequency), dynamic content
   slots, web push opt-in prompt and service worker, app inbox. Identity verification by an HMAC
-  user hash can be required per workspace.
+  user hash can be required per workspace, and should be for production sites: the site key is
+  public, so without it anyone can send browser events as a known user.
 - **Mobile SDKs**: Flutter (`sdks/flutter`), Android (Kotlin, `sdks/android`) and iOS (Swift,
   `sdks/ios`), each with a platform-neutral core (queue, batching, backoff, sessions, inbox and
   in-app logic) and a platform module (storage, lifecycle, device data, notifications, in-app UI,
@@ -835,7 +836,8 @@ Details: [webhooks and integrations](developer/06-webhooks-and-integrations.md).
   `Referrer-Policy: same-origin`.
 - Workspace-authored content runs on a **separate origin** (`PULSE_PAGES_URL`), which serves only
   pages, forms, assets, surveys, the SDK and the browser API; app paths there are 404 and page paths
-  on the app host redirect. Landing page HTML is parsed with the HTML5 algorithm and re-serialised
+  on the app host redirect. It should be its own registrable domain, not a sibling subdomain of the
+  app, so pages can't set cookies the app receives. Landing page HTML is parsed with the HTML5 algorithm and re-serialised
   without scripts, event handlers, `srcdoc`, `<base>`, `<object>` or `javascript:` URLs, and served
   under a nonce CSP that allows only the Pulse SDK.
 - Asset downloads are always `Content-Disposition: attachment` with `nosniff` and a sandbox CSP;
@@ -1014,7 +1016,7 @@ Not yet load-tested: analytics reports and filtered contact views on very large 
 
 ```mermaid
 flowchart LR
-    U[Users, SDKs,<br/>providers] --> PX[Reverse proxy, TLS<br/>pulse.example.com<br/>pages.example.com]
+    U[Users, SDKs,<br/>providers] --> PX[Reverse proxy, TLS<br/>pulse.example.com<br/>acme-pages.example]
     PX --> API[api x N]
     subgraph svc [Pulse services]
         API

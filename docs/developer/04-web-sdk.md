@@ -10,6 +10,10 @@ serves at **`/sdk/pulse.js`** with a 5-minute cache and `Access-Control-Allow-Or
 `window.Pulse`. The SDK only ever uses the workspace's public **site key** (`sk_…`): never put the
 server API key or the identity verification secret in a page.
 
+The web SDK and the scripts Pulse serves to your pages are under the
+[MIT License](../../web/src/sdk/LICENSE) (see also [web/public/sdk](../../web/public/sdk/LICENSE)), so
+loading them never puts your site's code under the AGPL.
+
 ---
 
 ## Install
@@ -152,6 +156,10 @@ Anyone can read your site key and call `Pulse.identify("someone-else")`. With **
 verification**, your server signs each signed-in user's ID and the page passes the signature to
 `identify`; Pulse then refuses events, push registrations and inbox requests for a known user
 without a valid hash (403). Anonymous `anon-` visitors need no hash.
+
+Turn it on for every production site. Until **Require verified identity for web events** is ticked,
+anyone with the site key can send events as one of your known users, including `identify` calls that
+change that contact's fields such as email and phone.
 
 ![Settings, Sign-in and keys: the Identity verification panel, with the signing secret behind a Show secret button, the Require verified identity for web events checkbox, and Replace secret](img/dev-04-identity.png)
 

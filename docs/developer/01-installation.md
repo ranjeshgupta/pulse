@@ -18,8 +18,9 @@ All commands run from the root of the repository (the folder with the `Makefile`
 | Disk | 10 GB (about 2.2 GB of images, plus build caches and data) | SSD; size it for your event volume (ClickHouse keeps every event) |
 
 Go and Node.js are **not** needed on the host: the Makefile runs Go in the `golang:1.26-alpine`
-image, and the Pulse image builds the web app in `node:24-alpine`. (You need Node.js only to run
-the web app's dev server, see [Working on the web app](#working-on-the-web-app).)
+image when `go` isn't installed (the module needs Go 1.26, see `go.mod`), and the Pulse image builds
+the web app in `node:24-alpine`. You need Node.js on the host (22.12 or later) only to run the web
+app's dev server (see [Working on the web app](#working-on-the-web-app)) or `make docs-check`.
 
 ### Ports used on your machine
 
@@ -43,6 +44,8 @@ If one is taken, change the left-hand number of that `ports:` entry in
 ---
 
 ## Local quick start
+
+From a fresh clone, in the repository root:
 
 ```bash
 make up      # build the Pulse image and start everything (first time: a few minutes)
@@ -108,8 +111,9 @@ production and use your own provider.
 | `make logs` | Follow Pulse's log |
 | `make seed` | Another demo workspace (`ARGS="-contacts 1000"` for more contacts) |
 | `make docs-seed` | The "Acme Retail" workspace used for the documentation's screenshots |
+| `make ps` | Status of every service |
 | `make test` | Go unit tests (no services needed) |
-| `make it` / `make e2e` | Integration and end-to-end tests against the running stack |
+| `make it` / `make e2e` | Integration and end-to-end tests against the running stack ([how](08-contributing-and-testing.md#make-targets)) |
 | `make load ARGS="-rate 10000 -duration 45s"` | Load test ([results](../architecture.md#18-performance-and-the-load-test)) |
 
 To start again from empty databases: `docker compose -f deploy/docker-compose.yml down -v`. The `-v`
@@ -121,11 +125,14 @@ The web app (React + TypeScript, in `web/`) is built into the Pulse binary. To c
 live reload, run Vite's dev server; it proxies `/v1` to the Pulse on port 7080:
 
 ```bash
-cd web && npm install && npm run dev    # http://localhost:5173
-npm test                                # its unit tests
+cd web
+npm install
+npm run dev    # http://localhost:5173, with the stack from `make up` running
+npm test       # the web app's unit tests (in another terminal, also in web/)
 ```
 
-Rebuild the image (`make up`) to see your changes on port 7080.
+Only `/v1` is proxied, so pages the Go binary serves itself (hosted forms, landing pages, the SDK
+test page) still come from port 7080. Rebuild the image (`make up`) to see your changes there.
 
 ---
 
@@ -174,16 +181,22 @@ and `internal/config/config.go`. For production, set at least:
 |---|---|
 | `PULSE_SECRET_KEY` | 64 hex characters (`openssl rand -hex 32`). Encrypts stored credentials (SSO client secrets, provider and integration credentials, email webhook signing keys, cached provider tokens, bounce mailbox passwords), SSO state, tracking links, message references, AMP post-back links and download links. Without it SSO and stored provider credentials don't work, and emails go out without open and click tracking. **Keep it in a secret store and back it up**: if it's lost, everything encrypted with it has to be entered again. Don't reuse the dev key from `deploy/docker-compose.yml` |
 | `PULSE_PUBLIC_URL` | The `https://` address people use, e.g. `https://pulse.example.com`. Used for SSO redirects, tracking, unsubscribe and webhook links; `https` also makes the session cookie `Secure` |
-| `PULSE_PAGES_URL` | A **separate origin** for landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`), e.g. `https://pages.example.com`. Content your users write then never shares an origin or cookies with the app. See [Two origins](#two-origins-public_url-and-pages_url) |
+| `PULSE_PAGES_URL` | A **separate origin** for landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`), ideally on its own registrable domain, e.g. `https://acme-pages.example` next to `https://pulse.example.com`. Content your users write then never shares an origin or cookies with the app. See [Two origins](#two-origins-public_url-and-pages_url) |
 | `PULSE_PG_DSN`, `PULSE_CH_*`, `PULSE_REDIS_ADDR`, `PULSE_KAFKA_BROKERS` | Where the data services are. Use `sslmode=require` (or `verify-full`) in the Postgres DSN when it crosses a network |
 | `PULSE_SMTP_ADDR`, `PULSE_SMTP_FROM` | The SMTP relay for workspaces without an email provider of their own, and its default sender (whose domain may also send AMP emails that post back) |
-| `PULSE_ALLOW_SIGNUP=false` | On a private installation, so strangers can't create workspaces. Create them with `PULSE_ADMIN_TOKEN` instead (below) |
+| `PULSE_ALLOW_SIGNUP` | Off (`false`) by default, so strangers can't create workspaces; create them with `PULSE_ADMIN_TOKEN` instead (below). Turn it on only behind a CAPTCHA (for example at your reverse proxy) or on a private network |
 | `PULSE_ADMIN_TOKEN` | A long random value (`openssl rand -hex 32`) for `POST /v1/tenants`; leave it unset to turn that route off |
 | `PULSE_TRUST_PROXY=true` | Only when Pulse is reachable **only** through your reverse proxy: then client IPs (rate limits, audit log) come from `X-Forwarded-For` |
 
 Keep `PULSE_ALLOW_PRIVATE_SSO` and `PULSE_ALLOW_PRIVATE_WEBHOOKS` off (the default) unless you know
 you need them: they let workspace admins make Pulse call addresses on your internal network. The
 dev compose file turns them on for the local Keycloak and the end-to-end tests.
+
+In each workspace that tracks a website or app, turn on **Require verified identity for web events**
+(Settings → Sign-in & keys → Identity verification) once your site sends the identity hash; see
+[identity verification](04-web-sdk.md#identity-verification). The site key is public, so without it
+anyone can send browser events as one of your known users, including `identify` calls that change
+that contact's fields such as email and phone.
 
 ### Build the image
 
@@ -197,8 +210,12 @@ returns `{"status":"ok"}`. Logs are JSON lines on stdout.
 
 ### Option A: one server with Docker Compose
 
-Start from `deploy/docker-compose.yml` (keep a copy outside the repository, e.g.
-`/srv/pulse/compose.yml`) and change it:
+**Never run `deploy/docker-compose.yml` on a server.** It is for local development only: it publishes
+every data service's port, uses published default passwords, a public secret key and admin token,
+and turns on settings that let Pulse call private addresses. A production compose file will be added
+under `deploy/` later. Until then, write your own (e.g. `/srv/pulse/compose.yml`, outside the
+repository), using the dev file only as a reference for the service definitions, with these
+changes:
 
 1. **Remove** the `mailpit` and `keycloak` services, and `mailpit` from Pulse's `depends_on`.
 2. **Remove the `ports:`** of `kafka`, `clickhouse`, `postgres` and `redis`: Pulse reaches them on
@@ -233,9 +250,9 @@ Start from `deploy/docker-compose.yml` (keep a copy outside the repository, e.g.
       PULSE_SMTP_ADDR: smtp.example.com:587
       PULSE_SMTP_FROM: "Acme <news@example.com>"
       PULSE_PUBLIC_URL: https://pulse.example.com
-      PULSE_PAGES_URL: https://pages.example.com
+      PULSE_PAGES_URL: https://acme-pages.example     # its own registrable domain
       PULSE_SECRET_KEY: ${PULSE_SECRET_KEY}
-      PULSE_ALLOW_SIGNUP: "false"
+      PULSE_ALLOW_SIGNUP: "false"                      # the default; shown for clarity
       PULSE_ADMIN_TOKEN: ${PULSE_ADMIN_TOKEN}
       PULSE_TRUST_PROXY: "true"
       PULSE_GEOIP_DB: /geoip/GeoLite2-City.mmdb   # optional, see GeoIP below
@@ -268,7 +285,7 @@ x-pulse: &pulse
     PULSE_REDIS_ADDR: redis.internal:6379
     PULSE_KAFKA_BROKERS: kafka-1.internal:9092,kafka-2.internal:9092,kafka-3.internal:9092
     PULSE_PUBLIC_URL: https://pulse.example.com
-    PULSE_PAGES_URL: https://pages.example.com
+    PULSE_PAGES_URL: https://acme-pages.example
     PULSE_SECRET_KEY: ${PULSE_SECRET_KEY}
     # … the rest of option A's settings
 
@@ -335,7 +352,7 @@ original `Host` header: Pulse decides by host what to serve. With [Caddy](https:
 which gets certificates by itself:
 
 ```caddyfile
-pulse.example.com, pages.example.com {
+pulse.example.com, acme-pages.example {
     reverse_proxy 127.0.0.1:7070
 }
 ```
@@ -345,7 +362,7 @@ With nginx (certificates from your own tooling):
 ```nginx
 server {
     listen 443 ssl;
-    server_name pulse.example.com pages.example.com;
+    server_name pulse.example.com acme-pages.example;
     ssl_certificate     /etc/ssl/pulse/fullchain.pem;
     ssl_certificate_key /etc/ssl/pulse/privkey.pem;
     client_max_body_size 10g;          # background contact imports accept files up to 10 GB
@@ -371,11 +388,16 @@ With `PULSE_PAGES_URL` set, the pages host serves only landing pages (`/p/`), as
 (`/a/`), hosted forms (`/f/`), the web SDK (`/sdk/`), its API (`/v1/web/`) and `/healthz`; everything
 else there is a 404. On the app host, those page paths redirect to the pages host. A landing page
 someone writes in a workspace can then never read the app's cookies or pass for its sign-in page.
-Use a separate domain or at least a separate subdomain that has no cookies of the app's.
+
+Use a separate registrable domain for the pages host (for example `acme-pages.example` for pages and
+`pulse.example.com` for the app), not a sibling subdomain such as `pages.example.com`. Browsers treat
+subdomains of one registrable domain as the same site: a page there can set cookies for the parent
+domain that the app would then receive, and `SameSite` cookie protections don't separate them. On
+its own domain, content your users write can't touch the app's cookies at all.
 
 ### Workspaces when sign-up is off
 
-With `PULSE_ALLOW_SIGNUP=false`, the operator creates each workspace with the admin token, then its
+With sign-up off (`PULSE_ALLOW_SIGNUP=false`, the default), the operator creates each workspace with the admin token, then its
 first admin with the workspace's API key:
 
 ```bash

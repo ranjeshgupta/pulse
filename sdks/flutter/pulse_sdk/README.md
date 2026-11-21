@@ -153,7 +153,7 @@ version 2.3"):
 Unknown values are left out, and each value is cut to 100 characters. Custom `track` events don't
 carry them (they stay small). `Pulse.instance.deviceProperties` shows what is sent.
 
-The SDK has no plugin dependencies, so the app version and device model come from your app. With
+The SDK doesn't depend on device-info plugins, so the app version and device model come from your app. With
 [package_info_plus](https://pub.dev/packages/package_info_plus) and
 [device_info_plus](https://pub.dev/packages/device_info_plus):
 
@@ -456,3 +456,8 @@ PULSE_SITE_KEY=sk_... PULSE_HOST=http://localhost:7080 \
 | inbox actions | `POST {host}/v1/web/inbox`, body `{"id","user_hash","action":"read"\|"delete"\|"click","message_ids":[...]}` → `{"changed"}` |
 | in-app | `POST {host}/v1/web/inapp`, body `{"id","user_hash","platform":"android"\|"ios"}` → `{"messages":[{"id","layout","content","trigger","end_at"}]}` |
 | app content | `POST {host}/v1/web/content`, body `{"id","user_hash","platform":"android"\|"ios","slots":[...]}` → `{"content":{"<slot>":{"card","html","variant"}}}` |
+
+## License
+
+The SDK is under the [MIT License](LICENSE), so you can embed it in apps under any license. The
+Pulse platform itself is AGPL-3.0; see the [main README](../../../README.md#license).

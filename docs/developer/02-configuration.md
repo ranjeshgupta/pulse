@@ -40,12 +40,12 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 
 | Variable | Default | Used by | Meaning | Change it when |
 |---|---|---|---|---|
-| `PULSE_PG_DSN` | `postgres://pulse:pulse@localhost:55432/pulse?sslmode=disable` | every role except `chsink` | Postgres connection string (any form `pgx` accepts) | Always outside local development. Use `sslmode=require` or `verify-full` when the connection crosses a network |
+| `PULSE_PG_DSN` | `postgres://pulse:pulse@localhost:55432/pulse?sslmode=disable` | every role except `chsink` and `replay-dlq` | Postgres connection string (any form `pgx` accepts) | Always outside local development. Use `sslmode=require` or `verify-full` when the connection crosses a network |
 | `PULSE_CH_ADDR` | `localhost:19000` | `migrate`, `api`, `chsink`, `segments`, `journeys` | ClickHouse **native protocol** address (port 9000 in a normal install, not the 8123 HTTP port) | Always outside local development |
 | `PULSE_CH_DB` | `pulse` | same | ClickHouse database | You use another database name |
 | `PULSE_CH_USER` | `pulse` | same | ClickHouse user | Always in production |
 | `PULSE_CH_PASSWORD` | `pulse` | same | ClickHouse password | Always in production. The connection has no TLS option: keep ClickHouse on a private network |
-| `PULSE_REDIS_ADDR` | `localhost:16379` | `api`, `profile`, `segments`, `journeys`, `dispatch`, `webhooks`, `integrations` | Redis `host:port`. There is no password or TLS setting | Always outside local development. Keep Redis on a private network |
+| `PULSE_REDIS_ADDR` | `localhost:16379` | `api`, `profile`, `chsink`, `segments`, `journeys`, `dispatch`, `webhooks`, `integrations` | Redis `host:port`. There is no password or TLS setting | Always outside local development. Keep Redis on a private network |
 | `PULSE_KAFKA_BROKERS` | `localhost:19092` | every role | Kafka bootstrap brokers, comma-separated (`kafka-1:9092,kafka-2:9092`). Plain connections only (no TLS or SASL settings yet) | Always outside local development |
 | `PULSE_KAFKA_PARTITIONS` | `12` | `migrate` | Partitions for each topic `migrate` **creates**. Topics that already exist are left alone | Before the first `migrate` of a large installation: partitions cap how many instances of each consumer role do useful work. See [Scaling notes](01-installation.md#scaling-notes) |
 
@@ -54,10 +54,10 @@ Defaults suit `pulse all` running on your machine against the dev stack's host p
 | Variable | Default | Used by | Meaning | Change it when |
 |---|---|---|---|---|
 | `PULSE_HTTP_ADDR` | `:7070` | `api` | Address the HTTP server listens on. The dev stack maps host port 7080 to it | You need another port, or to bind one interface (`127.0.0.1:7070`) |
-| `PULSE_PUBLIC_URL` | `http://localhost:7080` | `api`, `dispatch` | Where browsers reach Pulse. Used for SSO redirects; tracking, unsubscribe and preference-center links in messages; provider webhook URLs and the bounce/reply URLs shown in Settings. An `https://` value makes the session cookie `Secure`, and is used as the web push contact (VAPID subject) | Always in production: set the public `https://` address, without a trailing path |
-| `PULSE_PAGES_URL` | none | `api` | A separate origin for workspace-authored content: landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`). When set, that host serves only those paths plus `/sdk/`, `/v1/web/` and `/healthz`, and the app host redirects page paths to it | In production, so pages your users write never share an origin or cookies with the app. See [Two origins](01-installation.md#two-origins-public_url-and-pages_url) |
+| `PULSE_PUBLIC_URL` | `http://localhost:7080` | `api`, `dispatch`, `integrations` | Where browsers reach Pulse. Used for SSO redirects; tracking, unsubscribe and preference-center links in messages; provider webhook URLs and the bounce/reply URLs shown in Settings. An `https://` value makes the session cookie `Secure`, and is used as the web push contact (VAPID subject) | Always in production: set the public `https://` address, without a trailing path |
+| `PULSE_PAGES_URL` | none | `api` | A separate origin for workspace-authored content: landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`). When set, that host serves only those paths plus `/sdk/`, `/v1/web/` and `/healthz`, and the app host redirects page paths to it | Always in production, ideally on a separate registrable domain (for example `acme-pages.com` next to `pulse.acme.com`, not a sibling subdomain such as `pages.acme.com`), so pages your users write can never read or set the app's cookies. See [Two origins](01-installation.md#two-origins-public_url-and-pages_url) |
 | `PULSE_TRUST_PROXY` | `false` | `api` | Take the client IP from the **right-most** `X-Forwarded-For` entry (rate limits, sign-in throttling, audit log, GeoIP) and the host from `X-Forwarded-Host` (for the pages split) | Only when Pulse can be reached **only** through your reverse proxy. Otherwise clients could pick their own IP |
-| `PULSE_ALLOW_SIGNUP` | `true` | `api` | Anyone may create a workspace at `/signup` (`POST /v1/auth/signup`) | Set `false` on a private installation and create workspaces with the admin token |
+| `PULSE_ALLOW_SIGNUP` | `false` | `api` | When `true`, anyone who can reach Pulse may create a workspace at `/signup` (`POST /v1/auth/signup`); when `false` that page and route are refused and the operator creates workspaces with the admin token. The local dev stack turns it on | Off by default. Turn it on only behind a CAPTCHA (for example at your reverse proxy) or on a private network |
 | `PULSE_ADMIN_TOKEN` | none | `api` | Platform operator token for `POST /v1/tenants` (create a workspace without users). Unset turns that route off (it answers 401) | You create workspaces from your own tooling. Use a long random value: `openssl rand -hex 32`. The dev stack's `dev-admin-token` is refused unless `PULSE_PUBLIC_URL` is a local address |
 | `PULSE_ALLOW_PRIVATE_SSO` | `false` | `api` | Lets workspace SSO discovery and token calls reach private and loopback addresses | Your identity provider is on an internal network. The dev stack turns it on for its Keycloak |
 | `PULSE_GEOIP_DB` | none | `api` | Path to a MaxMind GeoLite2-City or GeoIP2-City `.mmdb` file. Fills `geo_*` attributes of web and app visitors (when the workspace allows it in Settings → Data & privacy). If the file can't be opened, `api` exits with `geoip database …` | You want location attributes. See [GeoIP](01-installation.md#geoip-optional) |
@@ -94,10 +94,13 @@ These appear in the repository but are read by tools, not by the `pulse` binary:
 
 | Variable | Read by | Meaning |
 |---|---|---|
-| `PULSE_API`, `PULSE_MAILPIT`, `PULSE_ADMIN_TOKEN`, `PULSE_HOOK_HOST` | end-to-end tests (`test/e2e`) | Where the tests find Pulse and Mailpit, the admin token they use, and the host name their webhook receivers listen on. Set by `make e2e` |
-| `PULSE_CH_ADDR`, `PULSE_REDIS_ADDR` | integration tests (`make it`) | Same meaning as for the server; `make it` points them at the Compose services |
-| `PULSE_URL`, `PULSE_DOCS_WORKSPACE`, `PULSE_DOCS_EMAIL`, `PULSE_DOCS_PASSWORD`, `PULSE_MAILPIT` | screenshot scripts (`docs/screenshots`) | Which Pulse and docs workspace `make docs-shots` captures |
-| `PULSE_SITE_KEY`, `PULSE_HOST` | Flutter SDK's optional integration test | See [5. Mobile SDKs](05-mobile-sdks.md) |
+| `PULSE_API` (default `http://localhost:7080`), `PULSE_MAILPIT` (`http://localhost:18025`), `PULSE_ADMIN_TOKEN` (`dev-admin-token`), `PULSE_HOOK_HOST` (unset) | end-to-end tests (`test/e2e`) | Where the tests find Pulse and Mailpit, the admin token they use, and the host name their webhook receivers listen on (tests that receive calls skip themselves when it is unset). Set by `make e2e` |
+| `PULSE_KEYCLOAK` (`http://localhost:8180`), `PULSE_KEYCLOAK_INTERNAL` (`http://keycloak:8180`) | end-to-end SSO test (`test/e2e/sso_test.go`) | The Keycloak address a browser uses, and the one Pulse uses on the Compose network |
+| `PULSE_ROBUST_ONLY` | end-to-end tests (`test/e2e/robust_test.go`) | Debugging aid: a regular expression over `METHOD /path` that limits which routes the robustness test calls |
+| `PULSE_CH_ADDR` | integration tests (`make it`) | Same meaning as for the server; the tests skip themselves when it is unset. `make it` sets it to `clickhouse:9000` (it also sets `PULSE_REDIS_ADDR`, which no integration test reads today) |
+| `PULSE_URL`, `PULSE_DOCS_WORKSPACE`, `PULSE_DOCS_EMAIL`, `PULSE_DOCS_PASSWORD`, `PULSE_MAILPIT` | screenshot scripts (`docs/screenshots`) and `make ui-crawl` | Which Pulse and docs workspace `make docs-shots` captures (defaults `http://localhost:7080`, `acme-retail`, `docs.admin@pulse.test`, `pulse-docs-pass-1`) |
+| `PULSE_SITE_KEY`, `PULSE_HOST` | Flutter SDK's optional integration test (`tool/integration_test.dart`) and example app (`--dart-define`) | See [5. Mobile SDKs](05-mobile-sdks.md) |
+| `PULSE_AI_API_KEY` in the shell | `deploy/docker-compose.yml` | Passed through to the dev stack's `pulse` service (`${PULSE_AI_API_KEY:-}`), so AI help is on locally only when you export a key before `make up` |
 
 ---
 
@@ -113,7 +116,7 @@ exits with status 2. Each role logs JSON lines to stdout with a `role` field, st
 | `migrate` | Postgres and ClickHouse migrations, then creates the Kafka topics (retrying for up to 30 s while the broker starts). Exits | | Postgres, ClickHouse, Kafka |
 | `api` | The HTTP server: web app, REST API, SDK endpoints, tracking links, hosted pages and forms, provider webhooks | | Postgres, ClickHouse, Redis, Kafka (producer) |
 | `profile` | `events.raw` → identity resolution, profile merge, event counters → `events.enriched` | `pulse-profile` | Postgres, Redis, Kafka |
-| `chsink` | `events.enriched` and `segment.membership` → ClickHouse | `pulse-chsink` | ClickHouse, Kafka |
+| `chsink` | `events.enriched` and `segment.membership` → ClickHouse; also feeds the live event feed in Redis | `pulse-chsink` | ClickHouse, Redis, Kafka |
 | `segments` | Real-time membership from `events.enriched`; backfills of new and edited segments; sweeps every `PULSE_SWEEP_INTERVAL`; segments that depend on other segments (from `segment.membership`) | `pulse-segments`, `pulse-segments-deps` | Postgres, ClickHouse, Redis, Kafka |
 | `journeys` | Journey enrollment and steps (from `segment.membership` and `events.enriched`), durable timers, scheduled broadcasts (every second), background imports (every 2 s), retention cleanup, journey A/B winners (every 5 s) | `pulse-journeys` | Postgres, ClickHouse, Redis, Kafka |
 | `dispatch` | `messages.<channel>` and `delivery.receipts` → consent, caps, quiet hours, rate limits, providers, SMS fallback; held (quiet hours) messages and retries of temporary provider failures | `pulse-dispatch` | Postgres, Redis, Kafka |

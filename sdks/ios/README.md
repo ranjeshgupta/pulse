@@ -413,3 +413,8 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/w -w /w swift:5.10 
   time it is built for iOS.
 - `URLSessionHTTPClient` was compiled but not exercised (the tests use a fake client). Nothing was
   tested against a running Pulse server or a real device.
+
+## License
+
+The SDK is under the [MIT License](LICENSE), so you can embed it in apps under any license. The
+Pulse platform itself is AGPL-3.0; see the [main README](../../README.md#license).

@@ -22,7 +22,7 @@ under [Honest limits at a glance](product.md#honest-limits-at-a-glance).
 
 | Product | Kind | License / delivery | Release checked |
 |---|---|---|---|
-| **Pulse** | Open source, self-hosted | AGPL-3.0, Go, one binary on Kafka, ClickHouse, Postgres and Redis | this repository |
+| **Pulse** | Open source, self-hosted | AGPL-3.0 (SDKs MIT), Go, one binary on Kafka, ClickHouse, Postgres and Redis | this repository |
 | Mautic | Open source, self-hosted | GPL v3, PHP [M1] | 7.2.2, 2026-10-26 [M2] |
 | Listmonk | Open source, self-hosted | AGPL-3.0, Go, Postgres [L1] | 6.2.0 stable; 7.0.0-beta.2 (2026-11-10) [L2] |
 | Dittofeed | Open source, self-hosted | MIT, TypeScript; some features in a separate enterprise edition [D1] | 0.23.0 stable (2025-12-01) [D2] |

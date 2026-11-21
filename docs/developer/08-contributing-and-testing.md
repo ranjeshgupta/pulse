@@ -4,7 +4,7 @@ How the repository is laid out, how to run each kind of test, how to work on the
 conventions the code follows, and how to keep these docs (and their screenshots) in step with it.
 
 Everything runs from the root of the repository. You need Docker (with Compose) and `make`; Go and
-Node.js on the host are optional (see below).
+Node.js on the host are optional (see below), except that `make docs-check` runs the host's Node.js.
 
 ---
 
@@ -21,7 +21,7 @@ Node.js on the host are optional (see below).
 | `sdks/flutter/pulse_sdk`, `sdks/android`, `sdks/ios` | Mobile SDKs, each with its own README and tests |
 | `test/e2e` | End-to-end tests against a running stack |
 | `deploy/` | `docker-compose.yml` for the dev stack, Keycloak realm, `dev-seed.md` (local test accounts) |
-| `docs/` | Design notes (`01-…06-…`), `tutorials/`, `developer/` (this guide), `screenshots/` (capture tooling) |
+| `docs/` | Architecture and product notes (`architecture.md`, `product.md`), `tutorials/`, `developer/` (this guide), `screenshots/` (capture tooling) |
 | `Makefile`, `Dockerfile` | Every build and test command; the production image (web build, Go build, Alpine) |
 | `.cache/` | Go build and module caches, the screenshot tooling's npm packages and saved sessions (git-ignored) |
 
@@ -55,14 +55,15 @@ The Docker image build does this itself, so `make up` always serves the app.
 | `make up` / `make down` | Build the image and start the dev stack / stop it (volumes kept) | Docker |
 | `make ps`, `make logs` | Service status; follow Pulse's log | the stack |
 | `make build`, `make vet`, `make tidy` | `go build ./...`, `go vet ./...`, `go mod tidy` | Docker or Go |
-| `make test` | Go unit tests, `go test -count=1 ./...`. No services: stores are faked | Docker or Go |
-| `make it` | Integration tests (`-tags integration ./internal/...`) in a container on the Compose network, against the stack's ClickHouse and Redis. The main one is `TestSQLAgreesWithEval`: the two segment compilers must agree | `make up` |
+| `make test` | Go unit tests, `go test -race=false -count=1 ./...`. No services: stores are faked | Docker or Go |
+| `make it` | Integration tests (`-tags integration ./internal/...`) in a container on the Compose network, against the stack's ClickHouse (`PULSE_CH_ADDR=clickhouse:9000`). Today there is one, `TestSQLAgreesWithEval`: the two segment compilers must agree | `make up` |
 | `make e2e` | End-to-end tests (`-tags e2e ./test/e2e/...`), see below | `make up` |
-| `make load ARGS="-rate 10000 -duration 45s"` | Load test from the Compose network. Flags: `-contacts`, `-rate`, `-batch`, `-workers`, `-duration`, `-journey`. Results: [docs/architecture.md#18-performance-and-the-load-test](../architecture.md#18-performance-and-the-load-test) | `make up` |
+| `make load ARGS="-rate 10000 -duration 45s"` | Load test from the Compose network. Flags: `-contacts`, `-rate`, `-batch`, `-workers`, `-duration`, `-journey`, `-admin-token`; `-scenario month` (with `-visitors`, `-pageviews`, `-events-per-page`, `-days`, `-measure-only`) loads a month of website traffic instead. Results: [docs/architecture.md#18-performance-and-the-load-test](../architecture.md#18-performance-and-the-load-test) | `make up` |
 | `make seed ARGS="-contacts 1000"` | A "Demo Retail" workspace with data. Flags: `-workspace`, `-email`, `-password`, `-contacts`, `-days`, `-if-exists` | `make up` |
 | `make docs-seed` | The "Acme Retail" workspace (`acme-retail`) the screenshots use, once | `make up` |
 | `make docs-shots [SHOT=dev-03,04]` | Retake documentation screenshots, see [below](#screenshots) | `make up` |
-| `make docs-check` | Check every link, image and heading anchor in the tutorials and developer docs, and list unreferenced screenshots | Node on the host |
+| `make docs-check` | Check every link, image and heading anchor in the README, the top-level docs, the tutorials and the developer docs (fails on a broken one), and list unreferenced screenshots | Node on the host |
+| `make ui-crawl` | Open every page of the web app (desktop and phone width, the docs workspace and a fresh one) in Playwright and fail on any crash, console error or 5xx. `ONLY=<regexp>` limits it to matching paths | `make up`, and `make docs-shots` run once (it reuses that Playwright package from `.cache/docs-shots`) |
 
 Test accounts for the local stack (demo and docs workspaces, Keycloak, the admin token
 `dev-admin-token`) are in [deploy/dev-seed.md](../../deploy/dev-seed.md). They are test values:
@@ -89,8 +90,8 @@ workspaces (with the admin token, or by signing up), sends events, waits for seg
 emails (read back from Mailpit), and checks latencies such as event → segment in under 2 s and
 event → email in under 5 s. Every test makes its own workspace, so tests don't interfere and can
 run against a database with other data in it (the workspaces stay behind in your local database).
-Each milestone of the marketing team's plan has its own file (`m1_test.go` … `m7_test.go`); `m7_test.go`
-checks that every number the app links to a contact list has exactly that many contacts.
+Most files cover one feature area (`segments_test.go`, `journeys_test.go`, `surveys_test.go`, …); `m1_test.go`
+… `m7_test.go` group the tests by the release that added them, and `m7_test.go` checks that every number the app links to a contact list has exactly that many contacts.
 
 It runs in **two passes**:
 
@@ -99,7 +100,8 @@ It runs in **two passes**:
 2. In a container named `pulse-e2e-hooks` on the **Compose network** (`pulse_default`), with
    `PULSE_API=http://pulse:7070` and `PULSE_HOOK_HOST=pulse-e2e-hooks`, for the tests in which
    **Pulse calls the test**: outbound webhooks, the custom gateway (also its login flow), REST
-   hooks, HubSpot, audience sync, the bounce mailbox, Gupshup and the web push install check.
+   hooks, HubSpot, audience sync, the bounce mailbox, Gupshup, gateway status requests, the web push
+   install check and the RSS-to-email archive (its feed is served from the test container).
 
 The rule for tests that receive calls from Pulse:
 
@@ -218,7 +220,7 @@ The docs are part of the change. When behaviour changes, update in the same comm
 | Webhook payloads, signing, provider webhooks, the gateway | [6. Webhooks and integrations](06-webhooks-and-integrations.md); the signature samples must keep matching `webhooks.Sign` |
 | Topics, roles, stores, extension points | [7. Architecture and extending](07-architecture-and-extending.md) and [docs/architecture.md](../architecture.md) |
 | Something users see | The [tutorial](../tutorials/README.md) that covers it, and its screenshots |
-| A feature or a known gap | "What's built" in the README and [docs/product.md](../product.md) |
+| A feature or a known gap | "What it does" and "Limitations" in the README and [docs/product.md](../product.md) |
 
 Code samples in the docs come from the code and the end-to-end tests; when you change one of those,
 search the docs for the old field or route name.

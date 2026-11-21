@@ -39,8 +39,8 @@ In this picture the ID ends in a short suffix (`acme-retail-…`): another works
 
    ![The empty Overview of a new workspace](img/01-overview-empty.png)
 
-> **Self-hosting?** Your operator may have turned sign-up off (`PULSE_ALLOW_SIGNUP=false`). Then
-> they create the workspace for you and send you the workspace ID and sign-in details.
+> **Self-hosting?** Sign-up is off unless your operator turned it on (`PULSE_ALLOW_SIGNUP=true`; the
+> local development stack does). When it's off, they create the workspace for you and send you the workspace ID and sign-in details.
 
 ## 2. Sign in later
 

@@ -3,7 +3,8 @@
 Pulse has three app SDKs. They share one design with the [web SDK](04-web-sdk.md): people are
 anonymous (`anon-` + 24 hex characters) until `identify`, `identify` merges the anonymous visitor
 into the user, events are grouped into sessions, queued on the device (they survive restarts) and
-sent in batches to the same browser API (`/v1/web/*`) with the workspace's public **site key**.
+sent in batches to the same browser API (`/v1/web/*`) with the workspace's public **site key**. All three are under the MIT License (each folder has its
+`LICENSE`), so embedding them never puts your app's code under the AGPL.
 
 | SDK | Where | Package | Full reference |
 |---|---|---|---|

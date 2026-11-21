@@ -79,22 +79,22 @@ Click **Fill in the form**. Pulse reads the method, address, headers and body of
 A green note says **Filled in** and lists anything left for you to do. Then go through the four steps
 and use each step's **Try it**.
 
-**Example: RML Connect RCS.** Its documentation logs in with
-`POST https://apis.rmlconnect.net/auth/v1/login/` and a username and password, answers
+**Example: an RCS gateway.** Say its documentation logs in with
+`POST https://api.sms-gateway.example/auth/v1/login/` and a username and password, answers
 `{"JWTAUTH": "eyJ…", "user_data": {…}}`, and then sends an approved RCS template with
-`POST https://apis.rmlconnect.net/rcs/v1/message` and the header `Authorization: Bearer <token>`.
+`POST https://api.sms-gateway.example/rcs/v1/message` and the header `Authorization: Bearer <token>`.
 Add an **RCS** provider, choose **Custom HTTP gateway** and **Connect to a gateway's existing API**,
 and paste the three examples:
 
-![The paste box filled with RML Connect's send-message curl command, its Postman login request and an example login answer with JWTAUTH, after Fill in the form: Filled in, with the note that this gateway sends approved templates, so the template's sample variables should become placeholders such as {{contact.first_name}}](img/16-paste.png)
+![The paste box filled with the gateway's send-message curl command, its Postman login request and an example login answer with JWTAUTH, after Fill in the form: Filled in, with the note that this gateway sends approved templates, so the template's sample variables should become placeholders such as {{contact.first_name}}](img/16-paste.png)
 
 Step 1 now reads *Pulse signs in at the login address with username and password, reads the token from
 JWTAUTH, and sends it as Authorization: Bearer <token>*, with the details folded under **Login
 details**:
 
-![Step 1, Sign in, after pasting: Login request, POST to the RML login URL, the one-sentence summary, Login details folded, and the Username and Password fields filled in and hidden](img/16-paste-signin.png)
+![Step 1, Sign in, after pasting: Login request, POST to the gateway's login URL, the one-sentence summary, Login details folded, and the Username and Password fields filled in and hidden](img/16-paste-signin.png)
 
-In step 2 the body keeps RML's template message, with `"phone_no": "{{message.to}}"`. As the note
+In step 2 the body keeps the gateway's template message, with `"phone_no": "{{message.to}}"`. As the note
 says, replace the template's sample values (`"name": "Asha"`) with placeholders such as
 `{{contact.first_name}}`, then check the rest of the steps as described below.
 

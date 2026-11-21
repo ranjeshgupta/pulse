@@ -447,3 +447,8 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/w -v /tmp/gradle-di
   details, notification helpers, the `PulseFirebase` reflection, `PulseInAppActivity` and
   `PulseSlotView` are untested at runtime.
 - Nothing was tested against a running Pulse server.
+
+## License
+
+The SDK is under the [MIT License](LICENSE), so you can embed it in apps under any license. The
+Pulse platform itself is AGPL-3.0; see the [main README](../../README.md#license).

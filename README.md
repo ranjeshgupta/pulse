@@ -1,15 +1,29 @@
 # Pulse
 
-Pulse is a real-time, multi-tenant marketing automation platform. It keeps your contacts and what
-they do on your website and apps, groups them into segments the moment they qualify, and reaches
-them with one-time, triggered and automation campaigns over email, SMS, WhatsApp, RCS, push and an
-in-app inbox, plus pop-ups and personalised content on your website. Many workspaces share one
-installation.
+Pulse is a self-hosted, multi-tenant marketing automation platform that works in real time. It
+keeps your contacts and what they do on your website and apps, puts them into segments as soon as
+they qualify, and reaches them with one-time, triggered and automation campaigns over email, SMS,
+WhatsApp, RCS, push and an in-app inbox, plus pop-ups and personalised content on your website. It
+is one Go binary with the React web app built in, running on Kafka, ClickHouse, Postgres and Redis;
+an event moves a contact into a segment and starts a campaign within seconds instead of waiting for
+a scheduled job, and it is designed for 10 to 100 million contacts. Many workspaces (brands,
+clients or teams) share one installation, and your customer data stays on your servers.
 
-It is one Go binary with the React web app built in, on Kafka, ClickHouse, Postgres and Redis. It
-covers the full marketing automation and customer engagement feature set at bulk-mailer speed: an event moves a contact into a segment
-and starts a campaign within seconds, not on a 15-minute cron, and it is built for 10 to 100 million
-contacts.
+Pulse is free software: the platform is AGPL-3.0 and the SDKs you embed in your apps are MIT (see
+[License](#license)).
+
+![The Overview page: live events this minute, contacts, segments and running campaigns, audience and revenue against the week before, one-time campaigns sending, coming up and recently sent, the most frequent events, and messages by channel](docs/tutorials/img/10-overview.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/tutorials/img/06-canvas.png" alt="The campaign builder: a welcome series that starts when a contact signs up, sends an email, waits for an open, then branches on a segment"></td>
+<td width="50%"><img src="docs/tutorials/img/03-builder.png" alt="The segment rule builder: city is Pune, at least two purchases in the last 30 days, and a nested ANY group, with the live count of matching contacts"></td>
+</tr>
+<tr>
+<td>The step builder for triggered and automation campaigns</td>
+<td>Segments with live counts</td>
+</tr>
+</table>
 
 ## What it does
 
@@ -71,16 +85,19 @@ contacts.
 
 ## Run it
 
-Only Docker is required: Go runs inside the `golang` image when it isn't installed. From the root of
-this repository:
+You need Docker with Compose v2, GNU make, `git`, about 8 GB of free memory and the ports below.
+Go isn't required: when it isn't installed, the make targets run it inside the `golang` image.
+From the root of a fresh clone of this repository:
 
 ```bash
-make up        # Kafka, ClickHouse, Postgres, Redis, Mailpit, Keycloak + Pulse (all roles, web app included)
+make up        # builds Pulse and starts Kafka, ClickHouse, Postgres, Redis, Mailpit, Keycloak and Pulse (all roles, web app included)
 make seed      # a demo workspace with data (sign-in details: deploy/dev-seed.md)
 ```
 
-Then open http://localhost:7080 and sign in with the demo workspace's details from
-[deploy/dev-seed.md](deploy/dev-seed.md), or create a workspace at http://localhost:7080/signup.
+The first `make up` builds the image and takes a few minutes. Then open http://localhost:7080 and
+sign in with the demo workspace's details from [deploy/dev-seed.md](deploy/dev-seed.md), or create
+a workspace at http://localhost:7080/signup (the local stack allows sign-up; a production
+installation doesn't unless you turn it on).
 
 | Service | URL |
 |---|---|
@@ -95,16 +112,18 @@ make e2e       # end-to-end tests against the running stack
 make it        # segment compiler agreement test against ClickHouse
 make load ARGS="-scenario month -contacts 5000000"   # load test (see Sizing below)
 make docs-shots  # retake the documentation screenshots from the running app
+make docs-check  # check every link, image and anchor in the docs (needs Node.js 22.12+)
 make down      # stop the stack
-cd web && npm install && npm run dev && npm test     # web app with hot reload on :5173, and its tests
+cd web && npm install && npm run dev     # web app with hot reload on :5173 (Node.js 22.12+); npm test runs its tests
 ```
 
-For production (separate roles, scaling, backups, TLS) see
+The local stack uses development passwords and keys from `deploy/docker-compose.yml`; don't expose
+it to a network. For production (separate roles, secrets, scaling, backups, TLS) see
 [Installation](docs/developer/01-installation.md).
 
 ## Documentation
 
-- **[Tutorials](docs/tutorials/README.md)**: 18 step-by-step guides for marketers, with screenshots,
+- **[Tutorials](docs/tutorials/README.md)**: 20 step-by-step guides for marketers, with screenshots,
   from [Getting started](docs/tutorials/01-getting-started.md) to
   [channels](docs/tutorials/04-channels.md), [campaigns](docs/tutorials/14-campaigns-hub-and-one-time-campaigns.md),
   [personalisation](docs/tutorials/13-personalising-messages.md) and
@@ -160,7 +179,7 @@ page view and one more), spread over the last 30 days.
   backlog builds during a burst like this and the segment lag above is that backlog.
 - **Real traffic is far gentler.** A month of 10M page views at 2 events each is 20M events, about
   8 events a second on average, or perhaps 80 a second at a busy peak. One small Pulse instance
-  keeps that at sub-second latency (p50 26–180 ms in the steady-rate runs of the load-test doc).
+  keeps that at sub-second latency (p50 26–180 ms in the steady-rate runs of the [load test](docs/architecture.md#18-performance-and-the-load-test)).
 - **Peak use during the half run:** Pulse 6 cores (3 on average) and 630 MB; Redis 1.6 cores;
   ClickHouse 1.7 GB; Postgres 1.4 GB; Kafka 1.2 GB.
 - **Redis memory follows recent events.** Each event leaves two duplicate-check keys for 24 hours
@@ -183,46 +202,52 @@ page view and one more), spread over the last 30 days.
 | Kafka (3 brokers in production) | 2 vCPU each | 4 GB each | 20 GB each | 7 days of events, replicated 3 times |
 
 For about 10× the traffic, run the roles as separate deployments (`pulse api`, `pulse profile`,
-`pulse segments`…), raise the Kafka partition count, and give Redis its own cores. The load-test
-doc lists what limits come next.
+`pulse segments`…), raise the Kafka partition count, and give Redis its own cores. The [load test](docs/architecture.md#18-performance-and-the-load-test)
+section lists what limits come next.
 
 ## Configuration
 
 Every setting is a `PULSE_*` environment variable; the [configuration guide](docs/developer/02-configuration.md)
-lists them all with their defaults. In production set at least:
+lists them all with their defaults. Never run the development `deploy/docker-compose.yml` on a server
+(it publishes ports and uses default passwords and keys). In production set at least:
 
 | Variable | What for |
 |---|---|
 | `PULSE_SECRET_KEY` | 64 hex characters that encrypt stored secrets, sign-in state and signed links |
 | `PULSE_PUBLIC_URL` | The https address people reach Pulse at (sign-in, tracking and unsubscribe links) |
-| `PULSE_PAGES_URL` | A separate origin for landing pages, forms and downloads |
+| `PULSE_PAGES_URL` | A separate origin for landing pages, forms and downloads, ideally on its own registrable domain |
 | `PULSE_PG_DSN`, `PULSE_CH_ADDR`, `PULSE_REDIS_ADDR`, `PULSE_KAFKA_BROKERS` | Where the databases and Kafka are |
 | `PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`, … | Messages per second per workspace and channel (defaults 200 email, 100 SMS) |
-| `PULSE_ALLOW_SIGNUP` | `false` to stop anyone creating a workspace (create them with `PULSE_ADMIN_TOKEN` instead) |
+| `PULSE_ALLOW_SIGNUP` | Off by default: workspaces are created with `PULSE_ADMIN_TOKEN`. Turn it on only behind a CAPTCHA or on a private network |
 
 ## API in one minute
 
+Against the local stack (the examples use `jq` to read IDs from the answers):
+
 ```bash
-# A workspace (the admin token is in deploy/docker-compose.yml) and its server API key
-curl -s -X POST localhost:7080/v1/tenants -H 'Authorization: Bearer dev-admin-token' -d '{"name":"Acme"}'
-KEY=pk_...
+# A workspace and its server API key (the dev admin token is in deploy/docker-compose.yml)
+KEY=$(curl -s -X POST localhost:7080/v1/tenants -H 'Authorization: Bearer dev-admin-token' \
+  -d '{"name":"Acme"}' | jq -r .api_key)
+H="Authorization: Bearer $KEY"
 
 # A template, a segment and an automation campaign that emails people who join it
-curl -s -X POST localhost:7080/v1/templates -H "Authorization: Bearer $KEY" \
-  -d '{"name":"welcome","subject":"Welcome {{contact.first_name | default:\"friend\"}}","html":"<p>Hi {{contact.first_name}}</p>"}'
-curl -s -X POST localhost:7080/v1/segments -H "Authorization: Bearer $KEY" \
-  -d '{"name":"Delhi buyers","rule":{"all":[{"attr":"city","op":"eq","value":"Delhi"},{"event":"purchase","op":"gte","count":1,"days":7}]}}'
-curl -s -X POST localhost:7080/v1/journeys -H "Authorization: Bearer $KEY" \
-  -d '{"name":"welcome","graph":{"trigger":{"type":"segment_entered","segment_id":1},"entry":"send",
-       "nodes":{"send":{"type":"send_email","template_id":1,"next":"done"},"done":{"type":"exit"}}}}'
-curl -s -X POST localhost:7080/v1/journeys/1/activate -H "Authorization: Bearer $KEY"
+TPL=$(curl -s -X POST localhost:7080/v1/templates -H "$H" -d '{"name":"welcome","channel":"email",
+  "subject":"Welcome {{contact.first_name | default:\"friend\"}}","html":"<p>Hi {{contact.first_name}}</p>"}' | jq .id)
+SEG=$(curl -s -X POST localhost:7080/v1/segments -H "$H" -d '{"name":"Delhi buyers","rule":{"all":[
+  {"attr":"city","op":"eq","value":"Delhi"},{"event":"purchase","op":"gte","count":1,"days":7}]}}' | jq .id)
+JRN=$(curl -s -X POST localhost:7080/v1/journeys -H "$H" -d '{"name":"welcome","graph":{
+  "trigger":{"type":"segment_entered","segment_id":'$SEG'},"entry":"send",
+  "nodes":{"send":{"type":"send_email","template_id":'$TPL',"next":"done"},"done":{"type":"exit"}}}}' | jq .id)
+curl -s -X POST localhost:7080/v1/journeys/$JRN/activate -H "$H"
 
-# Events: the email arrives in Mailpit within seconds
-curl -s -X POST localhost:7080/v1/events -H "Authorization: Bearer $KEY" -d '{"events":[
+# Events: the email arrives in Mailpit (http://localhost:18025) within seconds
+curl -s -X POST localhost:7080/v1/events -H "$H" -d '{"events":[
   {"external_id":"u1","name":"identify","email":"u1@example.com","attrs":{"city":"Delhi","first_name":"Asha"}},
   {"external_id":"u1","name":"purchase","props":{"amount":499}}]}'
-curl -s localhost:7080/v1/contacts/u1 -H "Authorization: Bearer $KEY"   # the profile and its segments
+curl -s localhost:7080/v1/contacts/u1 -H "$H"   # the profile and its segments
 ```
+
+The full API, with every route, is in the [API guide](docs/developer/03-api.md).
 
 Some contact fields are kept by Pulse itself (tags, points, stage, consent, company, owner…) and
 change only through their own APIs and events: see
@@ -249,12 +274,12 @@ web/                the web app (React + TypeScript, Vite), embedded in the bina
 sdks/               Android (Kotlin), iOS (Swift) and Flutter SDKs
 test/e2e/           end-to-end tests against the running stack
 deploy/             the development compose stack, Keycloak realm and test accounts (dev-seed.md)
-docs/               tutorials, developer guides, design notes and the screenshot scripts
+docs/               tutorials, developer guides, architecture, product overview, comparison and the screenshot scripts
 ```
 
 ## Limitations
 
-The full, current list is under [Known gaps](docs/product.md#honest-limits-at-a-glance). The ones most
+The full, current list is under [Honest limits at a glance](docs/product.md#honest-limits-at-a-glance). The ones most
 likely to matter:
 
 - The provider and integration adapters are tested against mock servers; check each with a real
@@ -262,9 +287,20 @@ likely to matter:
 - Plain SMTP relays, Gmail, FCM and web push don't report deliveries, so those show "—".
 - Contacts don't leave an automation campaign when they leave its segment; add a condition or a
   goal instead.
-- The Android and iOS SDKs have not been run on devices or compiled for iOS (no Xcode was
-  available).
+- The Android and iOS SDKs have not been run on devices, and the iOS SDK has not yet been built
+  with Xcode (its core logic is tested on Linux).
 - Postgres row-level security isn't enabled; workspaces are kept apart in every query instead.
+
+## Contributing
+
+Bug reports, fixes, docs and new provider adapters are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+for how to set up, test and send a change; the details are in
+[contributing and testing](docs/developer/08-contributing-and-testing.md).
+
+## Security
+
+Please don't report security problems in public issues. Use GitHub's private vulnerability
+reporting as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

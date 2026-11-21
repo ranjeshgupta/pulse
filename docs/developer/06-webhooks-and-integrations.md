@@ -591,24 +591,24 @@ kept as pasted, and the notes under the button say what is left to check. A logi
 go into the **Username** and **Password** secret fields), the token path found in the example
 answer, and the token sent as `Authorization: Bearer {{token}}`. Without a login, an
 `Authorization: Bearer` header becomes a `bearer` sign-in, basic auth a `basic` one and an API-key
-header an `api_key` one, each with its value as the secret. For example, RML Connect's RCS API:
+header an `api_key` one, each with its value as the secret. For example, an RCS gateway whose API is documented like this:
 
 ```bash
 # Login request
-postman request POST 'https://apis.rmlconnect.net/auth/v1/login/' \
+postman request POST 'https://api.sms-gateway.example/auth/v1/login/' \
   --header 'Content-Type: application/json' --body '{"username": "…", "password": "…"}'
 # Login answer
 {"JWTAUTH": "eyJhbGciOi…", "user_data": {…}}
 # Send-message request
-curl --location 'https://apis.rmlconnect.net/rcs/v1/message' \
+curl --location 'https://api.sms-gateway.example/rcs/v1/message' \
   --header 'Authorization: Bearer …' --header 'Content-Type: application/json' \
   --data '{"type": "template", "phone_no": "…", "bot_name": "acme_promo",
-           "template": {"name": "order_update", "variables": {"name": "Dewy"}}}'
+           "template": {"name": "order_update", "variables": {"name": "Asha"}}}'
 ```
 
-gives a login sign-in to `https://apis.rmlconnect.net/auth/v1/login/` reading the token from
-`JWTAUTH`, and a POST to `https://apis.rmlconnect.net/rcs/v1/message` with `"phone_no":
-"{{message.to}}"` and the template object as pasted (replace `Dewy` with a placeholder such as
+gives a login sign-in to `https://api.sms-gateway.example/auth/v1/login/` reading the token from
+`JWTAUTH`, and a POST to `https://api.sms-gateway.example/rcs/v1/message` with `"phone_no":
+"{{message.to}}"` and the template object as pasted (replace `Asha` with a placeholder such as
 `{{contact.first_name}}`). The form then sums up the login sign-in in one sentence ("Pulse signs in at
 the login address with username and password, reads the token from JWTAUTH, and sends it as
 Authorization: Bearer <token>…") with its details folded.
