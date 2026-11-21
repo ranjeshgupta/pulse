@@ -727,7 +727,14 @@ export interface AutomationSettings {
   bounces?: Record<string, ChannelBounces>;
   /** The unsubscribe link's mode, whether email unsubscribes stop email, and the topics. */
   unsubscribe?: UnsubscribeSettings;
+  /** The keys that identify a person, in priority order (Settings → Identity). */
+  identity?: { keys: IdentityKey[] };
 }
+export type IdentityMode = "merge" | "suggest";
+/** An identity key: external_id, email, phone or a contact field. */
+export interface IdentityKey { field: string; mode: IdentityMode }
+/** How far an identity key's values are filled in for existing contacts. */
+export interface IdentityBackfill { field: string; next_id: number; done_at?: string; contacts: number }
 export type UnsubscribeLinkMode = "confirm" | "one_click";
 export type EmailUnsubscribePolicy = "enforce" | "segment";
 export interface UnsubscribeTopic { key: string; name: string; description?: string }
@@ -741,6 +748,7 @@ export interface AutomationResponse {
   defaults: AutomationSettings;
   limits: Record<string, AutomationLimit>;
   server: { sweep_minutes: number; web_view_names: string[]; limit_channels: string[]; max_overrides: number; retention_hour_utc: number; last_retention_run: string | null };
+  identity_backfills?: IdentityBackfill[];
 }
 /** One delete a retention change would run now (POST /v1/settings/automation/preview). */
 export interface RetentionPreviewItem {

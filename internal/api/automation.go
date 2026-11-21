@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"pulse/internal/identity"
+	"pulse/internal/store/pg"
+	"slices"
 	"strconv"
 	"time"
 
@@ -34,6 +37,14 @@ type AutomationStore interface {
 	CountLog(ctx context.Context, tenant int64, kind string, days int) (int64, error)
 	LastRetentionRun(ctx context.Context, tenant int64) (time.Time, error)
 }
+
+// IdentityKeyStore keeps the stored values of identity keys in step with the settings (pg.Store).
+type IdentityKeyStore interface {
+	SyncIdentityKeys(ctx context.Context, tenant int64, keys []identity.Key) error
+	IdentityBackfills(ctx context.Context, tenant int64) ([]pg.IdentityBackfill, error)
+}
+
+var _ IdentityKeyStore = (*pg.Store)(nil)
 
 // RetentionAnalytics counts what a ClickHouse retention delete would remove (ch.Store).
 type RetentionAnalytics interface {
@@ -96,10 +107,22 @@ func (s *Server) getAutomation(w http.ResponseWriter, r *http.Request, p model.P
 	if t, err := as.LastRetentionRun(r.Context(), p.TenantID); err == nil && !t.IsZero() {
 		lastRun = &t
 	}
+	var backfills []pg.IdentityBackfill
+	if ks, ok := s.Store.(IdentityKeyStore); ok {
+		if backfills, err = ks.IdentityBackfills(r.Context(), p.TenantID); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	if backfills == nil {
+		backfills = []pg.IdentityBackfill{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings": a,
-		"defaults": automation.Defaults(),
-		"limits":   automation.Limits,
+		// How far each identity key's stored values are filled for existing contacts.
+		"identity_backfills": backfills,
+		"defaults":           automation.Defaults(),
+		"limits":             automation.Limits,
 		"server": map[string]any{
 			"sweep_minutes":      s.sweepDefault(), // what sweep_minutes 0 means
 			"web_view_names":     automation.WebViewNames,
@@ -146,6 +169,13 @@ func (s *Server) putAutomation(w http.ResponseWriter, r *http.Request, p model.P
 	if err := as.PutAutomationSettings(r.Context(), p.TenantID, next); err != nil {
 		s.fail(w, err)
 		return
+	}
+	// New identity keys get their values filled for existing contacts; removed ones are dropped.
+	if ks, ok := s.Store.(IdentityKeyStore); ok && !slices.Equal(fieldsOf(cur.Identity.Keys), fieldsOf(next.Identity.Keys)) {
+		if err := ks.SyncIdentityKeys(r.Context(), p.TenantID, next.Identity.Keys); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	if s.RDB != nil {
 		ctx := context.WithoutCancel(r.Context())
@@ -335,4 +365,14 @@ func (s *Server) topicProblem(ctx context.Context, tenant int64, topic string) e
 // preset (its kind's DefaultLimits, e.g. Gmail) > the workspace default for the channel.
 func (s *Server) newProviderLimits(ctx context.Context, tenant int64, ch string, explicit, preset *model.ProviderLimits) model.ProviderLimits {
 	return automation.ProviderLimits(explicit, preset, s.defaultLimitsFor(ctx, tenant, ch))
+}
+
+// fieldsOf lists identity keys' fields, sorted.
+func fieldsOf(keys []identity.Key) []string {
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		out[i] = k.Field
+	}
+	slices.Sort(out)
+	return out
 }

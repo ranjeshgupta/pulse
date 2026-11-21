@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pulse/internal/identity"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +63,7 @@ type AccountStore interface {
 	MemberIDs(ctx context.Context, tenant int64, key, value string, after uint32, limit int) ([]string, uint32, error)
 
 	DuplicateContacts(ctx context.Context, tenant int64, by string, limit, perGroup int) ([]pg.DuplicateGroup, error)
+	DuplicatesByKey(ctx context.Context, tenant int64, field string, limit, perGroup int) ([]pg.DuplicateGroup, error)
 	ListSegmentsOfKind(ctx context.Context, tenant int64, kind string) ([]model.Segment, error)
 }
 
@@ -645,15 +647,22 @@ func (s *Server) duplicateContacts(w http.ResponseWriter, r *http.Request, tenan
 	if by == "" {
 		by = "email"
 	}
-	if by != "email" && by != "phone" {
-		writeErr(w, http.StatusBadRequest, "by: email or phone")
+	if by != "email" && by != "phone" && !s.isIdentityKey(r.Context(), tenant, by) {
+		writeErr(w, http.StatusBadRequest, "by: email, phone or another of the workspace's identity keys")
 		return
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	if limit <= 0 || limit > maxDupGroups {
 		limit = 50
 	}
-	groups, err := s.accounts().DuplicateContacts(r.Context(), tenant, by, limit, dupPerGroup)
+	var groups []pg.DuplicateGroup
+	var err error
+	if by == "email" || by == "phone" {
+		groups, err = s.accounts().DuplicateContacts(r.Context(), tenant, by, limit, dupPerGroup)
+	} else {
+		// Other identity keys (Settings → Contacts → Identity) are grouped from their stored values.
+		groups, err = s.accounts().DuplicatesByKey(r.Context(), tenant, by, limit, dupPerGroup)
+	}
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -751,4 +760,23 @@ func (s *Server) mergeContacts(w http.ResponseWriter, r *http.Request, tenant in
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"winner": winner.ExternalID, "loser": loser.ExternalID, "lists": len(evs) - 1})
+}
+
+// isIdentityKey reports whether field is one of the workspace's identity keys (other than the
+// external id), whose values contact_keys holds.
+func (s *Server) isIdentityKey(ctx context.Context, tenant int64, field string) bool {
+	as, ok := s.Store.(AutomationStore)
+	if !ok || field == identity.ExternalID {
+		return false
+	}
+	set, err := as.AutomationSettings(ctx, tenant)
+	if err != nil {
+		return false
+	}
+	for _, k := range set.Identity.Keys {
+		if k.Field == field {
+			return true
+		}
+	}
+	return false
 }

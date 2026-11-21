@@ -122,6 +122,22 @@ consent, tags and points directly (imports).
   merged contact (and of contacts merged into it before) follow `merged_into` to the winner.
   If an identify arrives before the visitor's own first events (they can sit on another partition), the `anon-`
   visitor is created right then, already merged, so those events follow it to the known contact too.
+- **Identity keys (batch O1).** Settings → Identity lists the fields that identify a person in priority order (external
+  id, email, phone, any contact field), each "merge" or "suggest". `contact_keys` (pg migration 031) holds every
+  contact's normalised value per key (emails and fields trimmed, lower case; phones as digits with the `+` kept;
+  `identity.Value` and `pg.keyExpr` must agree), written by the profile role only for contacts whose values changed.
+  Before the fold, `profile.resolveIdentity` looks up the merging values an event brings (all of them for a contact
+  made for this event, otherwise only values it doesn't hold yet: one query per workspace per batch) and ranks the
+  matches by key order, the event's own contact at the external id's place unless it is new. If the own contact wins,
+  a `merge_requested {loser, source: identity, key}` per other match goes into the batch before the event. If another
+  contact wins, the event and a `merge_requested` for the winner go back to `events.raw` under the winner's key,
+  marked `rerouted` (never sent on twice), so a profile is only ever written by its own partition; the contact's other
+  events in the batch follow. A key added later is filled in for existing contacts by `identity_backfills` (the
+  maintenance role, 5,000 contacts a statement, starting 40 s after the change so the pipeline's 30-second settings
+  cache already writes the key); contacts sharing a value then show under Duplicates instead of merging in bulk. An
+  external id that is an email address or E.164 phone also fills an empty `email` / `phone`. Only server events take
+  part: browser / app SDK events (`from_browser`, set by the API) and anonymous visitors (`anon-…`) never trigger a key
+  merge and are never matched, since anyone can type any email into a page; the browser API also clears `rerouted`.
 
 ## Segment rules
 

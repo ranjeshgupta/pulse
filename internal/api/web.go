@@ -142,6 +142,7 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		e.Unverified = !verifiedIdentity(t, e.ExternalID, hash)
+		e.FromBrowser, e.Rerouted = true, false
 		for k := range e.Attrs {
 			if consent.IsReserved(k) {
 				delete(e.Attrs, k)

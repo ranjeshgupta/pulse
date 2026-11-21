@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"pulse/internal/identity"
 	"slices"
 	"sort"
 	"strings"
@@ -34,6 +35,13 @@ type Settings struct {
 	Bounces map[string]ChannelBounces `json:"bounces"`
 	// Unsubscribe: the link's mode, the email policy and the topics (unsubscribe.go).
 	Unsubscribe Unsubscribe `json:"unsubscribe"`
+	// Identity: the keys that identify a person, in priority order (package identity).
+	Identity Identity `json:"identity"`
+}
+
+// Identity is Settings → Contacts → Identity.
+type Identity struct {
+	Keys []identity.Key `json:"keys"`
 }
 
 // Retention says how long each kind of log is kept, in days (0 keeps forever).
@@ -114,6 +122,7 @@ func Defaults() Settings {
 		Messages:    Messages{InboxExpiryDays: DefaultInboxExpiry},
 		Bounces:     DefaultBounces(),
 		Unsubscribe: DefaultUnsubscribe(),
+		Identity:    Identity{Keys: identity.Defaults()},
 	}
 }
 
@@ -130,7 +139,7 @@ func Load(raw []byte) (Settings, error) {
 }
 
 // Sections are the top-level parts of Settings; a PUT replaces the sections it sends.
-var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces", "unsubscribe"}
+var Sections = []string{"retention", "retries", "schedules", "messages", "default_limits", "bounces", "unsubscribe", "identity"}
 
 // Apply replaces the sections present in body (a JSON object) on top of cur; within a section,
 // fields left out take their defaults. Unknown sections and fields are refused.
@@ -165,6 +174,9 @@ func Apply(cur Settings, body []byte) (Settings, error) {
 		case "unsubscribe":
 			out.Unsubscribe = def.Unsubscribe
 			dst = &out.Unsubscribe
+		case "identity":
+			out.Identity = def.Identity
+			dst = &out.Identity
 		case "bounces":
 			// The channels sent replace theirs; the others keep theirs.
 			var b map[string]ChannelBounces
@@ -315,6 +327,12 @@ func (s *Settings) Validate() error {
 	}
 	if len(s.DefaultLimits) == 0 {
 		s.DefaultLimits = nil
+	}
+	if len(s.Identity.Keys) == 0 {
+		s.Identity.Keys = identity.Defaults()
+	}
+	if err := identity.Validate(s.Identity.Keys); err != nil {
+		return err
 	}
 	if err := validateUnsubscribe(&s.Unsubscribe); err != nil {
 		return err

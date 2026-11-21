@@ -38,6 +38,7 @@ import { WebhookEdit, WebhookList } from "./pages/Webhooks";
 import { IntegrationEdit, IntegrationList } from "./pages/Integrations";
 import { ImportPage } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
+import { IdentitySettings } from "./pages/IdentitySettings";
 import { AutomationSettingsPage } from "./pages/AutomationSettings";
 import { WebPushSettingsPage } from "./pages/WebPush";
 import { TemplateEdit, TemplateList } from "./pages/Templates";
@@ -134,6 +135,7 @@ const router = createBrowserRouter([
           { path: "scoring", element: <Scoring /> },
           { path: "stages", element: <Stages /> },
           { path: "data", element: <DataPrivacy /> },
+          { path: "identity", element: <IdentitySettings /> },
           { path: "automation", element: <AutomationSettingsPage /> },
           { path: "channels", element: <Channels /> },
           { path: "test-inbox", element: <TestInbox /> },

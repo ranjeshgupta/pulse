@@ -34,6 +34,7 @@ approximate is listed once under [Known gaps](#known-gaps).
 | Identity merge (anonymous → known) | ✅ | ✅ | ✅ identify with `anonymous_id`: profile, counters and event history move; later visitor events follow | |
 | Identity verification for browser SDKs (signed user ID) | ⬜ | ✅ | ✅ HMAC user hash; can be required per workspace; secret rotation | |
 | Duplicate merge | ✅ | ✅ | ✅ `POST /v1/contacts/merge` on the identity-merge path (attributes, tags, points, history, counters, static segments move to the winner); Duplicates view by email or phone; "Merge into…" in the contact drawer | P2 |
+| Identity keys: which fields identify a person, in priority order, automatic merge | 🟡 | ✅ | ✅ O1: Settings → Identity: external id, email, phone and any contact field (user name, customer number…), ordered; per key "merge automatically" or "only list under Duplicates"; matches on new events in real time (`contact_keys`), existing contacts filled in by a background backfill; Duplicates gets a tab per key; an external id that is an email or phone also fills `email` / `phone` | Merging can't be undone; shared family emails/phones should use "only list"; only server events (API key, imports, integrations) merge — browser / app SDK events and anonymous visitors never do; contacts sharing a value before a key is added aren't merged in bulk; two contacts created in the same batch with the same new value aren't merged (they show under Duplicates) |
 
 ## Segments
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"pulse/internal/identity"
 	"slices"
 	"sort"
 	"strconv"
@@ -145,6 +146,9 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 	}
 	if event.CarriesDevice(e.Name) {
 		removes = append(removes, deviceUpdates(e.Props, updates)...)
+	}
+	for k, v := range identity.Fill(cur, e) {
+		updates[k] = v
 	}
 	if e.Email != "" {
 		updates["email"] = e.Email
@@ -717,6 +721,13 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	if err := s.redirectMerged(ctx, evs, contacts); err != nil {
 		return err
 	}
+	evs, err := s.resolveIdentity(ctx, evs, contacts, created, s.now())
+	if err != nil {
+		return err
+	}
+	if len(evs) == 0 {
+		return nil // every event went to another contact
+	}
 	if err := s.lookupAnonymous(ctx, evs, contacts); err != nil {
 		return err
 	}
@@ -851,6 +862,9 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	}
 	if err := s.store.SaveContactsAttrs(ctx, updates); err != nil {
 		return fmt.Errorf("save attrs: %w", err)
+	}
+	if err := s.saveKeys(ctx, dirty, contacts, profile); err != nil {
+		return err
 	}
 
 	// 5. Count each event exactly once: claim the guard, then increment for the claims we won.

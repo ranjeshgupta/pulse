@@ -115,6 +115,7 @@ func (s *Store) DeleteContacts(ctx context.Context, tenant int64, ids []uint32) 
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		for _, q := range []string{
 			`DELETE FROM contact_devices WHERE tenant_id = $1 AND contact_id = ANY($2)`,
+			`DELETE FROM contact_keys WHERE tenant_id = $1 AND contact_id = ANY($2)`,
 			`DELETE FROM inbox_messages WHERE tenant_id = $1 AND contact_id = ANY($2)`,
 			`DELETE FROM journey_enrollments WHERE tenant_id = $1 AND contact_id = ANY($2)`,
 			// files they uploaded through forms

@@ -192,20 +192,7 @@ const bounceRulesTTL = 30 * time.Second
 // bounceRules reads the rules through a 30-second cache per workspace; without an automation
 // store (tests), or when the read fails, the defaults (what Pulse always did) apply.
 func (s *Service) bounceRules(ctx context.Context) BounceRules {
-	as, ok := s.store.(AutomationStore)
 	return func(tenant int64, ch string) automation.ChannelBounces {
-		if !ok {
-			return automation.Defaults().BouncesFor(ch)
-		}
-		now := s.now()
-		if c, hit := s.bounces.Load(tenant); hit && now.Before(c.(cachedBounces).exp) {
-			return c.(cachedBounces).s.BouncesFor(ch)
-		}
-		set, err := as.AutomationSettings(ctx, tenant)
-		if err != nil {
-			set = automation.Defaults()
-		}
-		s.bounces.Store(tenant, cachedBounces{s: set, exp: now.Add(bounceRulesTTL)})
-		return set.BouncesFor(ch)
+		return s.settings(ctx, tenant).BouncesFor(ch)
 	}
 }

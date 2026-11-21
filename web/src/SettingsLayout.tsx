@@ -23,6 +23,7 @@ export const SETTINGS_NAV: { title: string; items: SettingsItem[] }[] = [
     title: "Contact data",
     items: [
       { to: "/settings/attributes", label: "Contact fields", hint: "Names and types of profile attributes", need: ["segments", "view"] },
+      { to: "/settings/identity", label: "Identity", hint: "Which details identify a person; when contacts merge", need: ["settings", "view"] },
       { to: "/settings/scoring", label: "Scoring", hint: "Points for events", need: ["segments", "view"] },
       { to: "/settings/stages", label: "Stages", hint: "Lifecycle stages", need: ["segments", "view"] },
       { to: "/settings/data", label: "Data & privacy", hint: "Anonymous tracking and visitor location", need: ["settings", "view"] },

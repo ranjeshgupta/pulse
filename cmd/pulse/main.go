@@ -570,7 +570,27 @@ func runMaintenance(ctx context.Context, pgs *pg.Store, d *deps) error {
 			}
 		}
 	}()
+	go runIdentityBackfills(ctx, pgs, d)
 	return c.Loop(ctx, d.cfg.MaintenanceInterval)
+}
+
+// runIdentityBackfills fills the stored values of identity keys added to a workspace's settings
+// (Settings → Contacts → Identity) for its existing contacts, a chunk at a time.
+func runIdentityBackfills(ctx context.Context, pgs *pg.Store, d *deps) {
+	for {
+		wait := 10 * time.Second
+		more, err := pgs.RunIdentityBackfills(ctx, 40)
+		if err != nil && ctx.Err() == nil {
+			d.log.Error("identity key backfill", "err", err)
+		} else if more {
+			wait = time.Second
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 }
 
 // runImports streams queued background imports through the pipeline.

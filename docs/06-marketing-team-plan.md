@@ -732,6 +732,18 @@ number opens those contacts (the M7 rule).
 
 Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then the docs pass for batch O.
 
+### O1 as built
+
+- `internal/identity` (keys, normalising, validation, the external-id fill), the `identity` section of the automation
+  settings (`PUT /v1/settings/automation {"identity": {"keys": [...]}}`; default: the external id only, so nothing
+  changes until a workspace adds a key), pg migration 031 (`contact_keys`, `identity_backfills`; the planned number 029
+  was taken by the bounce work), `profile/identity.go` (matching, merge or reroute, key writes), the backfill loop in
+  the maintenance role, `GET /v1/settings/automation` → `identity_backfills`, `GET /v1/contacts/duplicates?by=<key>`.
+- Web: Settings → Contact data → **Identity** (`pages/IdentitySettings.tsx`, `identityKeys.ts`): add a field, order with
+  ↑ ↓, merge / only list, what the order does in words, backfill progress; Duplicates has a tab per key.
+- Tests: `identity_test.go` (package and profile), `identityKeys.test.ts`, e2e `test/e2e/identity_test.go`.
+- How the ranking, rerouting and backfill work: [architecture](02-architecture.md#profiles-and-reserved-attributes).
+
 ## Docs: final pass done
 
 The documentation for M4–M7 (deferred from M4 on, by the owner's decision of 2026-11-11) was updated in one

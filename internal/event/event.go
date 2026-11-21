@@ -213,6 +213,14 @@ type Event struct {
 	// accepts, never taken from the body. Journeys don't copy such an event's properties into
 	// messages ({{event.x}}).
 	Unverified bool `json:"unverified,omitempty"`
+	// Rerouted marks an event the profile role sent on to the contact that won an identity match
+	// (package identity): it is matched again but never sent on a second time. The browser API
+	// clears it; a server (API key) could set it, which only stops its own event being sent on.
+	Rerouted bool `json:"rerouted,omitempty"`
+	// FromBrowser marks an event sent through the browser / app SDK endpoint (set there, never taken
+	// from the body). Such events never trigger identity-key merges: anyone can type any email into
+	// a page, and a browser may never merge a known contact.
+	FromBrowser bool `json:"from_browser,omitempty"`
 
 	// Set by the profile role before the event reaches events.enriched.
 	ContactID    uint32         `json:"contact_id,omitempty"`

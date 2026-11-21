@@ -1,18 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type DuplicateGroup } from "../api";
+import { api, type AutomationResponse, type DuplicateGroup } from "../api";
+import { keyLabel } from "../identityKeys";
+import { useAttributes } from "./segmentData";
 import { mergePlan } from "../accounts";
 import { Empty, ErrorNote, PageHead, timeAgo, useToast } from "../ui";
 import "./duplicates.css";
 
-type By = "email" | "phone";
+type By = string;
 
 // Duplicates: contacts that share an email address or phone number, with a merge that keeps the
 // contact you pick and folds the others into it (their attributes fill gaps, history, tags, points
 // and static segments carry over).
 export function Duplicates() {
   const [by, setBy] = useState<By>("email");
+  // Besides email and phone, every other identity key (Settings → Identity) gets a tab.
+  const auto = useQuery({ queryKey: ["automation"], queryFn: () => api.get<AutomationResponse>("/v1/settings/automation"), retry: false });
+  const labels = Object.fromEntries((useAttributes().data?.attributes ?? []).map((a) => [a.key, a.label || a.key]));
+  const tabs: By[] = ["email", "phone", ...(auto.data?.settings.identity?.keys ?? [])
+    .map((k) => k.field).filter((f) => f !== "external_id" && f !== "email" && f !== "phone")];
+  const tabLabel = (b: By) => b === "email" ? "Same email address" : b === "phone" ? "Same phone number" : `Same ${keyLabel(b, labels).toLowerCase()}`;
+  const what = (b: By) => b === "email" ? "an email address" : b === "phone" ? "a phone number" : `a ${keyLabel(b, labels).toLowerCase()}`;
   const q = useQuery({
     queryKey: ["duplicates", by],
     queryFn: () => api.get<{ groups: DuplicateGroup[]; more: boolean }>(`/v1/contacts/duplicates?by=${by}&limit=50`),
@@ -23,18 +32,18 @@ export function Duplicates() {
       <PageHead
         back={<Link className="back" to="/contacts">Contacts</Link>}
         title="Duplicates"
-        intro="Contacts that share an email address or phone number. Pick the one to keep and merge the others into it: the kept contact's values win, the others fill in what it lacks, and their history, tags, points and static segments move to it. Merged contacts leave every segment; their later events go to the kept contact."
+        intro="Contacts that share an email address, phone number or another identity key (Settings → Identity). Pick the one to keep and merge the others into it: the kept contact's values win, the others fill in what it lacks, and their history, tags, points and static segments move to it. Merged contacts leave every segment; their later events go to the kept contact."
       />
       <div className="tabs" role="tablist" style={{ marginBottom: 14 }}>
-        {(["email", "phone"] as By[]).map((b) => (
+        {tabs.map((b) => (
           <button key={b} role="tab" aria-selected={by === b} className={by === b ? "active" : ""} onClick={() => setBy(b)}>
-            Same {b === "email" ? "email address" : "phone number"}
+            {tabLabel(b)}
           </button>
         ))}
       </div>
       <ErrorNote error={q.error} />
       {groups.length === 0 && !q.isLoading ? (
-        <div className="panel"><Empty title="No duplicates">No two contacts share {by === "email" ? "an email address" : "a phone number"}.</Empty></div>
+        <div className="panel"><Empty title="No duplicates">No two contacts share {what(by)}.</Empty></div>
       ) : (
         groups.map((g) => <GroupCard key={g.value} group={g} onMerged={() => q.refetch()} />)
       )}
