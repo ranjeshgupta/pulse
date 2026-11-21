@@ -1,5 +1,6 @@
 // The contact page (/contacts/:id): everything about one person on one page. The drawer on the
 // contact list is the quick look; this is the full profile, message history and event timeline.
+import { ConsentPrivacyPanel } from "./ConsentPrivacy";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -21,9 +22,10 @@ import "./contacts.css";
 import "./contact-page.css";
 
 const PAGE = 50;
-type Tab = "overview" | "messages" | "events";
+type Tab = "overview" | "messages" | "events" | "consent";
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" }, { key: "messages", label: "Messages" }, { key: "events", label: "Events" },
+  { key: "consent", label: "Consent & privacy" },
 ];
 
 const notFound = (e: unknown) => e instanceof ApiError && e.status === 404;
@@ -128,6 +130,7 @@ export function ContactPage() {
           )}
           {tab === "messages" && <MessagesPanel externalId={externalId} />}
           {tab === "events" && <EventsPanel externalId={externalId} />}
+          {tab === "consent" && <ConsentPrivacyPanel externalId={externalId} canEdit={canEdit} onDelete={() => setDeleting(true)} />}
         </div>
         {contact && (
           <aside className="cp-side" aria-label="Profile">

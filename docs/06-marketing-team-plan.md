@@ -772,6 +772,8 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   e2e `TestApprovals`, checked in a headless browser.
 - **9 Calendar**: `GET /v1/campaigns/calendar` (`internal/api/calendar.go`), `pages/CampaignCalendar.tsx`, `calendar.ts`;
   e2e `TestCalendar`, checked in a headless browser.
+- **10 Data rights**: export and delete existed (M4); added `pages/ConsentPrivacy.tsx` (Consent & privacy tab) and
+  `consentHistory.ts` over the contact's events; checked in a headless browser.
 
 ### O5 as built
 

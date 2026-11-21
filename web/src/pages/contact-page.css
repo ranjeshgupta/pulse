@@ -83,3 +83,9 @@
   .cp-top li { grid-template-columns: minmax(0, 1fr) 80px 50px; }
   .cp-json { margin: 0 14px 12px; }
 }
+
+/* Consent & privacy tab */
+.consent-list { list-style: none; margin: 0; padding: 6px 14px 14px; display: grid; gap: 10px; }
+.consent-list li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+.consent-list li:last-child { border-bottom: 0; }
+.rights-list { padding-left: 18px; display: grid; gap: 8px; }
