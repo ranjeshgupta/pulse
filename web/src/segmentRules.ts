@@ -2,6 +2,7 @@
 // form-friendly shape; toRule/fromRule convert to and from the API's rule JSON, and treeReducer
 // applies edits by path (so nested groups stay pure data).
 import type { PropFilter, Rule } from "./api";
+import { dict } from "./safe";
 
 /** A property filter on an event condition, edited like an attribute condition. values holds the
  * list for "is one of" / "is not one of"; value2 the upper bound of "is between". */
@@ -44,13 +45,13 @@ export const ATTR_OPS: { op: AttrOp; label: string }[] = [
 ];
 
 /** Every comparison's words, for menus and sentences. */
-export const OP_LABELS: Record<AttrOp, string> = {
+export const OP_LABELS: Record<AttrOp, string> = dict({
   eq: "is", ne: "is not", contains: "contains", not_contains: "doesn't contain", starts_with: "starts with", ends_with: "ends with",
   in: "is one of", not_in: "is not one of", gt: "is greater than", gte: "is at least", lt: "is less than", lte: "is at most",
   between: "is between", exists: "is set", not_exists: "is not set", empty: "is empty", not_empty: "is not empty",
   on: "is on", before: "is before", after: "is after", within_days: "is in the last", older_than_days: "is more than",
   has: "has", not_has: "doesn't have",
-};
+}) as Record<AttrOp, string>;
 
 /** The kind of value a field holds; it decides the operators and the value input. list: a set of
  * values (has / doesn't have, like tags); enum: one of a field's options (a dropdown). */
@@ -76,7 +77,7 @@ export const PROP_OPS_BY_TYPE: Record<FieldType, AttrOp[]> = {
 
 /** opsFor lists the operators for a field type, keeping a saved rule's op visible if it isn't offered. */
 export function opsFor(type: FieldType, current?: AttrOp, prop = false): AttrOp[] {
-  const ops = (prop ? PROP_OPS_BY_TYPE : OPS_BY_TYPE)[type];
+  const ops = (prop ? PROP_OPS_BY_TYPE : OPS_BY_TYPE)[type] ?? OPS_BY_TYPE.text;
   return current && !ops.includes(current) ? [...ops, current] : ops;
 }
 
@@ -184,8 +185,10 @@ export const FIELDS: FieldInfo[] = [
   { key: "stage", label: "Stage", type: "text", group: "points", hint: "Lifecycle stage, e.g. MQL", pick: "stage" },
   { key: "stage_changed_at", label: "Stage changed", type: "date", group: "points", hint: "When they last moved to another stage" },
 ];
-const FIELD_BY_KEY: Record<string, FieldInfo> = Object.fromEntries(FIELDS.map((f) => [f.key, f]));
-export const fieldInfo = (key: string): FieldInfo | undefined => FIELD_BY_KEY[key.trim()];
+// Maps keyed by names people type (attributes, events, properties) have no prototype: an attribute
+// named "constructor" is an unknown attribute, not Object's constructor.
+const FIELD_BY_KEY: Record<string, FieldInfo> = dict(Object.fromEntries(FIELDS.map((f) => [f.key, f])));
+export const fieldInfo = (key: string): FieldInfo | undefined => FIELD_BY_KEY[String(key ?? "").trim()];
 
 /** Attributes every profile has or Pulse fills itself (kept for the report builder's suggestions). */
 export const BUILTIN_ATTRS: { key: string; label: string; date?: boolean; hint: string }[] = FIELDS.map((f) => ({
@@ -193,21 +196,21 @@ export const BUILTIN_ATTRS: { key: string; label: string; date?: boolean; hint: 
 }));
 
 /** Lower-case words for describe(), e.g. "last active". */
-const ATTR_WORDS: Record<string, string> = {
+const ATTR_WORDS: Record<string, string> = dict({
   ...Object.fromEntries(FIELDS.map((f) => [f.key, f.label.toLowerCase()])),
   first_seen: "first seen", last_seen: "last active", geo_country: "country", geo_country_code: "country code", geo_region: "state or region",
   geo_city: "city (from IP)", geo_postal: "postal code", geo_timezone: "time zone", stage: "lifecycle stage", company_id: "company",
   phone: "mobile", email_bounced: "email bounced", sms_bounced: "SMS bounced",
-};
+});
 
 export type AttrDefLike = { key: string; type: string };
 
 /** fieldType is a field's value type: Pulse's own fields, else the attribute definition, else text. */
 export function fieldType(key: string, defs: AttrDefLike[] = []): FieldType {
-  const k = key.trim();
+  const k = String(key ?? "").trim();
   const f = FIELD_BY_KEY[k];
   if (f) return f.type;
-  const d = defs.find((x) => x.key === k)?.type;
+  const d = (defs ?? []).find((x) => x?.key === k)?.type;
   if (d === "number" || d === "boolean" || d === "date" || d === "list" || d === "enum") return d;
   if (k.startsWith("optout_")) return "boolean";
   return "text";
@@ -467,27 +470,27 @@ export type RefNames = {
 };
 
 /** Attributes whose value is picked from the workspace's stages (by name), companies or users (by id). */
-export const PICK_ATTRS: Record<string, { noun: string }> = {
+export const PICK_ATTRS: Record<string, { noun: string }> = dict({
   stage: { noun: "stage" },
   company_id: { noun: "company" },
   owner_id: { noun: "owner" },
-};
+});
 
 /** Event properties that hold the id of something with a name; the builder offers a picker for them. */
-export const PICK_PROPS: Record<string, { noun: string; refs: keyof RefNames | null }> = {
+export const PICK_PROPS: Record<string, { noun: string; refs: keyof RefNames | null }> = dict({
   form_id: { noun: "form", refs: "forms" },
   broadcast_id: { noun: "campaign", refs: "broadcasts" },
   journey_id: { noun: "journey", refs: "journeys" },
   template_id: { noun: "template", refs: "templates" },
   asset_id: { noun: "asset", refs: "assets" },
   page_id: { noun: "landing page", refs: "pages" },
-};
+});
 
 /** pickNoun words a picked property for an event: a template of an email event is "email". */
 export function pickNoun(prop: string, event: string): string {
   if (prop === "template_id") {
-    const ch = event.split("_")[0];
-    return ({ email: "email", sms: "SMS", whatsapp: "WhatsApp message", rcs: "RCS message", push: "push notification", inbox: "app inbox message" } as Record<string, string>)[ch] ?? "template";
+    const ch = String(event ?? "").split("_")[0];
+    return dict<string>({ email: "email", sms: "SMS", whatsapp: "WhatsApp message", rcs: "RCS message", push: "push notification", inbox: "app inbox message" })[ch] ?? "template";
   }
   return PICK_PROPS[prop]?.noun ?? prop;
 }
@@ -495,7 +498,7 @@ export function pickNoun(prop: string, event: string): string {
 /** Events Pulse records itself, worded for sentences: did / didn't, the thing, and the property naming it.
  * one is the thing once a specific message is chosen ("the email" → the email “Welcome”). */
 export type KnownEvent = { did: string; didnt: string; what: string; label: string; message?: boolean; one?: string; channel?: string };
-export const KNOWN_EVENTS: Record<string, KnownEvent> = {
+export const KNOWN_EVENTS: Record<string, KnownEvent> = dict({
   page_view: { did: "visited", didnt: "didn't visit", what: "a page", label: "Visited a page" },
   session_start: { did: "started", didnt: "didn't start", what: "a browsing session", label: "Started a browsing session" },
   landing_page_viewed: { did: "visited", didnt: "didn't visit", what: "a landing page", label: "Visited a landing page" },
@@ -521,29 +524,29 @@ export const KNOWN_EVENTS: Record<string, KnownEvent> = {
   journey_completed: { did: "completed", didnt: "didn't complete", what: "a journey", label: "Completed a journey" },
   inapp_shown: { did: "saw", didnt: "didn't see", what: "an in-app message", label: "Saw an in-app message" },
   inapp_clicked: { did: "clicked", didnt: "didn't click", what: "an in-app message", label: "Clicked an in-app message" },
-};
+});
 
 /** Properties each known event carries, for suggestions. Message events all carry broadcast_id, journey_id and template_id. */
 export function eventProps(event: string): string[] {
-  const own: Record<string, string[]> = {
+  const own: Record<string, string[]> = dict({
     page_view: ["url", "path", "title"], form_submitted: ["form_id"], unsubscribed: ["channel"],
     journey_entered: ["journey_id"], journey_completed: ["journey_id"], inapp_shown: ["inapp_id"], inapp_clicked: ["inapp_id"],
     session_start: ["url", "referrer", "utm_source", "utm_campaign", "device_type", "browser"], landing_page_viewed: ["page_id", "utm_source", "utm_campaign"],
     asset_downloaded: ["asset_id"],
-  };
-  const extra: Record<string, string[]> = {
+  });
+  const extra: Record<string, string[]> = dict({
     page_view: ["referrer", "referrer_domain", "utm_source", "utm_medium", "utm_campaign", "device_type", "session_id"],
     unsubscribed: ["method", "source"], email_clicked: ["url"], sms_clicked: ["url"], rcs_clicked: ["url"],
-  };
+  });
   if (KNOWN_EVENTS[event]?.message) return ["broadcast_id", "journey_id", "template_id", ...(extra[event] ?? [])];
   return [...(own[event] ?? []), ...(extra[event] ?? [])];
 }
 
-const CHANNEL_WORDS: Record<string, string> = { email: "email", sms: "SMS", whatsapp: "WhatsApp", rcs: "RCS", push: "push", inbox: "app inbox", all: "everything" };
-const PROP_WORDS: Record<string, string> = {
+const CHANNEL_WORDS: Record<string, string> = dict({ email: "email", sms: "SMS", whatsapp: "WhatsApp", rcs: "RCS", push: "push", inbox: "app inbox", all: "everything" });
+const PROP_WORDS: Record<string, string> = dict({
   url: "URL", path: "path", title: "page title", referrer: "referrer", referrer_domain: "referring site", utm_source: "campaign source",
   utm_medium: "campaign medium", utm_campaign: "campaign", device_type: "device type", session_id: "session",
-};
+});
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** formatDay turns 2026-11-30 into "30 Nov 2026"; anything else is returned as is. */

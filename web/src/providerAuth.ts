@@ -2,6 +2,8 @@
 // them. Both are stored as JSON strings in the provider's config ("auth" and "request"); secrets
 // stay in the provider's secrets and are never shown again.
 
+import { setOwn } from "./safe";
+
 export type AuthType = "none" | "basic" | "bearer" | "api_key" | "oauth2" | "login";
 
 export interface Header { name: string; value: string }
@@ -133,7 +135,7 @@ export function suggestStatuses(words: string[]): Record<string, ReceiptStatus> 
     if (!w) continue;
     const lc = w.toLowerCase();
     const hit = COMMON_STATUS_WORDS.find(([, list]) => list.includes(lc)) ?? COMMON_STATUS_WORDS.find(([, list]) => list.some((x) => lc.includes(x)));
-    if (hit) out[w] = hit[0];
+    if (hit) setOwn(out, w, hit[0]);
   }
   return out;
 }
@@ -166,7 +168,8 @@ export function newCustomRequest(channel: string): CustomRequest {
 export function parseRequest(raw: string | undefined, channel: string): CustomRequest {
   if (!raw || !raw.trim()) return newCustomRequest(channel);
   try {
-    const v = JSON.parse(raw) as CustomRequest;
+    const v = JSON.parse(raw) as CustomRequest | null;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return newCustomRequest(channel);
     return { ...v, success: v.success ?? {} };
   } catch {
     return newCustomRequest(channel);
@@ -201,7 +204,7 @@ export function parseStatuses(text: string): { statuses: Record<string, ReceiptS
     const k = i > 0 ? line.slice(0, i).trim() : "";
     const v = i > 0 ? line.slice(i + 1).trim().toLowerCase() : "";
     if (!k || !RECEIPT_STATUSES.includes(v as ReceiptStatus)) errors.push(line);
-    else statuses[k] = v as ReceiptStatus;
+    else setOwn(statuses, k, v as ReceiptStatus);
   }
   return { statuses, errors };
 }

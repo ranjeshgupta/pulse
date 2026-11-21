@@ -75,6 +75,7 @@ export function assetLink(base: string, a: { public_key: string; title: string; 
 export function conversion(submissions: number, visitors: number): string {
   if (!visitors) return "–";
   const pct = (submissions / visitors) * 100;
+  if (!Number.isFinite(pct)) return "–";
   return `${pct >= 10 || pct === 0 ? Math.round(pct) : pct.toFixed(1)}%`;
 }
 

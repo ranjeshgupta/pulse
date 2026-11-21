@@ -1,6 +1,7 @@
 // Settings → Identity: which fields identify a person and in what order (the "identity" section of
 // the automation settings, package identity on the server).
 import type { IdentityBackfill, IdentityKey } from "./api";
+import { own } from "./safe";
 
 export const EXTERNAL_ID = "external_id";
 export const MAX_KEYS = 8;
@@ -14,7 +15,8 @@ export const BUILT_IN: { field: string; label: string; hint: string }[] = [
 ];
 
 export function keyLabel(field: string, labels: Record<string, string> = {}): string {
-  return BUILT_IN.find((b) => b.field === field)?.label ?? labels[field] ?? field;
+  // own(): a field named "constructor" is labelled by its name, not by Object's constructor.
+  return BUILT_IN.find((b) => b.field === field)?.label ?? own(labels, field) ?? String(field ?? "");
 }
 
 /** move returns keys with the key at i moved by delta (-1 up, +1 down). */
@@ -66,6 +68,6 @@ export function progress(b: IdentityBackfill | undefined): string {
   if (!b) return "";
   if (b.done_at) return "Ready";
   if (b.contacts <= 0) return "Starting…";
-  const pct = Math.min(99, Math.floor((b.next_id / b.contacts) * 100));
+  const pct = Math.max(0, Math.min(99, Math.floor((b.next_id / b.contacts) * 100) || 0));
   return `Reading existing contacts… ${pct}%`;
 }

@@ -1,5 +1,6 @@
 // Pure helpers for stages, companies and duplicate merges, shared by their pages and the contact drawer.
 import type { Company, Contact } from "./api";
+import { setOwn } from "./safe";
 
 /** Company attribute keys become company_<key> on contacts, which must stay a 64-character attribute key. */
 export const MAX_COMPANY_KEY = 64 - "company_".length;
@@ -9,7 +10,9 @@ const COMPANY_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export type AttrRow = { key: string; value: string };
 
 export function rowsFromAttrs(attrs: Company["attrs"]): AttrRow[] {
-  return Object.entries(attrs).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => ({ key, value: String(value) }));
+  // A company without attributes may come as null; a nested value is shown as JSON, not "[object Object]".
+  return Object.entries(attrs ?? {}).sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => ({ key, value: value !== null && typeof value === "object" ? JSON.stringify(value) : String(value ?? "") }));
 }
 
 /** attrsFromRows converts editor rows to the API's attributes: numbers and true/false keep their type, empty rows are dropped. */
@@ -19,9 +22,10 @@ export function attrsFromRows(rows: AttrRow[]): Company["attrs"] {
     const key = r.key.trim();
     if (!key) continue;
     const v = r.value.trim();
-    if (v === "true" || v === "false") out[key] = v === "true";
-    else if (v !== "" && /^-?\d+(\.\d+)?$/.test(v)) out[key] = Number(v);
-    else out[key] = r.value;
+    // setOwn: an attribute named "__proto__" stays an attribute (plain assignment would drop it).
+    if (v === "true" || v === "false") setOwn(out, key, v === "true");
+    else if (v !== "" && /^-?\d+(\.\d+)?$/.test(v)) setOwn(out, key, Number(v));
+    else setOwn(out, key, r.value);
   }
   return out;
 }

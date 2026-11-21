@@ -9,6 +9,7 @@ export type FunnelData = MessageFunnel;
 export function share(n: number, of: number): string {
   if (!of) return "–";
   const p = (n / of) * 100;
+  if (!Number.isFinite(p)) return "–";
   if (p === 0) return "0%";
   return p < 10 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`;
 }

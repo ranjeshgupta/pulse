@@ -26,8 +26,9 @@ export const utcDay = (d: Date) => d.toISOString().slice(0, 10);
  * today and the 29 days before it. */
 export function rangeDays(r: Range, now = new Date()): { from: string; to: string } {
   if (r.preset === "custom") return { from: r.from, to: r.to };
-  const to = utcDay(now);
-  return { from: utcDay(new Date(Date.parse(`${to}T00:00:00Z`) - (r.preset - 1) * DAY_MS)), to };
+  const to = utcDay(Number.isNaN(now.getTime()) ? new Date() : now);
+  const n = Number.isFinite(r.preset) ? Math.min(Math.max(Math.floor(r.preset), 1), 3660) : 30; // toISOString throws on an invalid date
+  return { from: utcDay(new Date(Date.parse(`${to}T00:00:00Z`) - (n - 1) * DAY_MS)), to };
 }
 
 /** source: null = every source (no filter), "" = contacts without a UTM source. */
@@ -53,6 +54,7 @@ export function ticks(max: number, parts = 4): number[] {
 
 /** compact: 1234 → "1.2K", 2500000 → "2.5M" (axis labels). */
 export function compact(n: number): string {
+  if (!Number.isFinite(n)) return "–";
   const a = Math.abs(n);
   const fmt = (x: number, s: string) => `${Number(x.toFixed(x < 10 ? 1 : 0))}${s}`;
   if (a >= 1e9) return fmt(n / 1e9, "B");
@@ -64,8 +66,9 @@ export function compact(n: number): string {
 /** linePoints maps values to x,y in a width × height box (y grows downward; 0 at the bottom). */
 export function linePoints(values: number[], max: number, width: number, height: number): [number, number][] {
   const n = values.length;
-  const top = max > 0 ? max : 1;
-  return values.map((v, i) => [n === 1 ? width / 2 : (i / (n - 1)) * width, height - (Math.min(v, top) / top) * height]);
+  const top = max > 0 && Number.isFinite(max) ? max : 1;
+  // A missing value sits on the baseline: NaN would break the whole SVG path.
+  return values.map((v, i) => [n === 1 ? width / 2 : (i / (n - 1)) * width, height - (Math.min(Number.isFinite(v) ? v : 0, top) / top) * height]);
 }
 
 /** linePath is an SVG path through the points ("M x y L x y …"). */
@@ -78,7 +81,9 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
 
 /** labelIndexes picks up to `count` evenly spaced indexes of n points, always the first and last. */
 export function labelIndexes(n: number, count = 5): number[] {
-  if (n <= 0) return [];
+  if (!(n > 0) || !Number.isFinite(n)) return [];
+  n = Math.floor(n);
+  count = Number.isFinite(count) ? Math.max(2, Math.floor(count)) : 5;
   if (n <= count) return Array.from({ length: n }, (_, i) => i);
   const out = new Set<number>();
   for (let i = 0; i < count; i++) out.add(Math.round((i * (n - 1)) / (count - 1)));
@@ -87,11 +92,13 @@ export function labelIndexes(n: number, count = 5): number[] {
 
 /** shortDay: "2026-11-05" → "5 Nov" (the day as the server counted it, in UTC). */
 export function shortDay(day: string): string {
-  return new Date(`${day.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  const d = new Date(`${String(day ?? "").slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? String(day ?? "") : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 export function longDay(day: string): string {
-  return new Date(`${day.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const d = new Date(`${String(day ?? "").slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? String(day ?? "") : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 export const share = (n: number, total: number) => (total > 0 ? Math.min(1, Math.max(0, n / total)) : 0);
@@ -125,7 +132,7 @@ export function linesMax(days: UsersDay[], lines: ("dau" | "wau" | "mau")[]): nu
 export function usersCsvRows(days: UsersDay[]): (string | number)[][] {
   return [
     ["day", "dau", "wau", "mau", "stickiness", "new", "returning"],
-    ...days.map((d) => [d.day.slice(0, 10), d.dau, d.wau, d.mau, Number(d.stickiness.toFixed(4)), d.new, d.returning]),
+    ...days.map((d) => [d.day.slice(0, 10), d.dau, d.wau, d.mau, Number.isFinite(d.stickiness) ? Number(d.stickiness.toFixed(4)) : "", d.new, d.returning]),
   ];
 }
 
@@ -138,7 +145,10 @@ export function usersCsvName(from: string, to: string, platform: Platform, sourc
 }
 
 /** updatedAt: when the server computed the answer ("4:05 pm"). */
-export const updatedAt = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+export const updatedAt = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+};
 
 /** retryUnlessLimited: react-query retry rule — don't retry rate limits (429) or bad requests (400). */
 export const retryUnlessLimited = (n: number, err: unknown) => !(err instanceof ApiError && (err.status === 429 || err.status === 400)) && n < 2;

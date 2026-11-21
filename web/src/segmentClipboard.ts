@@ -16,16 +16,34 @@ export function copyText(n: Node): string {
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
-/** validRule checks the shape of a rule from the clipboard (the server checks it fully on save). */
+const has = (r: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(r, k);
+const optional = (r: Record<string, unknown>, k: string, type: "string" | "number") => !has(r, k) || r[k] == null || typeof r[k] === type;
+
+/** A comparison value the builder can edit: text, a number, yes/no, or a list of those. */
+function validValue(v: unknown): boolean {
+  const plain = (x: unknown) => x == null || typeof x === "string" || typeof x === "boolean" || (typeof x === "number" && Number.isFinite(x));
+  return plain(v) || (Array.isArray(v) && v.length <= 1000 && v.every((x) => x != null && plain(x)));
+}
+
+/** validRule checks the shape of a rule from the clipboard (the server checks it fully on save):
+ * clipboard text is anything someone pasted, and the builder reads every field it lets through. */
 function validRule(r: unknown, depth = 0): boolean {
   if (!isObj(r) || depth > MAX_RULE_DEPTH) return false;
   for (const k of ["all", "any", "none"] as const) {
-    if (k in r) return Array.isArray(r[k]) && (r[k] as unknown[]).every((c) => validRule(c, depth + 1));
+    if (has(r, k)) return Array.isArray(r[k]) && (r[k] as unknown[]).every((c) => validRule(c, depth + 1));
   }
-  if ("segment" in r) return typeof r.segment === "number";
-  if ("tag" in r) return typeof r.tag === "string";
-  if ("event" in r) return typeof r.event === "string" && typeof r.count === "number";
-  return typeof r.attr === "string" && typeof r.op === "string";
+  if (has(r, "segment")) return typeof r.segment === "number" && Number.isFinite(r.segment) && (r.op === "in" || r.op === "not_in");
+  if (has(r, "tag")) return typeof r.tag === "string" && (r.op === "has" || r.op === "not_has");
+  if (has(r, "event")) {
+    if (typeof r.event !== "string" || typeof r.op !== "string" || typeof r.count !== "number" || !Number.isFinite(r.count)) return false;
+    if (!optional(r, "days", "number") || !optional(r, "from", "string") || !optional(r, "to", "string")) return false;
+    if (has(r, "where") && r.where != null) {
+      if (!Array.isArray(r.where)) return false;
+      if (!r.where.every((f) => isObj(f) && typeof f.prop === "string" && typeof f.op === "string" && validValue(f.value))) return false;
+    }
+    return true;
+  }
+  return typeof r.attr === "string" && typeof r.op === "string" && validValue(r.value);
 }
 
 /** parseText reads clipboard text for pasting into the group at path of root, or says why it can't. */

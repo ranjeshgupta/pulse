@@ -549,8 +549,10 @@ export async function form(target: HTMLElement, key: string) {
   const accent = /^#[0-9a-f]{6}$/i.test(def.settings.theme ?? "") ? def.settings.theme! : "#2747d6";
   const f = el("form", { class: "pulse-f", novalidate: "" });
   if (def.settings.description) f.append(el("p", {}, def.settings.description));
-  const errs: Record<string, HTMLElement> = {};
-  const fileFields: Record<string, FormField> = {};
+  // No prototype: a field named "constructor" or "toString" must not look like a file field (its
+  // value would be dropped) or find an error slot it doesn't have.
+  const errs: Record<string, HTMLElement> = Object.create(null);
+  const fileFields: Record<string, FormField> = Object.create(null);
   const pages = formPages(def.fields);
   const steps = el("div", { class: "pst" });
   const stepLabel = el("span");
@@ -628,11 +630,12 @@ export async function form(target: HTMLElement, key: string) {
     e.preventDefault();
     if (!check(sets[cur]) || !check(last)) return;
     const values: Record<string, string> = {};
+    const put = (k: string, v: string) => Object.defineProperty(values, k, { value: v, enumerable: true, writable: true, configurable: true });
     const files: [string, File][] = [];
     for (const [k, v] of new FormData(f)) {
       if (k === "_hp") continue;
       if (fileFields[k]) { if (v instanceof File && v.size > 0) files.push([k, v]); continue; }
-      values[k] = String(v);
+      put(k, String(v)); // also a field named "__proto__"
     }
     Object.values(errs).forEach((x) => (x.textContent = ""));
     btn.disabled = true;

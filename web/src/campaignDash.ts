@@ -3,6 +3,7 @@
 
 import type { CampaignDashRow, MessageCounts, ReasonCount, ReasonKind, SkipGroup } from "./api";
 import { CATEGORIES } from "./campaigns";
+import { dict } from "./safe";
 
 export const DASH_CATEGORIES = [{ key: "", label: "All" }, ...CATEGORIES.map((c) => ({ key: c.key, label: c.label }))];
 
@@ -69,10 +70,11 @@ export function rates(c: MessageCounts, buyers: number, reported: boolean): Rate
 
 // Reason codes by bounce type: the server's reasons.BounceType (internal/reasons), shared by the
 // bounce rules, the funnel and the Contacts filters.
-const BOUNCE_TYPE: Record<string, "hard" | "soft" | "complaint"> = {
+// (No prototype: reason codes come from providers and may be any word.)
+const BOUNCE_TYPE: Record<string, "hard" | "soft" | "complaint"> = dict({
   invalid_number: "hard", invalid_email: "hard", invalid_token: "hard", hard_bounce: "hard",
   soft_bounce: "soft", not_on_channel: "soft", complaint: "complaint", blocked: "complaint",
-};
+});
 export const bounceTypeOf = (code: string) => BOUNCE_TYPE[code];
 
 /** bounceCounts: a campaign's hard bounces, soft bounces and complaints on every channel (an SMS to

@@ -1,5 +1,6 @@
 // Product catalog CSV import (O6): parse a CSV file (RFC 4180: quotes, commas and line breaks in
 // quotes) and turn its rows into products by header name. Pure for vitest.
+import { own } from "./safe";
 
 export interface Product {
   code: string; name: string; url?: string; image_url?: string; price?: number; sale_price?: number;
@@ -59,8 +60,9 @@ export function inStock(s: string): boolean {
 export function toProducts(rows: string[][]): { products: Product[]; problems: string[]; unknown: string[] } {
   const problems: string[] = [];
   if (rows.length < 2) return { products: [], problems: ["The file needs a header row and at least one product."], unknown: [] };
-  const head = rows[0].map((h) => HEADERS[h.trim().toLowerCase().replace(/\s+/g, "_")]);
-  const unknown = rows[0].filter((_, i) => !head[i]).map((h) => h.trim()).filter(Boolean);
+  // own(): a column named "constructor" or "toString" is unknown, not Object's.
+  const head = rows[0].map((h) => own(HEADERS, String(h ?? "").trim().toLowerCase().replace(/\s+/g, "_")));
+  const unknown = rows[0].filter((_, i) => !head[i]).map((h) => String(h ?? "").trim()).filter(Boolean);
   if (!head.includes("code") || !head.includes("name")) return { products: [], problems: ["The header needs a code (or sku) and a name (or title) column."], unknown };
   const products: Product[] = [];
   const seen = new Set<string>();
@@ -86,7 +88,8 @@ export function toProducts(rows: string[][]): { products: Product[]; problems: s
 /** chunks splits a list for upload. */
 export function chunks<T>(list: T[], size = 1000): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  const n = Number.isFinite(size) && size >= 1 ? Math.floor(size) : 1000; // 0, a negative or NaN size would never end
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
   return out;
 }
 

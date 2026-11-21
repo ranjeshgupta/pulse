@@ -6,6 +6,7 @@
 import type { Edge, Node as FlowNode } from "@xyflow/react";
 import { deadlineProblem } from "./campaigns";
 import { CHANNEL_NAMES, type Channel, type ChannelRule, type JourneyGraph, type JourneyNode } from "./api";
+import { dict, hasOwn, own } from "./safe";
 
 export const TRIGGER_ID = "__trigger";
 
@@ -81,7 +82,7 @@ export const NODE_TYPES: TypeInfo[] = [
   { type: "wait", label: "Wait", group: "wait", shape: "next", hint: "Wait a set time, e.g. 2 days." },
   { type: "wait_until", label: "Wait until", group: "wait", shape: "next", hint: "Wait for a date, or a time of day in the contact's zone." },
 ];
-const TYPE_BY_ID: Record<string, TypeInfo> = Object.fromEntries(NODE_TYPES.map((t) => [t.type, t]));
+const TYPE_BY_ID: Record<string, TypeInfo> = dict(Object.fromEntries(NODE_TYPES.map((t) => [t.type, t])));
 export const typeInfo = (type: string): TypeInfo | undefined => TYPE_BY_ID[type];
 export const nodeLabel = (type: string) => TYPE_BY_ID[type]?.label ?? type;
 export const nodeChannel = (type: string) => TYPE_BY_ID[type]?.channel;
@@ -149,7 +150,7 @@ export const pathName = (n: JourneyNode, i: number) => n.variants?.[i]?.label ||
 
 export function share(n: JourneyNode, i: number) {
   const total = (n.variants ?? []).reduce((a, v) => a + (v.weight || 0), 0) || 1;
-  return Math.round(((n.variants?.[i]?.weight ?? 0) / total) * 100);
+  return Math.round(((n.variants?.[i]?.weight || 0) / total) * 100); // || 0: an emptied share (NaN) counts as 0
 }
 
 /** The step a handle of a node leads to. */
@@ -257,7 +258,7 @@ export function decisionText(g: JourneyGraph, n: JourneyNode, templateName?: (id
 export function stepLabel(g: JourneyGraph, n: JourneyNode): string {
   if (n.type === "check") {
     const p: Record<string, string> = { tags: "Contact tags", stage: "Contact stages", points: "Contact points", owner: "Contact owner", device: "Contact device" };
-    return (n.preset && p[n.preset]) || "Contact field value";
+    return own(p, n.preset) || "Contact field value";
   }
   if (n.type === "message_decision") {
     const ch = n.step && g.nodes[n.step] ? nodeChannel(g.nodes[n.step].type) : undefined;
@@ -858,6 +859,7 @@ export function winnerProblem(g: JourneyGraph, id: string): string | null {
 }
 
 export function formatWait(seconds = 0): string {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) seconds = 0; // null from the API, NaN from an emptied field
   if (seconds % 86400 === 0) return `${seconds / 86400} day${seconds === 86400 ? "" : "s"}`;
   if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`;
   if (seconds % 60 === 0) return `${seconds / 60} min`;
@@ -893,8 +895,8 @@ export function channelRuleProblems(cs: ChannelRule[]): string[] {
   if (new Set(plain).size !== plain.length) out.push("use each channel once in rules without conditions.");
   if (cs.some((c) => !c.template_id)) out.push("choose a template for every rule.");
   for (const c of cs) for (const w of c.when ?? []) {
-    if (!/^(contact|event)\.[A-Za-z0-9_]+(\[\])?(\.[A-Za-z0-9_]+(\[\])?){0,2}$/.test(w.prop)) { out.push(`conditions read contact.<field> or event.<property>, not “${w.prop || "(empty)"}”.`); break; }
-    if (!(w.op in RULE_OP_WORDS)) { out.push(`choose how to compare ${w.prop}.`); break; }
+    if (!/^(contact|event)\.[A-Za-z0-9_]+(\[\])?(\.[A-Za-z0-9_]+(\[\])?){0,2}$/.test(w.prop ?? "")) { out.push(`conditions read contact.<field> or event.<property>, not “${w.prop || "(empty)"}”.`); break; }
+    if (!hasOwn(RULE_OP_WORDS, w.op)) { out.push(`choose how to compare ${w.prop}.`); break; }
     if (w.op !== "exists" && w.op !== "not_exists" && (w.value === undefined || w.value === "")) { out.push(`enter the value ${w.prop} is compared with.`); break; }
   }
   return [...new Set(out)];
@@ -906,7 +908,7 @@ export function rulesText(cs: ChannelRule[], channelName: (c: string) => string)
   if (!cs.some((c) => c.when?.length)) return `Send by ${cs.map((c) => channelName(c.channel)).join(", then ")}`;
   return cs.map((c, i) => {
     if (!c.when?.length) return `${i ? "otherwise " : ""}${channelName(c.channel)}`;
-    const cond = c.when.map((w) => `${w.prop.replace(/^contact\./, "")} ${RULE_OP_WORDS[w.op] ?? w.op}${w.op === "exists" || w.op === "not_exists" ? "" : ` ${String(w.value ?? "")}`}`).join(" and ");
+    const cond = c.when.map((w) => `${(w.prop ?? "").replace(/^contact\./, "")} ${own(RULE_OP_WORDS, w.op) ?? w.op ?? ""}${w.op === "exists" || w.op === "not_exists" ? "" : ` ${String(w.value ?? "")}`}`).join(" and ");
     return `${cond} → ${channelName(c.channel)}`;
   }).join("; ");
 }

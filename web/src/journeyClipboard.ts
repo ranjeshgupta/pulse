@@ -5,6 +5,7 @@
 // ids and inserts them where the next step would go.
 
 import type { JourneyGraph, JourneyNode } from "./api";
+import { isUnsafeKey } from "./safe";
 import { connect, firstOutput, newId, numberedOrder, outputs, positions, ROW, targetAt, targetOf, TRIGGER_ID, typeInfo, type InsertAt } from "./journeyGraph";
 
 export const CLIPBOARD_KIND = "journey-steps";
@@ -72,9 +73,15 @@ export function parseClipboard(text: string): { clip?: StepClipboard; error?: st
   if (!c.nodes || typeof c.nodes !== "object" || Array.isArray(c.nodes)) return { error: "The copied steps are damaged." };
   const ids = Object.keys(c.nodes);
   if (ids.length === 0 || ids.length > MAX_CLIPBOARD_STEPS) return { error: `Paste 1 to ${MAX_CLIPBOARD_STEPS} steps at a time.` };
-  if (!c.entry || !c.nodes[c.entry]) return { error: "The copied steps have no first step." };
+  // Only the copy's own step ids count: an entry of "constructor" must not find Object's.
+  if (typeof c.entry !== "string" || !Object.prototype.hasOwnProperty.call(c.nodes, c.entry)) return { error: "The copied steps have no first step." };
   for (const [id, n] of Object.entries(c.nodes)) {
+    if (isUnsafeKey(id) || id === TRIGGER_ID) return { error: "The copied steps are damaged." };
     if (!n || typeof n !== "object" || typeof n.type !== "string" || !typeInfo(n.type)) return { error: `Step "${id}" is of a kind this journey editor doesn't know.` };
+    const links = ["next", "yes", "no", "target", "step"] as const;
+    if (links.some((k) => n[k] != null && typeof n[k] !== "string")) return { error: "The copied steps are damaged." };
+    if (n.variants != null && (!Array.isArray(n.variants) || n.variants.some((v) => !v || typeof v !== "object" || (v.next != null && typeof v.next !== "string")))) return { error: "The copied steps are damaged." };
+    if ((n.x != null && !Number.isFinite(n.x)) || (n.y != null && !Number.isFinite(n.y))) return { error: "The copied steps are damaged." };
   }
   return { clip: c as StepClipboard };
 }
@@ -84,7 +91,7 @@ export function parseClipboard(text: string): { clip?: StepClipboard; error?: st
  * where the insertion point leads; what it led to before follows the copied steps' main path (first
  * outputs from the entry). The pasted block is laid out below the insertion point. */
 export function pasteSteps(g: JourneyGraph, at: InsertAt, clip: StepClipboard): { graph: JourneyGraph; ids: string[]; entry: string } {
-  const rename: Record<string, string> = {};
+  const rename: Record<string, string> = Object.create(null); // keyed by copied ids
   let out: JourneyGraph = { ...g, nodes: { ...g.nodes } };
   for (const id of Object.keys(clip.nodes)) {
     const nid = newId(out, clip.nodes[id].type);

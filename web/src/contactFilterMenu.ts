@@ -135,6 +135,7 @@ export const findItem = (id: string) => FILTER_MENU.flatMap((g) => g.items).find
  * last 30 days for dates (today in UTC, as the server counts days). */
 export function defaults(item: MenuItem, today: string): Record<string, string> {
   const v: Record<string, string> = {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today ?? "") || Number.isNaN(Date.parse(today))) today = new Date().toISOString().slice(0, 10); // toISOString throws on an invalid date
   const monthAgo = new Date(Date.parse(today) - 29 * 86_400_000).toISOString().slice(0, 10);
   for (const f of item.fields) {
     if (f.kind === "date" && !f.optional) v[f.key] = f.key === "from" ? monthAgo : today;

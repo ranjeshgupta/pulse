@@ -3,6 +3,7 @@
 // setting gives, range checks, and labels. Mirrors package automation on the server.
 
 import type { AutomationLimit, AutomationRetention, AutomationSettings, RetentionPreviewItem } from "./api";
+import { hasOwn } from "./safe";
 
 /** The base retry waits in seconds (30 s .. 1 h), as Pulse always used them. */
 export const BASE_BACKOFF = [30, 60, 120, 300, 600, 1800, 3600];
@@ -15,7 +16,7 @@ export const webViewDays = (r: AutomationRetention) => r.web_view_days ?? r.even
 /** daysFor is how long events of one name are kept (0 = forever): its override, else views, else events. */
 export function daysFor(r: AutomationRetention, name: string, webNames = WEB_VIEW_NAMES_DEFAULT): number {
   const o = r.event_overrides ?? {};
-  if (name in o) return o[name];
+  if (hasOwn(o, name)) return o[name];
   if (webNames.includes(name)) return webViewDays(r);
   return r.event_days;
 }
@@ -46,24 +47,29 @@ export function retentionShortened(cur: AutomationRetention, next: AutomationRet
 }
 
 export function formatDays(n: number): string {
-  if (!n) return "forever";
+  if (!n || !Number.isFinite(n)) return "forever";
   if (n % 365 === 0) return n === 365 ? "365 days (1 year)" : `${n} days (${n / 365} years)`;
   return n === 1 ? "1 day" : `${n} days`;
 }
 
 /** formatDuration: 30 → "30 s", 3600 → "1 h", 6600 → "1 h 50 min". */
 export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "–";
   if (seconds < 60) return `${seconds} s`;
   const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
   const parts = [h && `${h} h`, m && `${m} min`, s && `${s} s`].filter(Boolean);
   return parts.join(" ");
 }
 
+/** The most tries the schedule shows: the server allows 1 to 20, and a number being typed may be any size. */
+const MAX_SCHEDULE = 100;
+
 /** retrySchedule is the wait (seconds) before each retry, like automation.Retries.Schedule. */
 export function retrySchedule(attempts: number, maxSeconds: number): number[] {
   const out: number[] = [];
   let last = 0;
-  for (let i = 0; i < Math.max(attempts - 1, 0); i++) {
+  const n = Number.isFinite(attempts) ? Math.min(Math.max(Math.floor(attempts) - 1, 0), MAX_SCHEDULE) : 0;
+  for (let i = 0; i < n; i++) {
     const w = Math.min(i < BASE_BACKOFF.length ? BASE_BACKOFF[i] : last * 2, maxSeconds > 0 ? maxSeconds : 3600);
     out.push(w);
     last = w;
@@ -94,7 +100,7 @@ export function rowsToOverrides(rows: OverrideRow[], limit?: AutomationLimit): {
     const name = r.name.trim();
     if (!name) continue;
     if (!EVENT_NAME.test(name)) return { value: null, error: `"${name}" is not an event name` };
-    if (name in value) return { value: null, error: `${name} is listed twice` };
+    if (hasOwn(value, name)) return { value: null, error: `${name} is listed twice` };
     const p = checkValue(limit, r.days, name);
     if (p) return { value: null, error: p };
     value[name] = r.days;

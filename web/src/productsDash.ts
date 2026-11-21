@@ -90,7 +90,7 @@ export type ProductDay = ProductsDashboard["report"]["days"][number];
 
 /** fillDays gives one row per UTC day from–to (both included), zeros where the answer had none. */
 export function fillDays(days: ProductDay[], from: string, to: string): ProductDay[] {
-  const byDay = new Map(days.map((d) => [d.day.slice(0, 10), d]));
+  const byDay = new Map((days ?? []).map((d) => [String(d.day).slice(0, 10), d]));
   const out: ProductDay[] = [];
   const end = Date.parse(`${to}T00:00:00Z`);
   for (let t = Date.parse(`${from}T00:00:00Z`); t <= end && out.length < 400; t += 86_400_000) {
@@ -109,7 +109,7 @@ export function productsCsvRows(rows: ProductRow[], currency: string): (string |
     ...rows.map((r) => {
       const c = conversion(r);
       return [r.code, r.category ?? "", r.views, r.viewers, r.carts, r.carters, r.purchases, r.buyers,
-        Number(r.revenue.toFixed(2)), r.abandoned, c === null ? "" : Number(c.toFixed(4))];
+        Number.isFinite(r.revenue) ? Number(r.revenue.toFixed(2)) : "", r.abandoned, c === null ? "" : Number(c.toFixed(4))];
     }),
   ];
 }

@@ -5,6 +5,7 @@
 
 import { can, type Area, type Perms } from "./api";
 import { chipToken } from "./contactFilters";
+import { hasOwn, own } from "./safe";
 
 /** A filter: key and value, joined into the list's query. */
 export type ContactFilter = [key: string, value: string | number];
@@ -39,7 +40,7 @@ export function needKeys(filters: ContactFilter[]): string[] {
   const out: string[] = [];
   for (const [k, v] of filters) {
     if (k === "campaign") out.push(`campaign:${String(v).split("/")[0]}`);
-    else if (k in NEEDS) out.push(k);
+    else if (hasOwn(NEEDS, k)) out.push(k); // own keys only: a filter named "constructor" needs nothing more
   }
   if (!keys.includes("campaign") && (keys.includes("outcome") || keys.includes("reason"))) out.push("campaign:any");
   return out;
@@ -48,14 +49,14 @@ export function needKeys(filters: ContactFilter[]): string[] {
 /** canListContacts reports whether perms may open the list behind these filters. */
 export function canListContacts(perms: Perms | undefined, filters: ContactFilter[]): boolean {
   if (!can(perms, "contacts", "view")) return false;
-  return needKeys(filters).every((k) => (NEEDS[k] ?? []).some((a) => can(perms, a, "view")));
+  return needKeys(filters).every((k) => (own(NEEDS, k) ?? []).some((a) => can(perms, a, "view")));
 }
 
 /** whyNoLink is the tooltip of a number the role can't open. */
 export function whyNoLink(perms: Perms | undefined, filters: ContactFilter[]): string {
   if (!can(perms, "contacts", "view")) return "Your role can't open contact lists (it needs view access to contacts).";
-  const missing = needKeys(filters).find((k) => !(NEEDS[k] ?? []).some((a) => can(perms, a, "view")));
-  return missing ? `Your role can't list these contacts (it needs view access to ${NEEDS[missing].map((a) => AREA_WORDS[a] ?? a).join(" or ")}).` : "";
+  const missing = needKeys(filters).find((k) => !(own(NEEDS, k) ?? []).some((a) => can(perms, a, "view")));
+  return missing ? `Your role can't list these contacts (it needs view access to ${(own(NEEDS, missing) ?? []).map((a) => AREA_WORDS[a] ?? a).join(" or ")}).` : "";
 }
 
 // ---- builders for the places that show counts ----
@@ -120,8 +121,9 @@ export function productFilters(what: "viewed" | "carted" | "bought" | "abandoned
 /** addDays moves a YYYY-MM-DD day by n days (UTC). */
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || !Number.isFinite(n)) return day; // toISOString would throw
   d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+  return Number.isNaN(d.getTime()) ? day : d.toISOString().slice(0, 10);
 }
 
 /** Users dashboard: people active in a period (any, new or returning), optionally on a platform

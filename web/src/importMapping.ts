@@ -3,6 +3,8 @@
 // read into memory). A column mapped to "Don't import" gets an empty heading, which the importer
 // skips.
 
+import { dict } from "./safe";
+
 /** Special targets; anything else is an attribute key. "" skips the column. */
 export const CORE_TARGETS: { value: string; label: string }[] = [
   { value: "external_id", label: "External ID" },
@@ -19,16 +21,17 @@ export function normalise(h: string): string {
   return h.replace(/^﻿/, "").trim().toLowerCase().replace(/ /g, "_");
 }
 
-const ALIASES: Record<string, string> = {
+// No prototype: a column headed "constructor" is a field of that name, not Object's constructor.
+const ALIASES: Record<string, string> = dict({
   id: "external_id", user_id: "external_id", customer_id: "external_id", contact_id: "external_id",
   e_mail: "email", email_address: "email", mail: "email",
   mobile: "phone", phone_number: "phone", mobile_number: "phone", mobile_phone: "phone",
-};
+});
 
 /** guessTarget suggests a target for a heading: common names of the ID, email and phone columns,
  * else the heading as a field name (letters, digits and _ only), else "Don't import". */
 export function guessTarget(heading: string): string {
-  const k = normalise(heading).replace(/-/g, "_").replace(/[^a-z0-9_]/g, "");
+  const k = normalise(String(heading ?? "")).replace(/-/g, "_").replace(/[^a-z0-9_]/g, "");
   if (ALIASES[k]) return ALIASES[k];
   return validKey(k) ? k : "";
 }

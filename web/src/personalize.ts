@@ -7,6 +7,7 @@
 // those), and fills tags with sample values for the live preview. The older {{.Attrs.x}} syntax
 // keeps working and is filled too.
 import type { AttributeDef, EventSchema } from "./api";
+import { hasOwn, own, setOwn } from "./safe";
 
 export type VarGroup = "contact" | "event" | "campaign" | "links" | "reco" | "survey";
 export type VarItem = { var: string; label: string; group: VarGroup; hint?: string };
@@ -80,8 +81,8 @@ export const CONTACT_BUILTINS: VarItem[] = [
 export function contactVars(attrs: Pick<AttributeDef, "key" | "label" | "type">[] = []): VarItem[] {
   const seen = new Set(CONTACT_BUILTINS.map((v) => v.var));
   const extra: VarItem[] = [];
-  for (const a of attrs) {
-    if (!/^[A-Za-z0-9_]+$/.test(a.key)) continue;
+  for (const a of attrs ?? []) {
+    if (typeof a?.key !== "string" || !/^[A-Za-z0-9_]+$/.test(a.key)) continue;
     const v = `contact.${a.key}`;
     if (seen.has(v)) continue;
     seen.add(v);
@@ -98,9 +99,10 @@ export function contactVars(attrs: Pick<AttributeDef, "key" | "label" | "type">[
 export function eventVars(schema?: Pick<EventSchema, "props"> | null): VarItem[] {
   const out: VarItem[] = [];
   for (const p of schema?.props ?? []) {
-    if (p.personal) continue;
+    if (!p || p.personal) continue;
     const path = p.path || p.key;
-    const label = p.label || p.key;
+    if (typeof path !== "string" || !path) continue;
+    const label = p.label || p.key || path;
     const i = path.indexOf("[]");
     if (i >= 0) {
       const list = path.slice(0, i), rest = path.slice(i + 2).replace(/^\./, "");
@@ -193,13 +195,34 @@ export function parseAction(action: string): { var: string; pipes: TagPipe[]; er
 /** findRefs lists the standard-variable tags of a field, in order. */
 export function findRefs(src: string): Ref[] {
   const out: Ref[] = [];
-  const re = /\{\{-?\s*([\s\S]*?)\s*-?\}\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src))) {
-    const inner = decodeEntities(m[1]);
+  for (const m of tags(src)) {
+    const inner = decodeEntities(m.raw);
     if (!isStandard(inner)) continue;
     const p = parseAction(inner);
-    out.push({ ...p, start: m.index, end: m.index + m[0].length, text: m[0] });
+    out.push({ ...p, start: m.start, end: m.end, text: src.slice(m.start, m.end) });
+  }
+  return out;
+}
+
+/**
+ * tags finds the {{ … }} actions of a field, as /\{\{-?\s*([\s\S]*?)\s*-?\}\}/g would (raw: the
+ * action without the trim markers and spaces), in linear time: that pattern backtracks for minutes
+ * on a "{{" followed by a long run of spaces and no "}}", and this runs on every keystroke.
+ */
+function tags(src: string): { start: number; end: number; raw: string }[] {
+  const out: { start: number; end: number; raw: string }[] = [];
+  let pos = 0;
+  for (;;) {
+    const start = src.indexOf("{{", pos);
+    if (start < 0) break;
+    const close = src.indexOf("}}", start + 2);
+    if (close < 0) break; // no later "{{" can close either
+    let raw = src.slice(start + 2, close);
+    if (raw.startsWith("-")) raw = raw.slice(1);
+    raw = raw.trimStart();
+    if (raw.endsWith("-")) raw = raw.slice(0, -1);
+    out.push({ start, end: close + 2, raw: raw.trimEnd() });
+    pos = close + 2;
   }
   return out;
 }
@@ -217,8 +240,8 @@ export type Problem = { level: "error" | "warning"; var: string; message: string
  */
 export function lint(src: string, known: { contact: VarItem[]; event?: VarItem[] | null; channel?: string }): Problem[] {
   const out: Problem[] = [];
-  const contactKeys = new Set(known.contact.map((v) => v.var.split(".")[1]));
-  const eventRoots = known.event ? new Set(known.event.map((v) => v.var.split(".")[1].replace("[]", ""))) : null;
+  const contactKeys = new Set((known.contact ?? []).map((v) => v.var.split(".")[1] ?? ""));
+  const eventRoots = known.event ? new Set(known.event.map((v) => (v.var.split(".")[1] ?? "").replace("[]", ""))) : null;
   for (const r of findRefs(src)) {
     if (r.error) { out.push({ level: "error", var: r.var, message: r.error }); continue; }
     const [ns, first] = r.var.split(".");
@@ -275,8 +298,9 @@ export function lookup(obj: unknown, path: string): unknown {
     const s = segs[i];
     const list = s.endsWith("[]");
     const key = list ? s.slice(0, -2) : s;
-    if (Array.isArray(cur)) { const n = Number(key); cur = Number.isInteger(n) ? cur[n] : undefined; }
-    else if (cur && typeof cur === "object") cur = (cur as Record<string, unknown>)[key];
+    // Only an object's own keys: {{contact.constructor}} must not read Object's constructor.
+    if (Array.isArray(cur)) { cur = /^\d+$/.test(key) ? cur[Number(key)] : undefined; }
+    else if (cur && typeof cur === "object") cur = own(cur as Record<string, unknown>, key);
     else return undefined;
     if (list) {
       const rest = segs.slice(i + 1).join(".");
@@ -290,10 +314,15 @@ export function lookup(obj: unknown, path: string): unknown {
 export const isEmpty = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length);
 
 function show(v: unknown): string {
-  if (isEmpty(v)) return "";
-  if (Array.isArray(v)) return v.map((x) => (x && typeof x === "object" ? JSON.stringify(x) : String(x))).join(", ");
-  if (typeof v === "object") return JSON.stringify(v);
+  if (isEmpty(v) || typeof v === "function" || typeof v === "symbol") return "";
+  if (Array.isArray(v)) return v.map((x) => (x && typeof x === "object" ? json(x) : show(x))).join(", ");
+  if (typeof v === "object") return json(v);
   return String(v);
+}
+
+/** json is JSON text that never throws (a bigint or a cycle in sample data shows as nothing). */
+function json(v: unknown): string {
+  try { return JSON.stringify(v) ?? ""; } catch { return ""; }
 }
 
 const SYMBOLS: Record<string, string> = { INR: "₹", USD: "$", EUR: "€", GBP: "£", JPY: "¥" };
@@ -307,7 +336,7 @@ function applyPipe(v: unknown, p: TagPipe): unknown {
     case "title": return s.toLowerCase().replace(/(^|[\s-])(\S)/g, (_, a: string, b: string) => a + b.toUpperCase());
     case "truncate": { const n = Number(p.arg); return [...s].length > n ? [...s].slice(0, n - 1).join("").trimEnd() + "…" : s; }
     case "urlencode": return encodeURIComponent(s).replace(/%20/g, "+");
-    case "json": return JSON.stringify(v ?? null);
+    case "json": return json(v ?? null);
     case "number": case "money": {
       const n = Number(String(s).replace(/,/g, ""));
       if (!s || Number.isNaN(n)) return s;
@@ -336,8 +365,8 @@ export function valueOf(v: string, sample: Sample): unknown {
   const path = rest.join(".");
   if (ns === "contact") return lookup(sample.contact, path);
   if (ns === "event") return sample.event ? lookup(sample.event, path) : undefined;
-  if (ns === "campaign") return sample.campaign?.[path];
-  if (ns === "links") return sample.links?.[path];
+  if (ns === "campaign") return own(sample.campaign, path);
+  if (ns === "links") return own(sample.links, path);
   if (ns === "reco") return lookup(sample.reco ?? SAMPLE_RECO, path);
   if (ns === "survey") return `https://pages.example.com/s/${path}/sample`;
   return undefined;
@@ -349,60 +378,86 @@ export function valueOf(v: string, sample: Sample): unknown {
  * are left out. (The server renders the real thing: Preview as contact.)
  */
 export function fillSample(src = "", sample: Sample = { contact: SAMPLE_CONTACT }): string {
-  return src.replace(/\{\{-?\s*([\s\S]*?)\s*-?\}\}/g, (whole, raw: string) => {
-    const inner = decodeEntities(raw);
-    if (isStandard(inner)) {
-      const p = parseAction(inner);
-      if (p.error) return whole;
-      return show(p.pipes.reduce<unknown>((v, pipe) => applyPipe(v, pipe), valueOf(p.var, sample)));
-    }
-    const block = /^block\.(\w+)$/.exec(inner.trim());
-    if (block) return block[1] === "recommendations" ? "[recommended products]" : block[1] === "feed" ? "[new items from the RSS feed]" : `[block: ${block[1]}]`;
-    const attr = /^\.Attrs\.(\w+)$/.exec(inner.trim());
-    if (attr) return show(sample.contact[attr[1]]) || `[${attr[1]}]`;
-    if (inner.trim() === ".Contact.Email") return show(sample.contact.email);
-    if (inner.trim() === ".Contact.ExternalID") return show(sample.contact.external_id);
-    if (inner.trim() === ".UnsubscribeURL") return sample.links?.unsubscribe ?? "#unsubscribe";
-    if (inner.trim() === ".PreferencesURL") return sample.links?.preferences ?? "#preferences";
-    return "";
-  });
+  const text = typeof src === "string" ? src : "";
+  let out = "", pos = 0;
+  for (const m of tags(text)) {
+    out += text.slice(pos, m.start) + fillTag(text.slice(m.start, m.end), m.raw, sample);
+    pos = m.end;
+  }
+  return out + text.slice(pos);
+}
+
+function fillTag(whole: string, raw: string, sample: Sample): string {
+  const inner = decodeEntities(raw);
+  if (isStandard(inner)) {
+    const p = parseAction(inner);
+    if (p.error) return whole;
+    return show(p.pipes.reduce<unknown>((v, pipe) => applyPipe(v, pipe), valueOf(p.var, sample)));
+  }
+  const block = /^block\.(\w+)$/.exec(inner.trim());
+  if (block) return block[1] === "recommendations" ? "[recommended products]" : block[1] === "feed" ? "[new items from the RSS feed]" : `[block: ${block[1]}]`;
+  const attr = /^\.Attrs\.(\w+)$/.exec(inner.trim());
+  if (attr) return show(own(sample.contact, attr[1])) || `[${attr[1]}]`;
+  if (inner.trim() === ".Contact.Email") return show(own(sample.contact, "email"));
+  if (inner.trim() === ".Contact.ExternalID") return show(own(sample.contact, "external_id"));
+  if (inner.trim() === ".UnsubscribeURL") return sample.links?.unsubscribe ?? "#unsubscribe";
+  if (inner.trim() === ".PreferencesURL") return sample.links?.preferences ?? "#preferences";
+  return "";
 }
 
 /** exampleEvent builds sample properties from an event schema (as the server's schema example). */
 export function exampleEvent(schema?: Pick<EventSchema, "props"> | null): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const p of schema?.props ?? []) {
-    if (p.personal) continue;
+    if (!p || p.personal) continue;
+    const path = p.path || p.key;
+    if (typeof path !== "string" || !path) continue;
     const v = p.type === "number" ? 1299 : p.type === "bool" ? true : p.type === "date" ? "2026-11-11T10:30:00Z"
       : p.type === "enum" ? p.values?.[0]?.value ?? "value" : p.type === "list" ? ["item 1", "item 2"] : p.type === "object" ? {} : `Sample ${p.label || p.key}`;
-    setPath(out, p.path || p.key, v);
+    setPath(out, path, v);
   }
   return out;
 }
 
+const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
+
+// setPath puts a sample value at a schema path. Paths come from event schemas (people name the
+// properties), so every key is written as the object's own: "__proto__" or "constructor" stays a
+// plain key and never reaches Object.prototype.
 function setPath(obj: Record<string, unknown>, path: string, v: unknown) {
-  const [before, after] = path.split("[]");
+  const i = path.indexOf("[]");
+  const before = i < 0 ? path : path.slice(0, i);
+  const after = i < 0 ? undefined : path.slice(i + 2).replace(/^\./, "");
   const keys = before.split(".");
   let cur = obj;
-  keys.forEach((k, i) => {
-    const last = i === keys.length - 1;
-    if (last && after === undefined) { if (!(k in cur)) cur[k] = v; return; }
+  keys.forEach((k, j) => {
+    const last = j === keys.length - 1;
+    const has = hasOwn(cur, k);
+    if (last && after === undefined) { if (!has) put(cur, k, v); return; }
     if (last) {
+      const old = has ? cur[k] : undefined;
+      if (!after) {
+        // The list itself (tags[]): a list of sample values.
+        if (!Array.isArray(old)) put(cur, k, [v]);
+        return;
+      }
       // A path through the list (items[].code) means its items are objects: a sample list of
       // plain values from a "list" property (["item 1", …]) gives way to one sample object.
-      const isObj = (x: unknown) => !!x && typeof x === "object" && !Array.isArray(x);
-      const items = (Array.isArray(cur[k]) && isObj((cur[k] as unknown[])[0]) ? cur[k] : [{}]) as Record<string, unknown>[];
-      setPath(items[0], after.replace(/^\./, ""), v);
-      cur[k] = items;
+      const items = (Array.isArray(old) && isObj(old[0]) ? old : [{}]) as Record<string, unknown>[];
+      setPath(items[0], after, v);
+      put(cur, k, items);
       return;
     }
-    if (!cur[k] || typeof cur[k] !== "object") cur[k] = {};
+    if (!has || !isObj(cur[k])) put(cur, k, {});
     cur = cur[k] as Record<string, unknown>;
   });
 }
 
+const put = setOwn<unknown>;
+
 /** insertAt puts text into a field value at the cursor (or the end), returning the new value and cursor. */
 export function insertAt(value: string, text: string, start?: number | null, end?: number | null): { value: string; cursor: number } {
-  const s = start ?? value.length, e = end ?? s;
+  const clamp = (n: number | null | undefined, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 0), value.length) : d);
+  const s = clamp(start, value.length), e = Math.max(clamp(end, s), s);
   return { value: value.slice(0, s) + text + value.slice(e), cursor: s + text.length };
 }

@@ -3,7 +3,8 @@
 // Pure, so it is tested without a DOM.
 import { CHANNEL_NAMES, type Channel, type JourneyGraph, type JourneyNode } from "../../api";
 import { decisionText, formatWait, MAX_JUMPS, pathName, rulesText, share, stepNumbers } from "../../journeyGraph";
-import { describe, OP_LABELS, type AttrOp, type RefNames } from "../../segmentRules";
+import { describe, OP_LABELS, type RefNames } from "../../segmentRules";
+import { own } from "../../safe";
 import { parseDevice, parseOwner, parsePoints, parseStage, parseTags, POINT_OPS } from "./presets";
 
 /** Names of the things steps point at, by id. */
@@ -27,6 +28,10 @@ const when = (iso: string) => {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 };
 const DNC_WORDS: Record<string, string> = { ...CHANNEL_NAMES, any: "any channel", all: "every channel" };
+/** A slot key is typed ("constructor" is a valid one): look it up among the slots' own names only. */
+const slotName = (names: Names, slot: string) => own(names.slots, slot) ?? slot;
+/** A field value as text: objects as JSON rather than "[object Object]". */
+const valueText = (v: unknown) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v ?? ""));
 
 /** summary describes step id for its canvas card. */
 export function summary(g: JourneyGraph, id: string, names: Names = {}): string {
@@ -48,7 +53,7 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
       const what = [n.device_type, n.os].filter(Boolean).join(" on ");
       return what ? `Visits from ${what} ${within(n)}` : "Choose a device";
     }
-    case "on_dwc": return n.slot ? `Page requests ${q(names.slots?.[n.slot] ?? n.slot)} ${within(n)}` : "Choose a slot";
+    case "on_dwc": return n.slot ? `Page requests ${q(slotName(names, n.slot))} ${within(n)}` : "Choose a slot";
     case "condition": return n.segment_id ? `In segment ${name(names.segments, n.segment_id, "segment")}?` : "Choose a segment";
     case "check": return checkText(n, names);
     case "if_journey": {
@@ -58,14 +63,14 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
     }
     case "if_form_field": {
       if (!n.field) return "Choose a form field";
-      const op = OP_LABELS[n.op as AttrOp] ?? n.op ?? "";
+      const op = own(OP_LABELS, n.op) ?? n.op ?? "";
       const val = n.op === "exists" || n.op === "not_exists" ? "" : ` ${n.value ?? ""}`;
       return `${n.form_id ? `Form ${name(names.forms, n.form_id, "form")}` : "Latest form"}: ${n.field} ${op}${val}?`;
     }
     case "if_notification":
       return n.notify === "push" ? "Has a push device?" : n.notify === "inbox" ? "Has an unread app inbox message?" : "Has push or an unread inbox message?";
     case "if_valid_email": return `Email address is valid${n.reject_disposable ? " (not disposable)" : ""}?`;
-    case "if_dnc": return `Do Not Contact for ${DNC_WORDS[n.channel ?? "any"] ?? n.channel}?`;
+    case "if_dnc": return `Do Not Contact for ${own(DNC_WORDS, n.channel ?? "any") ?? n.channel}?`;
     case "if_before": return n.until ? `Before ${when(n.until)}?` : "Choose a date";
     case "if_visited": {
       const where = n.url ? `a page containing ${q(n.url)}` : "any page";
@@ -86,10 +91,10 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
     case "send_message": return rulesText(n.channels ?? [], (c: string) => CHANNEL_NAMES[c as Channel] ?? c);
     case "show_focus": return n.focus_id ? `Show ${name(names.focus, n.focus_id, "focus item")} on their next page view` : "Choose a focus item";
     case "push_integration": return n.integration_id ? `Push to ${name(names.integrations, n.integration_id, "integration")}` : "Choose a CRM";
-    case "push_dwc": return n.slot ? `Set ${q(names.slots?.[n.slot] ?? n.slot)} for ${n.days ?? 30} days` : "Choose a slot";
-    case "update_attr": return Object.entries(n.attrs ?? {}).map(([k, v]) => `${k} = ${String(v)}`).join(", ") || "Set fields";
+    case "push_dwc": return n.slot ? `Set ${q(slotName(names, n.slot))} for ${n.days ?? 30} days` : "Choose a slot";
+    case "update_attr": return Object.entries(n.attrs ?? {}).map(([k, v]) => `${k} = ${valueText(v)}`).join(", ") || "Set fields";
     case "update_owner": return n.owner_id === undefined ? "Choose an owner" : n.owner_id === 0 ? "Remove the owner" : `Assign to ${names.users?.[n.owner_id] ?? `user ${n.owner_id}`}`;
-    case "update_company": return Object.entries(n.company_attrs ?? {}).map(([k, v]) => `${k} = ${String(v)}`).join(", ") || "Set company fields";
+    case "update_company": return Object.entries(n.company_attrs ?? {}).map(([k, v]) => `${k} = ${valueText(v)}`).join(", ") || "Set company fields";
     case "add_company": return n.company_id ? `Link to ${name(names.companies, n.company_id, "company")}` : "Choose a company";
     case "company_points": return n.points ? `Company score ${n.points > 0 ? "+" : ""}${n.points}` : "Set points";
     case "adjust_points": return n.points ? `${n.points > 0 ? "+" : ""}${n.points} points` : "Set points";
@@ -122,8 +127,8 @@ export function summary(g: JourneyGraph, id: string, names: Names = {}): string 
       const num = n.target && g.nodes[n.target] ? stepNumbers(g)[n.target] : undefined;
       return num ? `Jump to step ${num} (max ${MAX_JUMPS} times)` : "Choose a step";
     }
-    case "dnc_add": return `Do Not Contact: ${DNC_WORDS[n.channel ?? ""] ?? "choose a channel"}`;
-    case "dnc_remove": return `Allow ${DNC_WORDS[n.channel ?? ""] ?? "a channel"} again`;
+    case "dnc_add": return `Do Not Contact: ${own(DNC_WORDS, n.channel ?? "") ?? "choose a channel"}`;
+    case "dnc_remove": return `Allow ${own(DNC_WORDS, n.channel ?? "") ?? "a channel"} again`;
     case "delete_contact": return "Delete contact (permanent)";
     case "exit": return "Journey ends";
     case "split": {

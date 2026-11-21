@@ -1,5 +1,6 @@
 // Customer value (O6): the buyers' RFM groups and churn risks, as GET /v1/revenue/customer-value
 // returns them (one row per group and risk), folded per group for the page. Pure for vitest.
+import { dict } from "./safe";
 
 export interface CVRow { group: string; churn_risk: string; contacts: number; revenue: number; avg_orders: number; avg_days_since: number }
 export interface CVResponse {
@@ -13,11 +14,11 @@ export interface CVGroup {
 
 /** fold sums each group's rows (averages weighted by contacts), in the server's group order. */
 export function fold(r: CVResponse): { groups: CVGroup[]; total: number; revenue: number; atRisk: number; atRiskRevenue: number } {
-  const by = new Map<string, CVGroup>(r.groups.map((g) => [g.name, { name: g.name, note: g.note, contacts: 0, revenue: 0, avgOrders: 0, avgDays: 0, risks: {} }]));
+  const by = new Map<string, CVGroup>((r.groups ?? []).map((g) => [g.name, { name: g.name, note: g.note, contacts: 0, revenue: 0, avgOrders: 0, avgDays: 0, risks: dict({}) }]));
   let total = 0, revenue = 0, atRisk = 0, atRiskRevenue = 0;
-  for (const x of r.rows) {
+  for (const x of r.rows ?? []) {
     let g = by.get(x.group);
-    if (!g) by.set(x.group, g = { name: x.group, note: "", contacts: 0, revenue: 0, avgOrders: 0, avgDays: 0, risks: {} });
+    if (!g) by.set(x.group, g = { name: x.group, note: "", contacts: 0, revenue: 0, avgOrders: 0, avgDays: 0, risks: dict({}) });
     const n = g.contacts + x.contacts;
     if (n > 0) {
       g.avgOrders = (g.avgOrders * g.contacts + x.avg_orders * x.contacts) / n;

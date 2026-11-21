@@ -2,6 +2,7 @@
 // The editor keeps a Draft (filters in the form-friendly Where shape); toSpec/fromSpec convert to and
 // from the API's ReportSpec. specProblems mirrors the server's rules so we only run valid specs.
 import { CHANNELS, CHANNEL_NAMES, type Channel, type PropFilter, type ReportGroup, type ReportMetric, type ReportResult, type ReportSource, type ReportSpec } from "./api";
+import { dict, own } from "./safe";
 import { ATTR_OPS, DATE_OPS, NUMERIC_OPS, RELATIVE_DATE_OPS, type AttrOp, type Where } from "./segmentRules";
 
 export const KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
@@ -87,10 +88,10 @@ export const GROUPS: Record<ReportSource, Option<ReportGroup>[]> = {
 };
 
 export const MESSAGE_KINDS = ["sent", "delivered", "read", "failed", "fallback", "suppressed", "capped", "deferred", "opened", "clicked", "bounced", "unsubscribed"] as const;
-export const KIND_NAMES: Record<string, string> = {
+export const KIND_NAMES: Record<string, string> = dict({
   sent: "Sent", delivered: "Delivered", read: "Read", failed: "Failed", fallback: "Fell back", suppressed: "Suppressed",
   capped: "Capped", deferred: "Deferred", opened: "Opened", clicked: "Clicked", bounced: "Bounced", unsubscribed: "Unsubscribed",
-};
+});
 
 /** Attribute filter ops for contacts: the attribute ops plus date comparisons. */
 export const CONTACT_OPS: { op: AttrOp; label: string }[] = [
@@ -99,8 +100,8 @@ export const CONTACT_OPS: { op: AttrOp; label: string }[] = [
 ];
 
 export const isTimeGroup = (g: ReportGroup) => g === "day" || g === "week" || g === "month";
-export const metricOption = (s: ReportSource, m: ReportMetric) => METRICS[s].find((o) => o.type === m);
-export const groupOption = (s: ReportSource, g: ReportGroup) => GROUPS[s].find((o) => o.type === g);
+export const metricOption = (s: ReportSource, m: ReportMetric) => own(METRICS, s)?.find((o) => o.type === m);
+export const groupOption = (s: ReportSource, g: ReportGroup) => own(GROUPS, s)?.find((o) => o.type === g);
 
 // ---- drafts ----
 
@@ -239,19 +240,19 @@ export function describe(s: ReportSpec): string {
   let what: string;
   if (s.source === "events") {
     const of = s.events?.length ? list(s.events) : "";
-    what = {
+    what = own({
       count: of ? `Count of ${of}` : "Count of events",
       unique_contacts: of ? `Contacts who did ${of}` : "Unique contacts",
       sum: `Sum of ${key}${of ? ` of ${of}` : ""}`,
       avg: `Average ${key}${of ? ` of ${of}` : ""}`,
-    }[s.metric.type];
+    }, s.metric.type) ?? "Events";
   } else if (s.source === "messages") {
     what = s.metric.type === "unique_contacts" ? "Contacts messaged" : "Messages";
-    if (s.kinds?.length) what += ` ${list(s.kinds.map((k) => KIND_NAMES[k]?.toLowerCase() ?? k))}`;
+    if (s.kinds?.length) what += ` ${list(s.kinds.map((k) => own(KIND_NAMES, k)?.toLowerCase() ?? k))}`;
     if (s.message_source) what += s.message_source === "broadcast" ? " from one-time campaigns" : " from journeys";
-    if (s.channels?.length) what += ` via ${list(s.channels.map((c) => CHANNEL_NAMES[c] ?? c))}`;
+    if (s.channels?.length) what += ` via ${list(s.channels.map((c) => own(CHANNEL_NAMES, c) ?? c))}`;
   } else {
-    what = { count: "Contacts", unique_contacts: "Contacts", sum: `Sum of ${key}`, avg: `Average ${key}` }[s.metric.type];
+    what = own({ count: "Contacts", unique_contacts: "Contacts", sum: `Sum of ${key}`, avg: `Average ${key}` }, s.metric.type) ?? "Contacts";
   }
   if (s.where?.length) what += ` (${s.where.length} ${s.where.length === 1 ? "filter" : "filters"})`;
   const g = s.group_by;
@@ -260,7 +261,7 @@ export function describe(s: ReportSpec): string {
     campaign: "by campaign", day: "per day", week: "per week", month: "per month",
   };
   if (g.type === "none") return `${what} · total`;
-  return `${what}, ${by[g.type]} · ${s.chart}`;
+  return `${what}, ${own(by, g.type) ?? `by ${g.type}`} · ${s.chart}`;
 }
 
 // ---- starting points ----
@@ -290,10 +291,13 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 /** groupLabel names a result group: labels from the server first, "(not set)" for "". */
 export function groupLabel(group: string, g: ReportGroup, labels: Record<string, string> = {}): string {
+  group = group == null ? "" : String(group);
   if (group === "") return "(not set)";
-  if (labels[group]) return labels[group];
-  if (g === "channel") return CHANNEL_NAMES[group as Channel] ?? group;
-  if (g === "kind") return KIND_NAMES[group] ?? group;
+  // Groups are values from people's data (a sku may well be "constructor"): own keys only.
+  const label = own(labels, group);
+  if (label) return label;
+  if (g === "channel") return own(CHANNEL_NAMES, group) ?? group;
+  if (g === "kind") return own(KIND_NAMES, group) ?? group;
   if (g === "campaign") {
     const [kind, id] = group.split("|");
     return `${kind === "journey" ? "Journey" : "Broadcast"} #${id ?? "?"}`;
@@ -303,6 +307,7 @@ export function groupLabel(group: string, g: ReportGroup, labels: Record<string,
     if (!m) return group;
     const [, y, mo, d] = m;
     const mon = MONTHS[Number(mo) - 1];
+    if (!mon) return group;
     if (g === "month") return `${mon} ${y}`;
     return `${g === "week" ? "Week of " : ""}${Number(d)} ${mon} ${y}`;
   }
@@ -314,6 +319,7 @@ export function shortTimeLabel(group: string, g: ReportGroup): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(group);
   if (!m) return group;
   const mon = MONTHS[Number(m[2]) - 1];
+  if (!mon) return group;
   return g === "month" ? `${mon} ${m[1].slice(2)}` : `${Number(m[3])} ${mon}`;
 }
 
@@ -322,6 +328,7 @@ export const campaignKind = (group: string) => (group.startsWith("journey|") ? "
 
 /** formatValue: whole counts for count metrics, up to 2 decimals for sums and averages. */
 export function formatValue(v: number, metric: ReportMetric): string {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "–";
   if (metric === "sum" || metric === "avg") return v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
   return Math.round(v).toLocaleString("en-IN");
 }
@@ -341,13 +348,14 @@ export function metricLabel(s: Pick<ReportSpec, "source" | "metric">): string {
  * (sums and averages to 2 decimals); time groups use ISO dates so spreadsheets read them as dates. */
 export function reportRows(spec: ReportSpec, r: Pick<ReportResult, "rows" | "labels">): (string | number)[][] {
   const g = spec.group_by.type;
-  const value = (v: number) => (spec.metric.type === "sum" || spec.metric.type === "avg" ? Math.round(v * 100) / 100 : Math.round(v));
-  if (g === "none") return [[metricLabel(spec)], [value(r.rows[0]?.value ?? 0)]];
+  const value = (v: number): string | number => (typeof v !== "number" || !Number.isFinite(v) ? "" : spec.metric.type === "sum" || spec.metric.type === "avg" ? Math.round(v * 100) / 100 : Math.round(v));
+  const rs = r.rows ?? [];
+  if (g === "none") return [[metricLabel(spec)], [value(rs[0]?.value ?? 0)]];
   const head = groupOption(spec.source, g)?.label ?? "Group";
   const campaign = g === "campaign";
   const rows: (string | number)[][] = [[spec.group_by.key ? `${head}: ${spec.group_by.key}` : head, ...(campaign ? ["Type"] : []), metricLabel(spec)]];
-  for (const x of r.rows) {
-    const label = isTimeGroup(g) && /^\d{4}-\d{2}-\d{2}/.test(x.group) ? x.group.slice(0, 10) : groupLabel(x.group, g, r.labels);
+  for (const x of rs) {
+    const label = isTimeGroup(g) && /^\d{4}-\d{2}-\d{2}/.test(String(x.group)) ? x.group.slice(0, 10) : groupLabel(x.group, g, r.labels);
     rows.push([label, ...(campaign ? [campaignKind(x.group)] : []), value(x.value)]);
   }
   return rows;
@@ -370,7 +378,8 @@ export type LinePoint = { x: number; y: number; value: number };
 export function lineGeometry(values: number[], box: Box): { points: LinePoint[]; max: number; ticks: { y: number; value: number }[]; path: string } {
   const plotW = box.width - box.left - box.right;
   const plotH = box.height - box.top - box.bottom;
-  const max = niceMax(Math.max(0, ...values));
+  values = values.map((v) => (Number.isFinite(v) ? v : 0)); // a missing value draws at 0, not as "NaN" in the path
+  const max = niceMax(values.reduce((a, v) => Math.max(a, v), 0)); // no spread: thousands of points must not overflow the stack
   const y = (v: number) => box.top + plotH * (1 - Math.max(0, v) / max);
   const points = values.map((v, i) => ({
     x: values.length === 1 ? box.left + plotW / 2 : box.left + (plotW * i) / (values.length - 1),
@@ -386,7 +395,9 @@ const round = (n: number) => Math.round(n * 10) / 10;
 
 /** labelIndices picks up to k evenly spread indices of n points for axis labels (first and last included). */
 export function labelIndices(n: number, k = 5): number[] {
-  if (n <= 0) return [];
+  if (!(n > 0) || !Number.isFinite(n)) return [];
+  n = Math.floor(n);
+  k = Number.isFinite(k) ? Math.max(2, Math.floor(k)) : 5;
   if (n <= k) return Array.from({ length: n }, (_, i) => i);
   const out = new Set<number>();
   for (let i = 0; i < k; i++) out.add(Math.round((i * (n - 1)) / (k - 1)));
@@ -397,5 +408,6 @@ export function labelIndices(n: number, k = 5): number[] {
 export function rangeDaysOf(r: { preset: number | "custom"; from: string; to: string }): number {
   if (r.preset !== "custom") return r.preset;
   if (!r.from || !r.to) return 0;
-  return Math.round((new Date(`${r.to}T00:00:00Z`).getTime() - new Date(`${r.from}T00:00:00Z`).getTime()) / 86_400_000) + 1;
+  const n = Math.round((new Date(`${r.to}T00:00:00Z`).getTime() - new Date(`${r.from}T00:00:00Z`).getTime()) / 86_400_000) + 1;
+  return Number.isFinite(n) ? n : 0;
 }

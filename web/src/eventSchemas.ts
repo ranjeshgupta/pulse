@@ -1,6 +1,7 @@
 // Event schemas: pure helpers for Audience → Events (no React). The checks mirror the server's
 // (internal/eventschema Normalize) so the editor can explain problems before saving.
 import type { DiscoveredProp, EventSchema, PropType, SchemaMode, SchemaProp, Violation } from "./api";
+import { hasOwn, setOwn } from "./safe";
 
 export const PROP_TYPES: PropType[] = ["string", "number", "bool", "date", "enum", "list", "object"];
 export const TYPE_NAMES: Record<PropType, string> = {
@@ -224,7 +225,9 @@ export const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 /** fillDays returns one entry per day for the `days` days ending today (UTC), oldest first, with 0
  * for days without events. */
 export function fillDays(volume: { day: string; count: number }[], days: number, today: Date): { day: string; count: number }[] {
-  const counts = new Map(volume.map((v) => [v.day.slice(0, 10), v.count]));
+  const counts = new Map((volume ?? []).map((v) => [String(v?.day ?? "").slice(0, 10), v?.count ?? 0]));
+  if (Number.isNaN(today.getTime())) today = new Date();
+  days = Number.isFinite(days) ? Math.min(Math.max(Math.floor(days), 0), 3660) : 0;
   const base = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
   const out: { day: string; count: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
@@ -249,6 +252,11 @@ export function exampleValue(p: SchemaProp, today: Date): unknown {
 
 type Obj = Record<string, unknown>;
 
+// Property paths are typed by people, and "__proto__" is a valid key: read and write only own
+// properties, so an example never reaches (or changes) Object.prototype.
+const get = (o: Obj, k: string): unknown => (hasOwn(o, k) ? o[k] : undefined);
+const put = setOwn<unknown>;
+
 /** exampleProps builds example event props from a schema: nested paths become nested objects
  * (product.code → {product: {code}}), items[].code → {items: [{code}]}. A property that applies
  * only when another has certain values is included only when the other's example value is one of them. */
@@ -259,9 +267,9 @@ export function exampleProps(schema: Pick<EventSchema, "props">, today = new Dat
   const objAt = (root: Obj, keys: string[]): Obj => {
     let cur = root;
     for (const k of keys) {
-      const next = cur[k];
-      if (typeof next !== "object" || next === null || Array.isArray(next)) cur[k] = {};
-      cur = cur[k] as Obj;
+      const next = get(cur, k);
+      if (typeof next !== "object" || next === null || Array.isArray(next)) put(cur, k, {});
+      cur = get(cur, k) as Obj;
     }
     return cur;
   };
@@ -269,9 +277,9 @@ export function exampleProps(schema: Pick<EventSchema, "props">, today = new Dat
   const listElem = (listPath: string[]): Obj => {
     const parent = objAt(out, listPath.slice(0, -1));
     const last = listPath[listPath.length - 1];
-    const cur = parent[last];
-    if (!Array.isArray(cur) || typeof cur[0] !== "object" || cur[0] === null) parent[last] = [{}];
-    return (parent[last] as Obj[])[0];
+    const cur = get(parent, last);
+    if (!Array.isArray(cur) || typeof cur[0] !== "object" || cur[0] === null) put(parent, last, [{}]);
+    return (get(parent, last) as Obj[])[0];
   };
   const applies = (p: SchemaProp) => {
     const d = p.depends_on;
@@ -291,7 +299,7 @@ export function exampleProps(schema: Pick<EventSchema, "props">, today = new Dat
       if (keys.length === 0) continue;
       const target = objAt(elem, keys.slice(0, -1));
       const k = keys[keys.length - 1];
-      if (!(k in target) || p.type !== "object") target[k] = value;
+      if (!hasOwn(target, k) || p.type !== "object") put(target, k, value);
       continue;
     }
     // A list read through items[] paths is built from those; an object may already have children.
@@ -302,8 +310,8 @@ export function exampleProps(schema: Pick<EventSchema, "props">, today = new Dat
     const keys = path.split(".");
     const target = objAt(out, keys.slice(0, -1));
     const k = keys[keys.length - 1];
-    if (p.type === "object" && typeof target[k] === "object" && target[k] !== null) continue;
-    target[k] = value;
+    if (p.type === "object" && typeof get(target, k) === "object" && get(target, k) !== null) continue;
+    put(target, k, value);
   }
   return out;
 }
@@ -348,6 +356,7 @@ export function cleanProps(props: SchemaProp[]): SchemaProp[] {
 
 /** formatShare shows a 0..1 share as a percentage (“<1%” for small non-zero ones). */
 export function formatShare(share: number): string {
+  if (!Number.isFinite(share)) return "–";
   if (share > 0 && share < 0.01) return "<1%";
   return `${Math.round(share * 100)}%`;
 }

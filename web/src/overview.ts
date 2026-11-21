@@ -60,6 +60,7 @@ export function keyRate(channel: string, c: MessageCounts | undefined): { label:
 
 /** percent formats a 0-1 share like the dashboards: "24%", "3.5%", "0%". */
 export function percent(x: number): string {
+  if (!Number.isFinite(x)) return "–";
   const p = x * 100;
   if (p === 0) return "0%";
   return p < 10 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`;
@@ -69,6 +70,7 @@ export function percent(x: number): string {
  * "Tue 17 Nov, 09:00". Times are the viewer's local time. */
 export function whenText(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return ""; // not "Invalid Date"
   const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((day(d) - day(now)) / 86_400_000);

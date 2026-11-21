@@ -1,18 +1,21 @@
 // Pure helpers for the contact page (pages/ContactPage.tsx).
 import type { Contact, ContactMessage } from "./api";
+import { own } from "./safe";
 
 /** contactName is the contact's name: the name attribute, or first and last name. */
 export function contactName(c: Pick<Contact, "attrs">): string {
-  const n = c.attrs.name;
+  const attrs = c.attrs ?? {}; // a contact without attributes may come with attrs: null
+  const n = own(attrs, "name");
   if (typeof n === "string" && n.trim()) return n.trim();
-  return [c.attrs.first_name, c.attrs.last_name].filter((v) => v != null && String(v).trim() !== "").map((v) => String(v).trim()).join(" ");
+  return [own(attrs, "first_name"), own(attrs, "last_name")].filter((v) => v != null && String(v).trim() !== "").map((v) => String(v).trim()).join(" ");
 }
 
 /** attrText reads an attribute as text ("" when missing). */
 export function attrText(c: Pick<Contact, "attrs">, key: string): string {
-  const v = c.attrs[key];
+  // own(): an attribute key such as "constructor" must not read Object's constructor.
+  const v = own(c.attrs, key);
   if (v == null) return "";
-  if (Array.isArray(v)) return v.map(String).join(", ");
+  if (Array.isArray(v)) return v.map((x) => (x !== null && typeof x === "object" ? JSON.stringify(x) : String(x ?? ""))).join(", ");
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
@@ -72,7 +75,7 @@ const MESSAGE_STATUS: Record<string, { label: string; tone: string }> = {
 
 /** messageStatus is a message status's label and badge tone. */
 export function messageStatus(status: string): { label: string; tone: string } {
-  return MESSAGE_STATUS[status] ?? { label: status ? status[0].toUpperCase() + status.slice(1).replace(/_/g, " ") : "Unknown", tone: "" };
+  return own(MESSAGE_STATUS, status) ?? { label: status ? status[0].toUpperCase() + status.slice(1).replace(/_/g, " ") : "Unknown", tone: "" };
 }
 
 /** formatProps pretty-prints an event's props JSON ("" for none). */

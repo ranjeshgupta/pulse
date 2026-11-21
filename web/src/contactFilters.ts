@@ -148,6 +148,8 @@ export const MENU_SUGGESTIONS: { id: string; label: string; hint: string; words:
 
 /** periodPresets: quick date ranges for period: (UTC days, today included). */
 export function periodPresets(today: string): { value: string; label: string }[] {
+  // An unreadable "today" falls back to the real one: toISOString throws on an invalid date.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today ?? "") || Number.isNaN(Date.parse(today))) today = new Date().toISOString().slice(0, 10);
   const day = (n: number) => new Date(Date.parse(today) - n * 86_400_000).toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 8)}01`;
   return [
@@ -188,7 +190,7 @@ export function suggest(input: string, d: SuggestData, max = 8): Suggestion[] {
   if (!KEYS.has(key)) return [];
   const partial = word.slice(colon + 1).replace(/"/g, "");
   const p = partial.toLowerCase();
-  const match = (s: string) => s.toLowerCase().includes(p);
+  const match = (s: string | null | undefined) => String(s ?? "").toLowerCase().includes(p); // a teammate may have no name
   const chip = (value: string, label: string, hint?: string): Suggestion => ({ label, hint, chip: chipToken(key === "list" ? "segment" : key, value) });
   switch (key) {
     case "is":

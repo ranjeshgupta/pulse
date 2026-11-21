@@ -32,8 +32,10 @@ export function addPeriods(t: Date, period: Period, n: number): Date {
  * before the current one, to now rounded down to the minute (so the request stays the same while
  * you edit). */
 export function lastBounds(period: Period, n: number, now = new Date()): { from: string; to: string } {
-  const to = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
-  const from = addPeriods(periodStart(to, period), period, -(n - 1));
+  const t = Number.isNaN(now.getTime()) ? Date.now() : now.getTime();
+  const to = new Date(Math.floor(t / 60_000) * 60_000);
+  const count = Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), MAX_COHORTS) : 1; // toISOString throws on an invalid date
+  const from = addPeriods(periodStart(to, period), period, -(count - 1));
   return { from: from.toISOString(), to: to.toISOString() };
 }
 

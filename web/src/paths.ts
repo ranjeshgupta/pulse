@@ -16,6 +16,10 @@ export interface FlowBand { from: string; to: string; value: number; d: string; 
 /** layout positions nodes and bands in a w × h box. reverse puts step 0 on the right (paths that end at an event). */
 export function layout(links: PathLink[], steps: number, anchor: string, w = 1000, h = 420, reverse = false): { nodes: FlowNode[]; bands: FlowBand[] } {
   // Column values: col 0 holds the anchor; col k+1 holds what step k led to.
+  steps = Number.isInteger(steps) && steps > 0 ? Math.min(steps, 100) : 0;
+  // Links outside the columns (a step below 0 or past steps, or no count) are left out rather than
+  // crashing on a missing column or drawing NaN-wide bands.
+  links = (links ?? []).filter((l) => Number.isInteger(l.step) && l.step >= 0 && l.step <= steps && Number.isFinite(l.people));
   const cols: Map<string, number>[] = Array.from({ length: steps + 1 }, () => new Map());
   for (const l of links) {
     const name = l.to || STOPPED;

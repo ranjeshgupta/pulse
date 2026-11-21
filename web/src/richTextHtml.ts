@@ -2,6 +2,8 @@
 // editor can't keep this HTML" check, and the wrapper rich-text emails and pages are saved in.
 // They need a DOM parser (the browser's, or happy-dom in tests) but no editor.
 
+import { dict } from "./safe";
+
 // ---------- links ----------
 
 /** Schemes that run code or smuggle documents: never allowed in an authored link or image. */
@@ -14,10 +16,14 @@ const IGNORED_IN_SCHEME = /[\u0000-\u0020\u007f-\u009f\u00a0\u1680\u180e\u2000-\
 /** Decodes the character references an HTML attribute could hide a scheme behind (&#106;avascript:). */
 function decodeRefs(s: string): string {
   return s
-    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => codePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);?/g, (_, d) => codePoint(Number(d)))
     .replace(/&(tab|newline|colon);/gi, (_, n: string) => ({ tab: "\t", newline: "\n", colon: ":" })[n.toLowerCase()] ?? "");
 }
+
+/** codePoint is the character for a numeric reference; one past U+10FFFF (&#99999999;) is U+FFFD, as
+ * browsers read it, where String.fromCodePoint would throw. */
+const codePoint = (n: number) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "\ufffd");
 
 /** isSafeUrl: false for javascript:, vbscript:, data: and file: URLs, however they're disguised. */
 export function isSafeUrl(url: string): boolean {
@@ -82,24 +88,25 @@ const HEADINGS = ["h1", "h2", "h3", "h4", "h5", "h6"];
 const ALIGN = /^(left|center|right|justify)$/;
 
 /** The style properties the editor writes and reads back, per element. Anything else is dropped. */
-const STYLES: Record<string, (prop: string, value: string) => boolean> = {
+// (Both maps have no prototype: a pasted <constructor> element is unknown, not Object's constructor.)
+const STYLES: Record<string, (prop: string, value: string) => boolean> = dict({
   p: (p, v) => p === "text-align" && ALIGN.test(v),
   span: (p) => p === "color" || p === "background-color",
   img: (p, v) => (p === "max-width" && v === "100%") || (p === "height" && v === "auto"),
   table: (p) => p === "width" || p === "min-width",
   col: (p) => p === "width" || p === "min-width",
   td: (p, v) => (p === "text-align" && ALIGN.test(v)) || p === "width" || p === "min-width",
-};
+});
 for (const h of HEADINGS) STYLES[h] = STYLES.p;
 STYLES.th = STYLES.td;
 
 /** The elements the editor keeps, with the attributes (besides style) it keeps on each. */
-const ELEMENTS: Record<string, string[]> = {
+const ELEMENTS: Record<string, string[]> = dict({
   p: [], br: [], hr: [], div: [], strong: [], b: [], em: [], i: [], u: [], s: [], strike: [], del: [], code: [], pre: [],
   span: [], a: ["href", "target", "rel", "title", "class"], ul: [], ol: ["start", "type"], li: [], blockquote: [],
   img: ["src", "alt", "title", "width", "height"],
   table: [], colgroup: [], col: [], thead: [], tbody: [], tr: [], td: ["colspan", "rowspan", "colwidth"], th: ["colspan", "rowspan", "colwidth"],
-};
+});
 for (const h of HEADINGS) ELEMENTS[h] = [];
 
 /** Containers whose text must sit in a child: a template tag between table rows, say. */
