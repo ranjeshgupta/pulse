@@ -124,12 +124,21 @@ type Report struct {
 	Revenue *RevenueReport `json:"revenue,omitempty"`
 	// Late: contacts whose message was dropped by the send deadline (counted in Failed too).
 	Late uint64 `json:"late"`
+	// Holdout: the campaign's control group (kept back on purpose) and how many of them converted
+	// anyway, for the uplift (broadcasts with a conversion event).
+	Holdout *Holdout `json:"holdout,omitempty"`
 	// M4: why messages failed, bounced, were skipped or complained about (contacts per reason
 	// code), overall and per journey step; Targeted: contacts with any outcome.
 	Reasons       []ReasonCount            `json:"reasons"`
 	ReasonsByNode map[string][]ReasonCount `json:"reasons_by_node,omitempty"`
 	Targeted      uint64                   `json:"targeted"`
 	Funnel        Funnel                   `json:"funnel"`
+}
+
+// Holdout is a campaign's control group in its report.
+type Holdout struct {
+	Contacts  uint64 `json:"contacts"`
+	Converted uint64 `json:"converted"`
 }
 
 // RevenueReport is the revenue of a broadcast's or journey's recipients: revenue events they did
@@ -185,6 +194,21 @@ func (s *Store) MessageReport(ctx context.Context, sc Scope, conversionEvent str
 		}
 	}
 
+	if conversionEvent != "" && conversionDays > 0 {
+		w, args := sc.Where()
+		var n uint64
+		if err := s.conn.QueryRow(ctx, "SELECT uniqExact(contact_id) FROM message_events WHERE "+w+
+			" AND kind = 'suppressed' AND reason_code = 'holdout'", args...).Scan(&n); err != nil {
+			return rep, err
+		}
+		if n > 0 {
+			conv, err := s.conversionsOf(ctx, sc, conversionEvent, conversionDays, "''", "kind = 'suppressed' AND reason_code = 'holdout'")
+			if err != nil {
+				return rep, err
+			}
+			rep.Holdout = &Holdout{Contacts: n, Converted: conv[""]}
+		}
+	}
 	if rep.Late, err = s.lateCount(ctx, sc); err != nil {
 		return rep, err
 	}
@@ -227,11 +251,17 @@ func (s *Store) MessageReport(ctx context.Context, sc Scope, conversionEvent str
 // conversions counts recipients who did ev within days of their send, grouped by key ("”" for
 // one total, "variant" per A/B variant).
 func (s *Store) conversions(ctx context.Context, sc Scope, ev string, days int, key string) (map[string]uint64, error) {
+	return s.conversionsOf(ctx, sc, ev, days, key, "kind = 'sent'")
+}
+
+// conversionsOf is conversions for the contacts matching who (a message_events condition): the
+// recipients, or a control group (anchored on when they were kept back).
+func (s *Store) conversionsOf(ctx context.Context, sc Scope, ev string, days int, key, who string) (map[string]uint64, error) {
 	w, args := sc.Where()
 	q := `
 		SELECT k, uniqExact(m.contact_id)
 		FROM (SELECT contact_id, ` + key + ` AS k, min(ts) AS sent_at FROM message_events
-		      WHERE ` + w + ` AND kind = 'sent' GROUP BY contact_id, k) AS m
+		      WHERE ` + w + ` AND ` + who + ` GROUP BY contact_id, k) AS m
 		INNER JOIN (SELECT contact_id, ts FROM events WHERE tenant_id = ? AND name = ?) AS e ON e.contact_id = m.contact_id
 		WHERE e.ts >= m.sent_at AND e.ts < m.sent_at + toIntervalDay(?)
 		GROUP BY k`

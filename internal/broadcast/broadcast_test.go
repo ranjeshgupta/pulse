@@ -352,3 +352,25 @@ func TestPacedAt(t *testing.T) {
 		t.Error("speed limits")
 	}
 }
+
+func TestHoldoutAndControlGroup(t *testing.T) {
+	b := model.Broadcast{ID: 7, HoldoutPercent: 10}
+	n := 0
+	for c := uint32(1); c <= 10000; c++ {
+		if InHoldout(b, c) {
+			n++
+		}
+		if InHoldout(b, c) != InHoldout(b, c) {
+			t.Fatal("not stable")
+		}
+	}
+	if n < 800 || n > 1200 {
+		t.Errorf("10%% holdout kept back %d of 10,000", n)
+	}
+	if InHoldout(model.Broadcast{ID: 7}, 5) || InControlGroup(1, 5, 0) {
+		t.Error("0% keeps nobody back")
+	}
+	if ValidateSpeed(model.Broadcast{HoldoutPercent: 60}) == nil {
+		t.Error("holdout over 50% passed")
+	}
+}

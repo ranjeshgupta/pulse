@@ -415,6 +415,8 @@ export interface Broadcast {
   topic?: string;
   /** At most this many messages an hour (0: as fast as possible). */
   send_per_hour?: number;
+  /** The campaign's control group: this share of the audience is kept back to measure the uplift. */
+  holdout_percent?: number;
   start_at: string; end_at?: string | null; repeat: Repeat; next_run_at?: string | null;
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;
@@ -444,6 +446,8 @@ export interface MessageCounts {
 }
 export interface MessageReport {
   totals: MessageCounts;
+  /** The campaign's control group and how many of them converted anyway (with a conversion event). */
+  holdout?: { contacts: number; converted: number };
   by_variant?: Record<string, MessageCounts>; // broadcasts; "winner" is the winner's send to everyone else
   by_run?: Record<string, MessageCounts>; // broadcasts, keyed by run (unix seconds of its scheduled time)
   by_node?: Record<string, MessageCounts>; // journeys, keyed by step id
@@ -728,7 +732,7 @@ export interface AutomationSettings {
   retention: AutomationRetention;
   retries: { attempts: number; max_backoff_seconds: number };
   schedules: { sweep_minutes: number; reach_rebuild_hour: number; daily_segment_at: string; daily_segment_tz: string };
-  messages: { inbox_expiry_days: number };
+  messages: { inbox_expiry_days: number; control_percent?: number };
   default_limits: Record<string, ProviderLimits> | null;
   /** Bounce rules per channel (email, sms, whatsapp, rcs). */
   bounces?: Record<string, ChannelBounces>;

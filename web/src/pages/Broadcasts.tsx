@@ -7,13 +7,13 @@ import {
   type Segment, type Template,
 } from "../api";
 import { TemplateActions } from "../messagePreview";
-import { deadlineProblem } from "../campaigns";
+import { deadlineProblem, uplift } from "../campaigns";
 import { AudienceEstimate, DeadlineFields, DuplicateButton, TagEditor } from "../campaignUI";
 import { SegmentPicker } from "./InApp";
 import { money } from "../insights";
 import { CountsTable, DailyBars, metricsFor, ReportFigures, ReportPanel, TopLinks, type CountsRow } from "../reports";
 import { FunnelPanel, ReasonsPanel } from "../funnel";
-import { FUNNEL_OUTCOME, outcomeFilters } from "../contactLinks";
+import { FUNNEL_OUTCOME, outcomeFilters, type ContactFilter } from "../contactLinks";
 import { ContactCount } from "../ContactCount";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
@@ -311,6 +311,12 @@ export function BroadcastEdit() {
             </div>
           </Field>
         </div>
+        <Field label="Control group" hint="Keep some of the audience back — the same people every run — and compare their conversions with the recipients'. Needs the conversion event above.">
+          <select className="select" style={{ maxWidth: 360 }} value={b.holdout_percent ?? 0} onChange={(e) => set({ holdout_percent: Number(e.target.value) })}>
+            {[0, 5, 10, 15, 20, 30, 50].map((p) => <option key={p} value={p}>{p === 0 ? "None: everyone gets it" : `Keep back ${p}% to measure the effect`}</option>)}
+          </select>
+        </Field>
+        {(b.holdout_percent ?? 0) > 0 && !b.conversion_event?.trim() && <div className="alert info">Choose a conversion event above, or the control group can't show the campaign's effect.</div>}
         <datalist id="broadcast-event-names">{events.data?.names.map((n) => <option key={n} value={n} />)}</datalist>
         <h3 style={{ margin: "18px 0 12px" }}>Who it reaches now</h3>
         {b.segment_id ? <div style={{ maxWidth: 560 }}><AudienceEstimate include={[b.segment_id, ...(b.include_segment_ids ?? [])]} exclude={b.exclude_segment_ids ?? []} channel={b.channel} /></div> : <p className="small muted">Choose who receives it.</p>}
@@ -450,6 +456,7 @@ function BroadcastResults({ id, bc, runs, templates }: { id: string; bc: Broadca
       {r && (
         <>
           <ReportFigures totals={r.totals} keys={keys} link={(k) => outcome(k)} />
+          {r.holdout && <UpliftPanel r={r} event={bc.conversion_event ?? ""} link={outcomeFilters("broadcast", Number(id), "skipped", { reason: "holdout" })} />}
           {r.revenue && (
             <div className="figures" style={{ marginTop: 0, marginBottom: 18 }}>
               <div><strong>{money(r.revenue.revenue, r.revenue.currency)}</strong><span>revenue from recipients <small>({r.revenue.event} within {r.revenue.days} days of their send)</small></span></div>
@@ -513,5 +520,20 @@ function BroadcastTags({ id, tags }: { id: string; tags: string[] }) {
       <TagEditor value={tags} onChange={(t) => save.mutate(t)} />
       <ErrorNote error={save.error} />
     </section>
+  );
+}
+
+/** UpliftPanel: recipients' conversion rate against the control group's — the campaign's own effect. */
+function UpliftPanel({ r, event, link }: { r: MessageReport; event: string; link: ContactFilter[] }) {
+  const h = r.holdout!;
+  const u = uplift(r.totals.sent, r.totals.converted, h.contacts, h.converted);
+  if (!u) return null;
+  const good = u.points > 0;
+  return (
+    <div className={`alert ${good ? "ok" : "info"}`} style={{ margin: "0 0 24px" }}>
+      <strong>{good ? "📈" : "📊"} Uplift: {u.points >= 0 ? "+" : ""}{u.points.toFixed(1)} points</strong> — recipients did {event} {(u.sentRate * 100).toFixed(1)}% of the time,
+      the control group (<ContactCount value={h.contacts} live filters={link} /> people kept back) {(u.heldRate * 100).toFixed(1)}%.
+      {good ? <> About <strong>{u.extra.toLocaleString("en-IN")}</strong> conversions came from the campaign itself.</> : <> So far the campaign hasn't beaten doing nothing.</>}
+    </div>
   );
 }

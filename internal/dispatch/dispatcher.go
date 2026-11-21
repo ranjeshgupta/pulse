@@ -230,6 +230,16 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	if t.Channel != m.Channel {
 		return d.finish(ctx, sentKey, m, c, "failed", fmt.Sprintf("template %d is a %s template", t.ID, t.Channel))
 	}
+	// Control groups: the campaign's (to measure its uplift) and the workspace's (no marketing at
+	// all). Transactional templates and test sends always go.
+	if !t.Transactional && !strings.HasPrefix(m.ID, "test:") {
+		if m.Holdout {
+			return d.finish(ctx, sentKey, m, c, "suppressed", reasons.HoldoutReason)
+		}
+		if (m.BroadcastID != 0 || m.JourneyID != 0) && broadcast.InControlGroup(m.TenantID, c.ID, d.automation(ctx, m.TenantID).Messages.ControlPercent) {
+			return d.finish(ctx, sentKey, m, c, "suppressed", reasons.ControlGroupReason)
+		}
+	}
 	// A paced campaign spreads its sends (its sending speed).
 	if m.NotBefore != nil && m.NotBefore.After(d.now()) {
 		return d.holdUntil(ctx, m, c, *m.NotBefore, "speed", "sends at "+m.NotBefore.UTC().Format("15:04 UTC")+": the campaign's sending speed")

@@ -193,8 +193,15 @@ export function AutomationSettingsPage() {
           <Row label="App inbox expiry" def={formatDays(def.messages.inbox_expiry_days)} help={<>How long an inbox message stays when its template doesn't say.{range("messages.inbox_expiry_days")}</>}>
             <div className="row">
               <input className="input inline num-input" type="number" min={1} max={365} aria-label="Inbox expiry days" value={cur.messages.inbox_expiry_days}
-                onChange={(e) => set((s) => ({ ...s, messages: { inbox_expiry_days: Math.trunc(Number(e.target.value) || 0) } }))} />
+                onChange={(e) => set((s) => ({ ...s, messages: { ...s.messages, inbox_expiry_days: Math.trunc(Number(e.target.value) || 0) } }))} />
               <span className="xs muted">days</span>
+            </div>
+          </Row>
+          <Row label="Workspace control group" def="0% (off)" help={<>This share of all contacts gets no marketing messages at all — always the same people — so you can compare them with everyone else and see what your marketing adds. Transactional templates and tests still go. Campaign reports list them as "Kept back: workspace control group".{range("messages.control_percent")}</>}>
+            <div className="row">
+              <input className="input inline num-input" type="number" min={0} max={20} aria-label="Workspace control group percent" value={cur.messages.control_percent ?? 0}
+                onChange={(e) => set((s) => ({ ...s, messages: { ...s.messages, control_percent: Math.trunc(Number(e.target.value) || 0) } }))} />
+              <span className="xs muted">% of contacts</span>
             </div>
           </Row>
         </Panel>

@@ -78,3 +78,13 @@ describe("sending speed", () => {
     expect(speedProblem(500)).toBeNull();
   });
 });
+
+import { uplift } from "./campaigns";
+describe("uplift", () => {
+  it("compares recipients with the control group", () => {
+    const u = uplift(1000, 80, 100, 5)!;
+    expect(u.points).toBeCloseTo(3);
+    expect(u.extra).toBe(30);
+    expect(uplift(0, 0, 10, 1)).toBeNull();
+  });
+});

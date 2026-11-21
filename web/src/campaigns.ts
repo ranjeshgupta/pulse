@@ -165,3 +165,10 @@ export function stepProblem(s: WizardState, step: WizardStep, content: { subject
       return null;
   }
 }
+
+/** uplift compares recipients' conversion rate with the control group's: points and extra conversions. */
+export function uplift(sent: number, converted: number, held: number, heldConverted: number): { sentRate: number; heldRate: number; points: number; extra: number } | null {
+  if (!sent || !held) return null;
+  const sentRate = converted / sent, heldRate = heldConverted / held;
+  return { sentRate, heldRate, points: (sentRate - heldRate) * 100, extra: Math.round((sentRate - heldRate) * sent) };
+}

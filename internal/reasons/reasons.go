@@ -39,6 +39,8 @@ const (
 	Timeout          = "timeout"           // the provider didn't answer in time (after every retry)
 	ProviderError    = "provider_error"    // the provider failed (5xx, network) after every retry
 	Unknown          = "unknown"           // recorded before reason codes existed, or not classifiable
+	Holdout          = "holdout"           // kept back: the campaign's control group (to measure its effect)
+	ControlGroup     = "control_group"     // kept back: the workspace's control group (no marketing at all)
 )
 
 var labels = map[string]string{
@@ -50,12 +52,13 @@ var labels = map[string]string{
 	ProviderAuth: "Provider credentials refused", ProviderRejected: "Rejected by the provider",
 	SpamPolicy: "Provider spam / frequency policy", RateLimited: "Provider rate limit", Timeout: "Provider timed out",
 	ProviderError: "Provider error", Unknown: "Not recorded",
+	Holdout: "Kept back: campaign control group", ControlGroup: "Kept back: workspace control group",
 }
 
 // Codes lists every code, in the order reports show them.
 var Codes = []string{InvalidNumber, InvalidEmail, NoAddress, NotOnChannel, Blocked, InvalidToken, HardBounce, SoftBounce,
 	Complaint, Consent, BouncedBefore, Capped, Deadline, MissingValue, Template, NoProvider, ProviderAuth, ProviderRejected,
-	SpamPolicy, RateLimited, Timeout, ProviderError, Unknown}
+	SpamPolicy, RateLimited, Timeout, ProviderError, Unknown, Holdout, ControlGroup}
 
 // Label is a code's name for people ("" and unknown codes read "Not recorded").
 func Label(code string) string {
@@ -72,10 +75,11 @@ func Valid(code string) bool { _, ok := labels[code]; return ok }
 var skipGroup = map[string]string{
 	Consent: "consent", BouncedBefore: "consent", NoAddress: "reachability", NotOnChannel: "reachability",
 	InvalidToken: "reachability", Capped: "cap", MissingValue: "missing_value", Deadline: "deadline",
+	Holdout: "control", ControlGroup: "control",
 }
 
 // SkipGroup is the funnel group of a code that means the message was skipped rather than tried
-// (consent, reachability, cap, missing_value, deadline), or "".
+// (consent, reachability, cap, missing_value, deadline, control), or "".
 func SkipGroup(code string) string { return skipGroup[code] }
 
 // Bounce types: what a failed message says about the contact's address on that channel, the same
@@ -159,7 +163,12 @@ var (
 func Classify(ch, outcome, reason string) string {
 	switch outcome {
 	case "suppressed":
-		if strings.Contains(reason, "bounced") {
+		switch {
+		case strings.HasPrefix(reason, HoldoutReason):
+			return Holdout
+		case strings.HasPrefix(reason, ControlGroupReason):
+			return ControlGroup
+		case strings.Contains(reason, "bounced"):
 			return BouncedBefore
 		}
 		return Consent
@@ -257,3 +266,9 @@ func isTimeout(s string) bool {
 	s = strings.ToLower(s)
 	return strings.Contains(s, "timeout") || strings.Contains(s, "timed out") || strings.Contains(s, "deadline exceeded")
 }
+
+// The dispatcher's reasons for messages kept back on purpose (Classify reads them).
+const (
+	HoldoutReason      = "kept back: the campaign's control group"
+	ControlGroupReason = "kept back: the workspace's control group"
+)

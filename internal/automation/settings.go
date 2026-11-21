@@ -92,6 +92,10 @@ type Schedules struct {
 type Messages struct {
 	// InboxExpiryDays: how long an app inbox message stays when its template doesn't say.
 	InboxExpiryDays int `json:"inbox_expiry_days"`
+	// ControlPercent is the workspace's control group (O6): this share of contacts (0–20 %, picked
+	// by a hash of the contact, so always the same people) gets no marketing messages, so the
+	// difference campaigns make overall can be measured. Transactional templates still go.
+	ControlPercent int `json:"control_percent"`
 }
 
 // Today's behaviour, before these settings existed.
@@ -229,6 +233,7 @@ var Limits = map[string]Limit{
 	"schedules.sweep_minutes":         {1, 1440, true},
 	"schedules.reach_rebuild_hour":    {-1, 23, false},
 	"messages.inbox_expiry_days":      {1, 365, false},
+	"messages.control_percent":        {0, 20, false},
 	"default_limits.rate_per_second":  {0, 100000, false},
 	"default_limits.daily_quota":      {0, 1000000000, false},
 }
@@ -264,7 +269,7 @@ func (s *Settings) Validate() error {
 		{"retention.sandbox_days", r.SandboxDays}, {"retention.live_feed_size", r.LiveFeedSize},
 		{"retries.attempts", s.Retries.Attempts}, {"retries.max_backoff_seconds", s.Retries.MaxBackoffSeconds},
 		{"schedules.sweep_minutes", s.Schedules.SweepMinutes}, {"schedules.reach_rebuild_hour", s.Schedules.ReachRebuildHour},
-		{"messages.inbox_expiry_days", s.Messages.InboxExpiryDays},
+		{"messages.inbox_expiry_days", s.Messages.InboxExpiryDays}, {"messages.control_percent", s.Messages.ControlPercent},
 	}
 	if r.MessageEventDays != nil {
 		ints = append(ints, struct {
