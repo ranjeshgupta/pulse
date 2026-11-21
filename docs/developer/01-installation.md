@@ -180,13 +180,15 @@ and `internal/config/config.go`. For production, set at least:
 | Variable | Why |
 |---|---|
 | `PULSE_SECRET_KEY` | 64 hex characters (`openssl rand -hex 32`). Encrypts stored credentials (SSO client secrets, provider and integration credentials, email webhook signing keys, cached provider tokens, bounce mailbox passwords), SSO state, tracking links, message references, AMP post-back links and download links. Without it SSO and stored provider credentials don't work, and emails go out without open and click tracking. **Keep it in a secret store and back it up**: if it's lost, everything encrypted with it has to be entered again. Don't reuse the dev key from `deploy/docker-compose.yml` |
-| `PULSE_PUBLIC_URL` | The `https://` address people use, e.g. `https://pulse.example.com`. Used for SSO redirects, tracking, unsubscribe and webhook links; `https` also makes the session cookie `Secure` |
-| `PULSE_PAGES_URL` | A **separate origin** for landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`), ideally on its own registrable domain, e.g. `https://acme-pages.example` next to `https://pulse.example.com`. Content your users write then never shares an origin or cookies with the app. See [Two origins](#two-origins-public_url-and-pages_url) |
+| `PULSE_PUBLIC_URL` | The `https://` address people use, e.g. `https://pulse.example.com`. Used for SSO redirects, tracking, unsubscribe and webhook links. With `https` the session cookie is `__Host-pulse_session` (`Secure`, valid for this host only) and every answer carries `Strict-Transport-Security`, so serve the whole host over https |
+| `PULSE_PAGES_URL` | A **separate origin** for landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`), ideally on its own registrable domain, e.g. `https://acme-pages.example` next to `https://pulse.example.com`. Content your users write then never shares an origin or cookies with the app. Without it, `api` logs a warning at start. See [Two origins](#two-origins-public_url-and-pages_url) |
 | `PULSE_PG_DSN`, `PULSE_CH_*`, `PULSE_REDIS_ADDR`, `PULSE_KAFKA_BROKERS` | Where the data services are. Use `sslmode=require` (or `verify-full`) in the Postgres DSN when it crosses a network |
 | `PULSE_SMTP_ADDR`, `PULSE_SMTP_FROM` | The SMTP relay for workspaces without an email provider of their own, and its default sender (whose domain may also send AMP emails that post back) |
-| `PULSE_ALLOW_SIGNUP` | Off (`false`) by default, so strangers can't create workspaces; create them with `PULSE_ADMIN_TOKEN` instead (below). Turn it on only behind a CAPTCHA (for example at your reverse proxy) or on a private network |
+| `PULSE_ALLOW_SIGNUP` | Off (`false`) by default, so strangers can't create workspaces; create them with `PULSE_ADMIN_TOKEN` instead (below). Turn it on only behind a CAPTCHA (for example at your reverse proxy) or on a private network. When on, `PULSE_SIGNUP_RATE` (default 5) caps sign-ups per client IP a minute |
 | `PULSE_ADMIN_TOKEN` | A long random value (`openssl rand -hex 32`) for `POST /v1/tenants`; leave it unset to turn that route off |
 | `PULSE_TRUST_PROXY=true` | Only when Pulse is reachable **only** through your reverse proxy: then client IPs (rate limits, audit log) come from `X-Forwarded-For` |
+| `PULSE_TRUST_CLOUDFLARE=true` | Only behind Cloudflare, together with `PULSE_TRUST_PROXY`, **and** with your origin's firewall accepting only [Cloudflare's IP ranges](https://www.cloudflare.com/ips/): client IPs then come from `CF-Connecting-IP`. See [Behind Cloudflare](#behind-cloudflare) |
+| `PULSE_CH_QUERY_TIMEOUT`, `PULSE_CH_QUERY_MAX_MEMORY` | Bounds on each ClickHouse query an API request runs (default 60 s, exports exempt; 4 GiB). Raise them only if real reports need more |
 
 Keep `PULSE_ALLOW_PRIVATE_SSO` and `PULSE_ALLOW_PRIVATE_WEBHOOKS` off (the default) unless you know
 you need them: they let workspace admins make Pulse call addresses on your internal network. The
@@ -195,8 +197,9 @@ dev compose file turns them on for the local Keycloak and the end-to-end tests.
 In each workspace that tracks a website or app, turn on **Require verified identity for web events**
 (Settings → Sign-in & keys → Identity verification) once your site sends the identity hash; see
 [identity verification](04-web-sdk.md#identity-verification). The site key is public, so without it
-anyone can send browser events as one of your known users, including `identify` calls that change
-that contact's fields such as email and phone.
+anyone can send browser events as one of your known users. Such unverified events can't change an
+existing contact's email, phone or identity key fields (Pulse drops them), but they can still set
+other attributes, record events and start campaigns on that contact.
 
 ### Build the image
 
@@ -210,9 +213,10 @@ returns `{"status":"ok"}`. Logs are JSON lines on stdout.
 
 ### Option A: one server with Docker Compose
 
-**Never run `deploy/docker-compose.yml` on a server.** It is for local development only: it publishes
-every data service's port, uses published default passwords, a public secret key and admin token,
-and turns on settings that let Pulse call private addresses. A production compose file will be added
+**Never run `deploy/docker-compose.yml` on a server.** It is for local development only: it uses
+published default passwords, a public secret key and admin token, allows public sign-up, and turns on
+settings that let Pulse call private addresses. Its ports are bound to `127.0.0.1`, so they aren't
+reachable from other machines, but that is no reason to run it anywhere else. A production compose file will be added
 under `deploy/` later. Until then, write your own (e.g. `/srv/pulse/compose.yml`, outside the
 repository), using the dev file only as a reference for the service definitions, with these
 changes:
@@ -382,6 +386,19 @@ Set `PULSE_TRUST_PROXY=true` only when Pulse can't be reached except through thi
 `127.0.0.1:7070` binding above does that): Pulse then takes the client IP from the right-most
 `X-Forwarded-For` entry, the one your proxy appended.
 
+Over https Pulse sends `Strict-Transport-Security: max-age=31536000; includeSubDomains`, so browsers
+then refuse plain http for that host and its subdomains for a year. Serve every subdomain of the
+app's host over https before you go live.
+
+#### Behind Cloudflare
+
+With Cloudflare in front of your proxy, the right-most `X-Forwarded-For` entry is a Cloudflare
+address, not the visitor's. Set `PULSE_TRUST_CLOUDFLARE=true` (with `PULSE_TRUST_PROXY=true`) so
+Pulse reads the client IP from `CF-Connecting-IP`. Do this only when your origin's firewall accepts
+connections on 80/443 from [Cloudflare's IP ranges](https://www.cloudflare.com/ips/) alone:
+anyone who can reach the origin directly could otherwise send that header and pick any IP, getting
+around per-IP rate limits and writing a false IP into the audit log.
+
 ### Two origins: PUBLIC_URL and PAGES_URL
 
 With `PULSE_PAGES_URL` set, the pages host serves only landing pages (`/p/`), asset downloads
@@ -453,6 +470,12 @@ to repeat and run on every `migrate`.
 
 Events that arrive during the restart wait in Kafka and are processed when the roles are back.
 
+Upgrading across migration `042_security_hardening` (sessions idle timeout, the SSO
+`idp_verifies_email` switch) and the session cookie rename signs everyone out once over https.
+After it, an SSO identity provider whose ID tokens leave out `email_verified` refuses every SSO
+sign-in until an admin ticks **Identity provider verifies email addresses** in the workspace's
+single sign-on settings (only if the provider really does verify them).
+
 ### Dead-letter topics and replaying them
 
 A provider outage doesn't need you: `dispatch` retries a message that failed temporarily (network
@@ -486,7 +509,9 @@ is skipped by its idempotency key.
 | `make up` fails with "port is already allocated" | Another program uses one of the [ports](#ports-used-on-your-machine). Change the host side of that `ports:` entry |
 | Pulse keeps restarting | `make logs`. A data service isn't healthy (`make ps`), or a setting is wrong: `geoip database …` (bad `PULSE_GEOIP_DB` path), a Postgres/ClickHouse error (address or password) |
 | `http://localhost:7080` doesn't answer right after `make up` | Pulse starts only once Kafka, ClickHouse, Postgres and Redis are healthy; that takes up to a minute on the first start |
-| Signing in seems to work but you're sent back to the sign-in page | `PULSE_PUBLIC_URL` is `https://…` (so the cookie is `Secure`) but you opened Pulse over `http://`, or the reverse proxy changes the host. Use the public address |
+| Signing in seems to work but you're sent back to the sign-in page | `PULSE_PUBLIC_URL` is `https://…` (so the cookie is the `Secure`, host-only `__Host-pulse_session`) but you opened Pulse over `http://`, or the reverse proxy changes the host. Use the public address |
+| Everyone was signed out after an upgrade | Over https the session cookie is now `__Host-pulse_session` and the old `pulse_session` name isn't read, so sessions from before the upgrade end once. Sessions also end after 7 days without use |
+| A request answers 429 with `Retry-After: 60` | An expensive report, export or customer-value run hit its per-workspace limit for the minute ([limits](02-configuration.md#limits-fixed-in-the-code)); wait a minute |
 | "too many attempts, try again later" when signing in | 10 attempts per workspace and email within 15 minutes; wait, or check the workspace ID |
 | Sign-in asks for a code and the phone is lost | Enter one of the recovery codes in the code box, or ask an admin to use **Reset two-step** on Settings → Team; the person sets it up again at the next sign-in if the workspace requires it |
 | The sign-in code step answers 503, "two-step sign-in needs the server's secret key" | `PULSE_SECRET_KEY` isn't set on the `api` role: the authenticator secrets are sealed with it. Set it (the same key as before) and restart |

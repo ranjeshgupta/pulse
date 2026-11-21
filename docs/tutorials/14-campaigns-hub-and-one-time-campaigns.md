@@ -334,6 +334,10 @@ template or content block that a scheduled or running campaign (or an active tri
 sends is refused, with the campaigns named. Pause them, make the change, then ask for approval
 again.
 
+Deleting a template that a live campaign sends is refused whether four-eyes is on or not, with the
+campaigns named: pause or finish them first. And a triggered campaign that is archived while its
+approval is pending can't be approved; restore it and ask again.
+
 ## 11. The campaign calendar
 
 To see what goes out when, click **📅 Calendar** at the top of the **Campaigns** page.

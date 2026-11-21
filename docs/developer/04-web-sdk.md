@@ -158,8 +158,15 @@ verification**, your server signs each signed-in user's ID and the page passes t
 without a valid hash (403). Anonymous `anon-` visitors need no hash.
 
 Turn it on for every production site. Until **Require verified identity for web events** is ticked,
-anyone with the site key can send events as one of your known users, including `identify` calls that
-change that contact's fields such as email and phone.
+anyone with the site key can send events as one of your known users: record events, set attributes
+and start campaigns on that contact.
+
+Even then, an event without a valid hash can't change an **existing** contact's email, phone or
+identity key fields (Settings → Identity → Identity keys): Pulse drops those values and keeps
+the rest of the event, so nobody can redirect a known person's messages by sending events with their
+user ID. A **new** contact (an ID Pulse hasn't seen) and anonymous `anon-` visitors may still give an
+email or phone, so sign-up forms keep working. To have a signed-in user's own `identify` change
+their email or phone, pass the hash.
 
 ![Settings, Sign-in and keys: the Identity verification panel, with the signing secret behind a Show secret button, the Require verified identity for web events checkbox, and Replace secret](img/dev-04-identity.png)
 
@@ -266,7 +273,13 @@ audience: segments the visitor is in (or not), page address contains / doesn't c
 the page URL, the slot names on the page and the device type to `POST /v1/web/decide`; the first
 variant in order whose audience matches wins, else the default. The answer's `variants` names the
 variant chosen per slot. Journeys can also push HTML into a slot for one contact (step
-**Push dynamic content**). A slot request from a known contact is recorded as `dwc_requested`, which
+**Push dynamic content**).
+
+Slot and focus item HTML runs inside your page, so it is cleaned three times: when it is saved,
+when Pulse serves it (content saved before included), and by the SDK just before it inserts it.
+Scripts, `<object>`, `<embed>`, `<base>` and other code-carrying elements, `on…` event attributes, SVG animations
+and `javascript:`, `vbscript:` and non-image `data:` URLs are removed. Markup, styles, links and
+images stay. If a slot needs script, put it in your own page, not in the slot. A slot request from a known contact is recorded as `dwc_requested`, which
 the journey decision "Requests dynamic content" waits for. Slot names: lower-case letters, digits,
 `-` and `_`; at most 50 slots per page.
 
@@ -287,8 +300,8 @@ trigger:
 | `exit_intent` | when the mouse leaves through the top of the window |
 
 and respects the item's frequency in this browser: `once` (ever), `session`, `daily` or `always`.
-Items render in a Shadow DOM, so your CSS and theirs never mix; the body HTML is the workspace's own,
-and only `http(s)` links and images are used. The SDK records `focus_shown`, `focus_clicked` and
+Items render in a Shadow DOM, so your CSS and theirs never mix. The body HTML is the workspace's own,
+cleaned like content slots (below), and only `http(s)` links and images are used. The SDK records `focus_shown`, `focus_clicked` and
 `focus_closed` (`props.focus_id`, `how`: `button`, `backdrop` or `escape`), which the item's report
 counts. A journey's **Show focus item** step queues an item for one contact's next page view.
 

@@ -68,7 +68,9 @@ The results refresh every 30 seconds.
 
 Every answer is an event, `survey_answered`, on the contact, with the properties `nps` (the score),
 `nps_group` (`promoter`, `passive` or `detractor`), `q_<id>` for each other question, and the campaign
-the message came from. Use it like any event:
+the message came from. A person who opens the link again and changes their answer gets a new
+`survey_answered`; sending the same answer again records nothing new, so a follow-up campaign doesn't
+fire twice. Use it like any event:
 
 - **Follow up the same day.** Make a triggered campaign that starts on `survey_answered` where
   `nps_group` is `detractor`, and sends a "Sorry, how can we fix it?" email or alerts your team

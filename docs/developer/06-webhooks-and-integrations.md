@@ -88,8 +88,11 @@ like a real one, and shows your server's answer. The attempt is also listed unde
 
 ### Verifying the signature
 
-Each webhook has a signing secret (`whsec_…`), shown on its page (behind **Reveal**) and in
-`GET /v1/settings/webhooks/{id}`. Every request carries:
+Each webhook has a signing secret (`whsec_…`). It is shown in full only once: on the webhook's page
+right after you create it or click **Rotate secret** (behind **Reveal**, with **Copy**), and in the
+API answer that creates or rotates it (`"secret"`). After that, the page and
+`GET /v1/settings/webhooks/{id}` show only its last four characters. Lost it? Rotate it and copy the
+new one; the old one stops working at once. Every request carries:
 
 ```
 X-Pulse-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + raw body)>

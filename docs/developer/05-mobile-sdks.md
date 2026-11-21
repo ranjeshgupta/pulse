@@ -54,7 +54,8 @@ on real devices, not the API it talks to.
 4. **Identity verification** (recommended): your backend computes
    `hex(HMAC-SHA256(identity secret, user id))` for the signed-in user and returns it to the app,
    for example in the login response. See [Web SDK, identity verification](04-web-sdk.md#identity-verification)
-   for the secret and server-side code. The app inbox of a signed-in user always needs this hash.
+   for the secret and server-side code. The app inbox of a signed-in user always needs this hash,
+   and without it the app's events can't change an existing contact's email, phone or identity keys.
 
 ---
 

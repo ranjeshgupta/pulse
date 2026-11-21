@@ -25,7 +25,7 @@ Pulse has four kinds of credentials. Which one a route takes is listed in the
 | Credential | Looks like | Sent as | Who uses it | Acts as |
 |---|---|---|---|---|
 | **Server API key** | `pk_…` | `Authorization: Bearer pk_…` | Your servers and scripts | An admin of its workspace |
-| **Session cookie** | `pulse_session` cookie | Cookie, plus `X-Pulse-CSRF` on changes | The web app (and the screenshot scripts) | The signed-in user, limited by their role |
+| **Session cookie** | `__Host-pulse_session` (over https; `pulse_session` over plain http) | Cookie, plus `X-Pulse-CSRF` on changes | The web app (and the screenshot scripts) | The signed-in user, limited by their role |
 | **Site key** | `sk_…` | `X-Pulse-Site-Key` header or `?site_key=` | Browsers and mobile apps (SDKs) on `/v1/web/*` | Only the public SDK endpoints |
 | **Admin token** | your `PULSE_ADMIN_TOKEN` | `Authorization: Bearer …` on `POST /v1/tenants` | The platform operator | Creates workspaces |
 
@@ -54,11 +54,19 @@ working at once on the `api` instance that handled the change and within a minut
 
 ### Session cookies and CSRF
 
-The web app signs in with `POST /v1/auth/login` and then sends the `pulse_session` cookie
-(`HttpOnly`, `SameSite=Lax`, `Secure` when `PULSE_PUBLIC_URL` is `https`, 14 days). With a cookie,
-every request other than `GET` and `HEAD` must also carry an `X-Pulse-CSRF` header with any
-non-empty value; without it the answer is `403 missing X-Pulse-CSRF header`. A cross-site form can't
-set a custom header, so this stops cross-site request forgery.
+The web app signs in with `POST /v1/auth/login` and then sends the session cookie (`HttpOnly`,
+`SameSite=Lax`). When `PULSE_PUBLIC_URL` is `https` the cookie is `__Host-pulse_session`: `Secure`,
+for the whole host and no other, so a sibling subdomain can't plant or overwrite it; over https
+Pulse reads only that name. Over plain http (local development) it is `pulse_session`. A session
+lasts 14 days at most and ends after 7 days without use. Over https every answer also carries
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`.
+
+With a cookie, every request other than `GET` and `HEAD` must also carry an `X-Pulse-CSRF` header
+with any non-empty value; without it the answer is `403 missing X-Pulse-CSRF header`. A cross-site
+form can't set a custom header, so this stops cross-site request forgery. Every `POST` to
+`/v1/auth/*` (sign-in, sign-up, two-step codes) must be JSON (`Content-Type: application/json`) or
+carry `X-Pulse-CSRF`, so a cross-site form can't sign a browser in to someone else's account
+(`403` otherwise).
 
 ```bash
 curl -s -c jar -b jar -X POST $PULSE/v1/auth/login -H "Content-Type: application/json" \
@@ -72,6 +80,23 @@ curl -s -b jar -X POST $PULSE/v1/auth/logout
 (The credentials above are the local docs workspace's test values from
 [deploy/dev-seed.md](../../deploy/dev-seed.md).) Sign-in is limited to 10 attempts per workspace and
 email in 15 minutes. Use an API key, not a session, for automation.
+
+People manage their own sessions and password (a session only; the API key gets `400`):
+
+```bash
+# Change your password: the current one is checked; every other session of yours ends
+curl -s -b jar -X POST $PULSE/v1/account/password -H "X-Pulse-CSRF: 1" -H "Content-Type: application/json" \
+  -d '{"current_password":"…","new_password":"…"}'
+# 200 {"ok":true,"other_sessions_signed_out":true}
+# Sign out everywhere: every session of yours ends, this one too, and the cookie is cleared
+curl -s -b jar -X POST $PULSE/v1/account/sessions/revoke -H "X-Pulse-CSRF: 1"
+# 204
+```
+
+A wrong current password answers `403`, a new password that's too short `400`, an account that
+signs in with SSO only `400`, and more than 10 attempts an hour `429`. Turning off your own two-step
+sign-in also ends your other sessions, and an admin's **Reset two-step** ends all of that person's
+sessions.
 
 A signed-in user is limited by their role. Each route needs a **level** (view, edit or publish) in
 one **area** (contacts, segments, journeys, broadcasts, content, reports, channels, settings): reads
@@ -110,14 +135,19 @@ Codes are RFC 6238 (HMAC-SHA1, 30-second steps, 6 digits); a code from the step 
 is accepted, and each step works once. Wrong codes answer `401`; five tries per person per minute
 (then `429`), and each counts toward the sign-in limit above. The `pulse_2fa` cookie is good for
 one sign-in: it stops working once used, after an admin reset or a new phone, and setting up at
-sign-in never replaces a secret that's already on. SSO sign-ins skip all this. The secret is
+sign-in never replaces a secret that's already on. An SSO sign-in of someone who has two-step
+sign-in on also stops at the code step (`/login?two_factor=code`) before a session is made, and a
+person with a Pulse password whom the policy requires is sent to set it up
+(`/login?two_factor=setup`); accounts that sign in with SSO only are left to the identity provider. The secret is
 stored encrypted with `PULSE_SECRET_KEY`; recovery codes only as hashes. Without the key, two-step
 sign-in can't be set up or required, and people who have it can't sign in (`503`).
 
 People manage their own under `/v1/account/two-factor` (the session's user; the API key gets
 `400`). Starting a new secret while it's on, turning it off and new recovery codes need
 `{"code": "…"}` (an app or recovery code) or `{"password": "…"}`. Bodies sent to `/v1/account/*`
-are never written to the audit log.
+and `/v1/auth/*` are never written to the audit log, nor are those of the settings that carry
+credentials (providers, integrations, SSO, webhooks, web push, identity verification, bounce
+signing keys and mailboxes, the API key).
 
 ### Site key
 
@@ -172,14 +202,14 @@ it yet. Poll, as the tests do.
 | Status | Means |
 |---|---|
 | 200, 201, 202, 204 | OK, created, accepted for processing, OK with no body |
-| 400 | Invalid request; the message says what to fix. Several problems are joined with newlines |
+| 400 | Invalid request; the message says what to fix. Several problems are joined with newlines. Also a report's `tz` that ClickHouse doesn't know (`unknown time zone`) |
 | 401 | `sign in or send a valid API key` (or an invalid site key, integration key, admin token) |
-| 403 | Missing CSRF header, `your role doesn't allow this (edit access to contacts is needed)`, `only admins can change this`, or identity verification failed (`user_hash is missing or wrong…`) |
+| 403 | Missing CSRF header (or a `POST /v1/auth/*` that is neither JSON nor carries it), `your role doesn't allow this (edit access to contacts is needed)`, `only admins can change this`, or identity verification failed (`user_hash is missing or wrong…`) |
 | 404 | Not found, or in another workspace |
-| 409 | Conflict: `already exists`, a segment still used by others, an active journey being edited, a broadcast already sending, a launch or content change that the workspace's approval setting requires to go through an approval |
-| 413 | Body too large (`the request body is too large (the limit is 4 MB)`) |
-| 422 | Form values that don't validate (`/f/{key}`, `/v1/web/forms/{key}`), or an AI answer that can't be used |
-| 429 | Rate limited (sign-in, `/v1/web/*`, forms, downloads, landing pages, estimates, test sends, checks, AI help…) |
+| 409 | Conflict: `already exists`, a segment still used by others, an active journey being edited, a broadcast already sending, a launch or content change that the workspace's approval setting requires to go through an approval, deleting a template that a live campaign sends |
+| 413 | Body too large (`the request body is too large (the limit is 4 MB)`), or a text too long for AI help |
+| 422 | Form values that don't validate (`/f/{key}`, `/v1/web/forms/{key}`), or an AI answer that can't be used (refused, or too long to return whole) |
+| 429 | Rate limited (sign-in, sign-up, `/v1/web/*`, forms, downloads, landing pages, estimates, test sends, checks, AI help, expensive reports and exports, imports…). Where the wait is known, a `Retry-After` header says how many seconds |
 | 500 | `internal error` (details only in the server log) |
 | 502 | A provider, gateway or the AI service didn't answer as expected (test sends to a provider, connection tests) |
 | 503 | A dependency is down or not set up (`event bus unavailable, retry`, `analytics unavailable`). Safe to retry |
@@ -196,11 +226,18 @@ comes from the previous page and is empty on the last one. Companies page with
 `?limit=&offset=` (and return `next`, the next offset), the product catalog with `?limit=&offset=`
 (and return `total`). The audit log takes `?before=`; SDK inbox lists take `?before=<message id>`.
 
-**Rate limits.** Requests with an API key aren't rate-limited by Pulse; your throughput is bounded
-by the event bus (one machine handled 20,000 events/s in the [load test](../architecture.md#18-performance-and-the-load-test)) and by
-the per-channel send rates. Public endpoints are limited per client IP: `/v1/web/events` 600
-events/minute, form submissions 10/minute, sign-in 10 attempts per 15 minutes per workspace and
-email. Behind a proxy, set `PULSE_TRUST_PROXY` so the client IP is right.
+**Rate limits.** Events and ordinary API calls with an API key aren't rate-limited by Pulse; your
+throughput is bounded by the event bus (one machine handled 20,000 events/s in the [load test](../architecture.md#18-performance-and-the-load-test)) and by
+the per-channel send rates. Requests that run large ClickHouse queries or exports are limited per
+workspace a minute, whoever sends them (API keys included): `POST /v1/reports/run`,
+`/v1/funnels/run`, `/v1/cohorts/run` and `/v1/revenue/report` 30, `POST /v1/analytics/paths` 20,
+`POST /v1/segments/preview` 60, `POST /v1/revenue/customer-value/refresh` 2 and
+`GET /v1/contacts/export` 5. Over it they answer `429` with `Retry-After: 60`. Each such query also
+stops after `PULSE_CH_QUERY_TIMEOUT` (60 s; exports have no time limit) and may use at most
+`PULSE_CH_QUERY_MAX_MEMORY` (4 GiB). Public endpoints are limited per client IP:
+`/v1/web/events` 600 events/minute, form submissions 10/minute, sign-in 10 attempts per 15 minutes
+per workspace and email. Behind a proxy, set `PULSE_TRUST_PROXY` (and behind Cloudflare
+`PULSE_TRUST_CLOUDFLARE`) so the client IP is right.
 
 **Event names and attribute keys.** Event names: `^[a-zA-Z][a-zA-Z0-9_.:-]{0,63}$`. Attribute keys:
 `^[a-zA-Z_][a-zA-Z0-9_]{0,63}$`. Some attributes are maintained by Pulse: stage, company, owner,
@@ -656,7 +693,8 @@ curl -s -X POST "$PULSE/v1/contacts/import?list_id=9" -H "Authorization: Bearer 
   -H "Content-Type: text/csv" --data-binary @contacts.csv
 # {"rows":3,"imported":3,"skipped":0,"errors":[],"columns":["external_id","email","city"]}
 
-# Background import for large files (up to 10 GB): progress at GET /v1/imports/{id}
+# Background import for large files (up to 10 GB): progress at GET /v1/imports/{id}.
+# Per workspace: 2 imports at a time and 20 GB uploaded in 24 hours, else 429
 curl -s -X POST "$PULSE/v1/imports?filename=big.csv&list_id=9" -H "Authorization: Bearer $KEY" \
   -H "Content-Type: text/csv" --data-binary @big.csv
 # 202 {"bytes":1048576,"id":5,"status":"queued"}
@@ -824,9 +862,13 @@ nothing is sent. With `PULSE_AI_API_KEY` on the server, `/v1/ai/*` suggests subj
 (`{"content", "subject", "n"}` → `subjects`), rewrites text (`{"text", "style", "channel"}` →
 `text`), translates fields (`{"fields": {…}, "locale"}` → `fields`) and drafts a segment rule from
 a sentence (`{"description"}` → `rule`, `note`); `GET /v1/ai/status` says whether it's on. AI help
-answers 503 when it's off, 429 beyond 20 requests a minute per workspace, 422 when the answer can't
-be used, 502 when the AI service doesn't answer and 504 when it takes too long. Only the text being worked on is sent (for
-segments, attribute and event names), never contacts' data.
+answers 503 when it's off, 429 beyond 20 requests a minute or 200 a UTC day per workspace (the
+server's key pays for every call), 413 when a rewrite's text is over 60 KB or a translation's fields
+are over 120 KB as JSON (refused, never cut), 422 when the answer can't be used (refused, or too long
+to return whole), 400 for a translation `locale` that isn't a language code (`hi`, `ta`, `hi-IN`),
+502 when the AI service doesn't answer and 504 when it takes too long. Subject line ideas return
+5 by default and at most 10 (`n`). Only the text being worked on is sent (for segments, attribute
+and event names), never contacts' data.
 
 **Approvals.** When the workspace requires approvals (Automation & limits, `approvals.four_eyes`),
 changing a template or content block that a live campaign sends answers 409 for signed-in users:
@@ -900,7 +942,8 @@ Try a template before using it:
 
 ```bash
 # Render a template body (saved or not) for a real contact (omit external_id for a sample contact),
-# with sample trigger event properties (omit event for none, as in a broadcast)
+# with sample trigger event properties (omit event for none, as in a broadcast). Content view is
+# enough for the sample contact; a real contact also needs contacts view (403 otherwise)
 curl -s -X POST $PULSE/v1/templates/preview -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -d '{"template":{"channel":"email","subject":"{{event.product_name}} is waiting","html":"<p>Hi {{contact.first_name}}</p>"},
        "external_id":"cust-1001","event":{"product_name":"Brass table lamp"}}'
@@ -1235,7 +1278,8 @@ Every count in a funnel and in `reasons` has a matching contact list (see
 that don't report deliveries (plain SMTP relays, FCM, web push).
 
 Over time, by day or hour (reports view; `from` / `to` are days in `tz`, both included, default
-the last 30 days and `Asia/Kolkata`; `bucket=hour` covers at most 14 days):
+the last 30 days and `Asia/Kolkata`; `bucket=hour` covers at most 14 days; a `tz` that isn't a known
+IANA zone answers 400 `unknown time zone`):
 
 ```bash
 # A campaign's message outcomes per day (at most 120 days); journeys also entries and finishes,
@@ -1251,12 +1295,16 @@ curl -s "$PULSE/v1/templates/31/report?from=2026-10-01&to=2026-11-21" -H "Author
 **Customer value.** `GET /v1/revenue/customer-value` groups buyers by customer-value group
 (`Champions`, `Loyal`… `Lost`) and churn risk, with their revenue, average orders and days since the
 last purchase. The groups are set by a daily scoring pass; `POST /v1/revenue/customer-value/refresh`
-starts one now (202; at most every 5 minutes, 429 sooner, 409 while one runs).
+starts one now (202; at most every 5 minutes, 429 sooner, 409 while a pass runs, the daily one
+included). A buyer with no purchase left in the two-year window gets an `rfm_changed` event with
+`cleared: true` and `previous_group`, and loses `rfm_group`, `rfm_score` and `churn_risk`.
 
 **Paths.** `POST /v1/analytics/paths` `{"start": "signup", "steps": 4, "days": 30, "exclude": ["page_view"]}`
 (or `end` instead of `start`, for what people did before an event) returns `people`, the most common
 `paths` and, per step, how many people went from each event to each next one (`links`:
 `{step, from, to, people}`, `to` empty where they stopped). `steps` 1-6, `days` 1-90, at most 50 excluded events.
+Each person's path starts at their first `start` in the range (with `end`: finishes at their last),
+and only the 400 events nearest it are read.
 
 Dashboards (reports view; answers cached for a minute, at most 60 uncached answers a minute per
 workspace; `from` / `to` are UTC days, both included, at most 366 days):
@@ -1701,11 +1749,15 @@ key has it):
 ```bash
 curl -s -X POST $PULSE/v1/settings/webhooks -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -d '{"name":"Purchases to CRM","url":"https://crm.example.com/hooks/pulse","events":["purchase","segment_entered"],"active":true}'
-# 200 {"id":2}
-curl -s $PULSE/v1/settings/webhooks/2 -H "Authorization: Bearer $KEY"        # includes "secret": "whsec_…"
+# 200 {"id":2,"secret":"whsec_…"}   the full signing secret, shown only here: keep it now
+curl -s $PULSE/v1/settings/webhooks/2 -H "Authorization: Bearer $KEY"        # "secret": "••••x9Qk", "has_secret": true
 curl -s -X POST $PULSE/v1/settings/webhooks/2/test -H "Authorization: Bearer $KEY"
 # {"duration_ms":84,"ok":true,"status":200}
 ```
+
+Lists and details show only the secret's last four characters. Lost it? `PUT` the webhook with
+`"rotate_secret": true`: the answer carries the new secret in full, once, and the old one stops
+working at once.
 
 The test attempt is also listed in the webhook's `deliveries` with `"test": true` (never retried).
 
@@ -1728,8 +1780,8 @@ the path, a signature, or nothing).
 |---|---|---|---|
 | `GET` | `/healthz` | Liveness: `{"status":"ok"}` | none |
 | `POST` | `/v1/tenants` | Create a workspace without users; returns `api_key` (once) and `site_key`. Bearer `PULSE_ADMIN_TOKEN` | admin token |
-| `POST` | `/v1/auth/signup` | Create a workspace and its first admin (`workspace`, `name`, `email`, `password`) and sign in; 201 with `workspace` and `api_key` (once). 403 unless `PULSE_ALLOW_SIGNUP` | none |
-| `POST` | `/v1/auth/login` | Sign in with `workspace`, `email`, `password`; sets the `pulse_session` cookie | none |
+| `POST` | `/v1/auth/signup` | Create a workspace and its first admin (`workspace`, `name`, `email`, `password`) and sign in; 201 with `workspace` and `api_key` (once). 403 unless `PULSE_ALLOW_SIGNUP`; 429 over `PULSE_SIGNUP_RATE` | none |
+| `POST` | `/v1/auth/login` | Sign in with `workspace`, `email`, `password`; sets the session cookie (`__Host-pulse_session` over https). JSON or `X-Pulse-CSRF` only, like every `POST /v1/auth/*` | none |
 | `POST` | `/v1/auth/logout` | Sign out (deletes the session); 204 | none |
 | `GET` | `/v1/auth/me` | The caller: workspace (with `site_key`), role, permissions, and `user` for a session | signed in |
 | `GET` | `/v1/auth/sso` | Whether a workspace has SSO (`?workspace=`), for the sign-in page | none |
@@ -1743,6 +1795,8 @@ the path, a signature, or nothing).
 | `POST` | `/v1/account/two-factor/enable` | Confirm the new secret with `{"code"}`; returns `recovery_codes` once | signed in |
 | `POST` | `/v1/account/two-factor/disable` | Turn it off (`{"code"}` or `{"password"}`); 204; 403 when the workspace requires it | signed in |
 | `POST` | `/v1/account/two-factor/recovery-codes` | Replace your recovery codes (`{"code"}` or `{"password"}`) | signed in |
+| `POST` | `/v1/account/password` | Change your password (`current_password`, `new_password`); your other sessions end. 403 wrong password, 429 after 10 tries an hour | signed in (session) |
+| `POST` | `/v1/account/sessions/revoke` | Sign out everywhere: every session of yours ends, this one too; 204 | signed in (session) |
 
 ### Team, roles and workspace settings
 
@@ -1767,7 +1821,7 @@ the path, a signature, or nothing).
 | `GET` | `/v1/settings/two-factor` | Two-step sign-in policy: `{"mode":"optional"\|"everyone"\|"some","roles":[…],"users":[…]}` | settings view |
 | `PUT` | `/v1/settings/two-factor` | Change it (roles and teammates must exist; `some` needs at least one) | full admin |
 | `GET` | `/v1/settings/sso` | Single sign-on settings (client secret never returned) | full admin |
-| `PUT` | `/v1/settings/sso` | Change single sign-on settings | full admin |
+| `PUT` | `/v1/settings/sso` | Change single sign-on settings (`idp_verifies_email`: accept ID tokens without an `email_verified` claim). Changing the issuer, discovery URL or client ID needs the client secret again (400) | full admin |
 | `DELETE` | `/v1/settings/sso` | Remove single sign-on (settings and client secret) | full admin |
 | `POST` | `/v1/settings/api-key` | Replace the server API key; returns the new `api_key` once | full admin |
 | `GET` | `/v1/settings/delivery` | Delivery rules: frequency caps, quiet hours, keywords, reply tracking | settings view |
@@ -1797,7 +1851,7 @@ the path, a signature, or nothing).
 | `POST` | `/v1/devices` | Store a push token for a contact (`external_id`, `token`, `platform`); 204 | contacts edit |
 | `POST` | `/v1/contacts/import` | Import a CSV (up to 200 MB and 2,000,000 rows) synchronously; `?list_id=` adds rows to a static segment | contacts edit |
 | `GET` | `/v1/contacts/export` | CSV of all contacts or of a view (`?q=&columns=`) | contacts edit (+ what each filter needs) |
-| `POST` | `/v1/imports` | Start a background CSV import (body: the file, up to 10 GB; `?filename=&list_id=`); 202 | contacts edit |
+| `POST` | `/v1/imports` | Start a background CSV import (body: the file, up to 10 GB; `?filename=&list_id=`); 202. 429 with 2 imports already in progress or past 20 GB in 24 hours | contacts edit |
 | `GET` | `/v1/imports` | Background imports and their progress | contacts view |
 | `GET` | `/v1/imports/{id}` | One import: status, rows done and failed, errors | contacts view |
 | `POST` | `/v1/imports/{id}/cancel` | Cancel an import | contacts edit |
@@ -1863,7 +1917,7 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/assets/{id}` | Change a file's title, description and form gate | content edit |
 | `DELETE` | `/v1/assets/{id}` | Delete a file | content edit |
 | `GET` | `/v1/assets/{id}/file` | Download a file from the app (not counted) | content view |
-| `POST` | `/v1/templates/preview` | Render a template, saved or not, for a contact or a sample one | content view |
+| `POST` | `/v1/templates/preview` | Render a template, saved or not, for a contact or a sample one | content view (+ contacts view for a real contact) |
 | `GET` | `/v1/templates/sample-event` | Sample trigger event properties for previews (`event`, optional `external_id`): the contact's latest, else the schema's example | contacts view |
 | `GET` | `/v1/forms` | List forms | content view |
 | `POST` | `/v1/forms` | Create a form; returns its `id` | content edit |
@@ -1903,7 +1957,7 @@ the path, a signature, or nothing).
 | `GET` | `/v1/templates` | List message templates (`?channel=`) | content view |
 | `GET` | `/v1/templates/{id}` | A template | content view |
 | `PUT` | `/v1/templates/{id}` | Change a template (its channel stays); 409 when approvals are required and a live campaign sends it | content edit |
-| `DELETE` | `/v1/templates/{id}` | Delete a template; 204 | content edit |
+| `DELETE` | `/v1/templates/{id}` | Delete a template; 204. 409 (naming them) while a live campaign sends it: a scheduled, running or testing broadcast, or an active journey | content edit |
 | `POST` | `/v1/templates/text` | Plain-text version of an email's HTML | content view |
 | `POST` | `/v1/templates/spam-check` | Content spam score of an email (`subject`, `html`, `text`): `score`, `rating`, `issues`, `preheader` | content view |
 | `POST` | `/v1/templates/amp/check` | Validate AMP code or build it from blocks: problems with lines, size, preview, providers' AMP support | content view |
@@ -2081,10 +2135,10 @@ the path, a signature, or nothing).
 | `PUT` | `/v1/integrations/{id}/audiences/{sync}` | Change an audience link | settings edit + segments edit |
 | `DELETE` | `/v1/integrations/{id}/audiences/{sync}` | Unlink; 204 | settings edit + segments edit |
 | `POST` | `/v1/integrations/{id}/audiences/{sync}/reconcile` | Re-check the whole segment now; 202 | settings edit |
-| `GET` | `/v1/settings/webhooks` | Outbound webhooks, with their signing secrets | full admin |
-| `POST` | `/v1/settings/webhooks` | Create a webhook (`name`, `url`, `events`, `active`); 200 | full admin |
+| `GET` | `/v1/settings/webhooks` | Outbound webhooks, signing secrets masked (last four characters) | full admin |
+| `POST` | `/v1/settings/webhooks` | Create a webhook (`name`, `url`, `events`, `active`); 200 with `id` and the full `secret`, shown only here | full admin |
 | `GET` | `/v1/settings/webhooks/{id}` | A webhook and its latest 100 deliveries | full admin |
-| `PUT` | `/v1/settings/webhooks/{id}` | Change a webhook; `rotate_secret: true` replaces the secret | full admin |
+| `PUT` | `/v1/settings/webhooks/{id}` | Change a webhook; `rotate_secret: true` replaces the secret and returns the new one in full, once | full admin |
 | `DELETE` | `/v1/settings/webhooks/{id}` | Delete a webhook | full admin |
 | `POST` | `/v1/settings/webhooks/{id}/test` | Send a signed `webhook_test` delivery now and report the answer | full admin |
 

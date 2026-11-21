@@ -382,7 +382,11 @@ Event-window queries name their events and bound `ts`, so they read only the
 | `live:{t}` | Capped stream of the latest events | About 1,000 entries |
 | `cvset:{t}:{hash}`, `rchest:*`, `dash:*`, `ovl:*` | Contact-list bitmaps, estimate, dashboard and overlap caches | 30 s to 15 min |
 | `httpauth:{t}:{provider}:{fp}` | Custom-gateway auth tokens, sealed | Token lifetime |
-| `rfm:{t}`, `reco:{t}`, `recent:{t}:{c}` | Customer value state, recommendation lists, recent products | Daily / 120 days |
+| `rfm:{t}`, `reco:{t}`, `recent:{t}:{c}` | Customer value state per buyer (`group\|score\|risk\|external id`), recommendation lists, recent products | Daily / 120 days |
+| `rfmrun:{t}`, `rfmdone:{t}`, `rfmlast:{t}` | Customer value: the lock of a running pass (10-minute TTL, renewed while it runs), the marker that spaces passes, and when the last good pass ran (for catch-up) | 10 min / about the interval / 60 days |
+| `airate:{t}:{minute}`, `aiday:{t}:{yyyymmdd}` | AI help requests a minute and a UTC day | 2 min / 48 h |
+| `heavy:{route}:{t}:{minute}`, `signup*`, `limit:pwchange:{u}:{hour}` | Per-workspace limits on expensive routes, sign-up limits per IP and in total, password change attempts | Minutes / 2 h |
+| `archivepage:{t}:{run}` | A rendered, sanitised send for the public archive | 5 min |
 | `ofocus:*`, `odwc:*` | Per-contact website content pushed by journeys | 30 days |
 | `rtok:*`, `slink:*`, `lastmsg:*` | Reply codes, SMS/RCS short links, last RCS message | 7–30 days |
 | `amp:*` | AMP poll answers and counts | 400 days |
@@ -417,7 +421,8 @@ factor 1; production clusters should pre-create them with replication factor 3.
   bounce reports are linked to a message only when its signed reference was issued for that same
   workspace; tenant IDs inside payloads are never trusted.
 - **Per-workspace limits.** Send rates per channel (token buckets), provider quotas, estimate,
-  dashboard, contact-view, overview and AI request limits, public-route limits per IP and
+  dashboard, contact-view, overview, expensive-report, import and AI request limits (AI help: 20 a
+  minute and 200 a UTC day, texts over 60 KB to rewrite or 120 KB to translate refused), public-route limits per IP and
   workspace, and the daily passes (retention, RFM) spread over the day by `workspace id % 24` so
   workspaces don't all run at once.
 - **Noisy neighbours on shared partitions.** Workspaces share Kafka partitions. A slow provider
@@ -609,7 +614,17 @@ A journey is a trigger plus an acyclic graph of steps stored as JSON (`internal/
   campaign, or an active journey) can't be changed while four-eyes is on: the edit is refused
   (409, naming the campaigns) until they're paused, so nothing reaches people unapproved. API keys
   launch, and edit, without approval.
-- **RSS-to-email** and a **public archive** of email sends are options of an email campaign.
+- **RSS-to-email** and a **public archive** of email sends are options of an email campaign. A run
+  of an RSS campaign takes the feed's items published after the previous run's mark and no later
+  than the run time (items dated in the future, such as scheduled posts, wait for a later run;
+  common zone names like `EST` or `PST` are read with their offset); items without a date count only
+  on the campaign's first run, which also looks back one repeat interval. The items are kept with the
+  run, so every message of it shows the same list. Feed text is escaped and never runs as template
+  code (`{` becomes `&#123;` in HTML, and `{{` is split in the plain-text part). The archive renders a
+  send for an empty contact, sanitised like a landing page, and keeps the page 5 minutes.
+- **Templates in use can't be deleted**: deleting a template that a live campaign sends (a
+  scheduled, running or testing broadcast, or an active journey) answers 409 naming them, with or
+  without approvals. A journey archived after approval was asked for can't be approved.
 
 Both journeys and broadcasts publish `model.Message` records to `messages.<channel>`; everything
 after that is shared.
@@ -719,6 +734,13 @@ sequenceDiagram
   (`{{block.feed}}`) and **translations** (chosen by the contact's locale) are resolved by the
   dispatcher at send time, and only for templates that use them.
 - **Webhook bodies** JSON-escape every value; a body that isn't valid JSON once filled is not sent.
+- **Surveys** record one answer per contact, survey and message; `survey_answered` is published
+  only when the answer is new or changed, so sending the same answer again records nothing.
+- **AI help** (optional, `PULSE_AI_API_KEY`) suggests subject lines, rewrites, translations and
+  segment rules. Inputs over the limits (60 KB for a rewrite, 120 KB of fields for a translation)
+  are refused with 413, never cut; an answer that hits the model's output limit is refused (422)
+  rather than used half-finished. Each workspace may make 20 requests a minute and 200 a UTC day,
+  since the server's key pays for them.
 
 ---
 
@@ -764,9 +786,22 @@ only fixed fragments chosen from validated enums are spliced into SQL.
 - **Contacts behind every number**: counts open the contact list filtered to exactly those people
   (bitmap set filters in Redis, outcome filters as ClickHouse subqueries), which can be exported or
   saved as a segment. Seeded end-to-end tests check that each linked number equals its list.
+- **Path analysis** reads, per person, their events from their first anchor event in the range on
+  (backwards: up to their last), at most the 400 nearest it, with repeats collapsed and Pulse's own
+  events left out; the 500 most common paths are returned.
+- **Customer value (RFM)** is scored per workspace once every `PULSE_RFM_INTERVAL` at its own UTC
+  hour (`id % 24`); a workspace whose pass was missed (more than the interval and two hours since its
+  last good pass, `rfmlast:{t}`) is caught up at any hour, and the next pass then returns to its hour.
+  One pass per workspace runs at a time, under a Redis lock renewed while it runs (`rfmrun:{t}`,
+  shared with **Score now**), so a crashed pass frees it within minutes. Churn risk compares the time
+  since the last order with the buyer's own average gap (at least a week) when their first and last
+  orders are at least a day apart; orders all within one day count as one-time buying (90 / 180 days). Buyers who leave
+  the two-year window are cleared with `rfm_changed` (`cleared: true`, `previous_group`).
 - **Bounds**: ranges up to a year, at most 100 groups in the report builder, top 500 paths;
-  dashboards and summaries are cached and rate-limited per workspace. Approximations are labelled
-  ("about") where counts are sampled or use `uniq`.
+  dashboards and summaries are cached and rate-limited per workspace; expensive requests are
+  limited per workspace a minute, and their ClickHouse queries carry time and memory limits.
+  Report time zones are checked against ClickHouse's list (an unknown one is a 400).
+  Approximations are labelled ("about") where counts are sampled or use `uniq`.
 
 ---
 
@@ -796,17 +831,32 @@ Details: [webhooks and integrations](developer/06-webhooks-and-integrations.md).
 
 - **Passwords** are hashed with argon2id (64 MiB, t=2). Sign-in attempts are limited to 10 per
   workspace and email per 15 minutes.
-- **Sessions** are opaque tokens in an HttpOnly, host-only cookie (`Secure` behind https, 14
-  days). Every state-changing request with a session must carry the `X-Pulse-CSRF` header, which a
-  cross-site form can't set.
+- **Sessions** are opaque tokens (stored as hashes) in an HttpOnly cookie. Behind https it is
+  `__Host-pulse_session` (`Secure`, `Path=/`, no `Domain`, so a sibling subdomain can't plant or
+  shadow it, and no other name is read), and every answer carries HSTS; over plain http it is
+  `pulse_session`. A session lasts 14 days at most and ends after 7 days without use
+  (`sessions.last_seen_at`, moved forward at most every five minutes). People can change their
+  password (their other sessions end) and sign out everywhere; turning off two-step sign-in ends
+  their other sessions, and an admin's two-step reset ends all of them.
+- **CSRF.** Every state-changing request with a session must carry the `X-Pulse-CSRF` header, which
+  a cross-site form can't set. Sign-in routes (`POST /v1/auth/*`) must be JSON or carry the header,
+  so a cross-site form can't sign a browser in to another account.
+- **Sign-up** is off by default (`PULSE_ALLOW_SIGNUP`); when on, it is limited per client IP
+  (`PULSE_SIGNUP_RATE`, 5 a minute) and in total (ten times that).
 - **API keys** are stored as hashes; each `api` instance caches a key's workspace for up to a
   minute, so a rotated key stops working everywhere within a minute.
 - **SSO**: OpenID Connect authorization code flow with PKCE and a nonce, configured per workspace
   (tested against Keycloak; any OIDC provider such as Entra ID, Okta or Google). Discovery and
-  token calls can't reach private addresses unless the operator allows it.
+  token calls can't reach private addresses unless the operator allows it. The ID token must say
+  `email_verified: true` (a missing claim counts as unverified unless the admin ticks that the
+  provider only issues verified addresses). An SSO identity never links itself to an account that
+  has a password: the person signs in with the password first and then uses SSO once in the same
+  browser. Changing the issuer, discovery URL or client ID needs the client secret again, so a
+  stored secret is never sent to a new provider.
 - **Two-step sign-in**: RFC 6238 TOTP (each code step accepted once) with ten hashed recovery
-  codes; the workspace policy can require it for everyone or for chosen roles and people. SSO
-  sign-ins leave it to the identity provider.
+  codes; the workspace policy can require it for everyone or for chosen roles and people. The
+  policy applies to SSO sign-ins of accounts that also have a Pulse password (a code, or setup when
+  required); accounts that sign in with SSO only are left to the identity provider.
 
 ### Authorisation
 
@@ -816,15 +866,26 @@ Details: [webhooks and integrations](developer/06-webhooks-and-integrations.md).
   they hold. Steps that change contacts (delete, remove Do Not Contact, change owner or company)
   need contacts edit access to save in a journey.
 - **Approvals**: optional four-eyes launches for campaigns (see [Broadcasts](#broadcasts-one-time-campaigns)).
-- **Audit log**: every change through the app or API and every sign-in, with secrets redacted;
-  exportable as CSV or JSON.
+- **Audit log**: every change through the app or API and every sign-in, exportable as CSV or
+  JSON. Any JSON key that looks like it holds a secret is redacted: split into words (at `_`, `-`,
+  `.` and case changes), a word mentioning secret, token, password, passphrase, signing,
+  credential, auth, cookie or session, or ending in `key` or `sid`. The bodies of `/v1/auth/*`,
+  `/v1/account/*` and the settings that carry credentials (providers, integrations, SSO, webhooks,
+  web push, identity verification, bounce signing keys and mailboxes, the API key) are never
+  recorded at all.
+- **Rate limits and query bounds.** Expensive routes (reports, funnels, cohorts, paths, segment
+  previews, revenue reports, customer-value runs, contact exports) are limited per workspace a
+  minute, API keys included (`429` with `Retry-After`). Every ClickHouse query an API request runs
+  carries `max_execution_time` (`PULSE_CH_QUERY_TIMEOUT`, 60 s; exports exempt) and
+  `max_memory_usage` (`PULSE_CH_QUERY_MAX_MEMORY`, 4 GiB). Background imports are limited to two at
+  a time and 20 GB a day per workspace.
 
 ### Secrets
 
 - Provider, integration, SSO and webhook-signing credentials, bounce mailbox passwords, two-step
   secrets and cached provider tokens are sealed with AES-256-GCM under `PULSE_SECRET_KEY` and
   returned masked (last four characters). An empty or masked value on update keeps the stored
-  secret.
+  secret. A webhook's signing secret is shown in full only in the answer that creates or rotates it.
 - Changing any setting that could steer a secret elsewhere (a URL, host, auth or request template,
   user name) discards the stored secrets until they are entered again; templates may not choose
   the scheme, host or port of a request that carries credentials.
@@ -838,21 +899,39 @@ Details: [webhooks and integrations](developer/06-webhooks-and-integrations.md).
   pages, forms, assets, surveys, the SDK and the browser API; app paths there are 404 and page paths
   on the app host redirect. It should be its own registrable domain, not a sibling subdomain of the
   app, so pages can't set cookies the app receives. Landing page HTML is parsed with the HTML5 algorithm and re-serialised
-  without scripts, event handlers, `srcdoc`, `<base>`, `<object>` or `javascript:` URLs, and served
-  under a nonce CSP that allows only the Pulse SDK.
+  without scripts, event handlers, `srcdoc`, `<base>`, `<object>`, SVG animation elements or
+  `javascript:` URLs, and served under a nonce CSP that allows only the Pulse SDK. The public archive
+  of email sends goes through the same sanitiser and is served with `frame-src 'none'`. When the app
+  is on https and `PULSE_PAGES_URL` is unset, `api` logs a warning at start.
+- **On-site content** (pop-up, bar and slide-in bodies, content slot HTML, HTML a journey pushes
+  into a slot) runs inside customers' own pages, so it is cleaned three times: when saved, when
+  served (content saved earlier included), and again by the web SDK before it is inserted. Their
+  button and image links may not be `javascript:`, `vbscript:` or non-image `data:` URLs.
+- The double opt-in confirmation page allows no scripts and can't be framed.
 - Asset downloads are always `Content-Disposition: attachment` with `nosniff` and a sandbox CSP;
   uploads are checked against an extension allowlist and file signatures (HTML, script and SVG are
   never accepted as form uploads).
-- CSV exports neutralise spreadsheet formulas.
+- CSV exports neutralise spreadsheet formulas: a cell whose first character (after leading
+  spaces and line breaks) is `=`, `+`, `-` or `@`, or that starts with a tab or carriage return, is
+  prefixed with `'`; plain numbers such as `-5` stay numbers. The web app's own CSV downloads do the
+  same.
 
 ### Outbound calls (SSRF)
 
 Every URL a workspace user can type (webhooks, journey webhook steps, the custom gateway, login and
-token URLs, the web push install check, integrations, IMAP mailboxes, RSS feeds) goes through
-`internal/safehttp`: private, loopback, link-local (cloud metadata) and carrier-grade NAT
-addresses are refused on the resolved address at connection time, so DNS rebinding doesn't get
-through. Provider login and token URLs, vendor endpoints and the web push check also require https,
-and credential-carrying requests may not redirect to another site. `PULSE_ALLOW_PRIVATE_WEBHOOKS` relaxes this for local development only.
+token URLs, the web push install check, integrations, IMAP mailboxes, RSS feeds, SMTP servers) goes
+through `internal/safehttp`: private, loopback, link-local (cloud metadata), carrier-grade NAT,
+"this network" (`0.0.0.0/8`), IETF protocol (`192.0.0.0/24`), benchmarking (`198.18.0.0/15`),
+reserved (`240.0.0.0/4`), multicast, broadcast and IPv6 site-local addresses are refused on the
+resolved address at connection time, so DNS rebinding doesn't get through. IPv6 addresses that
+carry an IPv4 address (NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`,
+IPv4-compatible and IPv4-mapped) are judged by the IPv4 address inside. Provider login and token
+URLs, vendor endpoints and the web push check also require https, and credential-carrying
+requests (integrations included) may not redirect to another site. SMTP servers a workspace enters
+must use port 25, 465, 587 or 2525, and a failed connection test reports only that the server
+couldn't be reached, never the raw error or the server's banner, so tests can't map the network.
+`PULSE_ALLOW_PRIVATE_WEBHOOKS` relaxes all this for local development only; the operator's own
+relay (`PULSE_SMTP_ADDR`) is never restricted.
 
 ### Trust in events
 
@@ -862,12 +941,23 @@ and credential-carrying requests may not redirect to another site. `PULSE_ALLOW_
 - **Reserved attributes** (consent, bounces, stage, company, owner, merge state) can't be set by
   browsers, and some can't be set by any event attributes at all.
 - **Verified identity**: SDK events without a valid user hash never merge identities, never carry
-  trigger data into messages, and never see contact-field personalisation on public routes.
+  trigger data into messages, and never see contact-field personalisation on public routes. For a
+  contact that already exists, such an event can't change the email, the phone or any identity key
+  field (`profile.StripUnverified`, in the profile role, which knows whether the contact is new): a
+  new visitor may still give their email, but nobody can redirect a known person's messages by
+  sending events with their user ID.
+- **Event size**: one event's `props` and `attrs` may each have 500 top-level keys, 10,000 values
+  in all, 20 levels of nesting and 64 KB per text value or key, on every route that takes events.
+- **Templates are bounded**: besides a step limit, the text that template functions build is
+  metered (32 MB a render), so no template can make the renderer build unbounded text.
 - **Inbound webhooks** are bound to a workspace by a secret URL and verified by the provider's
   signature where one exists (SNS, SendGrid, Mailgun, Shopify, Google RBM HMAC-SHA512, custom
   gateway receipt tokens); custom-gateway receipts without a configured token are refused.
 - **Public routes** are rate limited per client IP and workspace (forms, downloads, landing pages,
-  SDK events, AMP answers).
+  SDK events, AMP answers). The client IP is the connection's address, or behind a trusted proxy the
+  right-most `X-Forwarded-For` entry (`PULSE_TRUST_PROXY`), or behind Cloudflare `CF-Connecting-IP`
+  (`PULSE_TRUST_CLOUDFLARE`, only safe when the origin's firewall accepts Cloudflare's ranges
+  alone).
 
 ---
 
@@ -891,7 +981,11 @@ and credential-carrying requests may not redirect to another site. `PULSE_ALLOW_
 - **Data minimisation**: anonymous visitor tracking and IP-based location are per-workspace
   switches; event schema properties marked personal are kept out of messages, the live feed and
   property discovery samples; the optional AI help sends only the text being edited (and, for
-  segment suggestions, attribute and event names), never contact data.
+  segment suggestions, attribute and event names), never contact data. Previewing a template for a
+  real contact needs view access to contacts, since it shows their data.
+- **Customer value is cleared, not left stale**: a buyer with no purchase left in the two-year
+  window loses their customer-value group, score and churn risk (an `rfm_changed` event with
+  `cleared: true`).
 - **Self-hosted**: all data stays in the operator's Postgres, ClickHouse, Redis and Kafka.
 
 Known gaps: ad audiences are not recalled when a contact is deleted; there is no separate request
@@ -1009,8 +1103,10 @@ Not yet load-tested: analytics reports and filtered contact views on very large 
 
 - **Image**: `alpine` based, about 50 MB, runs as a non-root user, listens on 7070, takes the role
   as its argument. Health check `GET /healthz`.
-- **Single server**: Docker Compose with `pulse all` and the four data services
-  (`deploy/docker-compose.yml` is the development stack, with Mailpit and Keycloak added).
+- **Single server**: Docker Compose with `pulse all` and the four data services. The repository's
+  `deploy/docker-compose.yml` is the local development stack only (with Mailpit and Keycloak, dev
+  credentials, sign-up on and private addresses allowed; every port bound to `127.0.0.1`); a server
+  needs its own compose file ([installation](developer/01-installation.md#option-a-one-server-with-docker-compose)).
 - **Scaled out**: one service per role against managed or separately run data services; `migrate`
   as a one-off job before every start or upgrade.
 
@@ -1044,8 +1140,10 @@ flowchart LR
 ### Configuration
 
 Server settings are `PULSE_*` environment variables (`internal/config`), including the data
-service addresses, public and pages URLs, the secret key, sign-up and admin token, per-channel send
-rates, sweep, maintenance, audience reconcile and RFM intervals, and the optional AI key. Workspace
+service addresses, public and pages URLs, the secret key, sign-up (off by default) and its rate,
+the admin token, proxy and Cloudflare client-IP trust, per-channel send rates, ClickHouse query time
+and memory limits, sweep, maintenance, audience reconcile and RFM intervals, and the optional AI
+key. Workspace
 behaviour (retention, retries, sweep interval, rebuild hour, delivery rules, bounce rules, identity
 keys, unsubscribe policy, approvals, control group) is edited in the app under Settings and stored
 per workspace. See [configuration](developer/02-configuration.md).

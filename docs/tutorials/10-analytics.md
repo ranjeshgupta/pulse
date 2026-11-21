@@ -259,18 +259,25 @@ How the scores work:
 - Recency, frequency and spend are each scored 1 to 5 against your own buyers (in fifths), so the
   groups adjust as your business grows.
 - Churn risk compares the time since each buyer's last order with their own usual gap between
-  orders: 1.5 times overdue is **Medium**, 3 times is **High**. One-time buyers go **Medium** after 90
-  days and **High** after 180. A year without an order is **Lost**.
+  orders (counted as at least a week): 1.5 times overdue is **Medium**, 3 times is **High**. One-time
+  buyers go **Medium** after 90 days and **High** after 180. Several orders within one day count as
+  one-time buying, so a basket split into three orders doesn't make someone look overdue the next
+  day. A year without an order is **Lost**.
+- A buyer whose last purchase falls out of the two-year window is no longer scored: their
+  `rfm_group`, `rfm_score` and `churn_risk` are cleared, and they leave the customer-value segments.
 - Groups compare buyers with each other, while churn risk uses time. So a fast-growing shop can have
   buyers in the *Lost* group whose churn risk is still low.
 
 **Score now** (top right) scores again straight away, for example after you change the revenue
-settings; it can run once every 5 minutes. Without any purchases, the page says *No buyers scored
-yet* and which event it reads.
+settings; it can run once every 5 minutes, and not while a scoring pass is already running. If the
+daily pass was missed (for example the server was down at the workspace's hour), Pulse catches up
+within a few hours instead of waiting a day. Without any purchases, the page says *No buyers scored yet* and which event it
+reads.
 
 **Act the day someone slips.** When a buyer moves to another group, Pulse records an `rfm_changed`
 event on them (with the new `group` and the `previous_group`) and updates their fields `rfm_group`,
-`rfm_score` and `churn_risk`. Start a triggered campaign on `rfm_changed` where `group` is *At risk*
+`rfm_score` and `churn_risk`. When a buyer is cleared, the `rfm_changed` event has `cleared` set to
+true and no `group`, only the `previous_group`. Start a triggered campaign on `rfm_changed` where `group` is *At risk*
 to win people back the day they slip ([tutorial 6](06-triggered-and-automation-campaigns.md)), or
 write `{{contact.rfm_group}}` in a message. There is no machine-learning churn prediction: the risk
 comes from each buyer's own rhythm.
@@ -299,7 +306,9 @@ What to know:
 
 - Pulse's own events (messages sent, campaign steps, tags) are left out, so you see what people did.
 - The same event several times in a row counts once.
-- A path starts at a person's first time doing the event (or, for **Before**, ends at the last time).
+- A path starts at a person's first time doing the event in the period (or, for **Before**, ends at
+  the last time). Pulse reads the 400 events nearest that moment per person, which is far more than
+  six steps need.
 - Pulse looks at up to 300,000 people and keeps the 500 most common paths. Paths can't be split by
   segment yet.
 

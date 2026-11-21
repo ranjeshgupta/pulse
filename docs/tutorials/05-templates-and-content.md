@@ -36,8 +36,10 @@ Every template has a **Template name** and a box at the top:
 > only for messages someone is waiting for. Consent still applies.
 
 The buttons at the top right are the same for every channel: **Preview as contact**, **Send a test**
-(after the first save), **Save template**, and **Delete** (campaign steps that use a deleted template
-fail to send). An email template also has **🛡️ Spam check** (step 10), and every template except
+(after the first save), **Save template**, and **Delete**. A template that a scheduled, running or
+testing one-time campaign or an active triggered campaign sends can't be deleted: Pulse names those
+campaigns; pause or finish them first. Other campaign steps that use a deleted template fail to
+send. An email template also has **🛡️ Spam check** (step 10), and every template except
 WhatsApp has **✨ AI** when your Pulse server has AI help turned on (step 13).
 
 A saved template has two tabs: **✏️ Content** (the editor) and **📊 Report** (how its messages did in
@@ -138,6 +140,8 @@ preview and the poll results.
 
 The server renders the template exactly as it would be sent, with that contact's attributes: here
 *Meera* and *Delhi*. **Plain text (generated)** shows the text part. Preview works before you save, too.
+Previewing as a real contact shows their data, so it needs a role that can view contacts; anyone who
+can view templates can preview with the sample contact.
 
 ## 5. Send a test
 
@@ -533,7 +537,12 @@ What to know:
   valid; if not, Pulse refuses the suggestion.
 - Only the words you are working on (and your field and event names, for segments) are sent to the AI
   service, never your contacts' data.
-- A workspace can make 20 AI requests a minute. There is no image generation.
+- A workspace can make 20 AI requests a minute and 200 a day (the day starts at 00:00 UTC). After
+  that, Pulse says so and AI help works again the next day.
+- Very long texts are refused, not cut: an email body over about 60 KB can't be rewritten, and a
+  template whose words come to over about 120 KB can't be translated in one go. If an answer would
+  be too long to come back whole, Pulse says so instead of using half of it.
+- There is no image generation.
 
 ## 14. How a template does: the Report tab
 

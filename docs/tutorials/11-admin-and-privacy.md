@@ -191,7 +191,9 @@ when nothing is old enough yet. The rows are deleted at your workspace's next da
 triggered or automation campaign alone. They ask for approval, and someone else who may publish
 approves it; it launches exactly as it was when they asked. When off (the default), people whose role
 can't publish ask, and those who can launch directly. Campaigns launched with an API key aren't
-affected. [Tutorial 14](14-campaigns-hub-and-one-time-campaigns.md#10-approvals-a-second-pair-of-eyes)
+affected. While it's on, templates and content blocks that a live campaign sends can't be changed;
+with it on or off, such templates can't be deleted.
+[Tutorial 14](14-campaigns-hub-and-one-time-campaigns.md#10-approvals-a-second-pair-of-eyes)
 shows how asking and approving work.
 
 ### Default limits of new providers, and what's fixed
@@ -301,7 +303,10 @@ newest first. Only admins can see it.
   **Triggered & automation campaigns**, **Settings**, **Team**, **Roles**…), and **From** / **To** dates. **Clear filters**
   resets them. **Load older** fetches more.
 - Click a row to see the request: time, request, response, IP address and the body that was sent.
-  Passwords, keys and secrets in it are redacted.
+  Anything that looks like a password, key, token or secret is redacted. For sign-ins, your own
+  account (password, two-step) and settings that hold credentials (channel providers, integrations,
+  single sign-on, webhooks, web push, identity verification, bounce settings, the API key) the body
+  isn't kept at all: the row shows what was done and by whom, not what was typed.
 
   ![An opened audit entry: Sent a test message, its request, response, IP address and body](img/11-audit-detail.png)
 
@@ -332,7 +337,12 @@ Then:
 - **Give anyone your provider signs in access to this workspace**: on, anyone who can sign in at
   your provider gets an account here with **Their role** (Editor by default). Off, only teammates
   you added on **Settings → Team** can sign in.
+- **Identity provider verifies email addresses**: leave it off unless your provider only ever
+  issues verified addresses but doesn't say so in its sign-in answer (no `email_verified`). Most
+  providers say so, and then this box doesn't matter.
 - **Allow signing in with SSO** turns it on. Click **Save sign-on settings**; the badge says **On**.
+- Changing the **Issuer URL**, **Discovery URL** or **Client ID** later needs the **Client secret**
+  typed again, so the old provider's secret is never sent to a new address.
 
 ![Single sign-on (OIDC) saved with the local Keycloak values: the On badge, Allow signing in with SSO ticked, and Save sign-on settings and Remove single sign-on highlighted](img/11-sso.png)
 
@@ -341,8 +351,15 @@ SSO**; Pulse sends them to your provider and back.
 
 <img src="img/11-login-sso.png" alt="The Pulse sign-in page with the workspace ID filled in and Sign in with SSO highlighted" width="380"> <img src="img/11-keycloak.png" alt="The Keycloak sign-in page Pulse sends them to" width="380">
 
-- Pulse matches people by their verified email address. If the provider doesn't share one, or the
-  person isn't a teammate and access isn't given to everyone, the sign-in page says why.
+- Pulse matches people by their verified email address. If the provider doesn't share one, or says
+  it isn't verified, or the person isn't a teammate and access isn't given to everyone, the sign-in
+  page says why.
+- A teammate who already has a Pulse password isn't linked to SSO automatically, so whoever controls
+  an account with the same email at your provider can't take theirs over. The first time, the
+  sign-in page says *This email already has a password account*: they sign in with their password,
+  then (in the same browser) click **Sign in with SSO** once. From then on either way works.
+- Teammates with a Pulse password who have two-step sign-in on (or whom your policy requires) are
+  asked for their code after SSO too (section 9).
 - **Settings → Team** shows how each teammate signs in (**Password**, **SSO**, or **Password or
   SSO**). A teammate added without a password can only use SSO.
 - To turn it off, untick **Allow signing in with SSO** and save. Pulse keeps the settings for next
@@ -357,8 +374,9 @@ Every change here is in the audit log as *Changed single sign-on* or *Removed si
 
 Two-step sign-in protects accounts even if a password leaks: after the password, Pulse asks for the
 six-digit code an authenticator app on the person's phone shows (Google Authenticator, Microsoft
-Authenticator, Authy, 1Password and others). It applies to password sign-ins only; people who sign
-in with SSO get whatever extra checks your identity provider asks for.
+Authenticator, Authy, 1Password and others). It covers everyone with a Pulse password, whether they
+sign in with it or with SSO. Teammates who can only use SSO get whatever extra checks your identity
+provider asks for.
 
 **Turn it on for yourself.** At the bottom of the menu, under your name, click **Your account**. It
 shows your details and, under **Two-step sign-in**, whether it is **On** or **Off**. Click **Set up
@@ -414,8 +432,21 @@ sign-in** column shows who has it **On** (**Not used** for teammates who sign in
 
 ![Settings → Team: the Two-step sign-in column with Off for the admin, On for Priya Shah with Reset two-step highlighted, and Not used for the two SSO teammates](img/11-team-two-step.png)
 
-After a reset they sign in with their password alone until they set it up again (straight away, if
-your workspace requires it). The reset is in the audit log, like every change.
+After a reset they are signed out everywhere, then sign in with their password alone until they set
+it up again (straight away, if your workspace requires it). The reset is in the audit log, like every
+change.
+
+**Your password and where you're signed in.** **Your account** also has:
+
+- **Password**: type your **Current password**, a **New password** (at least 10 characters) twice,
+  and click **Change password**. You stay signed in here; every other browser and device is signed
+  out. (Teammates who only use SSO see that their identity provider manages their password.) After
+  10 tries in an hour, Pulse asks you to wait.
+- **Where you're signed in**: **Sign out everywhere** signs out every browser and device signed in to
+  your account, this one too. Use it if you left yourself signed in on a shared or lost computer.
+
+Pulse also signs everyone out after 7 days without using the app, and after 14 days at the latest.
+Turning off your own two-step sign-in signs out your other devices too.
 
 ## 10. Identity verification
 
@@ -433,6 +464,10 @@ else's user ID and read or pollute their profile. Identity verification stops th
 4. When your site sends the hash for everyone, tick **Require verified identity for web events**
    (Pulse asks you to confirm). From then on, web events for a user ID without a valid hash are
    refused. Anonymous visitors aren't affected.
+
+Even before you tick it, a web or app event without a valid hash can't change the email, phone or
+identity keys of a contact who already exists; Pulse keeps the rest of the event. New visitors can
+still give their email in a sign-up form.
 
 **Replace secret** makes a new one; hashes made with the old one stop working at once, so update
 your server first.
@@ -469,7 +504,7 @@ schedule and cancel them, and pick A/B winners.
 | **Web push** settings (tutorial 4) | **Channels: View** (changing them: **Channels: Edit**) |
 | **Sign-in & keys** (including the two-step sign-in policy), **Audit log**, **Webhooks** | The full **Admin** role |
 | **Reset two-step** on **Settings → Team** | **Settings: Edit** (and at least the teammate's access) |
-| **Your account** (your own two-step sign-in) | Everyone |
+| **Your account** (your own password, sessions and two-step sign-in) | Everyone |
 | **Integrations** | Seen with **Settings: View**; connected and changed by admins |
 | Revenue settings | **Settings: Edit** |
 

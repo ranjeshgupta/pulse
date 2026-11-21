@@ -77,7 +77,8 @@ Pulse is free software: the platform is AGPL-3.0 and the SDKs you embed in your 
 
 **Administration and security**
 - Teams with custom roles, an audit log, single sign-on (OIDC) and two-step sign-in with an
-  authenticator app (optional, or required for everyone or chosen roles and people).
+  authenticator app (optional, or required for everyone or chosen roles and people); password
+  change, sign out everywhere, and sign-out after 7 days without use.
 - Settings for every automatic behaviour (data retention, retries, schedules, default limits),
   privacy tools (delete a contact, download their data) and encrypted secrets.
 - Integrations: HubSpot, Salesforce, Shopify, Zapier / Make, outbound webhooks, and Facebook and
@@ -113,12 +114,13 @@ make it        # segment compiler agreement test against ClickHouse
 make load ARGS="-scenario month -contacts 5000000"   # load test (see Sizing below)
 make docs-shots  # retake the documentation screenshots from the running app
 make docs-check  # check every link, image and anchor in the docs (needs Node.js 22.12+)
+make ui-crawl  # open every page of the web app and fail on any crash or console error
 make down      # stop the stack
 cd web && npm install && npm run dev     # web app with hot reload on :5173 (Node.js 22.12+); npm test runs its tests
 ```
 
-The local stack uses development passwords and keys from `deploy/docker-compose.yml`; don't expose
-it to a network. For production (separate roles, secrets, scaling, backups, TLS) see
+The local stack uses development passwords and keys from `deploy/docker-compose.yml` and binds its
+ports to `127.0.0.1`; don't expose it to a network. For production (separate roles, secrets, scaling, backups, TLS) see
 [Installation](docs/developer/01-installation.md).
 
 ## Documentation
@@ -209,7 +211,8 @@ section lists what limits come next.
 
 Every setting is a `PULSE_*` environment variable; the [configuration guide](docs/developer/02-configuration.md)
 lists them all with their defaults. Never run the development `deploy/docker-compose.yml` on a server
-(it publishes ports and uses default passwords and keys). In production set at least:
+(it uses published passwords and keys, allows public sign-up and lets Pulse call private addresses).
+In production set at least:
 
 | Variable | What for |
 |---|---|
@@ -219,6 +222,9 @@ lists them all with their defaults. Never run the development `deploy/docker-com
 | `PULSE_PG_DSN`, `PULSE_CH_ADDR`, `PULSE_REDIS_ADDR`, `PULSE_KAFKA_BROKERS` | Where the databases and Kafka are |
 | `PULSE_EMAIL_RATE`, `PULSE_SMS_RATE`, … | Messages per second per workspace and channel (defaults 200 email, 100 SMS) |
 | `PULSE_ALLOW_SIGNUP` | Off by default: workspaces are created with `PULSE_ADMIN_TOKEN`. Turn it on only behind a CAPTCHA or on a private network |
+| `PULSE_TRUST_PROXY`, `PULSE_TRUST_CLOUDFLARE` | Where client IPs come from behind your reverse proxy or Cloudflare (rate limits, audit log); the Cloudflare one only with an origin firewall that accepts Cloudflare's ranges alone |
+
+The [security checklist](SECURITY.md#running-pulse-safely) lists the rest.
 
 ## API in one minute
 

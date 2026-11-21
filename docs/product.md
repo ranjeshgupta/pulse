@@ -156,7 +156,8 @@ means what Pulse does **not** do today.
 - **Surveys and NPS** with a personal link in any message, results and NPS trend. *Limit: no
   branching and no in-app survey widget yet.*
 - **Product catalog** with CSV import, used for recommendations.
-- **RSS-to-email** and a **public archive** of email campaigns.
+- **RSS-to-email** and a **public archive** of email campaigns. *Limit: items dated in the future
+  wait for a later send, and items without a date go only into the first send.*
 
 ### Personalisation
 
@@ -182,7 +183,8 @@ means what Pulse does **not** do today.
   last touch, linear, over messages and UTM campaigns), a **custom report builder** and **path
   analysis** (what people do before or after an event).
 - **Customer value (RFM)**: buyers grouped from champions to lost, with churn risk, ready-made
-  segments and a trigger when a buyer moves group. *Limit: rule-based, no predictive model.*
+  segments and a trigger when a buyer moves group or leaves the two-year window. *Limit: rule-based,
+  no predictive model; only the last two years of purchases count.*
 - **Every number of people opens those people.** *Limit: a few totals (cohort and funnel cells,
   canvas path counters, audience at send time) are counts without a list.*
 
@@ -204,11 +206,14 @@ means what Pulse does **not** do today.
 
 - **Workspaces** with their own team, roles, channels, settings and data on one installation.
 - **Roles**: admin, editor, viewer and custom roles with none / view / edit / publish per area.
-- **Single sign-on** with any OpenID Connect provider and **two-step sign-in** with an
-  authenticator app, optional or required for everyone or chosen roles and people.
-- **Audit log** of every change and sign-in, exportable.
+- **Single sign-on** with any OpenID Connect provider (verified emails only; an existing password
+  account is linked only after its owner signs in with the password) and **two-step sign-in** with
+  an authenticator app, optional or required for everyone or chosen roles and people.
+- **Sessions**: change your password (other devices are signed out), sign out everywhere, and
+  automatic sign-out after 7 days without use (14 days at most).
+- **Audit log** of every change and sign-in, exportable, with secrets redacted.
 - **Encrypted credentials**, shown masked; changing a provider's address requires its secrets
-  again.
+  again; a webhook's signing secret is shown in full only when created or rotated.
 - **Privacy tools for DPDP Act and GDPR requests**: consent history in words, download a contact's
   data, correct, withdraw consent, delete; per-channel and per-topic consent; a preference centre;
   double opt-in; retention settings per kind of data. *Limits: deleting a contact doesn't recall
@@ -239,7 +244,9 @@ means what Pulse does **not** do today.
   sentence ("bought twice in 90 days, live in Pune").
 - **Safe by construction**: nothing changes without a click; suggestions that drop a
   personalisation variable or produce an invalid segment are refused; only the text being edited
-  (and field and event names) is sent, never contacts' data; 20 requests a minute per workspace.
+  (and field and event names) is sent, never contacts' data.
+- *Limits: 20 requests a minute and 200 a day per workspace (the server's key pays for them); a
+  text over 60 KB to rewrite, or a template over 120 KB to translate, is refused rather than cut.*
 - *Limit: no image generation or send-time prediction beyond the best-hour feature.*
 
 ---
@@ -361,7 +368,10 @@ The most important limits for planning, collected from the sections above:
   Firebase.
 - Contacts don't leave a journey automatically when they leave its trigger segment.
 - Recommendations, churn risk and best send time are rule-based, not machine-learned.
-- AI help needs an Anthropic API key and is off without one.
+- AI help needs an Anthropic API key and is off without one; each workspace gets 200 requests a day.
+- Heavy reports and exports are limited per workspace (for example 30 report runs and 5 contact
+  exports a minute), and each report query stops after 60 seconds by default.
+- Public sign-up is off by default; the operator creates workspaces.
 - Running Pulse needs four data services (Kafka, Postgres, ClickHouse, Redis); very large
   installations need Redis sharding, which is not built yet (see the
   [architecture document](architecture.md#21-known-limits-and-trade-offs)).

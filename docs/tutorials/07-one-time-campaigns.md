@@ -361,7 +361,8 @@ links to it.
 - Each page shows the email as a contact with no details would see it: `{{contact.first_name |
   default:"there"}}` shows "there". Write the template so it reads well that way.
 - The page shows the template as it is now, not a frozen copy of what was sent: if you change the
-  template, old sends in the archive change too.
+  template, old sends in the archive change too (within 5 minutes; pages are kept that long).
+- Archive pages are cleaned like landing pages: they run no scripts and show no embedded frames.
 
 ### RSS-to-email: send what's new on your blog
 
@@ -379,10 +380,15 @@ page) since the last send.
 
 What happens at each send:
 
-- Pulse reads the feed and sends the items published since the last send.
+- Pulse reads the feed and sends the items published since the last send, up to the time of this
+  send. A post dated in the future (scheduled on your blog) waits for the first send after its date.
 - Nothing new: that send is skipped, so nobody gets an empty newsletter.
-- The first send looks back one repeat (a day, a week or a month).
+- The first send looks back one repeat (a day, a week or a month), and also includes items that have
+  no date. Later sends never include undated items, so they can't repeat every time.
+- Everyone in one send gets the same list of items.
 - If the feed can't be read, that send is skipped too.
+- The feed's text is shown as written. Something like `{{contact.first_name}}` in a post title
+  appears as those characters; it is never filled in as a variable.
 
 Limits: RSS-to-email and the archive are for email campaigns only, and RSS-to-email doesn't work with
 A/B tests. Items without a date count only on the first send.

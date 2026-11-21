@@ -319,7 +319,10 @@ sign-up, a contact entering a segment.
    ![New webhook: Purchases to CRM, its URL, and the events purchase and segment_entered](img/09-webhook-new.png)
 
 4. Click **Add webhook**. Pulse creates its **Signing secret** and the page shows it hidden, with
-   **Reveal**, **Copy** and **Rotate secret**.
+   **Reveal**, **Copy** and **Rotate secret**. **Copy it now**: for safety the full secret is shown
+   only right after it is created or rotated. When you open the webhook later you see only its last
+   four characters. Lost it? Click **Rotate secret** and copy the new one; the old one stops working
+   at once.
 5. Click **Send test**. Pulse sends a `webhook_test` event to the saved URL straight away and shows
    the answer: **Your server answered 200 in … ms**, or what went wrong. In the picture the address
    doesn't exist, so the error says so.

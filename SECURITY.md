@@ -42,10 +42,37 @@ recent version of it.
 
 ## Running Pulse safely
 
-The production checklist is in [Installation](docs/developer/01-installation.md), and how Pulse
+The production set-up is in [Installation](docs/developer/01-installation.md), and how Pulse
 protects data is described in the [security section of the architecture document](docs/architecture.md#15-security).
-In short: set your own `PULSE_SECRET_KEY` (and a long random `PULSE_ADMIN_TOKEN` only if you need one), serve Pulse over HTTPS, set
-`PULSE_PAGES_URL` to its own registrable domain, keep public sign-up off (`PULSE_ALLOW_SIGNUP`, off by
-default) unless it sits behind a CAPTCHA or on a private network, turn on **Require verified identity
-for web events** in each workspace that tracks a website or app, and never run the development
-`deploy/docker-compose.yml` on a server.
+Before a deployment is reachable from the internet, check each of these:
+
+- **Never run `deploy/docker-compose.yml` on a server.** It is the local development stack: it uses
+  published passwords, an admin token and a secret key, allows public sign-up and lets Pulse call
+  private addresses. Its ports are bound to `127.0.0.1` so it isn't reachable from other machines
+  on your laptop, but that doesn't make it safe anywhere else. Write your own compose file or
+  deployment ([Installation](docs/developer/01-installation.md#production-deployment)).
+- **Your own secrets.** Set `PULSE_SECRET_KEY` (`openssl rand -hex 32`, kept in a secret store and
+  backed up), and `PULSE_ADMIN_TOKEN` only if you need it, as a long random value. Pulse refuses the
+  dev values unless `PULSE_PUBLIC_URL` is a local address.
+- **Public sign-up off.** `PULSE_ALLOW_SIGNUP` is off by default; create workspaces with the admin
+  token. Turn it on only behind a CAPTCHA or on a private network (it is then limited by
+  `PULSE_SIGNUP_RATE` per client IP).
+- **HTTPS only.** Serve Pulse over https and set `PULSE_PUBLIC_URL` to the `https://` address. The
+  session cookie is then `__Host-pulse_session` (`Secure`, this host only) and Pulse sends HSTS for
+  a year, including subdomains, so serve every subdomain of the app's host over https too.
+- **A separate pages domain.** Set `PULSE_PAGES_URL` to a host on its own registrable domain (for
+  example `acme-pages.example` next to `pulse.example.com`), not a sibling subdomain, so landing
+  pages, forms and surveys your users write never share cookies with the app. `api` logs a warning
+  at start when it is missing.
+- **The right client IP.** Set `PULSE_TRUST_PROXY=true` only when Pulse can be reached through your
+  reverse proxy alone (bind it to `127.0.0.1` or a private network). Behind Cloudflare, also set
+  `PULSE_TRUST_CLOUDFLARE=true`, and only together with an origin firewall that accepts connections
+  from [Cloudflare's IP ranges](https://www.cloudflare.com/ips/) alone; otherwise anyone can choose
+  their IP with a header and get around per-IP limits.
+- **Private data services.** Kafka, Redis and ClickHouse connections have no TLS settings (and
+  Kafka and Redis no passwords) in Pulse; keep them on a private network, and give Postgres and
+  ClickHouse your own passwords.
+- **Private addresses stay blocked.** Leave `PULSE_ALLOW_PRIVATE_WEBHOOKS` and
+  `PULSE_ALLOW_PRIVATE_SSO` off unless you know you need them.
+- **Verified identity.** Turn on **Require verified identity for web events** in each workspace that
+  tracks a website or app.

@@ -119,8 +119,8 @@ password is your SendGrid API key.* Check the host afterwards: Amazon SES fills 
 | Field | What to enter |
 |---|---|
 | **Host** | The server's address, e.g. `email-smtp.ap-south-1.amazonaws.com` |
-| **Port** | Usually `587` (STARTTLS) or `465` (SSL/TLS) |
-| **Encryption** | **Automatic** (the default: SSL/TLS on port 465, otherwise STARTTLS when the server offers it), **STARTTLS** (refuse to send if the server doesn't offer it), **SSL/TLS** (on any port), or **None** (only for a server on your own network) |
+| **Port** | Usually `587` (STARTTLS) or `465` (SSL/TLS); `25` and `2525` work too, other ports are refused. The host must be a public address |
+| **Encryption** | **Automatic** (the default: SSL/TLS on port 465, otherwise STARTTLS when the server offers it), **STARTTLS** (refuse to send if the server doesn't offer it), **SSL/TLS** (on any allowed port), or **None** (not recommended: the password would cross the internet unencrypted) |
 | **Login type** | **PLAIN** works with most servers; Microsoft 365 also takes **LOGIN**; some older servers want **CRAM-MD5**. **No login**: the server lets your Pulse server in by its IP address |
 | **From address** | `Acme Retail <hello@acme-retail.example.com>`: the sender every email shows, an address the server lets you send from |
 
