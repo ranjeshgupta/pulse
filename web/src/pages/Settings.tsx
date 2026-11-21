@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { ssoSecretNeeded } from "../accountSecurity";
 import { api, type AttributeDef, type AttrOption, type AttrType, type IdentitySettings, type PointRule, type RoleKey, type SSOConfig, type TwoFactorPolicy, type User } from "../api";
 import { policySummary } from "../twoFactor";
 import { useIsAdmin, useMe } from "../auth";
@@ -121,7 +122,7 @@ export function Access() {
   const remove = useMutation({
     mutationFn: () => api.del("/v1/settings/sso"),
     onSuccess: () => {
-      const blank: SSOConfig = { enabled: false, issuer: "", discovery_url: "", client_id: "", client_secret: "", has_client_secret: false, auto_create_users: true, default_role: "editor" };
+      const blank: SSOConfig = { enabled: false, issuer: "", discovery_url: "", client_id: "", client_secret: "", has_client_secret: false, auto_create_users: true, default_role: "editor", idp_verifies_email: false };
       qc.setQueryData(["sso"], blank); setSSO(blank); toast({ text: "Single sign-on removed" });
     },
   });
@@ -134,6 +135,11 @@ export function Access() {
   const { markDirty, saved: markSaved } = guard;
   useEffect(() => { if (ssoDirty || tfDirty) markDirty(); else markSaved(); }, [ssoDirty, tfDirty, markDirty, markSaved]);
   const callback = `${window.location.origin}/v1/auth/sso/callback`;
+  // The stored client secret only goes to the provider it was given for: a new issuer, discovery
+  // URL or client ID needs the secret typed again (the server refuses the save otherwise).
+  const secretNeeded = !!sso && ssoSecretNeeded(q.data, sso);
+  const secretMissing = secretNeeded && !sso?.client_secret;
+  const providerChanged = !!q.data?.has_client_secret && secretNeeded;
 
   return (
     <div className="page">
@@ -151,13 +157,15 @@ export function Access() {
                 <Field label="Issuer URL" hint="e.g. https://auth.example.com/realms/acme"><input className="input" value={sso.issuer} onChange={(e) => setSSO({ ...sso, issuer: e.target.value.trim() })} /></Field>
                 <Field label="Discovery URL (optional)" hint="Only if Pulse reaches the provider at a different address than browsers do."><input className="input" value={sso.discovery_url} onChange={(e) => setSSO({ ...sso, discovery_url: e.target.value.trim() })} /></Field>
                 <Field label="Client ID"><input className="input" value={sso.client_id} onChange={(e) => setSSO({ ...sso, client_id: e.target.value.trim() })} /></Field>
-                <Field label="Client secret" hint={sso.has_client_secret ? "Stored encrypted. Leave empty to keep it." : "Stored encrypted."}><input className="input" type="password" autoComplete="off" value={sso.client_secret ?? ""} onChange={(e) => setSSO({ ...sso, client_secret: e.target.value })} /></Field>
+                <Field label="Client secret" hint={providerChanged ? <strong>Enter the client secret again: the issuer, discovery URL or client ID changed, and the stored secret is only sent to the provider it was given for.</strong> : sso.has_client_secret ? "Stored encrypted. Leave empty to keep it." : "Stored encrypted."}><input className="input" type="password" autoComplete="off" value={sso.client_secret ?? ""} required={secretNeeded} aria-invalid={secretMissing && ssoDirty} onChange={(e) => setSSO({ ...sso, client_secret: e.target.value })} /></Field>
               </div>
               <label className="check"><input type="checkbox" checked={sso.auto_create_users} onChange={(e) => setSSO({ ...sso, auto_create_users: e.target.checked })} />Give anyone your provider signs in access to this workspace</label>
               <Field label="Their role"><select className="select inline" value={sso.default_role} onChange={(e) => setSSO({ ...sso, default_role: e.target.value as RoleKey })}><RoleOptions roles={roles} /></select></Field>
+              <label className="check"><input type="checkbox" checked={!!sso.idp_verifies_email} onChange={(e) => setSSO({ ...sso, idp_verifies_email: e.target.checked })} />Identity provider verifies email addresses</label>
+              <p className="xs muted" style={{ marginTop: -6, marginBottom: 12, maxWidth: "70ch" }}>Turn on only if your identity provider marks every email it sends as verified; otherwise users whose token has no email_verified can't sign in.</p>
               <label className="check"><input type="checkbox" checked={sso.enabled} onChange={(e) => setSSO({ ...sso, enabled: e.target.checked })} />Allow signing in with SSO</label>
               <div className="row" style={{ gap: 8 }}>
-                <button className="btn primary" disabled={save.isPending} onClick={() => save.mutate()}>Save sign-on settings</button>
+                <button className="btn primary" disabled={save.isPending || secretMissing} title={secretMissing ? "Enter the client secret first" : undefined} onClick={() => save.mutate()}>Save sign-on settings</button>
                 {saved && <button className="btn danger" disabled={remove.isPending}
                   onClick={() => void ask({
                     title: "Remove single sign-on?",

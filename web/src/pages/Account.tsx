@@ -1,18 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { api, type TwoFactorSetup, type TwoFactorStatus } from "../api";
+import { useEffect, useState, type FormEvent } from "react";
+import { MIN_PASSWORD, passwordChangeError, passwordProblem, type PasswordForm } from "../accountSecurity";
+import { api, ApiError, type TwoFactorSetup, type TwoFactorStatus } from "../api";
 import { useMe } from "../auth";
+import { ask, useEditGuard } from "../guard";
 import { CodeOrPassword, RecoveryCodes, SetupApp } from "../TwoFactorUI";
-import { ErrorNote, PageHead, timeAgo, useToast } from "../ui";
+import { ErrorNote, Field, PageHead, timeAgo, useToast } from "../ui";
 import { roleName, useRoles } from "./Roles";
 
-/** Account is "Your account": who you are, and your two-step sign-in. Everyone signed in can open it. */
+/** Account is "Your account": who you are, your password, where you're signed in and your two-step
+ * sign-in. Everyone signed in can open it. */
 export function Account() {
   const me = useMe().data;
   const roles = useRoles().data;
+  // A guard for the password form: leaving the page with something typed there asks first.
+  const guard = useEditGuard();
   return (
     <div className="page">
-      <PageHead title="Your account" intro="Your details and how you sign in." />
+      <PageHead title="Your account" intro={<>Your details and how you sign in. Jump to <a href="#password">password</a>, <a href="#sessions">where you're signed in</a> or <a href="#two-step">two-step sign-in</a>.</>} />
       <section className="panel">
         <div className="panel-head"><h3>You</h3></div>
         <div className="panel-body">
@@ -24,8 +29,112 @@ export function Account() {
           </dl>
         </div>
       </section>
+      <PasswordPanel guard={guard} />
+      <SessionsPanel guard={guard} />
       <TwoFactorPanel />
     </div>
+  );
+}
+
+type Guard = ReturnType<typeof useEditGuard>;
+const EMPTY: PasswordForm = { current: "", next: "", confirm: "" };
+
+/** PasswordPanel changes the password; the server then signs out every other device. */
+function PasswordPanel({ guard }: { guard: Guard }) {
+  const toast = useToast();
+  const tf = useQuery({ queryKey: ["two-factor"], queryFn: () => api.get<TwoFactorStatus>("/v1/account/two-factor"), retry: false });
+  const [f, setF] = useState<PasswordForm>(EMPTY);
+  const [tried, setTried] = useState(false);
+  const dirty = f.current !== "" || f.next !== "" || f.confirm !== "";
+  const { markDirty, saved } = guard;
+  useEffect(() => { if (dirty) markDirty(); else saved(); }, [dirty, markDirty, saved]);
+  const change = useMutation({
+    mutationFn: () => api.post("/v1/account/password", { current_password: f.current, new_password: f.next }),
+    onSuccess: () => {
+      saved();
+      setF(EMPTY);
+      setTried(false);
+      toast({ text: "Password changed. Other devices were signed out." });
+    },
+  });
+  const problem = passwordProblem(f);
+  const err = change.error instanceof ApiError ? new Error(passwordChangeError(change.error.status, change.error.message)) : change.error;
+  const set = (k: keyof PasswordForm) => (e: React.ChangeEvent<HTMLInputElement>) => { change.reset(); setF({ ...f, [k]: e.target.value }); };
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setTried(true);
+    if (!problem) change.mutate();
+  }
+
+  // Only someone who signs in with single sign-on has no password here.
+  if (tf.data && !tf.data.password) {
+    return (
+      <section className="panel section" id="password">
+        <div className="panel-head"><h3>Password</h3></div>
+        <div className="panel-body">
+          <p className="small muted">You sign in with single sign-on (SSO), so your company's identity provider manages your password. There's no Pulse password to change.</p>
+        </div>
+      </section>
+    );
+  }
+  // Show what's missing only once the person tried to save, or for the confirm field once typed in.
+  const shown = tried ? problem : f.confirm && f.next && f.confirm !== f.next && f.confirm.length >= f.next.length ? "The two new passwords don't match." : null;
+  return (
+    <section className="panel section" id="password">
+      <div className="panel-head"><h3>Password</h3></div>
+      <div className="panel-body">
+        <p className="small muted" style={{ marginBottom: 14, maxWidth: "70ch" }}>
+          Changing your password signs you out on every other device and browser. You stay signed in here.
+        </p>
+        <ErrorNote error={err} />
+        <form onSubmit={submit} style={{ maxWidth: 420 }}>
+          <Field label="Current password"><input className="input" type="password" autoComplete="current-password" value={f.current} onChange={set("current")} /></Field>
+          <Field label="New password" hint={`At least ${MIN_PASSWORD} characters.`}><input className="input" type="password" autoComplete="new-password" value={f.next} onChange={set("next")} /></Field>
+          <Field label="New password again"><input className="input" type="password" autoComplete="new-password" value={f.confirm} onChange={set("confirm")} /></Field>
+          {shown && <p className="small" role="alert" style={{ color: "var(--danger)", marginTop: -4, marginBottom: 12 }}>{shown}</p>}
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn primary" disabled={change.isPending || !dirty}>{change.isPending ? "Changing…" : "Change password"}</button>
+            {dirty && <button type="button" className="btn" disabled={change.isPending}
+              onClick={() => void ask({ title: "Clear what you typed?", body: "The password fields are emptied; nothing is changed.", confirmText: "Clear", cancelText: "Keep editing", danger: true })
+                .then((ok) => { if (ok) { change.reset(); setF(EMPTY); setTried(false); } })}>Cancel</button>}
+          </div>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+/** SessionsPanel: "Sign out everywhere" ends every session, this one too. */
+function SessionsPanel({ guard }: { guard: Guard }) {
+  const qc = useQueryClient();
+  const revoke = useMutation({
+    mutationFn: () => api.post("/v1/account/sessions/revoke"),
+    onSuccess: () => {
+      guard.saved(); // nothing left to protect: this session has ended too
+      qc.clear();
+      window.location.assign("/login");
+    },
+  });
+  async function signOutEverywhere() {
+    const ok = await ask({
+      title: "Sign out everywhere?",
+      body: "Every browser and device signed in to your account is signed out, this one too. You'll need to sign in again." + (guard.isDirty() ? " What you typed in the password form is lost." : ""),
+      confirmText: "Sign out everywhere", danger: true,
+    });
+    if (ok) revoke.mutate();
+  }
+  return (
+    <section className="panel section" id="sessions">
+      <div className="panel-head"><h3>Where you're signed in</h3></div>
+      <div className="panel-body">
+        <p className="small muted" style={{ marginBottom: 14, maxWidth: "70ch" }}>
+          Pulse signs you out automatically after 7 days without use, and after 14 days at the latest. Left yourself signed in on a shared or lost computer? Sign out everywhere.
+        </p>
+        <ErrorNote error={revoke.error} />
+        <button className="btn danger" disabled={revoke.isPending} onClick={() => void signOutEverywhere()}>{revoke.isPending ? "Signing out…" : "Sign out everywhere"}</button>
+      </div>
+    </section>
   );
 }
 
@@ -119,7 +228,7 @@ function TwoFactorPanel() {
   }
 
   return (
-    <section className="panel section">
+    <section className="panel section" id="two-step">
       <div className="panel-head">
         <h3>Two-step sign-in</h3>
         {v && (v.enabled ? <span className="badge ok">On</span> : <span className="badge">Off</span>)}

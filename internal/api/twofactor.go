@@ -111,7 +111,10 @@ func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, model
 	if err != nil {
 		return "", tf, err
 	}
-	if pol.Requires(u.ID, u.Role) {
+	// An account without a password signs in only through single sign-on, whose identity provider
+	// handles extra sign-in steps; Pulse can't enrol it (beginSetup refuses), so the policy's
+	// enrolment step doesn't apply to it.
+	if pol.Requires(u.ID, u.Role) && u.PasswordHash != "" {
 		return pendingSetup, tf, nil
 	}
 	return "", tf, nil

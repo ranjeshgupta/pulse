@@ -1,23 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { own } from "../safe";
-import { api } from "../api";
+import { loginError, loginStep, SSO_ERRORS } from "../accountSecurity";
+import { api, type Me } from "../api";
 import { HEARTBEAT, PulseTrace } from "../PulseTrace";
 import { Logo } from "../Shell";
 import { CodeField, RecoveryCodes, SetupApp } from "../TwoFactorUI";
 import { codeReady } from "../twoFactor";
 import { ErrorNote, Field } from "../ui";
-
-const SSO_ERRORS: Record<string, string> = {
-  unknown_workspace: "That workspace doesn't exist. Check the workspace ID.",
-  sso_unavailable: "Single sign-on isn't set up for this workspace yet. Sign in with your password, or ask an admin.",
-  sso_expired: "The sign-in took too long or was interrupted. Start again.",
-  sso_denied: "Sign-in was cancelled at your identity provider.",
-  sso_failed: "Your identity provider's response couldn't be verified. Try again, or ask an admin to check the SSO settings.",
-  sso_no_verified_email: "Your identity provider didn't share a verified email address.",
-  sso_not_provisioned: "You don't have access to this workspace yet. Ask an admin to add you.",
-};
 
 function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -41,12 +31,14 @@ export function Login() {
   const [workspace, setWorkspace] = useState(localStorage.getItem("pulse.workspace") ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<unknown>(params.get("error") ? new Error(own(SSO_ERRORS, params.get("error")) ?? "Sign-in failed.") : null);
+  const [error, setError] = useState<unknown>(() => { const m = loginError(params); return m ? new Error(m) : null; });
   const [busy, setBusy] = useState(false);
   // Two-step sign-in: after the password, a code from the app ("code"), or setting the app up
   // first when the workspace requires it ("setup"). The server holds the half-finished sign-in
-  // in a short-lived cookie.
-  const [step, setStep] = useState<"password" | "code" | "setup">("password");
+  // in a short-lived cookie. Single sign-on lands here with ?two_factor=code or ?two_factor=setup
+  // when the workspace's two-step policy still applies (the same cookie holds that sign-in).
+  const [step, setStep] = useState(() => loginStep(params));
+  const viaSSO = loginStep(params) !== "password";
   const [code, setCode] = useState("");
   const [codes, setCodes] = useState<string[] | null>(null);
 
@@ -94,13 +86,27 @@ export function Login() {
     setStep("password");
     setCode("");
     setError(null);
+    if (params.has("two_factor")) nav("/login", { replace: true });
+  }
+
+  // After setting the app up, the session exists: single sign-on didn't tell us the email for the
+  // recovery codes file, so ask who signed in.
+  async function setupDone(c: string[]) {
+    if (!email) {
+      try {
+        const me = await api.get<Me>("/v1/auth/me");
+        if (me.user?.email) setEmail(me.user.email);
+        if (me.workspace.slug) setWorkspace(me.workspace.slug);
+      } catch { /* the codes still show; the file just lacks the name */ }
+    }
+    setCodes(c);
   }
 
   if (step === "code") {
     return (
       <AuthLayout>
         <h1>Enter your code</h1>
-        <p>Open your authenticator app and type the six-digit code it shows for Pulse.</p>
+        <p>{viaSSO ? "You signed in with single sign-on. Your workspace also asks for a code: open" : "Open"} your authenticator app and type the six-digit code it shows for Pulse.</p>
         <ErrorNote error={error} />
         <form onSubmit={verify}>
           <CodeField value={code} onChange={setCode} recovery />
@@ -117,13 +123,13 @@ export function Login() {
     return (
       <AuthLayout>
         <h1>Set up two-step sign-in</h1>
-        <p>Your workspace asks you to confirm each sign-in with a code from an authenticator app on your phone. Setting it up takes a minute.</p>
+        <p>{viaSSO && "You signed in with single sign-on. "}Your workspace asks you to confirm each sign-in with a code from an authenticator app on your phone. Setting it up takes a minute.</p>
         {codes ? (
           <RecoveryCodes codes={codes} workspace={workspace} email={email} onDone={signedIn} doneLabel="Open Pulse" />
         ) : (
           <>
             <ErrorNote error={error} />
-            <SetupApp base="/v1/auth" onDone={setCodes} onCancel={startOver} />
+            <SetupApp base="/v1/auth" onDone={(c) => void setupDone(c)} onCancel={startOver} />
           </>
         )}
       </AuthLayout>

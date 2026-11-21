@@ -437,6 +437,22 @@ func TestTwoFactorNotForAPIKeyOrSSOOnly(t *testing.T) {
 	}
 }
 
+// Under a policy that requires two-step sign-in, an account with a password is sent to set it up,
+// but an SSO-only account isn't (its identity provider handles extra steps; Pulse can't enrol it).
+func TestTwoFactorPolicySkipsSSOOnlyAccounts(t *testing.T) {
+	e := newTFEnv(t)
+	e.st.policy = auth.TwoFactorPolicy{Mode: auth.TwoFactorEveryone}
+	withPassword := e.st.users[1]
+	if step, _, err := e.s.twoFactorNext(context.Background(), withPassword); err != nil || step != pendingSetup {
+		t.Errorf("password account: %q %v", step, err)
+	}
+	ssoOnly := withPassword
+	ssoOnly.PasswordHash = ""
+	if step, _, err := e.s.twoFactorNext(context.Background(), ssoOnly); err != nil || step != "" {
+		t.Errorf("SSO-only account: %q %v, want no step", step, err)
+	}
+}
+
 func TestTwoFactorRoutePermissions(t *testing.T) {
 	viewer, _ := auth.BuiltinPerms(auth.RoleViewer)
 	editor, _ := auth.BuiltinPerms(auth.RoleEditor)

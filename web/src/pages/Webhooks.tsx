@@ -250,20 +250,24 @@ function SecretPanel({ webhook }: { webhook: Webhook }) {
   });
   const fresh = freshSecrets.get(webhook.id) ?? "";
   const secret = fresh || webhook.secret || "";
+  // has_secret: a secret is stored even when its masked tail isn't shown (the server can't open it
+  // without its secret key). Older servers don't send it: then any masked secret counts.
+  const hasSecret = !!fresh || (webhook.has_secret ?? !!webhook.secret);
+  const tail = secret.replace(/^•+/, "").slice(-4);
   return (
     <section className="panel section">
       <div className="panel-head"><h3>Signing secret</h3><span className="xs muted">Keep it on your server only</span></div>
       <div className="panel-body">
         <p className="small muted" style={{ marginBottom: 12 }}>Every delivery is signed with this secret in the <code>X-Pulse-Signature</code> header. Check it to be sure the request came from Pulse.</p>
         <div className="wh-secret">
-          <code>{!secret ? "No secret yet" : fresh && shown ? fresh : "•".repeat(24) + secret.slice(-4)}</code>
+          <code>{!hasSecret ? "No secret yet" : fresh && shown ? fresh : "•".repeat(24) + tail}</code>
           {fresh && <button className="btn sm" onClick={() => setShown(!shown)}>{shown ? "Hide" : "Reveal"}</button>}
           {fresh && <button className="btn sm" onClick={() => copy(fresh, "Secret copied")}>Copy</button>}
           <button className="btn sm danger" disabled={rotate.isPending}
             onClick={() => void ask({ title: "Create a new signing secret?", body: "The current one stops working right away, so update your server too.", confirmText: "Rotate secret", danger: true })
               .then((ok) => ok && rotate.mutate())}>Rotate secret</button>
         </div>
-        {secret && !fresh && <p className="xs muted" style={{ marginTop: 8 }}>For safety the full secret is shown only when it is created or rotated. Lost it? Rotate it and copy the new one.</p>}
+        {hasSecret && !fresh && <p className="xs muted" style={{ marginTop: 8 }}>For safety the full secret is shown only when it is created or rotated. Lost it? Rotate it and copy the new one.</p>}
         <ErrorNote error={rotate.error} />
       </div>
     </section>

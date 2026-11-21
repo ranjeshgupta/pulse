@@ -31,7 +31,7 @@ const VERBOSE = !!process.env.VERBOSE;
 /** Buttons worth opening: they show something and change nothing on the server. */
 const SAFE = /^(✨ AI|Preview|Preview as contact|Preview request|See what they get|Add filter|\+ Add filter|All filters|Filter|Filters|Show picks|HTML|HTML \(web view\)|Rich text|Plain text|Text|Desktop|Mobile|📊 Report|Report|Results|Steps|Day by day|Hour by hour|Zoom to fit|Known visitor|Card|Form|Blocks|Default|After submit|Before|After|Limits|Python|Node\.js|curl|Drag and drop|✏️ Content|Content|Code|Explain|Details|Columns|Go to Schema|Add a condition|Add condition|Add rule|Add event|Add variable|Define field|Adjust|Fill in the form|Check this report|Check this answer|Always applies|Copy a variable|Variable|\{ \} Variable)$/i;
 /** Never clicked, whatever the SAFE list says. */
-const UNSAFE = /delete|remove|send|launch|schedule|approve|reject|archive|publish|save|import|merge|sync|rotate|sign out|turn (on|off)|pull|start|activate|pause|resume|stop|unsubscribe|mark|restore|reset|connection|duplicate|create|upload|discard|enforce|ask the gateway|check now|test/i;
+const UNSAFE = /password|everywhere|delete|remove|send|launch|schedule|approve|reject|archive|publish|save|import|merge|sync|rotate|sign out|turn (on|off)|pull|start|activate|pause|resume|stop|unsubscribe|mark|restore|reset|connection|duplicate|create|upload|discard|enforce|ask the gateway|check now|test/i;
 
 const failures = [];
 const visits = [];
@@ -297,6 +297,9 @@ async function targets(context) {
     "/on-site?channel=xxx", "/on-site?channel=website&type=xxx", "/on-site?channel=app", "/on-site?channel=website&type=focus",
     "/segments?type=xxx", "/contacts?open=nobody-at-all", "/contacts/import?segment=999999999", "/contacts/import?segment=abc",
     "/login?next=%2Fcontacts&error=xxx"]) add(p, { light: true });
+  // Sign-in states: the two-step parts single sign-on lands on, and its error messages. Looked at
+  // only (never submitted): the crawler's session stays signed in.
+  for (const p of ["/login?two_factor=code", "/login?two_factor=setup", "/login?error=sso_link_needed", "/login?two_factor=xxx"]) add(p, { light: true });
   for (const q of ["is:nonsense", "segment:999999999", 'segment:"No such segment"', "points:>abc", "points:>", "event:purchase period:2026-13-45",
     "no_event:", "tag:%22%22", "((( )))", "%", "\\", "email:@ name:' OR 1=1 --", "value:Nope churn:maybe", "unsubscribed:xxx",
     "company:999999 stage:nope owner:nobody", "journey:999999 step:x outcome:y", "campaign:abc run:-1", "product:x category:y active:z",

@@ -100,7 +100,7 @@ export interface AuditEntry {
   status: number; ip: string; detail?: unknown;
 }
 export interface Webhook {
-  id: number; name: string; url: string; events: string[]; active: boolean; secret?: string; created_at: string; updated_at: string;
+  id: number; name: string; url: string; events: string[]; active: boolean; secret?: string; has_secret?: boolean; created_at: string; updated_at: string;
   /** REST hook subscriptions (Zapier, Make) belong to an integration and may narrow to a segment or form. */
   integration_id?: number; segment_id?: number; form_id?: number;
 }
@@ -662,7 +662,9 @@ export interface ReportSpec {
 }
 export interface ReportResult { rows: { group: string; value: number }[]; labels: Record<string, string>; from: string; to: string; max_groups: number }
 
-export interface SSOConfig { enabled: boolean; issuer: string; discovery_url: string; client_id: string; client_secret?: string; has_client_secret: boolean; auto_create_users: boolean; default_role: RoleKey }
+export interface SSOConfig { enabled: boolean; issuer: string; discovery_url: string; client_id: string; client_secret?: string; has_client_secret: boolean; auto_create_users: boolean; default_role: RoleKey;
+  /** The identity provider only issues verified addresses: ID tokens without email_verified are accepted. */
+  idp_verifies_email?: boolean }
 
 export interface Overview {
   counts: { contacts: number; segments: number; active_journeys: number; templates: number };
