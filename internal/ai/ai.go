@@ -25,6 +25,22 @@ const Model = "claude-opus-5-5"
 // ErrRefused: the model declined the request.
 var ErrRefused = errors.New("the AI declined this request; try different wording")
 
+// ErrAnswerTooLong: the answer hit the output limit (it would be cut off).
+var ErrAnswerTooLong = errors.New("the answer was too long for AI help; try a shorter text")
+
+// Input limits: a rewrite's text and a translation's fields (as JSON), in bytes.
+const (
+	MaxRewrite   = 60_000
+	MaxTranslate = 120_000
+)
+
+// TooLongError: the input is over a limit (it is refused, never cut).
+type TooLongError struct{ Size, Limit int }
+
+func (e *TooLongError) Error() string {
+	return fmt.Sprintf("too long for AI help: %d KB, the limit is %d KB", (e.Size+999)/1000, e.Limit/1000)
+}
+
 // Completer returns JSON for a prompt, matching schema (the Claude client, or a fake in tests).
 type Completer interface {
 	JSON(ctx context.Context, system, user string, schema map[string]any) ([]byte, error)
@@ -52,8 +68,11 @@ func (c *Claude) JSON(ctx context.Context, system, user string, schema map[strin
 	if err != nil {
 		return nil, err
 	}
-	if resp.StopReason == anthropic.BetaStopReasonRefusal {
+	switch resp.StopReason {
+	case anthropic.BetaStopReasonRefusal:
 		return nil, ErrRefused
+	case anthropic.BetaStopReasonMaxTokens:
+		return nil, ErrAnswerTooLong
 	}
 	var b strings.Builder
 	for _, block := range resp.Content {
@@ -156,7 +175,10 @@ func (h Helper) Rewrite(ctx context.Context, text, style, channel string) (strin
 	if !ok {
 		return "", fmt.Errorf("style: one of %s", strings.Join(keys(Styles), ", "))
 	}
-	user := fmt.Sprintf("Rewrite this %s message. %s If it is HTML, keep the markup, links and images and change only the words.\n\n%s", channel, how, clip(text, 60000))
+	if len(text) > MaxRewrite {
+		return "", &TooLongError{Size: len(text), Limit: MaxRewrite}
+	}
+	user := fmt.Sprintf("Rewrite this %s message. %s If it is HTML, keep the markup, links and images and change only the words.\n\n%s", channel, how, text)
 	raw, err := h.C.JSON(ctx, baseSystem, user, object(map[string]any{"text": map[string]any{"type": "string"}}))
 	if err != nil {
 		return "", err
@@ -186,11 +208,14 @@ func (h Helper) Translate(ctx context.Context, fields map[string]string, languag
 		return nil, errors.New("there's nothing to translate")
 	}
 	in, _ := json.Marshal(keep)
+	if len(in) > MaxTranslate {
+		return nil, &TooLongError{Size: len(in), Limit: MaxTranslate}
+	}
 	props := map[string]any{}
 	for k := range keep {
 		props[k] = map[string]any{"type": "string"}
 	}
-	user := fmt.Sprintf("Translate each field of this message into the language with code %q, as a native marketer would write it (not word for word). Keep HTML markup, links, numbers, brand and product names. Return the same fields.\n\n%s", language, clip(string(in), 120000))
+	user := fmt.Sprintf("Translate each field of this message into the language with code %q, as a native marketer would write it (not word for word). Keep HTML markup, links, numbers, brand and product names. Return the same fields.\n\n%s", language, in)
 	raw, err := h.C.JSON(ctx, baseSystem, user, object(props))
 	if err != nil {
 		return nil, err

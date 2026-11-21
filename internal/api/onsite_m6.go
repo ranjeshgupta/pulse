@@ -187,6 +187,23 @@ func (s *Server) focusOrder(w http.ResponseWriter, r *http.Request, tenant int64
 		writeErr(w, http.StatusNotImplemented, "ordering is not available")
 		return
 	}
+	if ons, ok := s.Store.(OnsiteStore); ok {
+		items, err := ons.ListFocusItems(r.Context(), tenant, false)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		have := make(map[int64]bool, len(items))
+		for _, f := range items {
+			have[f.ID] = true
+		}
+		for _, id := range req.IDs {
+			if !have[id] {
+				writeErr(w, http.StatusBadRequest, "focus item "+strconv.FormatInt(id, 10)+" doesn't exist")
+				return
+			}
+		}
+	}
 	if err := st.SetFocusPriorities(r.Context(), tenant, req.IDs); err != nil {
 		s.fail(w, err)
 		return

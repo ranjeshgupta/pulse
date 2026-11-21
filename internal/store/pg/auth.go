@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -131,22 +132,47 @@ func (s *Store) DeleteUser(ctx context.Context, tenant, id int64) error {
 	return err
 }
 
-// SSOUser finds the user for a verified SSO identity: by subject, then by email (linking the subject),
-// then creates one when the workspace allows it.
+// ErrPasswordAccount: an SSO identity's email belongs to a user who signs in with a password and
+// hasn't linked SSO yet. Linking needs that password once (or an admin), so whoever controls an
+// identity provider account with the same email can't take the account over.
+var ErrPasswordAccount = errors.New("this email has a password account; sign in with the password once to link SSO")
+
+// SSOUser finds the user for a verified SSO identity: by subject, then by email (linking the
+// subject, only for users without a password), then creates one when the workspace allows it.
 func (s *Store) SSOUser(ctx context.Context, tenant int64, subject, email, name string, autoCreate bool, role string) (model.User, error) {
 	u, err := scanUser(s.db.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE tenant_id = $1 AND sso_subject = $2`, tenant, subject))
 	if !errors.Is(err, ErrNotFound) {
 		return u, err
 	}
 	u, err = scanUser(s.db.QueryRow(ctx,
-		`UPDATE users SET sso_subject = $3 WHERE tenant_id = $1 AND email = $2 AND sso_subject IS NULL RETURNING `+userCols,
+		`UPDATE users SET sso_subject = $3 WHERE tenant_id = $1 AND email = $2 AND sso_subject IS NULL
+		   AND coalesce(password_hash, '') = '' RETURNING `+userCols,
 		tenant, normEmail(email), subject))
-	if !errors.Is(err, ErrNotFound) || !autoCreate {
+	if !errors.Is(err, ErrNotFound) {
 		return u, err
+	}
+	var hasPassword bool
+	if err := s.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE tenant_id = $1 AND email = $2)`,
+		tenant, normEmail(email)).Scan(&hasPassword); err != nil {
+		return model.User{}, err
+	}
+	if hasPassword {
+		return model.User{}, ErrPasswordAccount // or linked to another subject: never relinked silently
+	}
+	if !autoCreate {
+		return model.User{}, ErrNotFound
 	}
 	return scanUser(s.db.QueryRow(ctx,
 		`INSERT INTO users (tenant_id, email, name, sso_subject, role) VALUES ($1, $2, $3, $4, $5) RETURNING `+userCols,
 		tenant, normEmail(email), name, subject, role))
+}
+
+// LinkSSO links an SSO identity to a user who proved they own the account (signed in with the
+// password in the same browser). A user already linked to another identity keeps it.
+func (s *Store) LinkSSO(ctx context.Context, tenant, user int64, subject string) (model.User, error) {
+	return scanUser(s.db.QueryRow(ctx,
+		`UPDATE users SET sso_subject = $3 WHERE tenant_id = $1 AND id = $2 AND (sso_subject IS NULL OR sso_subject = $3)
+		 RETURNING `+userCols, tenant, user, subject))
 }
 
 // ---- sessions ----
@@ -161,16 +187,25 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID, ten
 	return err
 }
 
-// SessionPrincipal resolves a live session to its user.
+// SessionIdle ends a session that hasn't been used for this long.
+const SessionIdle = 7 * 24 * time.Hour
+
+// SessionPrincipal resolves a live session to its user. A session unused for SessionIdle has
+// ended; use moves last_seen_at forward (at most every five minutes, to spare writes).
 func (s *Store) SessionPrincipal(ctx context.Context, tokenHash string) (model.Principal, error) {
 	var p model.Principal
 	var custom []byte
+	var seen time.Time
 	err := s.db.QueryRow(ctx, `
-		SELECT u.tenant_id, u.id, u.role, u.email, r.permissions FROM sessions s JOIN users u ON u.id = s.user_id
+		SELECT u.tenant_id, u.id, u.role, u.email, r.permissions, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id
 		LEFT JOIN roles r ON r.tenant_id = u.tenant_id AND u.role = 'role:' || r.id
-		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).Scan(&p.TenantID, &p.UserID, &p.Role, &p.Actor, &custom)
+		WHERE s.token_hash = $1 AND s.expires_at > now() AND s.last_seen_at > now() - $2::interval`,
+		tokenHash, fmt.Sprintf("%d seconds", int(SessionIdle.Seconds()))).Scan(&p.TenantID, &p.UserID, &p.Role, &p.Actor, &custom, &seen)
 	if err != nil {
 		return p, notFound(err)
+	}
+	if time.Since(seen) > 5*time.Minute {
+		_, _ = s.db.Exec(ctx, `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, tokenHash)
 	}
 	p.Perms = rolePerms(p.Role, custom)
 	return p, nil
@@ -178,6 +213,21 @@ func (s *Store) SessionPrincipal(ctx context.Context, tokenHash string) (model.P
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
+	return err
+}
+
+// DeleteUserSessions signs a user out everywhere except the session keepHash ("" keeps none).
+func (s *Store) DeleteUserSessions(ctx context.Context, tenant, user int64, keepHash string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE tenant_id = $1 AND user_id = $2 AND token_hash <> $3`, tenant, user, keepHash)
+	return err
+}
+
+// SetPassword replaces a user's password hash.
+func (s *Store) SetPassword(ctx context.Context, tenant, user int64, hash string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE users SET password_hash = $3 WHERE tenant_id = $1 AND id = $2`, tenant, user, hash)
+	if err == nil && tag.RowsAffected() == 0 {
+		err = ErrNotFound
+	}
 	return err
 }
 
@@ -192,9 +242,9 @@ func (s *Store) GetSSO(ctx context.Context, tenant int64) (model.SSOConfig, []by
 	var c model.SSOConfig
 	var secret []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT enabled, issuer, discovery_url, client_id, client_secret_enc, auto_create_users, default_role
+		SELECT enabled, issuer, discovery_url, client_id, client_secret_enc, auto_create_users, default_role, idp_verifies_email
 		FROM tenant_sso WHERE tenant_id = $1`, tenant).
-		Scan(&c.Enabled, &c.Issuer, &c.DiscoveryURL, &c.ClientID, &secret, &c.AutoCreateUsers, &c.DefaultRole)
+		Scan(&c.Enabled, &c.Issuer, &c.DiscoveryURL, &c.ClientID, &secret, &c.AutoCreateUsers, &c.DefaultRole, &c.IdPVerifiesEmail)
 	c.HasClientSecret = len(secret) > 0
 	return c, secret, notFound(err)
 }
@@ -202,14 +252,14 @@ func (s *Store) GetSSO(ctx context.Context, tenant int64) (model.SSOConfig, []by
 // PutSSO saves the config. A nil sealedSecret keeps the stored one.
 func (s *Store) PutSSO(ctx context.Context, tenant int64, c model.SSOConfig, sealedSecret []byte) error {
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO tenant_sso (tenant_id, enabled, issuer, discovery_url, client_id, client_secret_enc, auto_create_users, default_role)
-		VALUES ($1, $2, $3, $4, $5, coalesce($6, ''::bytea), $7, $8)
+		INSERT INTO tenant_sso (tenant_id, enabled, issuer, discovery_url, client_id, client_secret_enc, auto_create_users, default_role, idp_verifies_email)
+		VALUES ($1, $2, $3, $4, $5, coalesce($6, ''::bytea), $7, $8, $9)
 		ON CONFLICT (tenant_id) DO UPDATE SET
 			enabled = EXCLUDED.enabled, issuer = EXCLUDED.issuer, discovery_url = EXCLUDED.discovery_url,
 			client_id = EXCLUDED.client_id, auto_create_users = EXCLUDED.auto_create_users,
-			default_role = EXCLUDED.default_role, updated_at = now(),
+			default_role = EXCLUDED.default_role, idp_verifies_email = EXCLUDED.idp_verifies_email, updated_at = now(),
 			client_secret_enc = coalesce($6, tenant_sso.client_secret_enc)`,
-		tenant, c.Enabled, c.Issuer, c.DiscoveryURL, c.ClientID, sealedSecret, c.AutoCreateUsers, c.DefaultRole)
+		tenant, c.Enabled, c.Issuer, c.DiscoveryURL, c.ClientID, sealedSecret, c.AutoCreateUsers, c.DefaultRole, c.IdPVerifiesEmail)
 	return err
 }
 

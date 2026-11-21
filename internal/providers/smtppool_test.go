@@ -257,7 +257,7 @@ func testCert(t testing.TB) (tls.Certificate, *x509.CertPool) {
 func newPooledSMTP(t testing.TB, f *fakeSMTP, maxConns, perConn int) *SMTP {
 	t.Helper()
 	host, port, _ := net.SplitHostPort(f.addr())
-	p, err := New("smtp", Deps{}, map[string]string{"host": host, "port": port, "from": "Acme <hello@acme.test>",
+	p, err := New("smtp", Deps{AllowPrivate: true}, map[string]string{"host": host, "port": port, "from": "Acme <hello@acme.test>",
 		"max_connections": fmt.Sprint(maxConns), "messages_per_connection": fmt.Sprint(perConn)}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -540,7 +540,7 @@ func TestSMTPPoolWaitHonoursContext(t *testing.T) {
 		closeSMTPPools()
 	}()
 	host, port, _ := net.SplitHostPort(ln.Addr().String())
-	p, err := New("smtp", Deps{}, map[string]string{"host": host, "port": port, "from": "hello@acme.test", "max_connections": "1"}, nil)
+	p, err := New("smtp", Deps{AllowPrivate: true}, map[string]string{"host": host, "port": port, "from": "hello@acme.test", "max_connections": "1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func BenchmarkSMTPPooled(b *testing.B) {
 	f.greet = benchGreet
 	f.start(b)
 	host, port, _ := net.SplitHostPort(f.addr())
-	p, err := New("smtp", Deps{}, map[string]string{"host": host, "port": port, "from": "hello@acme.test"}, nil)
+	p, err := New("smtp", Deps{AllowPrivate: true}, map[string]string{"host": host, "port": port, "from": "hello@acme.test"}, nil)
 	if err != nil {
 		b.Fatal(err)
 	}

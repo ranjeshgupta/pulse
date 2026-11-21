@@ -20,6 +20,9 @@ import (
 func browser(t *testing.T, h http.Handler, method, path, body string, cookie *http.Cookie, csrf bool) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -227,7 +230,10 @@ func TestImportCSV(t *testing.T) {
 }
 
 func TestCSVSafe(t *testing.T) {
-	for in, want := range map[string]string{"=HYPERLINK(1)": "'=HYPERLINK(1)", "-12.5": "-12.5", "@cmd": "'@cmd", "Pune": "Pune"} {
+	for in, want := range map[string]string{"=HYPERLINK(1)": "'=HYPERLINK(1)", "-12.5": "-12.5", "@cmd": "'@cmd", "Pune": "Pune",
+		// Spreadsheets skip leading spaces and line breaks before a formula.
+		" =1+1": "' =1+1", "\n=cmd|' /C calc'!A0": "'\n=cmd|' /C calc'!A0", "\r\n+SUM(A1)": "'\r\n+SUM(A1)",
+		"  @x": "'  @x", "\t-1": "'\t-1", "   ": "   ", " Pune": " Pune", "+1.5": "+1.5", "\u00a0=1": "'\u00a0=1"} {
 		if got := csvSafe(in); got != want {
 			t.Errorf("csvSafe(%q) = %q, want %q", in, got, want)
 		}

@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { own } from "../safe";
 import { api } from "../api";
 import { HEARTBEAT, PulseTrace } from "../PulseTrace";
 import { Logo } from "../Shell";
@@ -40,7 +41,7 @@ export function Login() {
   const [workspace, setWorkspace] = useState(localStorage.getItem("pulse.workspace") ?? "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<unknown>(params.get("error") ? new Error(SSO_ERRORS[params.get("error")!] ?? "Sign-in failed.") : null);
+  const [error, setError] = useState<unknown>(params.get("error") ? new Error(own(SSO_ERRORS, params.get("error")) ?? "Sign-in failed.") : null);
   const [busy, setBusy] = useState(false);
   // Two-step sign-in: after the password, a code from the app ("code"), or setting the app up
   // first when the workspace requires it ("setup"). The server holds the half-finished sign-in

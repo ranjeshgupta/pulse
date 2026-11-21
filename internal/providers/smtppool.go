@@ -10,6 +10,8 @@ import (
 	"net/textproto"
 	"sync"
 	"time"
+
+	"pulse/internal/safehttp"
 )
 
 // SMTP connection pooling. Opening a connection costs a TCP handshake, the greeting, EHLO,
@@ -51,6 +53,7 @@ type poolKey struct {
 	tlsMode           string      // "" (automatic), "starttls" (required), "ssl" or "none"
 	skipVerify        bool        // accept any certificate
 	authProto         string      // the login type, with username/passSum identifying the login
+	restricted        bool        // dial through safehttp (workspace-entered servers)
 }
 
 type smtpConn struct {
@@ -111,7 +114,8 @@ func (s *SMTP) poolKey() (poolKey, string, error) {
 	}
 	k := poolKey{addr: s.Addr, serverName: host, implicitTLS: mode == "ssl" || (mode == "" && port == "465"),
 		username: s.username, passSum: s.passSum, maxConns: s.MaxConns, perConn: s.MessagesPerConn,
-		tlsConfig: s.tlsConfig, helo: s.Helo, tlsMode: mode, skipVerify: s.SkipVerify, authProto: s.authProto}
+		tlsConfig: s.tlsConfig, helo: s.Helo, tlsMode: mode, skipVerify: s.SkipVerify, authProto: s.authProto,
+		restricted: s.restricted}
 	if k.maxConns <= 0 {
 		k.maxConns = defaultSMTPMaxConns
 	}
@@ -144,7 +148,10 @@ func (s *SMTP) acquirePool() (*smtpPool, error) {
 		}
 		dial := s.dial
 		if dial == nil {
-			d := &net.Dialer{}
+			// A server a workspace entered may only be a public address (checked on the resolved
+			// address at connect time); the operator's own relay may be anywhere.
+			d := safehttp.Dialer(!k.restricted)
+			d.Timeout = smtpDialTimeout
 			dial = d.DialContext
 		}
 		p = &smtpPool{key: k, host: host, auth: s.Auth, tls: cfg, dial: dial,
@@ -307,7 +314,7 @@ func (p *smtpPool) connect(ctx context.Context) (*smtpConn, error) {
 	defer cancel()
 	nc, err := p.dial(dctx, "tcp", p.key.addr)
 	if err != nil {
-		return nil, fmt.Errorf("smtp: dial %s: %w", p.key.addr, err)
+		return nil, &ConnectError{Addr: p.key.addr, Err: err}
 	}
 	sc := &smtpConn{nc: nc}
 	sc.deadline(ctx, smtpCmdTimeout)
@@ -319,6 +326,25 @@ func (p *smtpPool) connect(ctx context.Context) (*smtpConn, error) {
 	}
 	return sc, err
 }
+
+var (
+	errNoSTARTTLS = errors.New("smtp: the server doesn't offer STARTTLS; choose SSL/TLS or Automatic encryption")
+	errNoAUTH     = errors.New("smtp: server doesn't support AUTH")
+)
+
+// ConnectError is a failed connection to an SMTP server. Its message names only the server: the
+// underlying error (refused, timed out, blocked address) stays available to logs through Unwrap
+// but is never shown, so a workspace can't use connection tests to map the network.
+type ConnectError struct {
+	Addr string
+	Err  error
+}
+
+func (e *ConnectError) Error() string {
+	return fmt.Sprintf("couldn't connect to the SMTP server (%s)", e.Addr)
+}
+
+func (e *ConnectError) Unwrap() error { return e.Err }
 
 // handshake reads the greeting, says EHLO, starts TLS and authenticates.
 func (p *smtpPool) handshake(ctx context.Context, sc *smtpConn) (*smtpConn, error) {
@@ -352,7 +378,7 @@ func (p *smtpPool) handshake(ctx context.Context, sc *smtpConn) (*smtpConn, erro
 	if !p.key.implicitTLS && p.key.tlsMode != "none" {
 		ok, _ := c.Extension("STARTTLS")
 		if !ok && p.key.tlsMode == "starttls" {
-			return fail(errors.New("smtp: the server doesn't offer STARTTLS; choose SSL/TLS or Automatic encryption"))
+			return fail(errNoSTARTTLS)
 		}
 		if ok {
 			if err := c.StartTLS(p.tls); err != nil {
@@ -362,7 +388,7 @@ func (p *smtpPool) handshake(ctx context.Context, sc *smtpConn) (*smtpConn, erro
 	}
 	if p.auth != nil {
 		if ok, _ := c.Extension("AUTH"); !ok {
-			return fail(errors.New("smtp: server doesn't support AUTH"))
+			return fail(errNoAUTH)
 		}
 		if err := c.Auth(p.auth); err != nil {
 			return fail(err)

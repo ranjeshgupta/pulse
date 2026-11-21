@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"pulse/internal/httpauth"
+	"pulse/internal/safehttp"
 )
 
 func dialTo(f *fakeSMTP) func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -170,5 +171,61 @@ func TestSMTPTestAuthLogsIn(t *testing.T) {
 	}
 	if _, err := adapter("wrong").TestAuth(context.Background()); !errors.Is(err, httpauth.ErrRejected) {
 		t.Fatalf("wrong password: err = %v, want ErrRejected", err)
+	}
+}
+
+// A workspace-entered SMTP server can't be used to reach the server's own network or scan ports:
+// private addresses are refused at connect time, only mail ports are accepted, and the connection
+// test never shows raw dial errors or what the other side said.
+func TestSMTPRefusesInternalTargets(t *testing.T) {
+	defer closeSMTPPools()
+	for _, port := range []string{"22", "6379", "8080", "5432"} {
+		if _, err := New("smtp", Deps{}, map[string]string{"host": "smtp.example.com", "port": port, "from": "a@acme.test"}, nil); err == nil {
+			t.Errorf("port %s accepted", port)
+		}
+		if _, err := New("smtp", Deps{AllowPrivate: true}, map[string]string{"host": "smtp.example.com", "port": port, "from": "a@acme.test"}, nil); err != nil {
+			t.Errorf("port %s with private addresses allowed: %v", port, err)
+		}
+	}
+	// Something that isn't a mail server listens on localhost:2525-ish; the banner must not leak.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte("SSH-2.0-OpenSSH_9.6 secret-banner\r\n"))
+			_ = c.Close()
+		}
+	}()
+	_, lport, _ := net.SplitHostPort(ln.Addr().String())
+	for _, host := range []string{"127.0.0.1", "localhost"} {
+		p, err := New("smtp", Deps{}, map[string]string{"host": host, "port": "587", "from": "a@acme.test"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := p.(*SMTP)
+		_, err = s.TestAuth(context.Background())
+		if err == nil || err.Error() != "couldn't connect to the SMTP server ("+net.JoinHostPort(host, "587")+")" {
+			t.Errorf("%s: err = %v", host, err)
+		}
+		var ce *ConnectError
+		if _, err := s.Send(context.Background(), Outbound{To: "b@acme.test"}); !errors.As(err, &ce) || !errors.Is(err, safehttp.ErrBlocked) {
+			t.Errorf("%s: send err = %v, want a blocked ConnectError", host, err)
+		}
+	}
+	// With private addresses allowed (local development) it connects, but still shows no banner.
+	p, err := New("smtp", Deps{AllowPrivate: true}, map[string]string{"host": "127.0.0.1", "port": lport, "from": "a@acme.test"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.(*SMTP).TestAuth(context.Background())
+	if err == nil || strings.Contains(err.Error(), "SSH") || !strings.Contains(err.Error(), "couldn't connect to the SMTP server") {
+		t.Errorf("banner leaked or wrong error: %v", err)
 	}
 }

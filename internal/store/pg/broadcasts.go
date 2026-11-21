@@ -215,9 +215,12 @@ func (s *Store) SetRunFeed(ctx context.Context, broadcast, run int64, html, text
 }
 
 // RunFeed is a run's feed content ("" when the run had none); scheduled is the run's scheduled
-// time, as messages carry it (Message.Run).
+// time, as messages carry it (Message.Run: whole seconds), so the match is to the second.
 func (s *Store) RunFeed(ctx context.Context, broadcast int64, scheduled time.Time) (html, text string, err error) {
-	err = s.db.QueryRow(ctx, `SELECT feed_html, feed_text FROM broadcast_runs WHERE broadcast_id = $1 AND scheduled_at = $2`,
+	err = s.db.QueryRow(ctx, `
+		SELECT feed_html, feed_text FROM broadcast_runs
+		WHERE broadcast_id = $1 AND date_trunc('second', scheduled_at) = date_trunc('second', $2::timestamptz)
+		ORDER BY scheduled_at LIMIT 1`,
 		broadcast, scheduled).Scan(&html, &text)
 	return html, text, notFound(err)
 }
@@ -313,7 +316,7 @@ func (s *Store) BroadcastRuns(ctx context.Context, tenant, id int64) ([]model.Br
 // first. ArchiveEntry is one of them (with its run's feed content).
 func (s *Store) ArchiveEntries(ctx context.Context, tenant int64, limit int) ([]model.ArchiveEntry, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT r.id, b.id, b.name, b.template_id, r.scheduled_at, r.started_at, '', ''
+		SELECT r.id, b.id, b.name, b.template_id, r.scheduled_at, r.started_at, r.feed_html, r.feed_text
 		FROM broadcast_runs r JOIN broadcasts b ON b.id = r.broadcast_id
 		WHERE b.tenant_id = $1 AND b.archive_public AND b.channel = 'email' AND r.recipients > 0
 		ORDER BY r.started_at DESC LIMIT $2`, tenant, limit)

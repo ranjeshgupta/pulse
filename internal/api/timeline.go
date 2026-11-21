@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"pulse/internal/journey"
@@ -117,7 +118,7 @@ func (s *Server) journeyTimeline(w http.ResponseWriter, r *http.Request, tenant 
 	}
 	out, err := tl.CampaignTimeline(r.Context(), q)
 	if err != nil {
-		s.fail(w, err)
+		s.failReport(w, err)
 		return
 	}
 	resp := periodOut(from, end, hourly, zone)
@@ -178,10 +179,25 @@ func (s *Server) broadcastTimeline(w http.ResponseWriter, r *http.Request, tenan
 	}
 	out, err := tl.CampaignTimeline(r.Context(), ch.TimelineQuery{Tenant: tenant, Source: "broadcast", SourceID: id, From: from, To: end, Hourly: hourly, Zone: zone})
 	if err != nil {
-		s.fail(w, err)
+		s.failReport(w, err)
 		return
 	}
 	resp := periodOut(from, end, hourly, zone)
 	resp["timeline"] = out
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// unknownZone reports whether err is ClickHouse not knowing a time zone that Go accepted (their
+// zone lists can differ).
+func unknownZone(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Cannot load time zone")
+}
+
+// failReport answers a report query's error: an unknown time zone is the caller's (400).
+func (s *Server) failReport(w http.ResponseWriter, err error) {
+	if unknownZone(err) {
+		writeErr(w, http.StatusBadRequest, "unknown time zone")
+		return
+	}
+	s.fail(w, err)
 }

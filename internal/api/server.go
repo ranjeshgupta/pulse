@@ -29,6 +29,7 @@ import (
 	"pulse/internal/kafka"
 	"pulse/internal/model"
 	"pulse/internal/schedule"
+	"pulse/internal/store/ch"
 	"pulse/internal/store/pg"
 	"pulse/internal/tracking"
 	"pulse/internal/webcheck"
@@ -39,7 +40,7 @@ const (
 	maxBatch     = 1000
 	authCacheTTL = time.Minute
 
-	sessionCookie = "pulse_session"
+	sessionCookie = "pulse_session" // over http; https uses secureSessionCookie (security.go)
 	sessionTTL    = 14 * 24 * time.Hour
 	csrfHeader    = "X-Pulse-CSRF"
 )
@@ -113,6 +114,14 @@ type Deps struct {
 	Geo *geoip.Locator
 	// TrustProxy takes the client IP from the right-most X-Forwarded-For entry (your proxy's).
 	TrustProxy bool
+	// TrustCloudflare (with TrustProxy) takes the client IP from CF-Connecting-IP. The origin's
+	// firewall must accept only Cloudflare's ranges, or anyone can choose their IP.
+	TrustCloudflare bool
+	// CHLimits bound the ClickHouse queries of each request (zero: ch.DefaultLimits).
+	CHLimits ch.Limits
+	// SignupRate caps POST /v1/auth/signup per client IP per minute (0: 5); all signups together
+	// are capped at ten times that.
+	SignupRate int
 	// MailboxOpener connects to bounce mailboxes (nil: IMAP through the SSRF-guarded dialer).
 	MailboxOpener bounces.Opener
 	// Deleter permanently deletes contacts (DELETE /v1/contacts/{id}); nil turns that off.
@@ -154,8 +163,14 @@ type cachedTenant struct {
 }
 
 func New(d Deps) *Server {
-	return &Server{Deps: d, now: time.Now, sso: newSSOProviders(), authCache: map[string]cachedTenant{},
+	s := &Server{Deps: d, now: time.Now, sso: newSSOProviders(), authCache: map[string]cachedTenant{},
 		dataCache: map[int64]cachedTracking{}, bg: func(f func()) { go f() }}
+	if s.Log != nil && s.secureCookies() && s.PagesURL == "" {
+		s.Log.Warn("PULSE_PAGES_URL is not set: landing pages, hosted forms, surveys and uploaded assets " +
+			"are served from the app's own origin (" + s.PublicURL + "), so workspace-authored content shares it " +
+			"with the app. Set PULSE_PAGES_URL to a separate host (e.g. https://pages.example.com) in production.")
+	}
+	return s
 }
 
 // WithUI serves the web app for every path that is not an API route.
@@ -246,6 +261,7 @@ func (s *Server) Handler() http.Handler {
 	s.personalizeRoutes(mux)
 	s.dashboardRoutes(mux)
 	s.contactPageRoutes(mux)
+	s.accountSecurityRoutes(mux)
 
 	if s.ui != nil {
 		// M7: the separate Journeys and Broadcasts lists became one Campaigns list. Old
@@ -256,7 +272,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		mux.Handle("/", s.ui)
 	}
-	return bodyLimit(securityHeaders(s.splitPages(mux)))
+	return s.inputGuard(bodyLimit(securityHeaders(s.hsts(authFormGuard(s.heavyLimit(s.queryLimits(s.splitPages(mux))))))))
 }
 
 // OldCampaignLists are the list addresses from before M7's campaign navigation and where they
@@ -318,6 +334,8 @@ func bodyLimit(h http.Handler) http.Handler {
 			limit = maxBackgroundSize
 		case "/v1/assets":
 			limit = maxAssetUpload
+		case "/v1/products":
+			limit = maxProductsBody
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		h.ServeHTTP(w, r)
@@ -353,14 +371,14 @@ func (s *Server) authenticate(r *http.Request) (model.Principal, error) {
 		perms, _ := auth.BuiltinPerms(auth.RoleAdmin)
 		return model.Principal{TenantID: id, Role: auth.RoleAdmin, Perms: perms, Actor: "API key"}, nil
 	}
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" {
+	tok := s.sessionToken(r)
+	if tok == "" {
 		return model.Principal{}, errUnauthenticated
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get(csrfHeader) == "" {
 		return model.Principal{}, errCSRF
 	}
-	p, err := s.Store.SessionPrincipal(r.Context(), auth.HashToken(c.Value))
+	p, err := s.Store.SessionPrincipal(r.Context(), auth.HashToken(tok))
 	if errors.Is(err, pg.ErrNotFound) {
 		return model.Principal{}, errUnauthenticated
 	}

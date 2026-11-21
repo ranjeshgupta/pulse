@@ -83,7 +83,7 @@ func TestProvidersSendAMP(t *testing.T) {
 		f := newFakeSMTP(t)
 		f.start(t)
 		host, port, _ := net.SplitHostPort(f.addr())
-		p, err := New("smtp", Deps{}, map[string]string{"host": host, "port": port, "from": "Acme <hello@acme.test>", "service": c.service}, nil)
+		p, err := New("smtp", Deps{AllowPrivate: true}, map[string]string{"host": host, "port": port, "from": "Acme <hello@acme.test>", "service": c.service}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

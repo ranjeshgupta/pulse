@@ -126,7 +126,6 @@ type viewSpecial struct {
 	formName       string
 	stepName       string
 	segmentNames   map[int64]string
-	underCapRule   string
 	needsByFilters []string // viewFilterNeeds keys used
 }
 

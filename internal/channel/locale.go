@@ -16,6 +16,9 @@ const MaxTranslations = 20
 
 var localeRe = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$`)
 
+// ValidLocale reports whether l is a language code a translation can have (hi, ta, hi-IN).
+func ValidLocale(l string) bool { return localeRe.MatchString(l) }
+
 // ContactLocale is the locale a contact's messages are written in: their locale attribute (set by
 // the SDKs, or by a server), else language.
 func ContactLocale(c model.Contact) string {

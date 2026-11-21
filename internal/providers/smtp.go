@@ -86,13 +86,16 @@ var smtpPresets = []Preset{
 }
 
 // newSMTP builds the generic SMTP adapter from the form's settings.
-func newSMTP(_ Deps, c, s map[string]string) (Provider, error) {
+func newSMTP(d Deps, c, s map[string]string) (Provider, error) {
 	host, port := strings.TrimSpace(c["host"]), strings.TrimSpace(c["port"])
 	if host == "" || strings.ContainsAny(host, " /:") {
 		return nil, errors.New("enter the SMTP server's host name, e.g. smtp.example.com")
 	}
 	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
 		return nil, errors.New("the port must be a number from 1 to 65535, usually 587 or 465")
+	}
+	if !d.AllowPrivate && !smtpPorts[port] {
+		return nil, errors.New("the port must be 25, 465, 587 or 2525")
 	}
 	maxConns, err := intSetting(c, "max_connections", "Max connections", defaultSMTPMaxConns, 1, 50)
 	if err != nil {
@@ -121,7 +124,7 @@ func newSMTP(_ Deps, c, s map[string]string) (Provider, error) {
 		return nil, err
 	}
 	p := &SMTP{Addr: net.JoinHostPort(host, port), From: c["from"], MaxConns: maxConns, MessagesPerConn: perConn, Service: svc,
-		TLSMode: mode, SkipVerify: c["skip_tls_verify"] == "true", Helo: helo, Headers: headers}
+		TLSMode: mode, SkipVerify: c["skip_tls_verify"] == "true", Helo: helo, Headers: headers, restricted: !d.AllowPrivate}
 	proto := strings.TrimSpace(c["auth_protocol"])
 	if s["username"] != "" && proto != "none" {
 		switch proto {
@@ -139,6 +142,11 @@ func newSMTP(_ Deps, c, s map[string]string) (Provider, error) {
 	}
 	return p, nil
 }
+
+// smtpPorts are the ports a workspace-entered SMTP server may use (unless the operator allows
+// private addresses, for local development): anything else would make the connection test a
+// scanner for other services.
+var smtpPorts = map[string]bool{"25": true, "465": true, "587": true, "2525": true}
 
 // reservedHeaders are set by Pulse on every email; custom headers can't replace them.
 var reservedHeaders = map[string]bool{"From": true, "To": true, "Subject": true, "Date": true, "Message-Id": true, "Mime-Version": true,
@@ -236,6 +244,10 @@ type SMTP struct {
 	SkipVerify bool
 	// Headers are added to every email (custom headers from the form).
 	Headers map[string]string
+
+	// restricted: a workspace entered this server, so connections go through safehttp's dialer
+	// (public addresses only). Adapters built in code (the operator's default relay) aren't.
+	restricted bool
 
 	username, passSum, authProto string                                                            // identify the login in the pool key (passSum: SHA-256 of the password)
 	tlsConfig                    *tls.Config                                                       // tests: trust a test CA (production uses the system roots)

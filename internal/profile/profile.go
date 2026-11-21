@@ -113,6 +113,35 @@ func (s *Service) rules(ctx context.Context) (map[int64]map[string]int, map[int6
 	return s.points, s.stages
 }
 
+// StripUnverified removes what an event whose sender wasn't proven (a browser or app without a
+// valid identity hash) may not change on a contact that already exists: its channel addresses
+// (email, phone, and every identity key field of the workspace) and the reserved attributes.
+// Anyone can send such an event for any user id, so it must not redirect a known person's email or
+// messages. A new contact (and a browser's own anonymous visitor) may still get them.
+func StripUnverified(e *event.Event, keys []identity.Key) {
+	if strings.HasPrefix(e.ExternalID, "anon-") {
+		return
+	}
+	e.Email = ""
+	if len(e.Attrs) == 0 {
+		return
+	}
+	drop := map[string]bool{identity.Email: true, identity.Phone: true}
+	for _, k := range keys {
+		if k.Field != identity.ExternalID {
+			drop[k.Field] = true
+		}
+	}
+	attrs := make(map[string]any, len(e.Attrs))
+	for k, v := range e.Attrs {
+		if drop[k] || consent.IsReserved(k) || event.EventOnlyAttr(k) {
+			continue
+		}
+		attrs[k] = v
+	}
+	e.Attrs = attrs
+}
+
 // Merge applies an event's attributes (and email) to the current profile. It returns the merged
 // profile and the keys whose canonical value changed; cur is not modified.
 // Consent events (unsubscribed, resubscribed) also set the contact's opt-out attributes, tag events
@@ -142,6 +171,10 @@ func MergeScored(cur map[string]any, e *event.Event, points int) (map[string]any
 	case event.OwnerChanged:
 		removes = ownerUpdates(e, updates)
 	case event.RFMChanged:
+		if e.Props["cleared"] == true { // no purchase in the window any more
+			removes = append(removes, event.AttrRFMGroup, event.AttrRFMScore, event.AttrChurn)
+			break
+		}
 		for k, p := range map[string]string{event.AttrRFMGroup: "group", event.AttrRFMScore: "score", event.AttrChurn: "churn_risk"} {
 			if v := attr.String(e.Props[p]); v != "" {
 				updates[k] = v
@@ -777,6 +810,9 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 				profiles[ak], dirty[ak] = marked, true
 				merges = append(merges, merge{anonKey: ak, knownKey: k, source: e, anonAttrs: fromAnon})
 			}
+		}
+		if e.Unverified && !created[k] {
+			StripUnverified(e, s.identityKeys(ctx, e.TenantID))
 		}
 		NormalizeConsent(e)
 		if s.Schemas != nil {

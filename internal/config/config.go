@@ -29,10 +29,15 @@ type Config struct {
 	EmailRate     float64 // per tenant, messages per second
 	// Rates are the other channels' per-tenant send rates (messages per second) set by
 	// PULSE_<CHANNEL>_RATE; a channel without one keeps the dispatcher's default.
-	Rates       map[string]float64
-	PublicURL   string // where browsers reach Pulse (SSO redirects, Secure cookies)
-	SecretKey   string // 64 hex chars: encrypts stored secrets and SSO state
+	Rates     map[string]float64
+	PublicURL string // where browsers reach Pulse (SSO redirects, Secure cookies)
+	SecretKey string // 64 hex chars: encrypts stored secrets and SSO state
+	// AllowSignup lets anyone create a workspace with POST /v1/auth/signup (PULSE_ALLOW_SIGNUP,
+	// off by default: the operator creates workspaces with the admin token).
 	AllowSignup bool
+	// SignupRate caps signups per client IP per minute when signup is on; all signups together
+	// are capped at ten times that.
+	SignupRate int
 	// AllowPrivateWebhooks lets every outbound call Pulse makes to a URL a workspace entered reach
 	// private addresses: journey and outbound webhooks, channel providers and the custom gateway,
 	// integrations (CRM, Shopify, ad platforms) and the IMAP bounce mailbox. Local development only.
@@ -43,6 +48,10 @@ type Config struct {
 	// TrustProxy uses the right-most X-Forwarded-For entry (appended by your reverse proxy) as the
 	// client IP for rate limits. Leave off unless Pulse is only reachable through that proxy.
 	TrustProxy bool
+	// TrustCloudflare (with TrustProxy) takes the client IP from Cloudflare's CF-Connecting-IP
+	// header. Only safe when the origin's firewall accepts connections from Cloudflare's ranges
+	// alone: anyone else could send the header.
+	TrustCloudflare bool
 	// PagesURL is a separate origin for landing pages, downloads and hosted forms (production).
 	PagesURL string
 	// AIAPIKey turns on AI help (an Anthropic API key); empty leaves it off.
@@ -55,6 +64,10 @@ type Config struct {
 	RFMInterval time.Duration
 	// RFMEventsPerSec caps the rfm_changed events a pass sends a second.
 	RFMEventsPerSec int
+	// CHQueryTimeout and CHQueryMaxMemory bound each ClickHouse query an API request runs (reports,
+	// funnels, segment previews…; exports are exempt from the time limit).
+	CHQueryTimeout   time.Duration
+	CHQueryMaxMemory int
 	// AudienceReconcile is how often each audience sync re-checks its whole segment (ad audiences).
 	AudienceReconcile time.Duration
 }
@@ -81,10 +94,12 @@ func Load() (Config, error) {
 		Rates:                map[string]float64{},
 		PublicURL:            env("PULSE_PUBLIC_URL", "http://localhost:7080"),
 		SecretKey:            env("PULSE_SECRET_KEY", ""),
-		AllowSignup:          r.boolean("PULSE_ALLOW_SIGNUP", true),
+		AllowSignup:          r.boolean("PULSE_ALLOW_SIGNUP", false),
+		SignupRate:           r.integer("PULSE_SIGNUP_RATE", 5),
 		AllowPrivateWebhooks: r.boolean("PULSE_ALLOW_PRIVATE_WEBHOOKS", false),
 		AllowPrivateSSO:      r.boolean("PULSE_ALLOW_PRIVATE_SSO", false),
 		TrustProxy:           r.boolean("PULSE_TRUST_PROXY", false),
+		TrustCloudflare:      r.boolean("PULSE_TRUST_CLOUDFLARE", false),
 		GeoIPDB:              env("PULSE_GEOIP_DB", ""),
 		PagesURL:             env("PULSE_PAGES_URL", ""),
 		AIAPIKey:             env("PULSE_AI_API_KEY", ""),
@@ -92,6 +107,8 @@ func Load() (Config, error) {
 		RFMInterval:          r.duration("PULSE_RFM_INTERVAL", 24*time.Hour),
 		RFMEventsPerSec:      r.integer("PULSE_RFM_EVENTS_PER_SEC", 500),
 		AudienceReconcile:    r.duration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
+		CHQueryTimeout:       r.duration("PULSE_CH_QUERY_TIMEOUT", 60*time.Second),
+		CHQueryMaxMemory:     r.integer("PULSE_CH_QUERY_MAX_MEMORY", 4<<30),
 	}
 	for _, ch := range RateChannels {
 		if os.Getenv(rateEnv(ch)) != "" {
@@ -136,13 +153,13 @@ func env(k, def string) string {
 	return def
 }
 
-// reader parses typed settings and collects every bad value, so one startup reports them all.
 // RateChannels are the channels besides email whose per-tenant rate PULSE_<CHANNEL>_RATE sets
 // (channel names as in internal/channel).
 var RateChannels = []string{"sms", "whatsapp", "rcs", "push", "inbox"}
 
 func rateEnv(ch string) string { return "PULSE_" + strings.ToUpper(ch) + "_RATE" }
 
+// reader parses typed settings and collects every bad value, so one startup reports them all.
 type reader struct{ errs []error }
 
 func (r *reader) fail(k, v, want string) {

@@ -4,7 +4,9 @@
 // The SDK itself keeps the visitor's first- and last-touch campaign (first_utm_*, last_utm_*), sent
 // with form submissions and identify, and puts the session's campaign on page views.
 (function () {
+  // Only a real <script> element: document.currentScript can be clobbered by a page element.
   var s = document.currentScript;
+  if (!(s instanceof HTMLScriptElement)) return;
   var key = s && s.getAttribute("data-site-key");
   var page = Number(s && s.getAttribute("data-page-id"));
   if (!key || !window.Pulse) return;

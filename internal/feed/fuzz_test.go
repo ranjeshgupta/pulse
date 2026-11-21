@@ -25,7 +25,7 @@ func FuzzParse(f *testing.F) {
 		if len(fd.Items) > MaxParsed {
 			t.Fatalf("%d items parsed", len(fd.Items))
 		}
-		items := Since(fd, time.Time{})
+		items := Since(fd, time.Time{}, time.Now(), true)
 		if len(items) > MaxItems {
 			t.Fatalf("Since kept %d items", len(items))
 		}

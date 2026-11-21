@@ -36,8 +36,8 @@ func (s *Store) RFMCuts(ctx context.Context, tenant int64, ev, amountProp string
 	return c, nil
 }
 
-func (s *Store) RFMBuyers(ctx context.Context, tenant int64, ev, amountProp string, since time.Time, fn func(rfm.Buyer) error) error {
-	b, args := buyersSQL(tenant, ev, amountProp, since, time.Now())
+func (s *Store) RFMBuyers(ctx context.Context, tenant int64, ev, amountProp string, since, now time.Time, fn func(rfm.Buyer) error) error {
+	b, args := buyersSQL(tenant, ev, amountProp, since, now)
 	rows, err := s.conn.Query(ctx, `SELECT b.buyer, c.external_id, b.first, b.last, b.n, b.m FROM (`+b+`) AS b
 		INNER JOIN (`+latestContacts+`) AS c ON c.id = b.buyer`, append(args, uint64(tenant))...)
 	if err != nil {

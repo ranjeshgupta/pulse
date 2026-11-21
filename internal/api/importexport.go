@@ -108,12 +108,21 @@ func (s *Server) attrTypes(ctx context.Context, tenant int64) (map[string]string
 	return types, nil
 }
 
-// csvSafe defuses spreadsheet formula injection: a cell starting with = + - @ is prefixed with '.
+// csvSafe defuses spreadsheet formula injection: a cell whose first character other than leading
+// spaces and line breaks (which spreadsheets skip) is = + - @, or that starts with a tab or CR, is
+// prefixed with '. Plain numbers (-5, +1.5) stay numbers.
 func csvSafe(v string) string {
-	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
-		if _, err := strconv.ParseFloat(v, 64); err != nil { // keep negative numbers as numbers
-			return "'" + v
+	t := strings.TrimLeft(v, " \t\r\n\u00a0")
+	if t == "" {
+		return v
+	}
+	if !strings.ContainsRune("=+-@", rune(t[0])) && v[0] != '\t' && v[0] != '\r' {
+		return v
+	}
+	if t == v {
+		if _, err := strconv.ParseFloat(v, 64); err == nil { // keep negative numbers as numbers
+			return v
 		}
 	}
-	return v
+	return "'" + v
 }

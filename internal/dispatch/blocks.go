@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"pulse/internal/channel"
@@ -63,6 +65,18 @@ type FeedRuns interface {
 // FeedBlock is the block key of an RSS-to-email run's items.
 const FeedBlock = "feed"
 
+// maxFeedCache bounds the per-run feed cache (one entry per campaign run, feed or not).
+const maxFeedCache = 10_000
+
+// storeBounded stores into a cache map whose entries n counts; past limit it starts over.
+func storeBounded(m *sync.Map, n *atomic.Int64, limit int64, key, v any) {
+	if n.Add(1) > limit {
+		m.Range(func(k, _ any) bool { m.Delete(k); return true })
+		n.Store(1)
+	}
+	m.Store(key, v)
+}
+
 // messageBlocks is the workspace's blocks plus, for a campaign run with feed content, {{block.feed}}
 // (a run's content never changes, so it is cached).
 func (d *Dispatcher) messageBlocks(ctx context.Context, m model.Message) map[string]channel.Block {
@@ -81,8 +95,12 @@ func (d *Dispatcher) messageBlocks(ctx context.Context, m model.Message) map[str
 			d.cfg.Log.Error("campaign feed", "broadcast", m.BroadcastID, "err", err)
 		}
 		fb = channel.Block{HTML: h, Text: t}
+		ttl := time.Hour
+		if errors.Is(err, pg.ErrNotFound) {
+			ttl = time.Minute // the run may not be recorded yet: look again soon
+		}
 		if err == nil || errors.Is(err, pg.ErrNotFound) {
-			d.feedCache.Store(key, cached[channel.Block]{v: fb, exp: d.now().Add(time.Hour)})
+			storeBounded(&d.feedCache, &d.feedCached, maxFeedCache, key, cached[channel.Block]{v: fb, exp: d.now().Add(ttl)})
 		}
 	}
 	if fb.HTML == "" {

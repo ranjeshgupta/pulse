@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState,
 import { api, type AttributeDef, type ContentBlock, type EventSchema } from "./api";
 import { buildTag, CAMPAIGN_VARS, contactVars, eventVars, insertAt, lint, LINK_VARS, PIPES, RECO_VARS, type Problem, type TagPipe, type VarItem } from "./personalize";
 import "./personalize.css";
+import { copyText, useToast } from "./ui";
 
 /** What the fields being edited can use: the trigger event (journeys) and the channel (links are email-only). */
 export type PersonalizeScope = { event?: string; channel?: string };
@@ -56,6 +57,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
   const [def, setDef] = useState("");
   const [fmt, setFmt] = useState(0);
   const [custom, setCustom] = useState("");
+  const toast = useToast();
   const vars = useVariables();
   const surveys = useQuery({ queryKey: ["surveys"], queryFn: () => api.get<{ surveys: { id: number; name: string; status: string }[] }>("/v1/surveys"), staleTime: 60_000, retry: false, enabled: open && !vars.contactOnly });
   const blocks = useQuery({ queryKey: ["content-blocks"], queryFn: () => api.get<{ blocks: ContentBlock[] }>("/v1/content-blocks"), staleTime: 60_000, retry: false, enabled: open && !vars.contactOnly });
@@ -75,8 +77,9 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
   const match = (v: VarItem) => !q || (v.var + " " + v.label).toLowerCase().includes(q.toLowerCase());
   const tag = (v: VarItem) => buildTag(v.var, [...(def ? [{ name: "default", arg: def }] : []), ...(FORMATS[fmt].pipe ? [FORMATS[fmt].pipe!] : [])]);
   const done = (t: string) => {
-    if (copyOnly) void navigator.clipboard?.writeText(t);
-    onInsert(t);
+    // Copying can fail (no permission, a page not on https): then the tag is shown to copy by hand.
+    if (copyOnly) void copyText(t).then(() => onInsert(t), () => toast({ text: `Couldn't copy. Select it and copy it yourself: ${t}`, error: true }));
+    else onInsert(t);
     setOpen(false); setPick(null); setDef(""); setFmt(0); setQ("");
   };
   return (

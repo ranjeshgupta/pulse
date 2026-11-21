@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"pulse/internal/model"
 )
@@ -59,9 +60,10 @@ func (s *Server) audited(w http.ResponseWriter, r *http.Request, p model.Princip
 		return
 	}
 	var body []byte
-	// Not recorded: import files, and /v1/account/* (two-step sign-in codes and passwords).
+	// Not recorded: import files, /v1/account/* (two-step sign-in codes and passwords) and the
+	// settings that carry credentials (secretRoute).
 	if ct := r.Header.Get("Content-Type"); (strings.HasPrefix(ct, "application/json") || ct == "") && r.URL.Path != "/v1/imports" &&
-		!strings.HasPrefix(r.URL.Path, "/v1/account/") {
+		!strings.HasPrefix(r.URL.Path, "/v1/account/") && !secretRoute(r.URL.Path) {
 		body, _ = io.ReadAll(io.LimitReader(r.Body, maxBody))
 		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
@@ -80,7 +82,7 @@ func (s *Server) audited(w http.ResponseWriter, r *http.Request, p model.Princip
 		action = r.Method + " " + strings.Replace(path, "{action}", a, 1)
 	}
 	e := model.AuditEntry{UserID: p.UserID, Actor: p.Actor, Action: action, ObjectType: objType, ObjectID: objID,
-		Status: rec.status, IP: clientIP(r, s.TrustProxy), Detail: redactJSON(body)}
+		Status: rec.status, IP: s.ip(r), Detail: redactJSON(body)}
 	s.writeAudit(as, p.TenantID, e)
 }
 
@@ -94,7 +96,7 @@ func (s *Server) auditSignIn(r *http.Request, tenant, user int64, actor, how str
 	if !ok {
 		status = http.StatusUnauthorized
 	}
-	s.writeAudit(as, tenant, model.AuditEntry{UserID: user, Actor: actor, Action: how, ObjectType: "auth", Status: status, IP: clientIP(r, s.TrustProxy)})
+	s.writeAudit(as, tenant, model.AuditEntry{UserID: user, Actor: actor, Action: how, ObjectType: "auth", Status: status, IP: s.ip(r)})
 }
 
 func (s *Server) writeAudit(as AuditStore, tenant int64, e model.AuditEntry) {
@@ -107,21 +109,78 @@ func (s *Server) writeAudit(as AuditStore, tenant int64, e model.AuditEntry) {
 	}()
 }
 
-// secretKey reports whether a JSON key holds something that must never be logged.
-func secretKey(k string) bool {
-	k = strings.ToLower(k)
-	for _, s := range []string{"password", "secret", "token", "private_key", "api_key", "authorization"} {
-		if strings.Contains(k, s) {
+// secretRoutes are settings whose requests carry credentials (provider logins, signing keys,
+// mailbox passwords, SSO and integration secrets): their bodies are never recorded, whatever the
+// field names, so a secret in an unexpected field can't reach the log.
+var secretRoutes = []string{"/v1/channels/providers", "/v1/settings/identity", "/v1/settings/bounces/signing",
+	"/v1/settings/bounce-mailboxes", "/v1/settings/webhooks", "/v1/settings/web-push", "/v1/settings/sso",
+	"/v1/settings/api-key", "/v1/integrations", "/v1/auth/"}
+
+func secretRoute(path string) bool {
+	for _, p := range secretRoutes {
+		if strings.HasPrefix(path, p) {
 			return true
 		}
 	}
 	return false
 }
 
+// secretKey reports whether a JSON key may hold something that must never be logged: any word of
+// it (split at _, -, . and case changes) that mentions a secret, token, password, key, signing,
+// credential, auth or an account SID.
+func secretKey(k string) bool {
+	for _, w := range keyWords(k) {
+		for _, s := range []string{"secret", "token", "password", "passwd", "passphrase", "signing", "credential", "auth", "cookie", "session"} {
+			if strings.Contains(w, s) {
+				return true
+			}
+		}
+		if strings.HasSuffix(w, "key") || strings.HasSuffix(w, "sid") || w == "pw" || w == "pwd" {
+			return true
+		}
+	}
+	return false
+}
+
+// keyWords splits a JSON key into lower-case words: mailgunSigningKey, mailgun_signing_key and
+// Mailgun-Signing-Key all give mailgun, signing, key.
+func keyWords(k string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(k)
+	for i, r := range rs {
+		switch {
+		case r == '_' || r == '-' || r == '.' || r == ' ':
+			flush()
+			continue
+		case unicode.IsUpper(r) && i > 0 && (unicode.IsLower(rs[i-1]) || (i+1 < len(rs) && unicode.IsLower(rs[i+1]))):
+			flush()
+		}
+		cur = append(cur, r)
+	}
+	flush()
+	if len(words) == 0 {
+		words = []string{strings.ToLower(k)}
+	}
+	return append(words, strings.ToLower(k)) // the whole key too: apikey, signingkey
+}
+
 func redact(v any) any {
 	switch x := v.(type) {
+	case string:
+		return noNUL(x)
 	case map[string]any:
 		for k, val := range x {
+			if strings.ContainsRune(k, 0) { // Postgres can't store NUL, and the entry would be lost
+				delete(x, k)
+				k = noNUL(k)
+			}
 			if secretKey(k) {
 				x[k] = "[redacted]"
 			} else {
@@ -135,6 +194,9 @@ func redact(v any) any {
 	}
 	return v
 }
+
+// noNUL replaces NUL characters, which Postgres can't store, with U+FFFD.
+func noNUL(s string) string { return strings.ReplaceAll(s, "\x00", "\uFFFD") }
 
 // redactJSON returns the request body with secrets replaced, capped in size; nil for non-JSON.
 func redactJSON(body []byte) json.RawMessage {

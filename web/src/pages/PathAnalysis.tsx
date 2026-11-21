@@ -63,11 +63,12 @@ export function PathAnalysis() {
             <section className={`panel paths-flow${q.isFetching ? " stale" : ""}`} aria-busy={q.isFetching}>
               <div className="panel-head"><h3>{d.people.toLocaleString("en-IN")} people did <code>{d.start || d.end}</code></h3><span className="xs muted">Hover a band to see it</span></div>
               <div className="panel-body">
-                <svg viewBox={`-4 -4 ${W + 8} ${H + 8}`} role="img" aria-label="Flow of events step by step" className="paths-svg">
+                {/* The chart is for the eye: hover-only, so screen readers get the table below, which says the same. */}
+                <svg viewBox={`-4 -4 ${W + 8} ${H + 8}`} role="img" aria-label="Flow of events step by step; the same paths are in the Most common paths table" className="paths-svg">
                   {flow.bands.map((b, i) => {
                     const k = `${b.from}>${b.to}:${i}`;
                     return (
-                      <path key={k} d={b.d} strokeWidth={b.width} className={`paths-band${b.to === STOPPED ? " stop" : ""}${hover && hover !== k ? " dim" : ""}`}
+                      <path key={k} aria-hidden="true" d={b.d} strokeWidth={b.width} className={`paths-band${b.to === STOPPED ? " stop" : ""}${hover && hover !== k ? " dim" : ""}`}
                         onMouseEnter={() => setHover(k)} onMouseLeave={() => setHover(null)}>
                         <title>{`${b.from} → ${b.to}: ${b.value.toLocaleString("en-IN")} people`}</title>
                       </path>
@@ -86,9 +87,9 @@ export function PathAnalysis() {
               </div>
             </section>
             <section className="panel" style={{ marginTop: 14 }}>
-              <div className="panel-head"><h3>Most common paths</h3>{d.paths.length === 500 && <span className="xs muted">The 500 most common</span>}</div>
-              <div className="table-scroll"><table className="table">
-                <thead><tr><th>Path</th><th className="num">People</th><th className="num">Share</th></tr></thead>
+              <div className="panel-head"><h3 id="paths-table-title">Most common paths</h3>{d.paths.length === 500 && <span className="xs muted">The 500 most common</span>}</div>
+              <div className="table-scroll"><table className="table" aria-labelledby="paths-table-title">
+                <thead><tr><th scope="col">Path</th><th scope="col" className="num">People</th><th scope="col" className="num">Share</th></tr></thead>
                 <tbody>{d.paths.slice(0, 25).map((p, i) => (
                   <tr key={i}>
                     <td className="paths-steps">{p.steps.map((s, j) => <span key={j}>{j > 0 && <span className="faint"> → </span>}<code>{s}</code></span>)}</td>

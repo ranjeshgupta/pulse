@@ -53,6 +53,7 @@ type Renderer struct {
 	// Extra functions for legacy actions (journey webhook bodies offer {{json .Attrs}}).
 	Extra map[string]any
 	steps int // range items and template calls of the current render, see maxSteps
+	work  int // bytes of text built by functions in the current render, see maxWork
 }
 
 // New returns a renderer for one message.
@@ -97,7 +98,7 @@ func (r *Renderer) Text(name, src string, dot any) (string, error) {
 		guardTree(t.Tree)
 	}
 	var b limitedBuffer
-	r.steps = 0
+	r.steps, r.work = 0, 0
 	if err := tpl.Execute(&b, dot); err != nil {
 		return "", err
 	}
@@ -131,7 +132,7 @@ func (r *Renderer) JSON(name, src string, dot any) (string, error) {
 		guardTree(t.Tree)
 	}
 	var b limitedBuffer
-	r.steps = 0
+	r.steps, r.work = 0, 0
 	if err := tpl.Execute(&b, dot); err != nil {
 		return "", err
 	}
@@ -208,7 +209,7 @@ func (r *Renderer) HTML(name, src string, dot any) (string, error) {
 		guardTree(t.Tree)
 	}
 	var b limitedBuffer
-	r.steps = 0
+	r.steps, r.work = 0, 0
 	if err := tpl.Execute(&b, dot); err != nil {
 		return "", err
 	}
@@ -283,8 +284,13 @@ func (r *Renderer) funcs(html bool) map[string]any {
 	} else {
 		f["pulseURLEncode"] = func(v any) any { return url.QueryEscape(Format(v)) }
 	}
+	for _, k := range []string{"pulseUpper", "pulseLower", "pulseTitle", "pulseDate", "pulseMoney",
+		"pulseNumber", "pulseTruncate", "pulseJSON", "pulseJSONEsc", "pulseURLEncode"} {
+		f[k] = r.metered(f[k])
+	}
+	r.boundedFuncs(f)
 	for k, v := range r.Extra {
-		f[k] = v
+		f[k] = r.metered(v)
 	}
 	return f
 }

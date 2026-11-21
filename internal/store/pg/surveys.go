@@ -5,6 +5,7 @@ package pg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,9 +38,16 @@ func (s *Store) ListSurveys(ctx context.Context, tenant int64) ([]model.Survey, 
 	return out, err
 }
 
-// GetSurvey reads a survey (tenant 0: any workspace, for the public page).
+// GetSurvey returns a workspace's survey (public pages use SurveyByIDPublic).
 func (s *Store) GetSurvey(ctx context.Context, tenant, id int64) (model.Survey, error) {
-	return scanSurvey(s.db.QueryRow(ctx, `SELECT `+surveyCols+` FROM surveys WHERE id = $2 AND ($1 = 0 OR tenant_id = $1)`, tenant, id))
+	return scanSurvey(s.db.QueryRow(ctx, `SELECT `+surveyCols+` FROM surveys WHERE id = $2 AND tenant_id = $1`, tenant, id))
+}
+
+// SurveyByIDPublic finds a survey by id alone, for the public survey pages (/s/{id}/...), whose
+// signed links or public key say which workspace it belongs to. Nothing else may use it: every
+// workspace route must call GetSurvey with its tenant.
+func (s *Store) SurveyByIDPublic(ctx context.Context, id int64) (model.Survey, error) {
+	return scanSurvey(s.db.QueryRow(ctx, `SELECT `+surveyCols+` FROM surveys WHERE id = $1`, id))
 }
 
 // SaveSurvey creates (ID 0) or updates a survey; a new one gets its public key.
@@ -67,18 +75,24 @@ func (s *Store) DeleteSurvey(ctx context.Context, tenant, id int64) error {
 }
 
 // SaveSurveyResponse stores an answer: a contact's replaces their earlier one for the same message.
-func (s *Store) SaveSurveyResponse(ctx context.Context, r model.SurveyResponse) error {
+// changed is false when that earlier answer was the same (nothing was written).
+func (s *Store) SaveSurveyResponse(ctx context.Context, r model.SurveyResponse) (changed bool, err error) {
 	ans, _ := json.Marshal(r.Answers)
 	if r.ExternalID == "" {
 		_, err := s.db.Exec(ctx, `INSERT INTO survey_responses (survey_id, tenant_id, answers, nps) VALUES ($1, $2, $3, $4)`,
 			r.SurveyID, r.TenantID, ans, r.NPS)
-		return err
+		return err == nil, err
 	}
-	_, err := s.db.Exec(ctx, `INSERT INTO survey_responses (survey_id, tenant_id, external_id, message_id, answers, nps)
+	err = s.db.QueryRow(ctx, `INSERT INTO survey_responses (survey_id, tenant_id, external_id, message_id, answers, nps)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (survey_id, external_id, message_id) WHERE external_id <> ''
-		DO UPDATE SET answers = $5, nps = $6, updated_at = now()`, r.SurveyID, r.TenantID, r.ExternalID, r.MessageID, ans, r.NPS)
-	return err
+		DO UPDATE SET answers = $5, nps = $6, updated_at = now()
+		WHERE survey_responses.answers IS DISTINCT FROM excluded.answers OR survey_responses.nps IS DISTINCT FROM excluded.nps
+		RETURNING true`, r.SurveyID, r.TenantID, r.ExternalID, r.MessageID, ans, r.NPS).Scan(&changed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return changed, err
 }
 
 // SurveyResponses are a survey's answers since since, newest first (at most limit).

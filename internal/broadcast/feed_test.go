@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,5 +69,82 @@ func TestFeedRuns(t *testing.T) {
 		ValidateFeed(model.Broadcast{FeedURL: "https://x.test/f", Channel: "sms"}) == nil ||
 		ValidateFeed(model.Broadcast{FeedURL: "https://x.test/f", Channel: "email"}) != nil {
 		t.Error("ValidateFeed")
+	}
+}
+
+// runFeedStore keeps feeds per run and finds them as pg does: by the run's scheduled time in
+// whole seconds (how messages carry it).
+type runFeedStore struct {
+	*memStore
+	seen      time.Time
+	scheduled map[int64]time.Time
+	kept      map[int64]string
+	marks     []time.Time
+}
+
+func (f *runFeedStore) FeedSeen(context.Context, int64) (time.Time, error) { return f.seen, nil }
+func (f *runFeedStore) SetRunFeed(_ context.Context, _, run int64, html, _ string, seen time.Time) error {
+	f.kept[run], f.seen = html, seen
+	f.marks = append(f.marks, seen)
+	return nil
+}
+func (f *runFeedStore) RunFeed(_ context.Context, _ int64, at time.Time) (string, string, error) {
+	for run, s := range f.scheduled {
+		if s.Truncate(time.Second).Equal(at) {
+			return f.kept[run], "", nil
+		}
+	}
+	return "", "", nil
+}
+
+func TestFeedRunSendNowRetry(t *testing.T) {
+	at := time.Date(2026, 11, 21, 9, 0, 0, 123456000, time.UTC) // "send now": not a whole second
+	b := model.Broadcast{ID: 8, TenantID: 1, Channel: "email", Repeat: schedule.None, FeedURL: "https://acme.test/feed"}
+	st := &runFeedStore{memStore: &memStore{runs: map[time.Time]int{}}, scheduled: map[int64]time.Time{1: at}, kept: map[int64]string{}}
+	r := &Runner{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Feed: func(context.Context, string) (feed.Feed, error) {
+			return feed.Feed{Items: []feed.Item{{Title: "New", Published: at.Add(-time.Hour)}}}, nil
+		}}
+	if ok, err := r.feedRun(context.Background(), b, 1, at); !ok || err != nil || st.kept[1] == "" {
+		t.Fatalf("first try: %v %v", ok, err)
+	}
+	// The retry reuses what the run kept, even when the feed can't be read now.
+	r.Feed = func(context.Context, string) (feed.Feed, error) { return feed.Feed{}, errors.New("HTTP 500") }
+	if ok, err := r.feedRun(context.Background(), b, 1, at); !ok || err != nil {
+		t.Errorf("retry didn't reuse the kept feed: %v %v", ok, err)
+	}
+}
+
+func TestFeedRunFutureAndUndatedItems(t *testing.T) {
+	at := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	b := model.Broadcast{ID: 8, TenantID: 1, Channel: "email", Repeat: schedule.Daily, FeedURL: "https://acme.test/feed"}
+	items := feed.Feed{Items: []feed.Item{
+		{Title: "Scheduled", Published: at.Add(48 * time.Hour)},
+		{Title: "Recent", Published: at.Add(-time.Hour)},
+		{Title: "Undated"},
+	}}
+	st := &runFeedStore{memStore: &memStore{runs: map[time.Time]int{}}, scheduled: map[int64]time.Time{}, kept: map[int64]string{}}
+	r := &Runner{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Feed: func(context.Context, string) (feed.Feed, error) { return items, nil }}
+	run := func(id int64, when time.Time) bool {
+		st.scheduled[id] = when
+		ok, err := r.feedRun(context.Background(), b, id, when)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	// First feed run of a repeating campaign: the recent and the undated item, not the scheduled one.
+	if !run(1, at) || !strings.Contains(st.kept[1], "Recent") || !strings.Contains(st.kept[1], "Undated") ||
+		strings.Contains(st.kept[1], "Scheduled") || !st.seen.Equal(at.Add(-time.Hour)) {
+		t.Fatalf("first run: %q seen %v", st.kept[1], st.seen)
+	}
+	// Next day: nothing new yet (the undated item counted once).
+	if run(2, at.Add(24*time.Hour)) {
+		t.Errorf("second run sent %q", st.kept[2])
+	}
+	// The scheduled item goes once its date has come.
+	if !run(3, at.Add(48*time.Hour)) || !strings.Contains(st.kept[3], "Scheduled") || strings.Contains(st.kept[3], "Undated") {
+		t.Errorf("third run: %q", st.kept[3])
 	}
 }

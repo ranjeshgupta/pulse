@@ -53,7 +53,7 @@ func (s *Server) uiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/templates/{id}", s.tenant(s.getTemplate))
 	mux.HandleFunc("GET /v1/templates/{id}/report", s.tenant(s.templateReport))
 	mux.HandleFunc("PUT /v1/templates/{id}", s.guardTemplateEdit(s.updateTemplate))
-	mux.HandleFunc("DELETE /v1/templates/{id}", s.tenant(s.deleteTemplate))
+	mux.HandleFunc("DELETE /v1/templates/{id}", s.guardTemplateDelete(s.deleteTemplate))
 	mux.HandleFunc("POST /v1/templates/text", s.tenant(s.templateText))
 
 	mux.HandleFunc("GET /v1/journeys", s.tenant(s.listJourneys))
@@ -150,6 +150,10 @@ func (s *Server) previewSegment(w http.ResponseWriter, r *http.Request, tenant i
 	rule, err := segment.Parse(req.Rule)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.checkSegmentRefs(r.Context(), tenant, 0, rule); err != nil {
+		s.failRefs(w, err)
 		return
 	}
 	q, err := segment.ToSQL(rule, tenant, s.now())

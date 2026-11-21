@@ -100,12 +100,12 @@ func (s *Server) trackShortClick(w http.ResponseWriter, r *http.Request) {
 func (s *Server) trackPush(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if s.Tracking == nil {
-		w.WriteHeader(http.StatusNotFound)
+		writeErr(w, http.StatusNotFound, "push tracking isn't set up on this server")
 		return
 	}
 	t, err := s.Tracking.Decode(r.PathValue("token"))
 	if err != nil || t.Channel != channel.Push {
-		w.WriteHeader(http.StatusNotFound)
+		writeErr(w, http.StatusNotFound, "unknown push message")
 		return
 	}
 	action := r.URL.Query().Get("a")

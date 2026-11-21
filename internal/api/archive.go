@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -74,8 +75,32 @@ type archived struct {
 	Text    string
 }
 
-// renderArchived renders a send's template for an empty contact (templates are cached per call).
+// archiveTTL is how long a rendered send is kept (in Redis), so anonymous views don't render the
+// template every time; the pages are cached as long by browsers anyway.
+const archiveTTL = 5 * time.Minute
+
+type archivedPage struct{ Subject, HTML, Text string }
+
+func archiveKey(tenant, run int64) string {
+	return "archivepage:" + strconv.FormatInt(tenant, 10) + ":" + strconv.FormatInt(run, 10)
+}
+
+// archiveCSP is the landing pages' CSP without frames (an email has none to show).
+func archiveCSP(nonce string) string {
+	return strings.Replace(landing.CSP(nonce), "frame-src 'self' https:", "frame-src 'none'", 1)
+}
+
+// renderArchived renders a send's template for an empty contact (templates are cached per call),
+// sanitized like a landing page, and keeps the result for archiveTTL.
 func (s *Server) renderArchived(ctx context.Context, tenant int64, e model.ArchiveEntry, blocks map[string]channel.Block, cache map[int64]model.Template) (archived, error) {
+	if s.RDB != nil {
+		if raw, err := s.RDB.Get(ctx, archiveKey(tenant, e.RunID)).Bytes(); err == nil {
+			var p archivedPage
+			if json.Unmarshal(raw, &p) == nil {
+				return archived{ArchiveEntry: e, Subject: p.Subject, HTML: p.HTML, Text: p.Text}, nil
+			}
+		}
+	}
 	t, ok := cache[e.TemplateID]
 	if !ok {
 		var err error
@@ -101,7 +126,13 @@ func (s *Server) renderArchived(ctx context.Context, tenant int64, e model.Archi
 	if subject == "" {
 		subject = e.Name
 	}
-	return archived{ArchiveEntry: e, Subject: subject, HTML: out.HTML, Text: out.Content.Text}, nil
+	a := archived{ArchiveEntry: e, Subject: subject, HTML: landing.Sanitize(out.HTML), Text: out.Content.Text}
+	if s.RDB != nil {
+		if raw, err := json.Marshal(archivedPage{Subject: a.Subject, HTML: a.HTML, Text: a.Text}); err == nil {
+			s.RDB.Set(ctx, archiveKey(tenant, e.RunID), raw, archiveTTL)
+		}
+	}
+	return a, nil
 }
 
 func (s *Server) archiveList(ctx context.Context, t model.Tenant, as ArchiveStore) ([]archived, error) {
@@ -160,7 +191,7 @@ time{display:block;color:#6b7080;font-size:14px}@media(prefers-color-scheme:dark
 	}
 	b.WriteString(`</body></html>`)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", landing.CSP(n))
+	w.Header().Set("Content-Security-Policy", archiveCSP(n))
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	_, _ = w.Write([]byte(b.String()))
 }
@@ -189,7 +220,7 @@ func (s *Server) archivePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", landing.CSP(pageNonce()))
+	w.Header().Set("Content-Security-Policy", archiveCSP(pageNonce()))
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	_, _ = w.Write([]byte(a.HTML))
 }
@@ -265,7 +296,7 @@ func (s *Server) feedPreview(w http.ResponseWriter, r *http.Request, tenant int6
 	}
 	f, err := feed.Fetch(r.Context(), safehttp.Client(15*time.Second, s.AllowPrivateWebhooks), req.URL)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, feedFetchStatus(err), err.Error())
 		return
 	}
 	since := time.Time{}
@@ -277,7 +308,16 @@ func (s *Server) feedPreview(w http.ResponseWriter, r *http.Request, tenant int6
 	case "monthly":
 		since = s.now().Add(-31 * 24 * time.Hour)
 	}
-	items := feed.Since(f, since)
+	items := feed.Since(f, since, s.now(), true)
 	h, txt := feed.Render(items)
 	writeJSON(w, http.StatusOK, map[string]any{"title": f.Title, "total": len(f.Items), "items": items, "html": h, "text": txt})
+}
+
+// feedFetchStatus is the answer to a feed that couldn't be read: 400 for an address that isn't
+// allowed (a private network), else 502 (the feed's server failed or sent something else).
+func feedFetchStatus(err error) int {
+	if errors.Is(err, safehttp.ErrBlocked) {
+		return http.StatusBadRequest
+	}
+	return http.StatusBadGateway
 }

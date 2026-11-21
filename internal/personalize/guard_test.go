@@ -1,6 +1,7 @@
 package personalize
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,19 @@ func TestRenderIsBounded(t *testing.T) {
 		`{{define "a"}}{{template "a"}}{{template "a"}}{{end}}{{template "a"}}`,
 		`{{define "a"}}{{template "a" .}}{{template "a" .}}{{end}}{{template "a" .}}`,
 		`{{range 9000}}{{$.Attrs.s}}{{end}}`,
+		// Strings built in variables and never written out.
+		`{{$x := print 1}}{{range 40}}{{$x = print $x $x}}{{end}}`,
+		`{{$x := print 1}}{{range 40}}{{$x = printf "%s%s" $x $x}}{{end}}`,
+		`{{$x := print 1}}{{range 40}}{{$x = println $x $x}}{{end}}`,
+		`{{$x := print 1}}{{range 60}}{{$x = html $x $x "<>"}}{{end}}`,
+		`{{$x := print 1}}{{range 60}}{{$x = js $x $x "<>"}}{{end}}`,
+		`{{$x := print 1}}{{range 60}}{{$x = urlquery $x $x "&"}}{{end}}`,
+		`{{range 9000}}{{$y := html $.Attrs.s}}{{end}}`,
+		`{{range 9000}}{{$y := slice (slice $.Attrs.s 0) 1}}{{end}}`,
+		`{{range 9000}}{{$y := pulseUpper $.Attrs.s}}{{end}}`,
+		`{{$x := printf "%999999999d" 1}}`,
+		`{{$x := printf "%.999999999f" 1.0}}`,
+		`{{$x := printf "%*d" 999999999 1}}`,
 	} {
 		if _, err := r.Text("f", src, dot); err == nil {
 			t.Errorf("text %s: want an error", src)
@@ -30,6 +44,19 @@ func TestRenderIsBounded(t *testing.T) {
 		t.Errorf("bounded renders took %s", d)
 	}
 
+	// The doubling payload fails fast and in little memory, with a clear error.
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := r.Text("f", `{{$x := print 1}}{{range 40}}{{$x = print $x $x}}{{end}}`, dot)
+	runtime.ReadMemStats(&after)
+	if err == nil || !strings.Contains(err.Error(), "builds more than") {
+		t.Errorf("doubling: err = %v", err)
+	}
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 4*maxWork {
+		t.Errorf("doubling allocated %d MB", grew>>20)
+	}
+
 	// Ordinary loops and calls still work.
 	for _, c := range []struct{ src, want string }{
 		{`{{range .Attrs.list}}{{.}}{{end}}`, "abc"},
@@ -37,6 +64,8 @@ func TestRenderIsBounded(t *testing.T) {
 		{`{{range 3}}x{{end}}`, "xxx"},
 		{`{{range .Attrs.missing}}x{{else}}none{{end}}`, "none"},
 		{`{{define "d"}}[{{.}}]{{end}}{{template "d" "v"}}{{template "d"}}`, "[v][]"},
+		{`{{print "a" 1}}|{{printf "%03d-%s" 7 "x"}}|{{println "z"}}`, "a1|007-x|z\n"},
+		{`{{html "<b>"}} {{js "'"}} {{urlquery "a b"}} {{slice "hello" 1 3}} {{index (slice .Attrs.list 1) 0}}`, `&lt;b&gt; \' a+b el b`},
 	} {
 		got, err := r.Text("f", c.src, dot)
 		if err != nil || got != c.want {

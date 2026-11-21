@@ -352,6 +352,10 @@ func (s *Server) hookPublish(w http.ResponseWriter, r *http.Request, c integrati
 		e.Props = map[string]any{}
 	}
 	e.Props["integration_id"] = c.ID
+	if msg := eventSizeProblem(e.Props, e.Attrs); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	if err := s.publishEvents(r.Context(), c.TenantID, []event.Event{e}); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

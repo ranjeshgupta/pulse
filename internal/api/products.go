@@ -67,6 +67,10 @@ func (s *Server) listProducts(w http.ResponseWriter, r *http.Request, tenant int
 	writeJSON(w, http.StatusOK, map[string]any{"products": list, "total": total})
 }
 
+// maxProductsBody is PUT /v1/products' body limit (bodyLimit): catalog.MaxBatch products with
+// descriptions and images fit.
+const maxProductsBody = 8 << 20
+
 func (s *Server) putProducts(w http.ResponseWriter, r *http.Request, tenant int64) {
 	ps, ok := s.productStore(w)
 	if !ok {
@@ -75,7 +79,6 @@ func (s *Server) putProducts(w http.ResponseWriter, r *http.Request, tenant int6
 	var req struct {
 		Products []model.Product `json:"products"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 	if !decode(w, r, &req) {
 		return
 	}

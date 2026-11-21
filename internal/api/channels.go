@@ -331,6 +331,21 @@ func (s *Server) testSend(w http.ResponseWriter, r *http.Request, tenant int64) 
 		writeErr(w, http.StatusBadRequest, "only WhatsApp and RCS messages take an SMS fallback")
 		return
 	}
+	if req.FallbackTemplateID != 0 {
+		// The fallback must be one of this workspace's SMS templates (the dispatcher loads it by id).
+		fb, err := s.uiStore().Template(r.Context(), tenant, req.FallbackTemplateID)
+		if errors.Is(err, pg.ErrNotFound) {
+			writeErr(w, http.StatusBadRequest, "the fallback template doesn't exist")
+			return
+		} else if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if fb.Channel != channel.SMS {
+			writeErr(w, http.StatusBadRequest, "the fallback template must be an SMS template")
+			return
+		}
+	}
 	if req.ProviderID != 0 {
 		if err := s.providerFor(r.Context(), tenant, req.ProviderID, t.Channel); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())

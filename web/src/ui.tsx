@@ -1,7 +1,7 @@
 // Small shared building blocks. Styling lives in styles.css.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ask, DialogCtx, DISCARD, isCloseButton, useDirtyRef } from "./guard";
-import { CHANNEL_NAMES, type Channel } from "./api";
+import { ApiError, CHANNEL_NAMES, type Channel } from "./api";
 
 export function PageHead({ title, intro, actions, back }: { title: ReactNode; intro?: ReactNode; actions?: ReactNode; back?: ReactNode }) {
   return (
@@ -33,9 +33,18 @@ export function Empty({ title, children, action }: { title: string; children?: R
   );
 }
 
+/** errorText: what to show for a failed request. An address with a malformed id (/templates/abc,
+ * from a mistyped or cut-off link) gets the server's "invalid id"; people need "not found". */
+export function errorText(error: unknown): string {
+  if (error instanceof ApiError && error.status === 400 && /^invalid id$/i.test(error.message.trim())) {
+    return "Not found. The address may be mistyped, or the item was deleted.";
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
-  return <div className="alert error" role="alert">{error instanceof Error ? error.message : String(error)}</div>;
+  return <div className="alert error" role="alert">{errorText(error)}</div>;
 }
 
 export function ChannelLabel({ channel }: { channel: Channel }) {
@@ -159,11 +168,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export const useToast = () => useContext(ToastCtx);
 
+/** copyText writes to the clipboard; it rejects (never throws) where the browser has no clipboard
+ * (a page not on https) or refuses to write (no permission, the tab not focused). */
+export function copyText(text: string): Promise<void> {
+  try {
+    return navigator.clipboard?.writeText ? navigator.clipboard.writeText(text) : Promise.reject(new Error("no clipboard"));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
 /** useCopy copies text to the clipboard and confirms with a toast (or says how to copy it by hand). */
 export function useCopy() {
   const toast = useToast();
   return (text: string, what = "Copied") =>
-    navigator.clipboard.writeText(text).then(
+    copyText(text).then(
       () => toast({ text: what }),
       () => toast({ text: `Couldn't copy. Select the text and copy it yourself${text.length <= 80 ? `: ${text}` : "."}`, error: true }),
     );

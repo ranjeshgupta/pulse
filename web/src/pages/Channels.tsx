@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api, CHANNEL_NAMES, CHANNELS, PROVIDER_CHANNELS, type Channel, type DeliveryRules, type Provider, type ProviderLimits, type TestContact, type ProviderKind, type ProviderField, type SandboxMessage } from "../api";
 import { useCan, useIsAdmin } from "../auth";
 import { useTestContacts } from "../campaignUI";
-import { ChannelLabel, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
+import { ChannelLabel, copyText, Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { ask, useEditGuard } from "../guard";
 import { AuthEditor, ConfigField, GatewayModeChoice, PasteExamples, ProviderTools, Step } from "./ProviderSettings";
 import { GatewayWizard } from "./GatewayWizard";
@@ -449,7 +449,7 @@ export function BouncesPanel({ onDirty }: { onDirty?: (dirty: boolean) => void }
   const toast = useToast();
   const q = useQuery({ queryKey: ["bounce-settings"], queryFn: () => api.get<BounceSettings>("/v1/settings/bounces") });
   const copy = (text: string) =>
-    navigator.clipboard.writeText(text).then(() => toast({ text: "URL copied" }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
+    copyText(text).then(() => toast({ text: "URL copied" }), () => toast({ text: "Couldn't copy. Select the text and copy it yourself.", error: true }));
   const formats = q.data?.formats ?? Object.keys(BOUNCE_SERVICES);
   return (
     <section className="panel section">

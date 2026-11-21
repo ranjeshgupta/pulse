@@ -18,14 +18,82 @@ import (
 // ErrBlocked is returned when the destination address is not public.
 var ErrBlocked = errors.New("destination address is not allowed")
 
-// Allowed reports whether ip is a public unicast address.
+// Allowed reports whether ip is a public unicast address. IPv6 forms that carry an IPv4 address
+// (NAT64 64:ff9b::/96 and 64:ff9b:1::/48, 6to4 2002::/16, IPv4-compatible ::a.b.c.d and
+// IPv4-mapped ::ffff:a.b.c.d) are judged by the IPv4 address inside.
 func Allowed(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() ||
-		cgnat.Contains(ip) || ip.Equal(net.IPv4bcast))
+	if ip == nil {
+		return false
+	}
+	if v4 := embeddedIPv4(ip); v4 != nil {
+		return allowedOne(v4)
+	}
+	return allowedOne(ip)
 }
 
-var _, cgnat, _ = net.ParseCIDR("100.64.0.0/10")
+func allowedOne(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() || ip.Equal(net.IPv4bcast) {
+		return false
+	}
+	for _, n := range denied {
+		if n.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// denied are the ranges, beyond the ones net.IP classifies, that aren't public unicast.
+var denied = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range []string{
+		"0.0.0.0/8",     // "this network"
+		"100.64.0.0/10", // carrier-grade NAT
+		"192.0.0.0/24",  // IETF protocol assignments
+		"198.18.0.0/15", // benchmarking
+		"240.0.0.0/4",   // reserved
+		"fec0::/10",     // site-local (deprecated)
+	} {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			panic(err)
+		}
+		out = append(out, n)
+	}
+	return out
+}()
+
+var (
+	_, nat64, _      = net.ParseCIDR("64:ff9b::/96")
+	_, nat64local, _ = net.ParseCIDR("64:ff9b:1::/48")
+	_, sixToFour, _  = net.ParseCIDR("2002::/16")
+)
+
+// embeddedIPv4 returns the IPv4 address an IPv6 address carries, or nil.
+func embeddedIPv4(ip net.IP) net.IP {
+	if v4 := ip.To4(); v4 != nil {
+		return v4 // IPv4, or IPv4-mapped
+	}
+	ip = ip.To16()
+	if ip == nil {
+		return nil
+	}
+	switch {
+	case nat64.Contains(ip), nat64local.Contains(ip):
+		return net.IPv4(ip[12], ip[13], ip[14], ip[15]).To4()
+	case sixToFour.Contains(ip):
+		return net.IPv4(ip[2], ip[3], ip[4], ip[5]).To4()
+	}
+	// IPv4-compatible ::a.b.c.d (deprecated, but some stacks still route it); :: and ::1 land in
+	// 0.0.0.0/8, which is refused too.
+	for _, b := range ip[:12] {
+		if b != 0 {
+			return nil
+		}
+	}
+	return net.IPv4(ip[12], ip[13], ip[14], ip[15]).To4()
+}
 
 // Dialer returns a TCP dialer that refuses non-public destinations (checked on the resolved
 // address at connect time), unless allowPrivate is set. For protocols other than HTTP (IMAP).

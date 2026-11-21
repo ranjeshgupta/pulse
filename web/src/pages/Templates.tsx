@@ -34,9 +34,15 @@ function savedScope(): string {
 
 /** channelWord: a channel's name inside a sentence ("email", "push", but "SMS", "WhatsApp"). */
 const channelWord = (c: Channel) => { const n = CHANNEL_NAMES[c]; return /^[A-Z][a-z]+$/.test(n) ? n.toLowerCase() : n; };
+/** knownChannel: a ?channel= value when it names a channel, else "" (never a lookup key like "__proto__"). */
+export function knownChannel(v: string | null): Channel | "" {
+  return v && (CHANNELS as readonly string[]).includes(v) ? (v as Channel) : "";
+}
+
 export function TemplateList() {
   const [params, setParams] = useSearchParams();
-  const channel = (params.get("channel") ?? "") as Channel | "";
+  // Only a known channel filters: an unknown ?channel= (a typo, an old link, "__proto__") shows them all.
+  const channel = knownChannel(params.get("channel"));
   const q = useQuery({ queryKey: ["templates", channel], queryFn: () => api.get<{ templates: Template[] }>(`/v1/templates${channel ? `?channel=${channel}` : ""}`) });
   const ts = q.data?.templates ?? [];
   return (
@@ -123,8 +129,7 @@ export function TemplateEdit() {
   useEffect(() => {
     if (isNew && !t) {
       // An unknown ?channel= (a typo or an old link) starts an email template rather than failing.
-      const asked = params.get("channel") as Channel | null;
-      const ch: Channel = asked && CHANNELS.includes(asked) ? asked : "email";
+      const ch: Channel = knownChannel(params.get("channel")) || "email";
       setT({ id: 0, name: "", channel: ch, subject: "", html: "", content: { ...BLANK[ch] }, updated_at: "" });
     } else if (existing.data && !t) {
       setT({ ...existing.data, content: existing.data.content ?? {} });
@@ -215,7 +220,7 @@ export function TemplateEdit() {
         </div>
       )}
       <LanguageBar t={t} lang={lang} setLang={setLang} setT={setT} />
-      {lang !== "" && <TranslationEditor t={t} locale={lang} setT={setT} onRemoved={() => setLang("")} />}
+      {lang !== "" && <TranslationEditor key={lang} t={t} locale={lang} setT={setT} onRemoved={() => setLang("")} />}
       {/* The default editor stays mounted while a translation is open, so the builder keeps its state. */}
       <div hidden={lang !== ""}>
       <TemplateBody t={t} setT={setT} emailMode={emailMode} switchEmailMode={switchEmailMode} builder={builder} scopeEvent={scopeEvent} setScope={setScope} hadBuilder={existing.data?.builder != null} onBuilderChange={onBuilderChange} onEdit={markDirty} />

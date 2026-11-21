@@ -2,8 +2,9 @@ package api
 
 // AI help (O6, package ai): subject line ideas, rewrites, translations and a segment from a
 // sentence. Off unless the server has PULSE_AI_API_KEY. Each workspace may make 20 requests a
-// minute; what is sent is the text being worked on (and, for segments, attribute and event
-// names), never contacts' data.
+// minute and 200 a UTC day (the server's key pays for them); what is sent is the text being
+// worked on (and, for segments, attribute and event names), never contacts' data. Texts over the
+// limits (ai.MaxRewrite, ai.MaxTranslate) are refused with 413, never cut.
 //
 //	GET  /v1/ai/status         {enabled, model}
 //	POST /v1/ai/subject-lines  {content, subject, n}       -> {subjects}
@@ -14,16 +15,22 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"pulse/internal/ai"
+	"pulse/internal/channel"
 	"pulse/internal/segment"
 )
 
-const aiPerMinute = 20
+// aiPerMinute and aiPerDay are each workspace's AI requests a minute and a UTC day.
+const (
+	aiPerMinute = 20
+	aiPerDay    = 200
+)
 
 func (s *Server) aiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/ai/status", s.tenant(s.aiStatus))
@@ -45,12 +52,22 @@ func (s *Server) aiReady(w http.ResponseWriter, r *http.Request, tenant int64) b
 	}
 	if s.RDB != nil {
 		k := "airate:" + strconv.FormatInt(tenant, 10) + ":" + strconv.FormatInt(s.now().Unix()/60, 10)
-		n, err := s.RDB.Incr(r.Context(), k).Result()
-		if err == nil && n == 1 {
-			s.RDB.Expire(r.Context(), k, 2*time.Minute)
-		}
-		if err == nil && n > aiPerMinute {
+		pipe := s.RDB.Pipeline()
+		incr := pipe.Incr(r.Context(), k)
+		pipe.Expire(r.Context(), k, 2*time.Minute) // every time, so a lost EXPIRE can't leave the key forever
+		_, err := pipe.Exec(r.Context())
+		if n := incr.Val(); err == nil && n > aiPerMinute {
 			writeErr(w, http.StatusTooManyRequests, "that's a lot of AI requests this minute; try again shortly")
+			return false
+		}
+		// The server's key pays for every call, so a workspace also has a daily quota (UTC days).
+		k = "aiday:" + strconv.FormatInt(tenant, 10) + ":" + s.now().UTC().Format("20060102")
+		pipe = s.RDB.Pipeline()
+		incr = pipe.Incr(r.Context(), k)
+		pipe.Expire(r.Context(), k, 48*time.Hour)
+		_, err = pipe.Exec(r.Context())
+		if n := incr.Val(); err == nil && n > aiPerDay {
+			writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("this workspace has used its %d AI requests for today; more tomorrow (the day starts at 00:00 UTC)", aiPerDay))
 			return false
 		}
 	}
@@ -63,8 +80,11 @@ func aiCtx(r *http.Request) (context.Context, context.CancelFunc) {
 }
 
 func (s *Server) aiFail(w http.ResponseWriter, err error) {
+	var tooLong *ai.TooLongError
 	switch {
-	case errors.Is(err, ai.ErrRefused):
+	case errors.As(err, &tooLong):
+		writeErr(w, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, ai.ErrRefused), errors.Is(err, ai.ErrAnswerTooLong):
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
 		writeErr(w, http.StatusGatewayTimeout, "the AI took too long; try again")
@@ -91,7 +111,11 @@ func (s *Server) aiSubjects(w http.ResponseWriter, r *http.Request, tenant int64
 	}
 	ctx, cancel := aiCtx(r)
 	defer cancel()
-	out, err := s.AI.SubjectLines(ctx, req.Content, req.Subject, max(req.N, 5))
+	n := req.N
+	if n <= 0 {
+		n = 5
+	}
+	out, err := s.AI.SubjectLines(ctx, req.Content, req.Subject, min(n, 10))
 	if err != nil {
 		s.aiFail(w, err)
 		return
@@ -132,6 +156,10 @@ func (s *Server) aiTranslate(w http.ResponseWriter, r *http.Request, tenant int6
 	}
 	if len(req.Fields) == 0 || len(req.Fields) > 10 || strings.TrimSpace(req.Locale) == "" {
 		writeErr(w, http.StatusBadRequest, "send 1 to 10 fields and the language")
+		return
+	}
+	if !channel.ValidLocale(req.Locale) {
+		writeErr(w, http.StatusBadRequest, "locale: use a language code like hi, ta or hi-IN")
 		return
 	}
 	ctx, cancel := aiCtx(r)

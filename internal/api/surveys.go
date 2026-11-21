@@ -31,9 +31,10 @@ import (
 type SurveyStore interface {
 	ListSurveys(ctx context.Context, tenant int64) ([]model.Survey, error)
 	GetSurvey(ctx context.Context, tenant, id int64) (model.Survey, error)
+	SurveyByIDPublic(ctx context.Context, id int64) (model.Survey, error)
 	SaveSurvey(ctx context.Context, s model.Survey) (int64, error)
 	DeleteSurvey(ctx context.Context, tenant, id int64) error
-	SaveSurveyResponse(ctx context.Context, r model.SurveyResponse) error
+	SaveSurveyResponse(ctx context.Context, r model.SurveyResponse) (changed bool, err error)
 	SurveyResponses(ctx context.Context, tenant, survey int64, since time.Time, limit int) ([]model.SurveyResponse, error)
 }
 
@@ -160,8 +161,11 @@ type questionReport struct {
 type textAnswer struct {
 	At         time.Time `json:"at"`
 	ExternalID string    `json:"external_id,omitempty"`
-	Text       string    `json:"text"`
-	NPS        *int      `json:"nps,omitempty"`
+	// Public: the answer came from the public link (no contact), told apart from a contact the
+	// viewer may not see.
+	Public bool   `json:"public,omitempty"`
+	Text   string `json:"text"`
+	NPS    *int   `json:"nps,omitempty"`
 }
 
 // surveyReport: comments show who wrote them only to roles that may view contacts.
@@ -227,7 +231,7 @@ func (s *Server) surveyReport(w http.ResponseWriter, r *http.Request, p model.Pr
 					if showWho {
 						who = x.ExternalID
 					}
-					qr.Latest = append(qr.Latest, textAnswer{At: x.At, ExternalID: who, Text: attrString(v), NPS: x.NPS})
+					qr.Latest = append(qr.Latest, textAnswer{At: x.At, ExternalID: who, Public: x.ExternalID == "", Text: attrString(v), NPS: x.NPS})
 				}
 			}
 		}
@@ -305,7 +309,7 @@ func (s *Server) publicSurvey(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	sv, err := ss.GetSurvey(r.Context(), 0, id)
+	sv, err := ss.SurveyByIDPublic(r.Context(), id)
 	if err != nil || subtle.ConstantTimeCompare([]byte(sv.PublicKey), []byte(r.PathValue("key"))) != 1 {
 		http.Error(w, "This survey isn't available.", http.StatusNotFound)
 		return
@@ -381,12 +385,13 @@ func (s *Server) answerSurvey(w http.ResponseWriter, r *http.Request, tenant, id
 			props["q_"+k] = val
 		}
 	}
-	if err := ss.SaveSurveyResponse(r.Context(), resp); err != nil {
+	changed, err := ss.SaveSurveyResponse(r.Context(), resp)
+	if err != nil {
 		s.Log.Error("survey answer", "err", err)
 		http.Error(w, "Your answer couldn't be saved. Please try again.", http.StatusInternalServerError)
 		return
 	}
-	if tok != nil {
+	if tok != nil && changed { // sending the same answer again records nothing new
 		if err := s.publishEvents(r.Context(), tenant, []event.Event{{ExternalID: tok.ExternalID, Name: event.SurveyAnswered, Props: props}}); err != nil {
 			s.Log.Error("survey answered event", "err", err) // the answer is stored; the event is best effort
 		}

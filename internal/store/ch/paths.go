@@ -41,21 +41,9 @@ func (s *Store) Paths(ctx context.Context, q PathQuery) ([]PathRow, uint64, erro
 	if exclude == nil {
 		exclude = []string{}
 	}
-	// Per person: names in time order (repeats collapsed, system events and exclusions left out),
-	// cut at the first anchor (or the last, backwards) and Steps names after (before) it.
-	pick := `arraySlice(ns, indexOf(ns, ?), ? + 1)`
-	if backwards {
-		pick = `arrayReverse(arraySlice(arrayReverse(ns), indexOf(arrayReverse(ns), ?), ? + 1))`
-	}
-	sql := `SELECT path, count() AS people FROM (
-		SELECT ` + pick + ` AS path FROM (
-			SELECT contact_id, arrayFilter((x, i) -> i = 1 OR x != raw[i - 1], raw, arrayEnumerate(raw)) AS ns FROM (
-				SELECT contact_id, arrayMap(p -> p.2, arraySort(groupArray(400)((ts, name)))) AS raw FROM events
-				WHERE tenant_id = ? AND ts >= ? AND ts < ? AND (name = ? OR (NOT match(name, ?) AND name NOT IN ?))
-				GROUP BY contact_id HAVING has(raw, ?) LIMIT 300000))
-		WHERE length(path) > 0)
-		GROUP BY path ORDER BY people DESC, path LIMIT 500`
-	args := []any{anchor, q.Steps, uint64(q.Tenant), q.From.UTC(), q.To.UTC(), anchor, systemEvents, exclude, anchor}
+	sql := pathsSQL(backwards)
+	args := []any{anchor, q.Steps, uint64(q.Tenant), anchor, q.From.UTC(), q.To.UTC(), uint64(q.Tenant), q.From.UTC(), q.To.UTC(),
+		anchor, systemEvents, exclude, anchor}
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, 0, err
@@ -77,4 +65,28 @@ func (s *Store) Paths(ctx context.Context, q PathQuery) ([]PathRow, uint64, erro
 	err = s.conn.QueryRow(ctx, `SELECT uniqExact(contact_id) FROM events WHERE tenant_id = ? AND name = ? AND ts >= ? AND ts < ?`,
 		uint64(q.Tenant), anchor, q.From.UTC(), q.To.UTC()).Scan(&people)
 	return out, people, err
+}
+
+// pathsSQL reads, per person, names in time order (repeats collapsed, system events and exclusions
+// left out) from their first anchor on (backwards: up to their last), at most 400 events nearest
+// it, cut at the anchor and Steps names after (before) it.
+func pathsSQL(backwards bool) string {
+	pick := `arraySlice(ns, indexOf(ns, ?), ? + 1)`
+	at, near, keep := `min(ts)`, `e.ts >= a.at`, `arrayMap(p -> p.2, groupArraySorted(400)((e.ts, e.name)))`
+	if backwards {
+		pick = `arrayReverse(arraySlice(arrayReverse(ns), indexOf(arrayReverse(ns), ?), ? + 1))`
+		at, near = `max(ts)`, `e.ts <= a.at`
+		keep = `arrayReverse(arrayMap(p -> p.2, groupArraySorted(400)((-toUnixTimestamp64Milli(e.ts), e.name))))` // the latest 400
+	}
+	return `SELECT path, count() AS people FROM (
+		SELECT ` + pick + ` AS path FROM (
+			SELECT contact_id, arrayFilter((x, i) -> i = 1 OR x != raw[i - 1], raw, arrayEnumerate(raw)) AS ns FROM (
+				SELECT e.contact_id AS contact_id, ` + keep + ` AS raw FROM events AS e
+				INNER JOIN (SELECT contact_id, ` + at + ` AS at FROM events WHERE tenant_id = ? AND name = ? AND ts >= ? AND ts < ?
+					GROUP BY contact_id) AS a ON a.contact_id = e.contact_id
+				WHERE e.tenant_id = ? AND e.ts >= ? AND e.ts < ? AND ` + near + `
+				  AND (e.name = ? OR (NOT match(e.name, ?) AND e.name NOT IN ?))
+				GROUP BY e.contact_id HAVING has(raw, ?) LIMIT 300000))
+		WHERE length(path) > 0)
+		GROUP BY path ORDER BY people DESC, path LIMIT 500`
 }

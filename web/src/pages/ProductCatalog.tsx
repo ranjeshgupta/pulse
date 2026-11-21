@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 import { api, can } from "../api";
 import { useMe } from "../auth";
 import { chunks, parseCsv, priceText, toProducts, type Product } from "../catalogCsv";
-import { askDelete } from "../guard";
+import { ask, askDelete, type AskOptions } from "../guard";
 import { useDebounced } from "../insights";
 import { Empty, ErrorNote, Field, Modal, PageHead, timeAgo, useToast } from "../ui";
 import "./catalog.css";
@@ -120,24 +120,47 @@ function ProductEditor({ product, onClose }: { product: Product; onClose: () => 
   );
 }
 
+/**
+ * importCloseQuestion: what closing the import dialog must ask first, or null to just close. While
+ * the chunked upload runs, closing stops it (the chunks sent so far stay imported); a file read but
+ * not imported yet is lost on closing.
+ */
+export function importCloseQuestion(s: { uploading: boolean; ready: number; done: number }): AskOptions | null {
+  if (s.uploading) {
+    return { title: "Stop the import?", body: `${s.done.toLocaleString("en-IN")} of ${s.ready.toLocaleString("en-IN")} products are imported so far. Those stay; the rest aren't imported.`,
+      confirmText: "Stop importing", cancelText: "Keep importing", danger: true };
+  }
+  if (s.ready > 0) {
+    return { title: "Discard this file?", body: "Its products aren't imported yet. If you close now, nothing is imported.", confirmText: "Discard", cancelText: "Keep it", danger: true };
+  }
+  return null;
+}
+
 function ImportCsv({ onClose }: { onClose: () => void }) {
   const [parsed, setParsed] = useState<ReturnType<typeof toProducts> | null>(null);
   const [file, setFile] = useState("");
   const [done, setDone] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  // Set when the dialog is closed during the upload: no further chunks are sent.
+  const stopped = useRef(false);
   const qc = useQueryClient();
   const toast = useToast();
   const upload = useMutation({
     mutationFn: async () => {
       let n = 0;
       for (const part of chunks(parsed!.products)) {
+        if (stopped.current) break;
         await api.put("/v1/products", { products: part });
         n += part.length;
         setDone(n);
       }
-      return n;
+      return { n, stopped: stopped.current };
     },
-    onSuccess: (n) => { qc.invalidateQueries({ queryKey: ["products"] }); toast({ text: `Imported ${n.toLocaleString("en-IN")} products` }); onClose(); },
+    onSuccess: ({ n, stopped: early }) => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      toast({ text: early ? `Import stopped: ${n.toLocaleString("en-IN")} products imported` : `Imported ${n.toLocaleString("en-IN")} products` });
+      if (!early) onClose();
+    },
     onError: () => qc.invalidateQueries({ queryKey: ["products"] }),
   });
   const read = async (f: File | undefined) => {
@@ -146,9 +169,17 @@ function ImportCsv({ onClose }: { onClose: () => void }) {
     setParsed(toProducts(parseCsv(await f.text())));
   };
   const n = parsed?.products.length ?? 0;
+  // Esc, the backdrop, Close and Cancel all come here (the dialog's own typing guard is off: a
+  // dropped file isn't typing).
+  const tryClose = async () => {
+    const q = importCloseQuestion({ uploading: upload.isPending, ready: n, done });
+    if (q && !(await ask(q))) return;
+    if (upload.isPending) stopped.current = true;
+    onClose();
+  };
   return (
-    <Modal wide title="Import products from a CSV" onClose={onClose} guard={!upload.isPending && !parsed} footer={<>
-      <button className="btn" onClick={onClose} disabled={upload.isPending}>Cancel</button>
+    <Modal wide title="Import products from a CSV" onClose={() => void tryClose()} guard={false} footer={<>
+      <button className="btn" onClick={() => void tryClose()}>{upload.isPending ? "Stop" : "Cancel"}</button>
       <button className="btn primary" disabled={!n || upload.isPending} onClick={() => upload.mutate()}>
         {upload.isPending ? `Importing… ${done.toLocaleString("en-IN")} of ${n.toLocaleString("en-IN")}` : `Import ${n.toLocaleString("en-IN")} product${n === 1 ? "" : "s"}`}
       </button>

@@ -42,7 +42,7 @@ func (s *Server) templateReport(w http.ResponseWriter, r *http.Request, tenant i
 	}
 	rep, err := tr.TemplateReport(r.Context(), ch.TemplateQuery{Tenant: tenant, Template: id, From: from, To: end, Hourly: hourly, Zone: zone})
 	if err != nil {
-		s.fail(w, err)
+		s.failReport(w, err)
 		return
 	}
 	out := periodOut(from, end, hourly, zone)

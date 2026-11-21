@@ -13,6 +13,7 @@ import {
 import { Empty, ErrorNote, Field, LiveNumber, Modal, PageHead, timeAgo, useToast } from "../ui";
 import { askDelete, useEditGuard } from "../guard";
 import "./events.css";
+import { own } from "../safe";
 import { ContactCount } from "../ContactCount";
 import { addDays, period, todayUTC } from "../contactLinks";
 
@@ -429,9 +430,9 @@ function PropertiesPanel({ summary, schemaProps, canEdit, onAdd }: {
                     {r.prop && (r.prop.label || r.prop.key !== r.path) && <div className="xs muted">{r.prop.label || r.prop.key}</div>}
                   </td>
                   <td className="small">
-                    {r.prop ? TYPE_NAMES[r.prop.type] : (r.discovered ? (TYPE_NAMES[r.discovered.type as PropType] ?? r.discovered.type) : "")}
+                    {r.prop ? TYPE_NAMES[r.prop.type] : (r.discovered ? (own(TYPE_NAMES, r.discovered.type) ?? r.discovered.type) : "")}
                     {r.prop && r.discovered && r.discovered.type !== "mixed" && !typeFits(r.prop.type, r.discovered.type) && (
-                      <div className="xs ev-warn">Seen as {(TYPE_NAMES[r.discovered.type as PropType] ?? r.discovered.type).toLowerCase()}</div>
+                      <div className="xs ev-warn">Seen as {(own(TYPE_NAMES, r.discovered.type) ?? r.discovered.type).toLowerCase()}</div>
                     )}
                     {r.discovered?.type === "mixed" && <div className="xs ev-warn">Mixed types seen</div>}
                   </td>

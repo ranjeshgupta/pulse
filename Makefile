@@ -11,7 +11,7 @@ COMPOSE = docker compose -f deploy/docker-compose.yml
 # Integration tests and the load generator join the compose network and reach services by name.
 # e2e uses the host network: the SSO flow needs the same Keycloak URL a browser uses (localhost:8180).
 it load: DOCKER_NET = --network pulse_default
-it: DOCKER_ENV = -e PULSE_CH_ADDR=clickhouse:9000 -e PULSE_REDIS_ADDR=redis:6379
+it: DOCKER_ENV = -e PULSE_CH_ADDR=clickhouse:9000
 e2e: DOCKER_NET = --network host
 e2e: DOCKER_ENV = -e PULSE_API=http://localhost:7080 -e PULSE_MAILPIT=http://localhost:18025 -e PULSE_ADMIN_TOKEN=dev-admin-token
 seed docs-seed: DOCKER_NET = --network host
@@ -49,13 +49,22 @@ docs-shots: $(if $(wildcard .cache/docs-shots/sessions/$(DOCS_WORKSPACE)-*.json)
 		-e PULSE_DOCS_PASSWORD=$(DOCS_PASSWORD) -e SHOT=$(SHOT) \
 		mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-jammy sh run.sh
 
+# make ui-crawl: opens every page of the web app (records, "new" pages, unknown ids, odd query
+# parameters, every tab and safe panel; desktop and phone width; the docs workspace and a fresh one)
+# and fails on any crash, console error or 5xx. ONLY=<regexp> limits it to matching paths.
+ui-crawl:
+	docker run --rm --network host --shm-size 1g -u $(shell id -u):$(shell id -g) -v $(CURDIR):/src -w /src/test/ui -e HOME=/tmp \
+		-e NODE_PATH=/src/.cache/docs-shots/node_modules -e PULSE_URL=$(PULSE_URL) -e PULSE_DOCS_WORKSPACE=$(DOCS_WORKSPACE) \
+		-e ONLY -e WORKERS -e NOFRESH -e NOMOBILE -e VERBOSE \
+		mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-jammy node crawl.mjs
+
 # make docs-check: every link, image and heading anchor in the README, the top-level docs, the tutorials
 # and the developer docs resolves,
 # and no screenshot is left unreferenced. Uses the host's Node.
 docs-check:
 	node docs/screenshots/checklinks.mjs . . docs docs/tutorials docs/developer
 
-.PHONY: tidy build test vet it e2e load seed docs-seed docs-shots docs-check up down logs ps
+.PHONY: tidy build test vet it e2e load seed docs-seed docs-shots docs-check ui-crawl up down logs ps
 
 tidy:
 	$(GO) mod tidy

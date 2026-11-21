@@ -1,6 +1,6 @@
 // Multi-language templates (O6): the language bar above the template editor, and the editor of one
 // translation (only the words: subject, body, text; links, images and settings stay the default's).
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import type { ChannelContent, Template, Translation } from "../api";
 import { askDelete } from "../guard";
 import { LANGUAGES, languageName, validLocale } from "../languages";
@@ -54,8 +54,26 @@ function hasWords(tr: Translation): boolean {
   return !!(tr.subject?.trim() || tr.html?.trim() || Object.values(tr.content ?? {}).some((v) => typeof v === "string" && v.trim()));
 }
 
-/** TranslationEditor edits one translation; empty fields fall back to the default's. */
-export function TranslationEditor({ t, locale, setT, onRemoved }: { t: Template; locale: string; setT: (t: Template) => void; onRemoved: () => void }) {
+/**
+ * applyAITranslation puts an AI translation into the translation for locale, in the template as it
+ * is now (other edits made while waiting stay). Nothing changes if that language was removed.
+ */
+export function applyAITranslation<T extends Template | null>(cur: T, locale: string, f: Record<string, string>): T {
+  if (!cur) return cur;
+  const trs = cur.translations ?? [];
+  if (!trs.some((x) => x.locale === locale)) return cur;
+  const words = Object.fromEntries(Object.entries(f).filter(([k]) => k !== "subject" && k !== "html"));
+  return {
+    ...cur,
+    translations: trs.map((x) => x.locale !== locale ? x : cur.channel === "email"
+      ? { ...x, subject: f.subject ?? x.subject, html: f.html ?? x.html }
+      : { ...x, content: { ...(x.content ?? {}), ...words } }),
+  };
+}
+
+/** TranslationEditor edits one translation; empty fields fall back to the default's. Mount it with
+ * key={locale}, so nothing of one language's editor carries over to another's. */
+export function TranslationEditor({ t, locale, setT, onRemoved }: { t: Template; locale: string; setT: Dispatch<SetStateAction<Template | null>>; onRemoved: () => void }) {
   const trs = t.translations ?? [];
   const tr = trs.find((x) => x.locale === locale);
   if (!tr) return null;
@@ -73,9 +91,7 @@ export function TranslationEditor({ t, locale, setT, onRemoved }: { t: Template;
       <div className="panel-head">
         <h3>{name}</h3>
         <span className="row" style={{ gap: 6 }}>
-          <TranslateWithAI locale={locale} fields={defaultFields(t)} hasContent={hasWords(tr)} onDone={(f) => set(t.channel === "email"
-            ? { subject: f.subject ?? tr.subject, html: f.html ?? tr.html }
-            : { content: { ...c, ...Object.fromEntries(Object.entries(f).filter(([k]) => k !== "subject" && k !== "html")) } })} />
+          <TranslateWithAI locale={locale} fields={defaultFields(t)} hasContent={hasWords(tr)} onDone={(f, asked) => setT((cur) => applyAITranslation(cur, asked, f))} />
           <button type="button" className="btn sm" onClick={copyDefault} title="Start from the default's words, then translate them">Copy from Default</button>
           <button type="button" className="btn ghost sm danger" onClick={() => void askDelete(`the ${name} version`, "Contacts in that language get the default.").then((ok) => { if (ok) { setT({ ...t, translations: trs.filter((x) => x.locale !== locale) }); onRemoved(); } })}>Remove language</button>
         </span>

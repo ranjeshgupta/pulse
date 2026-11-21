@@ -180,12 +180,17 @@ func TestOutboundWebhooks(t *testing.T) {
 	rc.fail = func(b []byte) bool { return strings.Contains(string(b), `"event":"fail_me"`) }
 	run := fmt.Sprint(time.Now().UnixNano())
 	seg := idOf(jsonCall(t, c, "POST", "/v1/segments", map[string]any{"name": "buyers", "rule": map[string]any{"event": "purchase", "op": "gte", "count": 1, "days": 7}}, 201)["id"])
-	id := idOf(jsonCall(t, c, "POST", "/v1/settings/webhooks", map[string]any{"name": "CRM", "url": rc.url, "active": true,
-		"events": []any{"purchase", "segment_entered", "fail_me"}}, 200)["id"])
-	h := jsonCall(t, c, "GET", fmt.Sprint("/v1/settings/webhooks/", id), nil, 200)["webhook"].(map[string]any)
-	secret := h["secret"].(string)
+	made := jsonCall(t, c, "POST", "/v1/settings/webhooks", map[string]any{"name": "CRM", "url": rc.url, "active": true,
+		"events": []any{"purchase", "segment_entered", "fail_me"}}, 200)
+	id := idOf(made["id"])
+	// The full signing secret is shown once, when it is created; afterwards only its last four.
+	secret, _ := made["secret"].(string)
 	if !strings.HasPrefix(secret, "whsec_") {
 		t.Fatalf("secret = %q", secret)
+	}
+	h := jsonCall(t, c, "GET", fmt.Sprint("/v1/settings/webhooks/", id), nil, 200)["webhook"].(map[string]any)
+	if masked, _ := h["secret"].(string); masked == secret || !strings.HasSuffix(masked, secret[len(secret)-4:]) || h["has_secret"] != true {
+		t.Fatalf("GET shows the secret: %v", h)
 	}
 	if r := jsonCall(t, c, "POST", fmt.Sprintf("/v1/settings/webhooks/%d/test", id), nil, 200); r["ok"] != true {
 		t.Fatalf("test delivery = %v", r)

@@ -19,11 +19,11 @@ func TestParseAndSince(t *testing.T) {
 	if err != nil || f.Title != "Acme Blog" || len(f.Items) != 2 || f.Items[0].Title != "Older & wiser" || f.Items[0].Summary != "Old post" {
 		t.Fatalf("rss: %+v %v", f, err)
 	}
-	items := Since(f, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC))
+	items := Since(f, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), farFuture, false)
 	if len(items) != 1 || items[0].Title != "Diwali picks" || items[0].Image == "" {
 		t.Errorf("since: %+v", items)
 	}
-	if all := Since(f, time.Time{}); len(all) != 2 || all[0].Title != "Diwali picks" {
+	if all := Since(f, time.Time{}, farFuture, true); len(all) != 2 || all[0].Title != "Diwali picks" {
 		t.Errorf("first run, newest first: %+v", all)
 	}
 	h, txt := Render(items)
@@ -38,10 +38,33 @@ func TestParseAndSince(t *testing.T) {
 		t.Error("html parsed as a feed")
 	}
 	big := "<rss><channel>" + strings.Repeat("<item><title>x</title><pubDate>Mon, 02 Nov 2026 10:00:00 +0530</pubDate></item>", 20000) + "</channel></rss>"
-	if f, err := Parse([]byte(big)); err != nil || len(f.Items) != MaxParsed || len(Since(f, time.Time{})) != MaxItems {
+	if f, err := Parse([]byte(big)); err != nil || len(f.Items) != MaxParsed || len(Since(f, time.Time{}, farFuture, true)) != MaxItems {
 		t.Errorf("big feed: %d items, %v", len(f.Items), err)
 	}
 	if h, _ := Render([]Item{{Title: "<script>x</script>", Link: "javascript:alert(1)"}}); strings.Contains(h, "<script>") || strings.Contains(h, "javascript:") {
 		t.Errorf("unsafe render: %s", h)
+	}
+}
+
+var farFuture = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+
+func TestParseDateZones(t *testing.T) {
+	want := time.Date(2026, 11, 20, 14, 0, 0, 0, time.UTC)
+	for _, s := range []string{"Fri, 20 Nov 2026 09:00:00 EST", "Fri, 20 Nov 2026 10:00:00 EDT", "Fri, 20 Nov 2026 06:00:00 PST",
+		"Fri, 20 Nov 2026 14:00:00 GMT", "Fri, 20 Nov 2026 14:00:00 UTC", "Fri, 20 Nov 2026 08:00:00 CST", "Fri, 20 Nov 2026 07:00:00 MST"} {
+		if got := parseDate(s); !got.Equal(want) {
+			t.Errorf("%s: %v", s, got)
+		}
+	}
+}
+
+func TestSinceLeavesOutLaterItems(t *testing.T) {
+	now := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	f := Feed{Items: []Item{{Title: "later", Published: now.Add(time.Hour)}, {Title: "now", Published: now}, {Title: "undated"}}}
+	if got := Since(f, now.Add(-time.Hour), now, false); len(got) != 1 || got[0].Title != "now" {
+		t.Errorf("since: %+v", got)
+	}
+	if got := Since(f, now.Add(-time.Hour), now, true); len(got) != 2 {
+		t.Errorf("first run with an undated item: %+v", got)
 	}
 }

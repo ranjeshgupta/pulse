@@ -60,7 +60,7 @@ func (s *Server) allowRate(ctx context.Context, prefix string, tenant int64, r *
 	if s.RDB == nil {
 		return true
 	}
-	key := prefix + ":" + strconv.FormatInt(tenant, 10) + ":" + clientIP(r, s.TrustProxy) + ":" + strconv.FormatInt(time.Now().Unix()/60, 10)
+	key := prefix + ":" + strconv.FormatInt(tenant, 10) + ":" + s.ip(r) + ":" + strconv.FormatInt(time.Now().Unix()/60, 10)
 	c, err := s.RDB.IncrBy(ctx, key, int64(n)).Result()
 	if err != nil {
 		return true
@@ -69,6 +69,17 @@ func (s *Server) allowRate(ctx context.Context, prefix string, tenant int64, r *
 		s.RDB.Expire(ctx, key, 2*time.Minute)
 	}
 	return c <= int64(limit)
+}
+
+// ip is the caller's address for rate limits, the audit log and geolocation: clientIP, or behind
+// Cloudflare (TrustProxy and TrustCloudflare) the CF-Connecting-IP header Cloudflare sets.
+func (s *Server) ip(r *http.Request) string {
+	if s.TrustProxy && s.TrustCloudflare {
+		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); ip != nil {
+			return ip.String()
+		}
+	}
+	return clientIP(r, s.TrustProxy)
 }
 
 // clientIP is the caller's address. Clients can write anything into X-Forwarded-For, so it's only
@@ -113,7 +124,7 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 	tracking := s.trackingFor(r.Context(), t.ID)
 	var geo map[string]any
 	if tracking.GeoIP && s.Geo != nil {
-		if loc, ok := s.Geo.Lookup(clientIP(r, s.TrustProxy)); ok {
+		if loc, ok := s.Geo.Lookup(s.ip(r)); ok {
 			geo = loc.Attrs()
 		}
 	}
@@ -143,6 +154,9 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		e.Unverified = !verifiedIdentity(t, e.ExternalID, hash)
 		e.FromBrowser, e.Rerouted = true, false
+		// Reserved attributes never come from a browser. An unverified event's email, phone and
+		// identity keys are dropped too, but only for a contact that already exists, which the
+		// profile role knows (profile.StripUnverified): a new visitor may still give its email.
 		for k := range e.Attrs {
 			if consent.IsReserved(k) {
 				delete(e.Attrs, k)
@@ -161,6 +175,10 @@ func (s *Server) webEvents(w http.ResponseWriter, r *http.Request) {
 					e.Attrs[k] = v
 				}
 			}
+		}
+		if msg := eventSizeProblem(e.Props, e.Attrs); msg != "" {
+			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+msg)
+			return
 		}
 		if err := e.Normalize(now); err != nil {
 			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+err.Error())

@@ -6,11 +6,13 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"pulse/internal/model"
 )
@@ -18,7 +20,45 @@ import (
 const (
 	importChunk       = 4 << 20
 	maxBackgroundSize = 10 << 30 // 10 GB
+
+	// Per-workspace quota: background imports store the whole file in Postgres first, so one
+	// workspace can't fill the database or monopolise the import workers.
+	maxConcurrentImports = 2
+	maxImportBytesPerDay = 20 << 30 // 20 GB a day (two of the largest files)
 )
+
+// importQuota checks the workspace's imports before a new one: at most maxConcurrentImports
+// uploading, queued or running, and maxImportBytesPerDay uploaded in the last 24 hours. It returns
+// the bytes still allowed today, or a message saying why not.
+func (s *Server) importQuota(ctx context.Context, tenant int64) (int64, string, error) {
+	list, err := s.imports().ListImports(ctx, tenant)
+	if err != nil {
+		return 0, "", err
+	}
+	now := s.now()
+	active, used := 0, int64(0)
+	for _, im := range list {
+		switch im.Status {
+		case "queued", "running":
+			active++
+		case "uploading":
+			if now.Sub(im.CreatedAt) < time.Hour { // an upload that died long ago doesn't count
+				active++
+			}
+		}
+		if now.Sub(im.CreatedAt) < 24*time.Hour {
+			used += im.Bytes
+		}
+	}
+	if active >= maxConcurrentImports {
+		return 0, fmt.Sprintf("%d imports are already in progress in this workspace; wait for one to finish", active), nil
+	}
+	left := int64(maxImportBytesPerDay) - used
+	if left <= 0 {
+		return 0, "this workspace has imported 20 GB in the last 24 hours, the most allowed; try again later", nil
+	}
+	return left, "", nil
+}
 
 type ImportStore interface {
 	CreateImport(ctx context.Context, tenant, user int64, filename string, listID int64) (int64, error)
@@ -43,6 +83,19 @@ func (s *Server) imports() ImportStore { return s.Store.(ImportStore) }
 func (s *Server) startImport(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	listID, ok := s.importList(w, r, p.TenantID)
 	if !ok {
+		return
+	}
+	allowed, why, err := s.importQuota(r.Context(), p.TenantID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if why != "" {
+		writeErr(w, http.StatusTooManyRequests, why)
+		return
+	}
+	if r.ContentLength > allowed {
+		writeErr(w, http.StatusTooManyRequests, "this file is larger than what this workspace may still import today")
 		return
 	}
 	src, name := io.Reader(r.Body), r.URL.Query().Get("filename")
@@ -80,6 +133,11 @@ func (s *Server) startImport(w http.ResponseWriter, r *http.Request, p model.Pri
 		n, rerr := io.ReadFull(src, buf)
 		if n > 0 {
 			total += int64(n)
+			if total > allowed {
+				_ = s.imports().QueueImport(context.WithoutCancel(r.Context()), id, "the daily import limit was reached")
+				writeErr(w, http.StatusTooManyRequests, "this file is larger than what this workspace may still import today")
+				return
+			}
 			if err := s.imports().AppendImportChunk(r.Context(), id, seq, buf[:n]); err != nil {
 				_ = s.imports().QueueImport(context.WithoutCancel(r.Context()), id, "the upload couldn't be stored")
 				s.fail(w, err)

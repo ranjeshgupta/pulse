@@ -179,3 +179,36 @@ func TestRenderPreviewMultiPage(t *testing.T) {
 		t.Errorf("preview shows later pages or scripts:\n%s", doc)
 	}
 }
+
+// SVG animations can rewrite an attribute after sanitising (an <a> href to javascript:); they're
+// dropped, and fragments for on-site content get the same cleaning as whole pages.
+func TestSanitizeSVGAnimationsAndFragments(t *testing.T) {
+	for _, doc := range []string{
+		`<svg><a><set attributeName="href" to="javascript:alert(1)"/><text y="20">x</text></a></svg>`,
+		`<svg><a><animate attributeName="href" values="javascript:alert(1)"/></a></svg>`,
+		`<svg><animateTransform attributeName="transform"/><animateMotion/><discard/></svg>`,
+		`<svg><a xlink:href="javascript:alert(1)"><text>x</text></a></svg>`,
+		`<svg><foo values="https://a;javascript:alert(1)"/></svg>`,
+	} {
+		for _, out := range []string{Sanitize(doc), SanitizeFragment(doc)} {
+			low := strings.ToLower(out)
+			for _, bad := range []string{"<set", "<animate", "<discard", "javascript:"} {
+				if strings.Contains(low, bad) {
+					t.Errorf("%s -> %s (contains %s)", doc, out, bad)
+				}
+			}
+		}
+	}
+	frag := `<p onclick="x()">Hi <b>there</b></p><script>alert(1)</script><img src=x onerror=alert(1)><a href="javascript:alert(1)">l</a><iframe srcdoc="<script>1</script>"></iframe>`
+	out := SanitizeFragment(frag)
+	if strings.Contains(out, "<script") || strings.Contains(out, "onclick") || strings.Contains(out, "onerror") ||
+		strings.Contains(out, "javascript:") || strings.Contains(out, "srcdoc") {
+		t.Errorf("fragment not cleaned: %s", out)
+	}
+	if !strings.Contains(out, "<p>Hi <b>there</b></p>") || strings.Contains(out, "<html") || strings.Contains(out, "<body") {
+		t.Errorf("fragment shape: %s", out)
+	}
+	if SafeURL("javascript:alert(1)") != "#" || SafeURL(" JaVa\tscript:x") != "#" || SafeURL("https://acme.test/x") != "https://acme.test/x" {
+		t.Error("SafeURL")
+	}
+}

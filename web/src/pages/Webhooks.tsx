@@ -8,6 +8,10 @@ import { Empty, ErrorNote, Field, PageHead, timeAgo, useToast, useCopy } from ".
 import "./webhooks.css";
 
 type Detail = { webhook: Webhook; deliveries: WebhookDelivery[] };
+
+// The server shows a signing secret in full only in the answer that creates or rotates it (lists
+// and details carry its last four characters). It is kept here, in memory, until the page reloads.
+const freshSecrets = new Map<number, string>();
 type TestResult = { ok: boolean; status: number; duration_ms: number; error?: string };
 
 const SEGMENT_EVENTS = ["segment_entered", "segment_exited"];
@@ -121,9 +125,10 @@ export function WebhookEdit() {
   const save = useMutation({
     mutationFn: () => {
       const body = { name: w!.name.trim(), url: w!.url.trim(), events: w!.events, active: w!.active };
-      return isNew ? api.post<{ id: number }>("/v1/settings/webhooks", body) : api.put<{ id: number }>(`/v1/settings/webhooks/${id}`, body);
+      return isNew ? api.post<{ id: number; secret?: string }>("/v1/settings/webhooks", body) : api.put<{ id: number; secret?: string }>(`/v1/settings/webhooks/${id}`, body);
     },
     onSuccess: (r) => {
+      if (r.secret) freshSecrets.set(r.id, r.secret);
       guard.saved();
       baseDraft.current = null;
       qc.invalidateQueries({ queryKey: ["webhooks"] });
@@ -240,23 +245,25 @@ function SecretPanel({ webhook }: { webhook: Webhook }) {
   const [shown, setShown] = useState(false);
   const rotate = useMutation({
     // Rotating sends the saved settings back unchanged, so unsaved edits on the page aren't saved by it.
-    mutationFn: () => api.put(`/v1/settings/webhooks/${webhook.id}`, { name: webhook.name, url: webhook.url, events: webhook.events, active: webhook.active, rotate_secret: true }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["webhook", String(webhook.id)] }); setShown(true); toast({ text: "New secret created. The old one stops working now." }); },
+    mutationFn: () => api.put<{ id: number; secret?: string }>(`/v1/settings/webhooks/${webhook.id}`, { name: webhook.name, url: webhook.url, events: webhook.events, active: webhook.active, rotate_secret: true }),
+    onSuccess: (r) => { if (r.secret) freshSecrets.set(webhook.id, r.secret); qc.invalidateQueries({ queryKey: ["webhook", String(webhook.id)] }); setShown(true); toast({ text: "New secret created. The old one stops working now." }); },
   });
-  const secret = webhook.secret ?? "";
+  const fresh = freshSecrets.get(webhook.id) ?? "";
+  const secret = fresh || webhook.secret || "";
   return (
     <section className="panel section">
       <div className="panel-head"><h3>Signing secret</h3><span className="xs muted">Keep it on your server only</span></div>
       <div className="panel-body">
         <p className="small muted" style={{ marginBottom: 12 }}>Every delivery is signed with this secret in the <code>X-Pulse-Signature</code> header. Check it to be sure the request came from Pulse.</p>
         <div className="wh-secret">
-          <code>{!secret ? "No secret yet" : shown ? secret : "•".repeat(24) + secret.slice(-4)}</code>
-          {secret && <button className="btn sm" onClick={() => setShown(!shown)}>{shown ? "Hide" : "Reveal"}</button>}
-          {secret && <button className="btn sm" onClick={() => copy(secret, "Secret copied")}>Copy</button>}
+          <code>{!secret ? "No secret yet" : fresh && shown ? fresh : "•".repeat(24) + secret.slice(-4)}</code>
+          {fresh && <button className="btn sm" onClick={() => setShown(!shown)}>{shown ? "Hide" : "Reveal"}</button>}
+          {fresh && <button className="btn sm" onClick={() => copy(fresh, "Secret copied")}>Copy</button>}
           <button className="btn sm danger" disabled={rotate.isPending}
             onClick={() => void ask({ title: "Create a new signing secret?", body: "The current one stops working right away, so update your server too.", confirmText: "Rotate secret", danger: true })
               .then((ok) => ok && rotate.mutate())}>Rotate secret</button>
         </div>
+        {secret && !fresh && <p className="xs muted" style={{ marginTop: 8 }}>For safety the full secret is shown only when it is created or rotated. Lost it? Rotate it and copy the new one.</p>}
         <ErrorNote error={rotate.error} />
       </div>
     </section>

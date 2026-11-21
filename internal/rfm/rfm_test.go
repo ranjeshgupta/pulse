@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
@@ -19,7 +21,7 @@ type src struct {
 func (s *src) RFMCuts(context.Context, int64, string, string, time.Time, time.Time) (Cuts, error) {
 	return s.cuts, nil
 }
-func (s *src) RFMBuyers(_ context.Context, _ int64, _, _ string, _ time.Time, fn func(Buyer) error) error {
+func (s *src) RFMBuyers(_ context.Context, _ int64, _, _ string, _, _ time.Time, fn func(Buyer) error) error {
 	for _, b := range s.buyers {
 		if err := fn(b); err != nil {
 			return err
@@ -102,7 +104,103 @@ func TestThrottleAndDue(t *testing.T) {
 		t.Errorf("batches %v in %v", batches, took)
 	}
 	at := time.Date(2026, 11, 21, 5, 0, 0, 0, time.UTC)
-	if !Due(29, at, 24*time.Hour) || Due(30, at, 24*time.Hour) || !Due(30, at, time.Hour) {
+	if !Due(29, at, time.Time{}, 24*time.Hour) || Due(30, at, time.Time{}, 24*time.Hour) || !Due(30, at, time.Time{}, time.Hour) {
 		t.Error("Due")
+	}
+	// Out of its hour: caught up once the last pass is more than the interval and 2 hours old.
+	if Due(30, at, at.Add(-25*time.Hour), 24*time.Hour) || !Due(30, at, at.Add(-27*time.Hour), 24*time.Hour) {
+		t.Error("Due catch-up")
+	}
+}
+
+func TestChurnSameDayOrders(t *testing.T) {
+	now := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	// Two orders on one day, 4 days ago: a one-time buyer, not overdue.
+	if c := Churn(Buyer{First: now.Add(-4*day - time.Hour), Last: now.Add(-4 * day), Orders: 2}, now); c != RiskLow {
+		t.Errorf("same day: %s", c)
+	}
+	// Orders two days apart, last one 10 days ago: the gap counts as a week, so not yet high.
+	if c := Churn(Buyer{First: now.Add(-12 * day), Last: now.Add(-10 * day), Orders: 2}, now); c != RiskLow {
+		t.Errorf("short gap: %s", c)
+	}
+}
+
+func TestRefreshClearsBuyersOutOfWindow(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	now := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
+	s := &src{cuts: Cuts{Recency: [4]float64{10, 30, 90, 180}, Frequency: [4]float64{1, 2, 4, 8}, Monetary: [4]float64{500, 1000, 5000, 20000}, Buyers: 2},
+		buyers: []Buyer{
+			{Contact: 1, ExternalID: "a", First: now.AddDate(0, 0, -300), Last: now.AddDate(0, 0, -2), Orders: 20, Revenue: 50000},
+			{Contact: 2, ExternalID: "b", First: now.AddDate(0, 0, -5), Last: now.AddDate(0, 0, -5), Orders: 1, Revenue: 100},
+		}}
+	var got []event.Event
+	pub := func(_ context.Context, _ int64, evs []event.Event) error { got = append(got, evs...); return nil }
+	if _, _, err := Refresh(context.Background(), s, rdb, pub, 7, "purchase", "amount", now); err != nil {
+		t.Fatal(err)
+	}
+	if v := mr.HGet("rfm:7", "1"); !strings.HasSuffix(v, "|a") {
+		t.Errorf("stored state %q has no external id", v)
+	}
+	mr.HSet("rfm:7", "9", "Lost|111|lost") // an older entry without an external id
+	got = nil
+	s.buyers = s.buyers[:1] // b left the window
+	_, ch, err := Refresh(context.Background(), s, rdb, pub, 7, "purchase", "amount", now)
+	if err != nil || ch != 1 || len(got) != 1 || got[0].ExternalID != "b" || got[0].Props["cleared"] != true || got[0].Props["previous_group"] != New {
+		t.Fatalf("cleared: %d %v %+v", ch, err, got)
+	}
+	if mr.HGet("rfm:7", "2") != "" || mr.HGet("rfm:7", "9") != "" || mr.HGet("rfm:7", "1") == "" {
+		t.Errorf("left: %v", mr.HGet("rfm:7", "2")+mr.HGet("rfm:7", "9"))
+	}
+	// An older 3-field entry with the same scores: no event, the external id is added.
+	mr.HSet("rfm:7", "1", strings.TrimSuffix(mr.HGet("rfm:7", "1"), "|a"))
+	got = nil
+	if _, ch, _ := Refresh(context.Background(), s, rdb, pub, 7, "purchase", "amount", now); ch != 0 || !strings.HasSuffix(mr.HGet("rfm:7", "1"), "|a") {
+		t.Errorf("old entry: %d %q", ch, mr.HGet("rfm:7", "1"))
+	}
+}
+
+func TestHold(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	release, ok := Hold(ctx, rdb, "rfmrun:1", time.Second)
+	if !ok {
+		t.Fatal("not held")
+	}
+	if _, ok := Hold(ctx, rdb, "rfmrun:1", time.Second); ok {
+		t.Error("held twice")
+	}
+	time.Sleep(1500 * time.Millisecond) // the heartbeat keeps it set
+	if ttl := mr.TTL("rfmrun:1"); ttl <= 0 {
+		t.Errorf("no TTL: %v", ttl)
+	}
+	release()
+	if mr.Exists("rfmrun:1") {
+		t.Error("not released")
+	}
+	// A crashed holder: the key expires after its short TTL.
+	_, _ = rdb.SetNX(ctx, "rfmrun:2", "x", LockTTL).Result()
+	mr.FastForward(LockTTL + time.Second)
+	if r, ok := Hold(ctx, rdb, "rfmrun:2", LockTTL); !ok {
+		t.Error("stale lock still held")
+	} else {
+		r()
+	}
+}
+
+func TestSpacing(t *testing.T) {
+	day := 24 * time.Hour
+	// On its hour: a day less the margin.
+	if d := Spacing(5, time.Date(2026, 11, 21, 5, 0, 0, 0, time.UTC), day); d != day-15*time.Minute {
+		t.Errorf("on time: %v", d)
+	}
+	// Caught up late: back on its hour the next day.
+	if d := Spacing(5, time.Date(2026, 11, 21, 7, 10, 0, 0, time.UTC), day); d != 21*time.Hour+50*time.Minute {
+		t.Errorf("late: %v", d)
+	}
+	if d := Spacing(5, time.Date(2026, 11, 21, 7, 10, 0, 0, time.UTC), time.Hour); d != 45*time.Minute {
+		t.Errorf("hourly: %v", d)
 	}
 }

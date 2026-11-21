@@ -98,19 +98,25 @@ function TemplateAIPanel({ t, setT, builderLocked, onClose }: { t: Template; set
   );
 }
 
-/** TranslateWithAI fills a language version from the default's words. */
+/**
+ * TranslateWithAI fills a language version from the default's words. onDone gets the locale the
+ * request was made for: the answer can arrive after another language was opened, and must land in
+ * the language it was asked for (the mutation's onSuccess is the latest render's, so it can't
+ * rely on its own props).
+ */
 export function TranslateWithAI({ fields, locale, hasContent, onDone }: {
-  fields: Record<string, string>; locale: string; hasContent: boolean; onDone: (out: Record<string, string>) => void;
+  fields: Record<string, string>; locale: string; hasContent: boolean; onDone: (out: Record<string, string>, locale: string) => void;
 }) {
   const enabled = useAI();
   const m = useMutation({
-    mutationFn: () => api.post<{ fields: Record<string, string> }>("/v1/ai/translate", { fields, locale }),
-    onSuccess: (r) => onDone(r.fields),
+    mutationFn: (v: { locale: string; fields: Record<string, string> }) =>
+      api.post<{ fields: Record<string, string> }>("/v1/ai/translate", v).then((r) => ({ fields: r.fields ?? {}, locale: v.locale })),
+    onSuccess: (r) => onDone(r.fields, r.locale),
   });
   if (!enabled) return null;
   const go = async () => {
     if (hasContent && !(await ask({ title: "Replace this translation?", body: "The AI's translation replaces what's written here (you can still edit it, or leave without saving).", confirmText: "Translate" }))) return;
-    m.mutate();
+    m.mutate({ locale, fields });
   };
   return (
     <>

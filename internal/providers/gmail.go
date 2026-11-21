@@ -91,7 +91,7 @@ func init() {
 			{Key: "password", Label: "SMTP auth password (optional)"},
 		},
 		DefaultLimits: &model.ProviderLimits{DailyQuota: 10000},
-		New: func(_ Deps, c, s map[string]string) (Provider, error) {
+		New: func(d Deps, c, s map[string]string) (Provider, error) {
 			port, err := googlePort(c["port"], "587", "465", "25")
 			if err != nil {
 				return nil, err
@@ -104,7 +104,7 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			p := &SMTP{Addr: net.JoinHostPort(gmailRelayHost, port), From: c["from"], Helo: helo, MaxConns: maxConns, Service: ServiceOther}
+			p := &SMTP{Addr: net.JoinHostPort(gmailRelayHost, port), From: c["from"], Helo: helo, MaxConns: maxConns, Service: ServiceOther, restricted: !d.AllowPrivate}
 			if s["username"] != "" {
 				if s["password"] == "" {
 					return nil, errors.New("Google relay: SMTP auth needs a password")
@@ -145,7 +145,7 @@ func newGoogleSMTP(d Deps, c, s map[string]string, host string) (Provider, error
 	if err != nil {
 		return nil, err
 	}
-	p := &SMTP{Addr: net.JoinHostPort(host, port), From: c["from"], MaxConns: maxConns, Service: ServiceOther, username: user}
+	p := &SMTP{Addr: net.JoinHostPort(host, port), From: c["from"], MaxConns: maxConns, Service: ServiceOther, username: user, restricted: !d.AllowPrivate}
 	switch c["auth_method"] {
 	case "", "app_password":
 		pw := strings.ReplaceAll(s["password"], " ", "") // Google shows app passwords in groups of four
@@ -212,6 +212,19 @@ func XOAuth2Response(user, token string) []byte {
 	return []byte("user=" + user + "\x01auth=Bearer " + token + "\x01\x01")
 }
 
+// smtpTestError is what a connection test shows: never the raw dial error or the server's
+// replies (a banner from whatever listens on that port), only what went wrong in Pulse's words.
+func smtpTestError(addr string, err error) error {
+	var te *textproto.Error
+	switch {
+	case errors.As(err, &te) && (te.Code == 535 || te.Code == 534 || te.Code == 530): // login refused
+		return fmt.Errorf("%w: the SMTP server (%s) refused the login", httpauth.ErrRejected, addr)
+	case errors.Is(err, errNoSTARTTLS), errors.Is(err, errNoAUTH):
+		return err
+	}
+	return fmt.Errorf("couldn't connect to the SMTP server (%s)", addr)
+}
+
 // TestAuth is "Test connection": XOAUTH2 accounts fetch an access token now; every other SMTP
 // server is connected to and logged in to (app password, plain login, or none), then left with
 // QUIT. A fresh connection, never one from the pool, so a saved login can't hide a broken one.
@@ -226,11 +239,7 @@ func (s *SMTP) TestAuth(ctx context.Context) (httpauth.TestResult, error) {
 	defer p.release()
 	sc, err := p.connect(ctx)
 	if err != nil {
-		var te *textproto.Error
-		if errors.As(err, &te) && (te.Code == 535 || te.Code == 534 || te.Code == 530) { // login refused
-			return httpauth.TestResult{}, fmt.Errorf("%w: %v", httpauth.ErrRejected, err)
-		}
-		return httpauth.TestResult{}, err
+		return httpauth.TestResult{}, smtpTestError(s.Addr, err)
 	}
 	_ = sc.c.Quit()
 	_ = sc.c.Close()

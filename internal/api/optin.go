@@ -1,8 +1,9 @@
 package api
 
 // Double opt-in (O6): a form with double opt-in records optin_requested with a confirmation link
-// (the journeys role sends the form's confirmation email); GET /f/confirm/{token} confirms it:
-// the form's opt-ins, lists and tags apply, and optin_confirmed is recorded. Links last 7 days.
+// (the journeys role sends the form's confirmation email). GET /f/confirm/{token} only shows a
+// Confirm button (mail scanners open links); the button's POST to the same address confirms: the
+// form's opt-ins, lists and tags apply, and optin_confirmed is recorded. Links last 7 days.
 
 import (
 	"context"
@@ -45,6 +46,8 @@ h1{font-size:22px;margin:8px 0}p{color:#5b6474;margin:0}.big{font-size:42px}</st
 {{if .Ask}}<form method="post"><button style="font:inherit;font-weight:600;margin-top:18px;padding:12px 22px;border-radius:8px;border:0;background:#2747d6;color:#fff;cursor:pointer;width:100%">Yes, confirm my subscription</button></form>{{end}}
 </main></body></html>`))
 
+const optinCSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'"
+
 func renderOptin(w http.ResponseWriter, code int, icon, title, text string) {
 	renderOptinPage(w, code, map[string]any{"Icon": icon, "Title": title, "Text": text})
 }
@@ -53,6 +56,10 @@ func renderOptinPage(w http.ResponseWriter, code int, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer") // the link is a secret
+	// No scripts at all, and never framed (a framed Confirm button could be clickjacked). Form
+	// posts aren't restricted: after confirming, the form may redirect to the workspace's site.
+	w.Header().Set("Content-Security-Policy", optinCSP)
+	w.Header().Set("X-Frame-Options", "DENY")
 	w.WriteHeader(code)
 	_ = optinPage.Execute(w, data)
 }

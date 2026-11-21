@@ -108,10 +108,44 @@ func Sanitize(doc string) string {
 	return b.String()
 }
 
-// Dropped elements: anything that runs or loads code, and the raw-text elements (xmp, noembed,
-// noframes, plaintext, noscript) whose contents serialize unescaped.
+// SanitizeFragment is Sanitize for a piece of HTML that goes inside a page's body (on-site
+// pop-ups, bars and content slots the SDK inserts into a customer's page).
+func SanitizeFragment(frag string) string {
+	if frag == "" {
+		return ""
+	}
+	ctx := &xhtml.Node{Type: xhtml.ElementNode, Data: "div", DataAtom: atom.Div}
+	nodes, err := xhtml.ParseFragment(strings.NewReader(frag), ctx)
+	if err != nil {
+		return ""
+	}
+	for _, n := range nodes {
+		ctx.AppendChild(n)
+	}
+	clean(ctx)
+	var b strings.Builder
+	for c := ctx.FirstChild; c != nil; c = c.NextSibling {
+		if err := xhtml.Render(&b, c); err != nil {
+			return ""
+		}
+	}
+	return b.String()
+}
+
+// SafeURL returns u, or "#" when it would run code (javascript:, vbscript:, data: other than images).
+func SafeURL(u string) string {
+	if unsafeURL(u) {
+		return "#"
+	}
+	return u
+}
+
+// Dropped elements: anything that runs or loads code, the raw-text elements (xmp, noembed,
+// noframes, plaintext, noscript) whose contents serialize unescaped, and SVG animations, which can
+// set an attribute (an href to javascript:) after the markup was checked.
 var dropElems = map[string]bool{"script": true, "base": true, "object": true, "embed": true, "applet": true, "frameset": true,
-	"xmp": true, "noembed": true, "noframes": true, "plaintext": true, "noscript": true}
+	"xmp": true, "noembed": true, "noframes": true, "plaintext": true, "noscript": true,
+	"set": true, "animate": true, "animatetransform": true, "animatemotion": true, "discard": true}
 
 var urlAttrs = map[string]bool{"href": true, "src": true, "action": true, "formaction": true, "xlink:href": true,
 	"poster": true, "data": true, "background": true, "cite": true, "ping": true}
@@ -135,6 +169,9 @@ func clean(n *xhtml.Node) {
 				switch {
 				case strings.HasPrefix(k, "on"), k == "srcdoc":
 					continue
+				case (k == "values" || k == "to" || k == "from" || k == "by") && scriptValue(a.Val):
+					continue // animation values that would set a javascript: URL
+
 				case urlAttrs[k] && unsafeURL(a.Val):
 					a.Val = "#"
 				}
@@ -168,6 +205,16 @@ func unsafeURL(v string) bool {
 	u := b.String()
 	return strings.HasPrefix(u, "javascript:") || strings.HasPrefix(u, "vbscript:") ||
 		strings.HasPrefix(u, "data:") && !strings.HasPrefix(u, "data:image/") || strings.HasPrefix(u, "data:image/svg")
+}
+
+// scriptValue reports whether any ;-separated part of an attribute value is a code URL.
+func scriptValue(v string) bool {
+	for _, part := range strings.Split(v, ";") {
+		if unsafeURL(part) {
+			return true
+		}
+	}
+	return false
 }
 
 // Page is what Render needs besides the page itself.

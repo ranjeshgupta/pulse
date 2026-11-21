@@ -3,8 +3,14 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/anthropics/anthropic-sdk-go/v2/option"
 )
 
 type fake struct {
@@ -50,5 +56,25 @@ func TestHelper(t *testing.T) {
 	}
 	if !SameTags("{{ a }} {{b}}", "{{b}} x {{a}}") || SameTags("{{a}}", "{{a}}{{a}}") {
 		t.Error("SameTags")
+	}
+}
+
+func TestTooLongAndMaxTokens(t *testing.T) {
+	h := Helper{C: &fake{answer: `{"text":"x"}`}}
+	var tl *TooLongError
+	if _, err := h.Rewrite(context.Background(), strings.Repeat("a", MaxRewrite+1), "fix", "email"); !errors.As(err, &tl) || !strings.Contains(err.Error(), "the limit is 60 KB") {
+		t.Errorf("long rewrite: %v", err)
+	}
+	if _, err := h.Translate(context.Background(), map[string]string{"html": strings.Repeat("a", MaxTranslate)}, "hi"); !errors.As(err, &tl) {
+		t.Errorf("long translation: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"{\"text\":\"cut"}],"stop_reason":"max_tokens","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+	c := &Claude{api: anthropic.NewClient(option.WithAPIKey("k"), option.WithBaseURL(srv.URL), option.WithMaxRetries(0))}
+	if _, err := c.JSON(context.Background(), "s", "u", map[string]any{"type": "object"}); !errors.Is(err, ErrAnswerTooLong) {
+		t.Errorf("max tokens: %v", err)
 	}
 }

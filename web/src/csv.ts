@@ -3,11 +3,15 @@
 
 const NUMBER_RE = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
 
-/** csvSafe prefixes a cell that starts with = + - @ tab or CR with a single quote, so spreadsheets
- * show it as text; plain numbers (-5, +1.5) stay numbers. */
+/** csvSafe prefixes a cell with a single quote, so spreadsheets show it as text, when its first
+ * character after leading spaces and line breaks (which spreadsheets skip) is = + - @, or it starts
+ * with a tab or CR; plain numbers (-5, +1.5) stay numbers. */
 export function csvSafe(v: string): string {
-  if (v !== "" && "=+-@\t\r".includes(v[0]) && !NUMBER_RE.test(v)) return "'" + v;
-  return v;
+  const t = v.replace(/^[ \t\r\n\u00a0]+/, "");
+  if (t === "") return v;
+  if (!"=+-@".includes(t[0]) && v[0] !== "\t" && v[0] !== "\r") return v;
+  if (t === v && NUMBER_RE.test(v)) return v;
+  return "'" + v;
 }
 
 /** csvCell: a safe cell, quoted when it holds a comma, a quote or a line break. */

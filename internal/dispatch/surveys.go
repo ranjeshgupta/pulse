@@ -22,7 +22,7 @@ func (d *Dispatcher) surveyIDs(t model.Template) []string {
 	}
 	raw, _ := json.Marshal(t)
 	ids := personalize.SurveyIDs(string(raw))
-	d.recoNeeds.Store(key, ids)
+	storeBounded(&d.recoNeeds, &d.recoCached, maxRecoNeeds, key, ids)
 	return ids
 }
 

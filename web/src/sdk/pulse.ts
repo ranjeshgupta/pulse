@@ -14,6 +14,7 @@ import { parseUserAgent, type UAData } from "./device";
 import { nextSession, parseActivity } from "./session";
 import { fileProblem, formPages, UPLOAD_TYPES, type FormField } from "./forms";
 import { checkToken, problems, promptBlocked, promptHTML, type Diagnosis, type PushPrompt } from "./pushPrompt";
+import { cleanHTML } from "./sanitize";
 
 const SDK_VERSION = "6.0";
 
@@ -33,8 +34,11 @@ interface FocusItem {
 }
 
 const scriptHost = (() => {
-  const s = document.currentScript as HTMLScriptElement | null;
-  try { return s?.src ? new URL(s.src).origin : location.origin; } catch { return location.origin; }
+  // document.currentScript can be shadowed by a page element named "currentScript" (DOM
+  // clobbering): only a real <script> element counts.
+  const s = document.currentScript;
+  if (!(s instanceof HTMLScriptElement)) return location.origin;
+  try { return s.src ? new URL(s.src).origin : location.origin; } catch { return location.origin; }
 })();
 
 let cfg: Required<Config> | null = null;
@@ -462,7 +466,7 @@ function render(it: FocusItem) {
   <div class="box" role="${it.kind === "modal" ? "dialog" : "region"}" aria-label="${esc(c.title || "Message")}">
     <button class="x" aria-label="Close">×</button>
     ${c.image_url && safeUrl(c.image_url) ? `<img src="${esc(c.image_url)}" alt="">` : ""}
-    ${c.title ? `<h2>${esc(c.title)}</h2>` : ""}<div class="body">${c.body_html || ""}</div>${cta}
+    ${c.title ? `<h2>${esc(c.title)}</h2>` : ""}<div class="body">${cleanHTML(c.body_html || "")}</div>${cta}
   </div>`;
   const close = (how: string) => { host.remove(); track("focus_closed", { focus_id: it.id, how }); };
   root.querySelector(".x")?.addEventListener("click", () => close("button"));
@@ -502,7 +506,7 @@ export async function refresh() {
   if (!res) return;
   for (const el of slots) {
     const html = res.content[el.dataset.pulseSlot!];
-    if (html !== undefined) el.innerHTML = html; // the workspace's own content
+    if (html !== undefined) el.innerHTML = cleanHTML(html); // the workspace's own content, cleaned again here
   }
   // Items come in priority order: one pop-up, one bar and one slide-in at most, the first whose
   // frequency allows it.

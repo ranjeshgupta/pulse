@@ -99,7 +99,11 @@ func (s *Server) campaignVersion(ctx context.Context, tenant int64, kind string,
 		if err != nil {
 			return "", "", err
 		}
-		def, name = []any{j.Name, j.Graph, j.StartAt, j.EndAt}, j.Name
+		d := []any{j.Name, j.Graph, j.StartAt, j.EndAt}
+		if j.ArchivedAt != nil { // archiving after the request changes the version (unarchived: as before)
+			d = append(d, "archived")
+		}
+		def, name = d, j.Name
 	}
 	raw, _ := json.Marshal(def)
 	h := sha256.New()
@@ -241,8 +245,11 @@ func (s *Server) latestApproval(w http.ResponseWriter, r *http.Request, p model.
 		return
 	}
 	a, err := as.LatestApproval(r.Context(), p.TenantID, kind, id)
-	if err != nil {
+	if errors.Is(err, pg.ErrNotFound) {
 		writeJSON(w, http.StatusOK, map[string]any{"approval": nil})
+		return
+	} else if err != nil {
+		s.fail(w, err)
 		return
 	}
 	cur, _, _ := s.campaignVersion(r.Context(), p.TenantID, kind, id)
@@ -329,6 +336,13 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request, p model.
 				return
 			}
 		} else {
+			if us, ok := s.Store.(UIStore); ok {
+				if j, jerr := us.GetJourney(r.Context(), p.TenantID, a.CampaignID); jerr == nil && j.ArchivedAt != nil {
+					_, _ = as.DecideApproval(r.Context(), p.TenantID, id, "withdrawn", p.UserID, p.Actor, "the journey was archived")
+					writeErr(w, http.StatusConflict, "this journey was archived after approval was asked for; restore it and ask again")
+					return
+				}
+			}
 			if g, gerr := s.journeyGraph(r.Context(), p.TenantID, a.CampaignID); gerr == nil && !deletePermOK(w, p, g) {
 				return
 			}
@@ -456,6 +470,30 @@ func (s *Server) guardTemplateEdit(h tenantHandler) http.HandlerFunc {
 			return
 		}
 		h(w, r, p.TenantID)
+	})
+}
+
+// guardTemplateDelete refuses to delete a template that a live campaign (a scheduled, running or
+// testing broadcast, an active journey) sends, with or without four-eyes approval: the campaign
+// would fail at its next send. It also applies liveLocked, like edits.
+func (s *Server) guardTemplateDelete(h tenantHandler) http.HandlerFunc {
+	return s.guardTemplateEdit(func(w http.ResponseWriter, r *http.Request, tenant int64) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if _, isBC := s.Store.(BroadcastStore); err == nil && isBC {
+			names, err := s.liveUsing(r.Context(), tenant, map[int64]bool{id: true})
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+			if len(names) > 0 {
+				if len(names) > 5 {
+					names = append(names[:5], fmt.Sprintf("%d more", len(names)-5))
+				}
+				writeErr(w, http.StatusConflict, strings.Join(names, ", ")+" send this template right now; pause or finish them before deleting it")
+				return
+			}
+		}
+		h(w, r, tenant)
 	})
 }
 

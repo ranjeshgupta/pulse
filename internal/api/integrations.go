@@ -89,7 +89,8 @@ func (s *Server) integrationSvc() *integrations.Service {
 			return m, json.Unmarshal(b, &m)
 		}
 	}
-	return &integrations.Service{Store: s.intStore(), Open: open, HTTP: safehttp.Client(20*time.Second, s.AllowPrivateWebhooks),
+	// Integration requests carry the workspace's credentials: redirects stay on the same site.
+	return &integrations.Service{Store: s.intStore(), Open: open, HTTP: safehttp.SameOrigin(safehttp.Client(20*time.Second, s.AllowPrivateWebhooks)),
 		Pub: s.Pub, Log: s.Log, Now: s.now}
 }
 

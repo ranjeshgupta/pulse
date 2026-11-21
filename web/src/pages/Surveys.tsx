@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, can } from "../api";
-import { useMe } from "../auth";
+import { useCan, useMe } from "../auth";
 import { askDelete, useEditGuard } from "../guard";
 import { NPS_STARTER, newQuestion, npsSnippet, npsTone, surveyProblem, TYPE_LABEL, type QuestionType, type Survey, type SurveyQuestion } from "../surveys";
 import { Empty, ErrorNote, Field, PageHead, timeAgo, useCopy, useToast } from "../ui";
@@ -84,10 +84,11 @@ export function SurveyEdit() {
       <ErrorNote error={existing.error ?? save.error ?? remove.error} />
       {!isNew && (
         <div className="tabs" role="tablist" aria-label="Survey">
-          <button type="button" role="tab" aria-selected={tab === "results"} onClick={() => setTab("results")}>Results</button>
-          <button type="button" role="tab" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Questions and links</button>
+          <button type="button" role="tab" id="survey-tab-results" aria-controls="survey-panel" aria-selected={tab === "results"} onClick={() => setTab("results")}>Results</button>
+          <button type="button" role="tab" id="survey-tab-questions" aria-controls="survey-panel" aria-selected={tab === "questions"} onClick={() => setTab("questions")}>Questions and links</button>
         </div>
       )}
+      <div id="survey-panel" {...(!isNew ? { role: "tabpanel", "aria-labelledby": tab === "results" ? "survey-tab-results" : "survey-tab-questions" } : {})}>
       {tab === "results" && !isNew ? <SurveyResults id={Number(id)} /> : (
         <fieldset disabled={!canEdit} className="survey-form">
           <div className="grid-2">
@@ -150,6 +151,7 @@ export function SurveyEdit() {
           )}
         </fieldset>
       )}
+      </div>
     </div>
   );
 }
@@ -157,10 +159,27 @@ export function SurveyEdit() {
 interface Report {
   responses: number; days: number; capped: boolean;
   nps: { score: number; answers: number; distribution: number[]; promoters: number; passives: number; detractors: number; trend: { week: string; nps: number; answers: number }[] | null };
-  questions: { id: string; type: string; text: string; answers: number; average?: number; counts?: Record<string, number>; latest?: { at: string; external_id?: string; text: string; nps?: number }[] }[];
+  questions: { id: string; type: string; text: string; answers: number; average?: number; counts?: Record<string, number>; latest?: Comment[] }[];
+}
+
+/** A comment's answer. public: from the survey's public link (no contact behind it); the server
+ * leaves external_id out for viewers who may not see contacts. */
+export interface Comment { at: string; external_id?: string; public?: boolean; text: string; nps?: number }
+
+/**
+ * commentSource: who wrote a comment. A contact ID shows only to people who may see contacts, so a
+ * missing ID means "public link" only when the server says so (or the viewer would have seen the ID);
+ * otherwise it's a contact we can't name, or not known at all.
+ */
+export function commentSource(a: Comment, canSeeContacts: boolean): { contact: string } | "public link" | "a contact" | null {
+  if (a.external_id) return { contact: a.external_id };
+  if (a.public === true) return "public link";
+  if (a.public === false) return "a contact";
+  return canSeeContacts ? "public link" : null;
 }
 
 function SurveyResults({ id }: { id: number }) {
+  const canSeeContacts = useCan("contacts", "view");
   const [days, setDays] = useState(90);
   const q = useQuery({ queryKey: ["survey-report", id, days], queryFn: () => api.get<Report>(`/v1/surveys/${id}/report?days=${days}`), refetchInterval: 30_000 });
   const r = q.data;
@@ -202,7 +221,10 @@ function SurveyResults({ id }: { id: number }) {
           <div className="panel-body">
             {x.type === "text" ? (
               <ul className="survey-comments">{(x.latest ?? []).map((a, i) => (
-                <li key={i}><p>{a.text}</p><span className="xs muted">{a.nps != null ? `NPS ${a.nps} · ` : ""}{a.external_id ? <Link to={`/contacts/${encodeURIComponent(a.external_id)}`}>{a.external_id}</Link> : "public link"} · {timeAgo(a.at)}</span></li>
+                <li key={i}><p>{a.text}</p><span className="xs muted">{a.nps != null ? `NPS ${a.nps} · ` : ""}{(() => {
+                  const who = commentSource(a, canSeeContacts);
+                  return who === null ? null : <>{typeof who === "string" ? who : <Link to={`/contacts/${encodeURIComponent(who.contact)}`}>{who.contact}</Link>} · </>;
+                })()}{timeAgo(a.at)}</span></li>
               ))}</ul>
             ) : (
               <div className="survey-counts">{Object.entries(x.counts ?? {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => (

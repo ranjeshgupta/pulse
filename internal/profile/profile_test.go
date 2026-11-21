@@ -3,6 +3,7 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"pulse/internal/event"
+	"pulse/internal/identity"
 	"pulse/internal/model"
 	"pulse/internal/segment"
 	"pulse/internal/store/pg"
@@ -328,5 +330,55 @@ func TestScoringReloadsOnVersionBump(t *testing.T) {
 	clock = clock.Add(2 * time.Second)
 	if got := svc.scoring(ctx)[1]["demo"]; got != 40 {
 		t.Errorf("after a bump: %d points, want 40", got)
+	}
+}
+
+// A browser event without a valid identity hash can be sent by anyone for any user id: it may give
+// a new contact its email and phone, but never change a known contact's addresses.
+func TestUnverifiedEventsKeepKnownAddresses(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store, pub := &memStore{contacts: map[string]model.Contact{}}, &memPub{}
+	svc := New(store, rdb, pub)
+	ts := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
+	n := 0
+	send := func(ext string, unverified bool, email string, attrs map[string]any) {
+		t.Helper()
+		n++
+		b, _ := json.Marshal(event.Event{ID: fmt.Sprint("e", n), TenantID: 1, ExternalID: ext, Name: "identify", Ts: ts,
+			Email: email, Attrs: attrs, Unverified: unverified, FromBrowser: unverified})
+		if err := svc.HandleBatch(context.Background(), []*kgo.Record{{Topic: event.TopicRaw, Value: b}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// New contact: an unverified identify may set its addresses.
+	send("u1", true, "", map[string]any{"email": "real@acme.test", "phone": "+919800000001", "city": "Pune"})
+	if c := store.contacts["u1"]; c.Attrs["email"] != "real@acme.test" || c.Attrs["phone"] != "+919800000001" {
+		t.Fatalf("new contact = %v", c.Attrs)
+	}
+	// Known contact: an unverified event can't redirect its email or phone, but other fields change.
+	send("u1", true, "attacker@evil.test", map[string]any{"email": "attacker@evil.test", "phone": "+15550000000", "city": "Goa", "points": 999})
+	c := store.contacts["u1"]
+	if c.Attrs["email"] != "real@acme.test" || c.Attrs["phone"] != "+919800000001" || c.Attrs["points"] != nil {
+		t.Errorf("unverified event changed a known contact: %v", c.Attrs)
+	}
+	if c.Attrs["city"] != "Goa" {
+		t.Errorf("ordinary attribute not updated: %v", c.Attrs)
+	}
+	// A verified event (API key, or a valid user hash) still may.
+	send("u1", false, "", map[string]any{"email": "new@acme.test"})
+	if c := store.contacts["u1"]; c.Attrs["email"] != "new@acme.test" {
+		t.Errorf("verified change refused: %v", c.Attrs)
+	}
+	// The browser's own anonymous visitor is its own to describe.
+	send("anon-1", true, "", map[string]any{"city": "x"})
+	send("anon-1", true, "", map[string]any{"email": "me@acme.test"})
+	if c := store.contacts["anon-1"]; c.Attrs["email"] != "me@acme.test" {
+		t.Errorf("anonymous visitor's email refused: %v", c.Attrs)
+	}
+	ev := &event.Event{ExternalID: "u2", Attrs: map[string]any{"customer_no": "C1", "name": "x"}}
+	StripUnverified(ev, []identity.Key{{Field: identity.ExternalID, Mode: identity.Merge}, {Field: "customer_no", Mode: identity.Merge}})
+	if _, ok := ev.Attrs["customer_no"]; ok || ev.Attrs["name"] != "x" {
+		t.Errorf("identity key field kept: %v", ev.Attrs)
 	}
 }

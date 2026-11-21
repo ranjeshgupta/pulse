@@ -24,8 +24,12 @@ type CatalogStore interface {
 	RevenueSettings(ctx context.Context, tenant int64) (analytics.RevenueSettings, error)
 }
 
-// maxProductCache bounds the per-code catalog cache (entries across workspaces).
-const maxProductCache = 200_000
+// maxProductCache bounds the per-code catalog cache (entries across workspaces); maxRecoNeeds
+// bounds the per-template-version cache (a new entry each time a template is saved).
+const (
+	maxProductCache = 200_000
+	maxRecoNeeds    = 20_000
+)
 
 // RecoBlock is the block key of the recommended products.
 const RecoBlock = "recommendations"
@@ -52,7 +56,7 @@ func (d *Dispatcher) recoNeed(t model.Template) int {
 		}
 		n = max(n, 1) // reco.last_viewed or reco.count alone
 	}
-	d.recoNeeds.Store(key, n)
+	storeBounded(&d.recoNeeds, &d.recoCached, maxRecoNeeds, key, n)
 	return n
 }
 

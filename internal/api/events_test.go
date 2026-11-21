@@ -23,10 +23,9 @@ import (
 type schemaStore struct {
 	*memStore
 	AudienceStore
-	schemas  map[string]eventschema.Schema
-	defs     []pg.AttributeDef
-	refresh  map[int64]*segment.Refresh
-	tenantOf int64
+	schemas map[string]eventschema.Schema
+	defs    []pg.AttributeDef
+	refresh map[int64]*segment.Refresh
 }
 
 func (m *schemaStore) ListEventSchemas(_ context.Context, tenant int64) ([]eventschema.Schema, error) {

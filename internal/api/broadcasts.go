@@ -49,7 +49,7 @@ func (s *Server) broadcastRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/broadcasts/{id}/cancel", s.tenant(s.cancelBroadcast))
 	mux.HandleFunc("POST /v1/broadcasts/{id}/runs/{run}/winner", s.tenant(s.pickWinner))
 	mux.HandleFunc("GET /v1/broadcasts/{id}/report", s.tenant(s.broadcastReport))
-	mux.HandleFunc("POST /v1/templates/preview", s.tenant(s.previewTemplate))
+	mux.HandleFunc("POST /v1/templates/preview", s.authed(s.previewTemplate))
 	mux.HandleFunc("POST /v1/channels/providers/{id}/test", s.admin(s.testProvider))
 }
 
@@ -409,7 +409,9 @@ var sampleContact = model.Contact{ExternalID: "sample", Email: "asha@example.com
 // previewTemplate renders a template, saved or not, for a real contact (or a sample one), exactly as
 // the dispatcher would. event is a sample of the trigger event's properties for {{event.x}}
 // (GET /v1/templates/sample-event finds one); campaign names the journey or broadcast.
-func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant int64) {
+// Previewing for a real contact shows that contact's data, so it needs contacts view access as well.
+func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	tenant := p.TenantID
 	var req struct {
 		Template   templateReq    `json:"template"`
 		ExternalID string         `json:"external_id"`
@@ -421,6 +423,10 @@ func (s *Server) previewTemplate(w http.ResponseWriter, r *http.Request, tenant 
 	}
 	c := sampleContact
 	if req.ExternalID != "" {
+		if !p.Perms.Allows(auth.AreaContacts, auth.View) {
+			writeErr(w, http.StatusForbidden, "previewing for a contact needs view access to contacts")
+			return
+		}
 		var err error
 		if c, err = s.Store.ContactByExternalID(r.Context(), tenant, req.ExternalID); err != nil {
 			s.fail(w, err)

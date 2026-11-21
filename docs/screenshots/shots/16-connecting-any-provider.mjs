@@ -110,9 +110,9 @@ export default async function (browser) {
   await context.close();
 }
 
-// The RML Connect RCS API as its documentation and Postman show it (placeholder values): a login
+// An RCS gateway API as its documentation and Postman show it (placeholder values): a login
 // that returns {"JWTAUTH": …}, then a template message sent with that token.
-const RML_SEND = `curl --location 'https://apis.rmlconnect.net/rcs/v1/message' \\
+const GW_SEND = `curl --location 'https://api.sms-gateway.example/rcs/v1/message' \\
 --header 'Authorization: Bearer xxxxxtokenxxxx' \\
 --header 'Content-Type: application/json' \\
 --data '{
@@ -124,13 +124,13 @@ const RML_SEND = `curl --location 'https://apis.rmlconnect.net/rcs/v1/message' \
         "variables": { "name": "Asha" }
     }
 }'`;
-const RML_LOGIN = `postman request POST 'https://apis.rmlconnect.net/auth/v1/login/' \\
+const GW_LOGIN = `postman request POST 'https://api.sms-gateway.example/auth/v1/login/' \\
   --header 'Content-Type: application/json' \\
   --body '{
     "username": "acme-docs",
     "password": "test-password-123"
 }'`;
-const RML_ANSWER = `{"JWTAUTH": "eyJhbGciOi.example.token", "user_data": {"email": "ops@acme-retail.test", "is_active": true}}`;
+const GW_ANSWER = `{"JWTAUTH": "eyJhbGciOi.example.token", "user_data": {"email": "ops@acme-retail.test", "is_active": true}}`;
 
 // Pasting a gateway's examples: an RCS provider filled in from them (cancelled, not saved).
 async function pasteExamples(page) {
@@ -140,12 +140,12 @@ async function pasteExamples(page) {
   const dialog = page.getByRole("dialog", { name: "Add RCS provider" });
   await dialog.waitFor();
   await dialog.getByRole("combobox").first().selectOption("http_rcs");
-  await dialog.getByLabel("Provider name").fill("RML Connect RCS");
+  await dialog.getByLabel("Provider name").fill("Acme RCS gateway");
   await dialog.getByRole("radio", { name: /Connect to a gateway's existing API/ }).click();
   const paste = dialog.locator("details.pf-paste");
-  await paste.getByLabel(/^Send-message request/).fill(RML_SEND);
-  await paste.getByLabel(/^Login request/).fill(RML_LOGIN);
-  await paste.getByLabel(/^Login answer/).fill(RML_ANSWER);
+  await paste.getByLabel(/^Send-message request/).fill(GW_SEND);
+  await paste.getByLabel(/^Login request/).fill(GW_LOGIN);
+  await paste.getByLabel(/^Login answer/).fill(GW_ANSWER);
   await paste.getByRole("button", { name: "Fill in the form" }).click();
   await paste.locator(".alert").waitFor();
   await settle(page);

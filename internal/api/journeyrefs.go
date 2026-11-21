@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"pulse/internal/auth"
@@ -97,6 +99,9 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 		return users[uid], nil
 	}
 	refs, _ := s.Store.(JourneyRefStore)
+	if err := s.journeySegmentsOK(ctx, tenant, g); err != nil {
+		return err
+	}
 	if fs, ok := s.Store.(FormStore); ok && g.Trigger.Type == journey.TriggerFormSubmitted && g.Trigger.FormID > 0 {
 		if _, err := fs.GetForm(ctx, tenant, g.Trigger.FormID); errors.Is(err, pg.ErrNotFound) {
 			return fmt.Errorf("%w: the trigger's form %d doesn't exist", errBadJourney, g.Trigger.FormID)
@@ -125,6 +130,24 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 			if cm.ProviderID != 0 {
 				if err := s.providerFor(ctx, tenant, cm.ProviderID, cm.Channel); err != nil {
 					return bad(id, "%v", err)
+				}
+			}
+		}
+		// A template a step sends must be one of the workspace's (notify_user is checked below),
+		// including those of a send_message step's channel rules.
+		if tg, ok := s.Store.(templateGetter); ok && n.Type != journey.NodeNotifyUser {
+			tids := []int64{n.TemplateID, n.FallbackTemplateID}
+			for _, cm := range n.Channels {
+				tids = append(tids, cm.TemplateID, cm.FallbackTemplateID)
+			}
+			for _, tid := range tids {
+				if tid == 0 {
+					continue
+				}
+				if _, err := tg.Template(ctx, tenant, tid); errors.Is(err, pg.ErrNotFound) {
+					return bad(id, "template %d doesn't exist", tid)
+				} else if err != nil {
+					return err
 				}
 			}
 		}
@@ -204,6 +227,49 @@ func (s *Server) checkJourneyRefs(ctx context.Context, tenant, self int64, g jou
 			if k, _ := integrations.Lookup(c.Kind); !k.Push {
 				return bad(id, "%s can't receive contacts; choose a CRM integration", k.Name)
 			}
+		}
+	}
+	return nil
+}
+
+// journeySegmentsOK checks that every segment and list a journey names (its trigger, conditions and
+// list steps) is one of the workspace's.
+func (s *Server) journeySegmentsOK(ctx context.Context, tenant int64, g journey.Graph) error {
+	type ref struct {
+		step string
+		id   int64
+	}
+	var refs []ref
+	if g.Trigger.SegmentID != 0 {
+		refs = append(refs, ref{"", g.Trigger.SegmentID})
+	}
+	steps := slices.Sorted(maps.Keys(g.Nodes))
+	for _, id := range steps {
+		n := g.Nodes[id]
+		for _, sid := range append(append([]int64{n.SegmentID, n.ListID}, n.AddLists...), n.RemoveLists...) {
+			if sid != 0 {
+				refs = append(refs, ref{id, sid})
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	segs, err := s.Store.ListSegments(ctx, tenant)
+	if err != nil {
+		return err
+	}
+	have := make(map[int64]bool, len(segs))
+	for _, sg := range segs {
+		have[sg.ID] = true
+	}
+	for _, r := range refs {
+		switch {
+		case have[r.id]:
+		case r.step == "":
+			return fmt.Errorf("%w: the trigger's segment %d doesn't exist", errBadJourney, r.id)
+		default:
+			return fmt.Errorf("%w: step %q: segment or list %d doesn't exist", errBadJourney, r.step, r.id)
 		}
 	}
 	return nil

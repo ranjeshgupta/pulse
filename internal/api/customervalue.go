@@ -47,33 +47,35 @@ func (s *Server) refreshCustomerValue(w http.ResponseWriter, r *http.Request, te
 		s.fail(w, err)
 		return
 	}
+	// One run per workspace at a time, however long it takes (the 5-minute key only spaces starts);
+	// the lock is kept alive while the pass runs, so a crash frees it within minutes.
+	release, ok := rfm.Hold(r.Context(), s.RDB, "rfmrun:"+strconv.FormatInt(tenant, 10), rfm.LockTTL)
+	if !ok {
+		writeErr(w, http.StatusConflict, "customer value is being scored right now; it updates as it goes")
+		return
+	}
 	if ok, err := s.RDB.SetNX(r.Context(), "rfmnow:"+strconv.FormatInt(tenant, 10), 1, 5*time.Minute).Result(); err != nil {
+		release()
 		s.fail(w, err)
 		return
 	} else if !ok {
+		release()
 		writeErr(w, http.StatusTooManyRequests, "customer value was scored in the last 5 minutes; try again later")
 		return
 	}
 	// In the background: a big workspace's first pass changes every buyer, and its events go out
 	// at a steady rate (rfm.Throttled) so they never crowd out live ones.
-	// One run per workspace at a time, however long it takes (the 5-minute key only spaces starts).
-	runKey := "rfmrun:" + strconv.FormatInt(tenant, 10)
-	if ok, err := s.RDB.SetNX(r.Context(), runKey, 1, 6*time.Hour).Result(); err != nil {
-		s.fail(w, err)
-		return
-	} else if !ok {
-		writeErr(w, http.StatusConflict, "customer value is being scored right now; it updates as it goes")
-		return
-	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 		defer cancel()
-		defer s.RDB.Del(context.Background(), runKey)
-		n, changed, err := rfm.Refresh(ctx, src, s.RDB, rfm.Throttled(s.publishEvents, rfm.DefaultPerSec), tenant, rs.Event, rs.AmountProp, s.now())
+		defer release()
+		started := s.now()
+		n, changed, err := rfm.Refresh(ctx, src, s.RDB, rfm.Throttled(s.publishEvents, rfm.DefaultPerSec), tenant, rs.Event, rs.AmountProp, started)
 		if err != nil {
 			s.Log.Error("customer value", "tenant", tenant, "err", err)
 			return
 		}
+		_ = rfm.Passed(ctx, s.RDB, tenant, started)
 		s.Log.Info("customer value scored", "tenant", tenant, "buyers", n, "changed", changed)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": true})

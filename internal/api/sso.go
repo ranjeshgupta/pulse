@@ -188,16 +188,34 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		EmailVerified *bool  `json:"email_verified"`
 		Name          string `json:"name"`
 	}
-	if err := idt.Claims(&claims); err != nil || claims.Email == "" || (claims.EmailVerified != nil && !*claims.EmailVerified) {
+	if err := idt.Claims(&claims); err != nil || claims.Email == "" || !emailVerified(claims.EmailVerified, c.cfg.IdPVerifiesEmail) {
 		loginRedirect(w, r, "sso_no_verified_email")
 		return
 	}
 	u, err := s.Store.SSOUser(r.Context(), tenant, idt.Subject, claims.Email, claims.Name, c.cfg.AutoCreateUsers, c.cfg.DefaultRole)
+	if errors.Is(err, pg.ErrPasswordAccount) {
+		// The email has a password account: link it only when this browser is signed in to it.
+		u, err = s.ssoLinkUser(r, tenant, claims.Email, idt.Subject)
+		if errors.Is(err, errSSOLink) {
+			loginRedirect(w, r, "sso_link_needed")
+			return
+		}
+	}
 	if errors.Is(err, pg.ErrNotFound) {
 		loginRedirect(w, r, "sso_not_provisioned")
 		return
 	} else if err != nil {
 		s.fail(w, err)
+		return
+	}
+	// The workspace's two-step policy applies to SSO sign-ins too: no session until a code.
+	if next, tf, err := s.twoFactorNext(r.Context(), u); err != nil {
+		s.Log.Error("sso two-step check", "tenant", tenant, "err", err)
+		loginRedirect(w, r, "sso_failed")
+		return
+	} else if next != "" {
+		s.setPending(w, u, next, tf)
+		http.Redirect(w, r, "/login?two_factor="+url.QueryEscape(next), http.StatusFound)
 		return
 	}
 	if err := s.startSession(w, r, u); err != nil {
@@ -206,6 +224,15 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditSignIn(r, u.TenantID, u.ID, u.Email, "sign-in (SSO)", true)
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// emailVerified reads the ID token's email_verified claim: missing counts as not verified, unless
+// the workspace said its identity provider only issues verified addresses.
+func emailVerified(claim *bool, idpVerifies bool) bool {
+	if claim == nil {
+		return idpVerifies
+	}
+	return *claim
 }
 
 func loginRedirect(w http.ResponseWriter, r *http.Request, code string) {

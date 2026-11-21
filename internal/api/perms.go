@@ -182,10 +182,3 @@ func required(r *http.Request) need {
 	}
 	return need{area, auth.Edit}
 }
-
-func areaName(a string) string {
-	if a == "" {
-		return "this"
-	}
-	return a
-}

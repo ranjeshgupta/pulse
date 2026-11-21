@@ -121,11 +121,13 @@ type Dispatcher struct {
 	files         map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
 	autoCache     sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
 	blockCache    sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
-	recoNeeds     sync.Map                        // "template:updated" -> int (reco.go)
+	recoNeeds     sync.Map                        // "template:updated" -> int (reco.go), "stemplate:updated" -> []string (surveys.go)
+	recoCached    atomic.Int64                    // entries in recoNeeds (bounded)
 	buyEvents     sync.Map                        // tenant -> cached[string]
 	productCache  sync.Map                        // "tenant:code" -> cached[*model.Product]
 	productCached atomic.Int64                    // entries in productCache (bounded, reco.go)
 	feedCache     sync.Map                        // "broadcast:run" -> cached[channel.Block] (blocks.go)
+	feedCached    atomic.Int64                    // entries in feedCache (bounded)
 	fileBytes     int
 }
 

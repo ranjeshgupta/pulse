@@ -23,7 +23,7 @@ import { FUNNEL_OUTCOME, outcomeFilters, type ContactFilter } from "../contactLi
 import { ContactCount } from "../ContactCount";
 import { nowISO, scheduleProblem } from "../schedule";
 import { useEditGuard } from "../guard";
-import { ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
+import { copyText, ErrorNote, Field, LiveNumber, Modal, PageHead, Status, useToast } from "../ui";
 import { DuplicateButton, TagEditor } from "../campaignUI";
 import { campaignTypeOf, CATEGORIES, startTrigger } from "../campaigns";
 import { copySteps, parseClipboard, pasteSteps, type StepClipboard } from "../journeyClipboard";
@@ -212,7 +212,7 @@ function JourneyEditor() {
     if (!clip) { toast({ text: "Select the steps to copy first.", error: true }); return; }
     const text = JSON.stringify(clip);
     const n = Object.keys(clip.nodes).length;
-    navigator.clipboard?.writeText(text).then(
+    copyText(text).then(
       () => toast({ text: `Copied ${n} ${n === 1 ? "step" : "steps"}. Paste them here or in another journey (Ctrl+V).` }),
       () => { try { localStorage.setItem(CLIP_KEY, text); } catch { /* private window */ } toast({ text: `Copied ${n} ${n === 1 ? "step" : "steps"} (inside Pulse only).` }); },
     );

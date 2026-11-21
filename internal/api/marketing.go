@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -26,9 +25,9 @@ import (
 // ingest accepts one event or {"events": [...]}. It responds 202 once Kafka has acknowledged
 // every event, so an accepted event is never lost.
 func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeErr(w, http.StatusRequestEntityTooLarge, "body too large")
+	// The shared decoding rules: 413 only for a body over the limit, NUL refused, clear messages.
+	var body json.RawMessage
+	if !decode(w, r, &body) {
 		return
 	}
 	var batch struct {
@@ -40,7 +39,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
 	} else {
 		var one event.Event
 		if err := json.Unmarshal(body, &one); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			writeErr(w, http.StatusBadRequest, jsonErrMessage(err))
 			return
 		}
 		evs = []event.Event{one}
@@ -59,6 +58,10 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, tenant int64) {
 		e.ContactID, e.NewContact, e.ChangedAttrs, e.Profile = 0, false, nil, nil
 		if event.PlatformOnly(e.Name) {
 			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+e.Name+" is recorded by Pulse itself (use the contact's company or merge API)")
+			return
+		}
+		if msg := eventSizeProblem(e.Props, e.Attrs); msg != "" {
+			writeErr(w, http.StatusBadRequest, "event "+strconv.Itoa(i)+": "+msg)
 			return
 		}
 		if err := e.Normalize(now); err != nil {
@@ -397,6 +400,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "already exists")
 		return
 	}
+	if code, msg := inputProblem(err); code != 0 {
+		writeErr(w, code, msg)
+		return
+	}
 	s.Log.Error("request failed", "err", err)
 	writeErr(w, http.StatusInternalServerError, "internal error")
 }
@@ -407,14 +414,6 @@ func (s *Server) failRefs(w http.ResponseWriter, err error) {
 		return
 	}
 	s.fail(w, err)
-}
-
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {

@@ -62,7 +62,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u model.Us
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: token, Path: "/", Expires: expires,
+		Name: s.sessionCookieName(), Value: token, Path: "/", Expires: expires,
 		HttpOnly: true, Secure: s.secureCookies(), SameSite: http.SameSiteLaxMode,
 	})
 	return nil
@@ -71,6 +71,11 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u model.Us
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	if !s.AllowSignup {
 		writeErr(w, http.StatusForbidden, "signup is disabled")
+		return
+	}
+	if !s.allowSignup(r) {
+		w.Header().Set("Retry-After", "60")
+		writeErr(w, http.StatusTooManyRequests, "too many new workspaces from here; try again in a minute")
 		return
 	}
 	var req struct {
@@ -204,11 +209,12 @@ func (s *Server) allowLogin(ctx context.Context, slug, email string) bool {
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		_ = s.Store.DeleteSession(r.Context(), auth.HashToken(c.Value))
+	for _, name := range []string{secureSessionCookie, sessionCookie} {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			_ = s.Store.DeleteSession(r.Context(), auth.HashToken(c.Value))
+		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
-		Secure: s.secureCookies(), SameSite: http.SameSiteLaxMode})
+	s.clearSessionCookies(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -349,8 +355,12 @@ func (s *Server) putSSO(w http.ResponseWriter, r *http.Request, p model.Principa
 			return
 		}
 		sealed = s.Box.Seal([]byte(c.ClientSecret))
-	} else if _, old, err := s.Store.GetSSO(r.Context(), p.TenantID); err != nil || len(old) == 0 {
+	} else if prev, old, err := s.Store.GetSSO(r.Context(), p.TenantID); err != nil || len(old) == 0 {
 		writeErr(w, http.StatusBadRequest, "client_secret is required")
+		return
+	} else if !sameURL(prev.Issuer, c.Issuer) || !sameURL(prev.DiscoveryURL, c.DiscoveryURL) || prev.ClientID != c.ClientID {
+		// The stored secret was given to the old identity provider: never send it to a new one.
+		writeErr(w, http.StatusBadRequest, "enter the client secret again: the issuer, discovery URL or client ID changed")
 		return
 	}
 	if err := s.Store.PutSSO(r.Context(), p.TenantID, c, sealed); err != nil {
@@ -360,6 +370,11 @@ func (s *Server) putSSO(w http.ResponseWriter, r *http.Request, p model.Principa
 	s.sso.forget(p.TenantID)
 	c.ClientSecret, c.HasClientSecret = "", true
 	writeJSON(w, http.StatusOK, c)
+}
+
+// sameURL compares two settings URLs, ignoring a trailing slash and surrounding spaces.
+func sameURL(a, b string) bool {
+	return strings.TrimRight(strings.TrimSpace(a), "/") == strings.TrimRight(strings.TrimSpace(b), "/")
 }
 
 // deleteSSO removes single sign-on: the settings and the stored client secret. People then sign in

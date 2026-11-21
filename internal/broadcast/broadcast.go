@@ -230,8 +230,8 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 	return r.Store.AdvanceBroadcast(ctx, b.ID, next, HasWinnerStep(b.AB))
 }
 
-// feedRun gets an RSS-to-email run's items: the feed's items published since the last run (on the
-// first run, within one repeat interval) are kept with the run for its messages' {{block.feed}}.
+// feedRun gets an RSS-to-email run's items: the feed's items published since the last run and by
+// the run time (on the first run, within one repeat interval, plus undated items) are kept with the run for its messages' {{block.feed}}.
 // A retried run reuses what it kept. ok is false when there is nothing new, or the feed can't be
 // read (the run is skipped, not retried: the next run picks up whatever it missed).
 func (r *Runner) feedRun(ctx context.Context, b model.Broadcast, runID int64, at time.Time) (bool, error) {
@@ -239,7 +239,8 @@ func (r *Runner) feedRun(ctx context.Context, b model.Broadcast, runID int64, at
 	if !ok || r.Feed == nil {
 		return false, errors.New("RSS-to-email isn't available on this server")
 	}
-	if h, _, err := fs.RunFeed(ctx, b.ID, at); err == nil && h != "" {
+	// Kept runs are looked up by whole seconds, as messages carry them (Message.Run).
+	if h, _, err := fs.RunFeed(ctx, b.ID, at.Truncate(time.Second)); err == nil && h != "" {
 		return true, nil
 	}
 	f, err := r.Feed(ctx, b.FeedURL)
@@ -251,18 +252,20 @@ func (r *Runner) feedRun(ctx context.Context, b model.Broadcast, runID int64, at
 	if err != nil {
 		return false, err
 	}
-	if seen.IsZero() {
+	first := seen.IsZero()
+	if first {
 		if d := repeatSpan(b.Repeat); d > 0 {
 			seen = at.Add(-d)
 		}
 	}
-	items := feed.Since(f, seen)
+	// Items dated after the run wait for a later run, so the mark never passes the run time.
+	items := feed.Since(f, seen, at, first)
 	if len(items) == 0 {
 		return false, nil
 	}
 	html, text := feed.Render(items)
 	mark := feed.Newest(items)
-	if mark.IsZero() {
+	if mark.IsZero() || mark.After(at) {
 		mark = at
 	}
 	return true, fs.SetRunFeed(ctx, b.ID, runID, html, text, mark)

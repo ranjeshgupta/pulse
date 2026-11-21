@@ -76,6 +76,9 @@ type SSOConfig struct {
 	HasClientSecret bool   `json:"has_client_secret"`
 	AutoCreateUsers bool   `json:"auto_create_users"`
 	DefaultRole     string `json:"default_role"`
+	// IdPVerifiesEmail: the identity provider only issues verified addresses, so an ID token
+	// without email_verified is accepted. Off: such tokens are refused.
+	IdPVerifiesEmail bool `json:"idp_verifies_email"`
 }
 
 type Contact struct {
@@ -692,7 +695,8 @@ type Webhook struct {
 	URL       string    `json:"url"`
 	Events    []string  `json:"events"` // event names, or "*"
 	Active    bool      `json:"active"`
-	Secret    string    `json:"secret,omitempty"` // shown to admins; signs every delivery
+	Secret    string    `json:"secret,omitempty"` // signs every delivery; the API shows it masked except when created or rotated
+	HasSecret bool      `json:"has_secret"`
 	Sealed    []byte    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

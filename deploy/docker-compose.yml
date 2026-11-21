@@ -1,3 +1,7 @@
+# LOCAL DEVELOPMENT ONLY. Never run this file on a server: it uses published dev credentials
+# (admin token, secret key, database passwords), allows public signup and lets outbound calls reach
+# private addresses. Every port is published on 127.0.0.1 only, so nothing here is reachable from
+# other machines.
 name: pulse
 
 # Host ports are offset so this stack can run next to other local stacks on their default ports.
@@ -20,7 +24,7 @@ services:
       KAFKA_NUM_PARTITIONS: 12
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     ports:
-      - "19092:19092"
+      - "127.0.0.1:19092:19092"
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
@@ -38,8 +42,8 @@ services:
       CLICKHOUSE_PASSWORD: pulse
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ports:
-      - "18123:8123"   # HTTP
-      - "19000:9000"   # native
+      - "127.0.0.1:18123:8123"   # HTTP
+      - "127.0.0.1:19000:9000"   # native
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
     volumes:
@@ -58,7 +62,7 @@ services:
       POSTGRES_PASSWORD: pulse
       POSTGRES_DB: pulse
     ports:
-      - "55432:5432"
+      - "127.0.0.1:55432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -72,7 +76,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "16379:6379"
+      - "127.0.0.1:16379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -82,11 +86,11 @@ services:
       retries: 30
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.33.1
     restart: unless-stopped
     ports:
-      - "18025:8025"   # web UI + API
-      - "11025:1025"   # SMTP
+      - "127.0.0.1:18025:8025"   # web UI + API
+      - "127.0.0.1:11025:1025"   # SMTP
 
   # Local SSO identity provider (realm "pulse", seeded from keycloak/pulse-realm.json).
   # Browsers use http://localhost:8180; Pulse reaches it as keycloak:8180 (backchannel), and the
@@ -102,7 +106,7 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HEALTH_ENABLED: "true"
     ports:
-      - "8180:8180"
+      - "127.0.0.1:8180:8180"
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
 
@@ -134,12 +138,14 @@ services:
       PULSE_PUBLIC_URL: http://localhost:7080
       PULSE_ALLOW_PRIVATE_SSO: "true" # the dev Keycloak is on the compose network
       PULSE_ALLOW_PRIVATE_WEBHOOKS: "true" # e2e webhook receivers run on the compose network
+      PULSE_ALLOW_SIGNUP: "true" # off by default; the README, tutorials and e2e tests sign up locally
+      PULSE_SIGNUP_RATE: "1000" # per client IP per minute (default 5): e2e signs up many workspaces
       # Dev-only key. In production, generate one with `openssl rand -hex 32` and keep it in a secret store.
       PULSE_SECRET_KEY: 9f1c2b7e4a6d8053c1e2f4a7b9d0c3e5f6a8b1c2d4e7f9a0b3c5d6e8f1a2b4c6
       # AI help is off unless an Anthropic API key is set in the shell running compose.
       PULSE_AI_API_KEY: ${PULSE_AI_API_KEY:-}
     ports:
-      - "7080:7070"   # host 7070 is taken on the dev machine
+      - "127.0.0.1:7080:7070"   # 7080 on the host, to avoid clashing with other local services
 
 volumes:
   kafka-data:

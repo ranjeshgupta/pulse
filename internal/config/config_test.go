@@ -11,7 +11,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.EmailRate != 200 || c.SweepInterval != 5*time.Minute || c.Partitions != 12 || !c.AllowSignup {
+	if c.EmailRate != 200 || c.SweepInterval != 5*time.Minute || c.Partitions != 12 || c.AllowSignup ||
+		c.SignupRate != 5 || c.TrustCloudflare {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
@@ -21,8 +22,10 @@ func TestLoadParses(t *testing.T) {
 	t.Setenv("PULSE_SMS_RATE", "300")
 	t.Setenv("PULSE_SWEEP_INTERVAL", "90s")
 	t.Setenv("PULSE_KAFKA_PARTITIONS", "24")
-	t.Setenv("PULSE_ALLOW_SIGNUP", "false")
+	t.Setenv("PULSE_ALLOW_SIGNUP", "true")
+	t.Setenv("PULSE_SIGNUP_RATE", "50")
 	t.Setenv("PULSE_TRUST_PROXY", "1")
+	t.Setenv("PULSE_TRUST_CLOUDFLARE", "yes")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +33,8 @@ func TestLoadParses(t *testing.T) {
 	if c.Rates["sms"] != 300 || len(c.Rates) != 1 {
 		t.Fatalf("rates: %v", c.Rates)
 	}
-	if c.EmailRate != 12.5 || c.SweepInterval != 90*time.Second || c.Partitions != 24 || c.AllowSignup || !c.TrustProxy {
+	if c.EmailRate != 12.5 || c.SweepInterval != 90*time.Second || c.Partitions != 24 || !c.AllowSignup || !c.TrustProxy ||
+		c.SignupRate != 50 || !c.TrustCloudflare {
 		t.Fatalf("parsed: %+v", c)
 	}
 }

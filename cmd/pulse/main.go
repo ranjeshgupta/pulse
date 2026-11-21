@@ -205,7 +205,8 @@ func (d *deps) integrations(ctx context.Context, box *auth.Box) (*integrations.S
 			return m, json.Unmarshal(b, &m)
 		}
 	}
-	return &integrations.Service{Store: pgs, Open: open, HTTP: safehttp.Client(30*time.Second, d.cfg.AllowPrivateWebhooks),
+	// Integration requests carry the workspace's credentials: redirects stay on the same site.
+	return &integrations.Service{Store: pgs, Open: open, HTTP: safehttp.SameOrigin(safehttp.Client(30*time.Second, d.cfg.AllowPrivateWebhooks)),
 		Pub: prod, Log: d.log, Now: time.Now}, nil
 }
 
@@ -316,6 +317,8 @@ func runAPI(ctx context.Context, d *deps) error {
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
 		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log, SendRates: dispatch.EffectiveRates(d.sendRates()),
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
+		TrustCloudflare: d.cfg.TrustCloudflare, SignupRate: d.cfg.SignupRate,
+		CHLimits: ch.Limits{MaxExecutionTime: d.cfg.CHQueryTimeout, MaxMemory: int64(d.cfg.CHQueryMaxMemory)},
 		Tracking: d.tracking(box), Deleter: &maintenance.Cleaner{Store: pgs, Analytics: chs, Log: d.log},
 		Schemas: eventschema.NewCache(pgs, d.redis(), d.log), SweepInterval: d.cfg.SweepInterval,
 		DefaultFrom: d.cfg.SMTPFrom, AI: aiHelper(d.cfg.AIAPIKey),
@@ -620,7 +623,8 @@ func aiHelper(key string) *ai.Helper {
 
 // runRFM scores each workspace's buyers (package rfm) and works out its recommendation lists
 // (package catalog) once every PULSE_RFM_INTERVAL, at the workspace's own UTC hour (id % 24) so
-// passes spread over the day; rfm_changed events go out at PULSE_RFM_EVENTS_PER_SEC at most.
+// passes spread over the day (a workspace whose pass was missed is caught up later, rfm.Due);
+// rfm_changed events go out at PULSE_RFM_EVENTS_PER_SEC at most.
 func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 	prod, err := d.producer()
 	if err != nil {
@@ -662,12 +666,12 @@ func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 			if ctx.Err() != nil {
 				return
 			}
-			if !rfm.Due(id, time.Now(), d.cfg.RFMInterval) {
+			if !rfm.Due(id, time.Now(), rfm.LastPass(ctx, rdb, id), d.cfg.RFMInterval) {
 				continue
 			}
 			// Once per interval (the marker outlives the hour, so a 10-minute tick doesn't repeat it).
 			mark := "rfmdone:" + strconv.FormatInt(id, 10)
-			if ok, err := rdb.SetNX(ctx, mark, 1, max(d.cfg.RFMInterval-15*time.Minute, 5*time.Minute)).Result(); err != nil || !ok {
+			if ok, err := rdb.SetNX(ctx, mark, 1, rfm.Spacing(id, time.Now(), d.cfg.RFMInterval)).Result(); err != nil || !ok {
 				continue
 			}
 			rs, err := pgs.RevenueSettings(ctx, id)
@@ -683,17 +687,25 @@ func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 					d.log.Error("recommendation lists", "tenant", id, "err", err)
 				}
 			}
-			runKey := "rfmrun:" + strconv.FormatInt(id, 10) // a Score now run in progress
-			if ok, err := rdb.SetNX(ctx, runKey, 1, 6*time.Hour).Result(); err != nil || !ok {
+			// One pass per workspace at a time (a Score now run may hold it); the lock is kept alive
+			// while the pass runs, so a crash frees it within minutes.
+			release, ok := rfm.Hold(ctx, rdb, "rfmrun:"+strconv.FormatInt(id, 10), rfm.LockTTL)
+			if !ok {
 				rdb.Del(ctx, mark)
 				continue
 			}
-			n, changed, err := rfm.Refresh(ctx, chs, rdb, slow, id, rs.Event, rs.AmountProp, time.Now())
-			rdb.Del(ctx, runKey)
-			if err != nil && ctx.Err() == nil {
-				rdb.Del(ctx, mark) // try again next tick
-				d.log.Error("customer value", "tenant", id, "err", err)
-			} else if n > 0 {
+			started := time.Now()
+			n, changed, err := rfm.Refresh(ctx, chs, rdb, slow, id, rs.Event, rs.AmountProp, started)
+			release()
+			if err != nil {
+				if ctx.Err() == nil {
+					rdb.Del(ctx, mark) // try again next tick
+					d.log.Error("customer value", "tenant", id, "err", err)
+				}
+				continue
+			}
+			_ = rfm.Passed(ctx, rdb, id, started)
+			if n > 0 {
 				d.log.Info("customer value scored", "tenant", id, "buyers", n, "changed", changed)
 			}
 		}

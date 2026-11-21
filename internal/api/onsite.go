@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"pulse/internal/event"
+	"pulse/internal/landing"
 	"pulse/internal/model"
 	"pulse/internal/onsite"
 	"pulse/internal/store/pg"
@@ -98,6 +99,7 @@ func (s *Server) saveFocus(w http.ResponseWriter, r *http.Request, tenant int64)
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	sanitizeFocus(&f)
 	if !s.onsiteSegmentsOK(w, r, tenant, append(slices.Clone(f.Targeting.SegmentIDs), f.Targeting.ExcludeSegmentIDs...)) {
 		return
 	}
@@ -186,6 +188,7 @@ func (s *Server) saveDWC(w http.ResponseWriter, r *http.Request, tenant int64) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	sanitizeDWC(&d)
 	// Pre-M6 variants (one segment) move into their audience; every variant gets a stable id.
 	used := map[string]bool{}
 	for _, v := range d.Variants {
@@ -268,6 +271,14 @@ func (s *Server) activeOnsite(ctx context.Context, tenant int64) (onsiteSet, err
 	slots, err := s.onsite().ListDWCSlots(ctx, tenant, true)
 	if err != nil {
 		return set, err
+	}
+	// Saved content is cleaned on save; content saved before that (or written to the database
+	// directly) is cleaned here too, once per cache refresh.
+	for i := range items {
+		sanitizeFocus(&items[i])
+	}
+	for i := range slots {
+		sanitizeDWC(&slots[i])
 	}
 	set = onsiteSet{items: items, slots: slots, exp: s.now().Add(onsiteCacheTTL)}
 	onsiteCache.Lock()
@@ -366,6 +377,7 @@ func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contac
 				continue
 			}
 			if f, err := s.onsite().GetFocusItem(ctx, tenant, id); err == nil {
+				sanitizeFocus(&f)
 				d.Focus = append(d.Focus, f)
 				shown[id] = true
 			}
@@ -384,7 +396,7 @@ func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contac
 	}
 	if pushed, err := p.DWC(ctx, tenant, c.ID, wanted); err == nil {
 		for k, v := range pushed {
-			d.Content[k] = onsite.ResolveDWC(v, verified)
+			d.Content[k] = landing.SanitizeFragment(onsite.ResolveDWC(v, verified))
 		}
 	} else {
 		s.Log.Error("journey dynamic content", "err", err)
@@ -395,6 +407,21 @@ func (s *Server) journeyOnsite(ctx context.Context, tenant int64, c model.Contac
 	}
 	if err := s.publishEvents(ctx, tenant, evs); err != nil {
 		s.Log.Error("record dwc_requested", "err", err)
+	}
+}
+
+// On-site content runs inside customers' pages (the SDK inserts it with innerHTML), so it is
+// cleaned with the landing page sanitizer: no scripts, event handlers or javascript: URLs.
+func sanitizeFocus(f *model.FocusItem) {
+	c := &f.Content
+	c.BodyHTML = landing.SanitizeFragment(c.BodyHTML)
+	c.CTAURL, c.ImageURL = landing.SafeURL(c.CTAURL), landing.SafeURL(c.ImageURL)
+}
+
+func sanitizeDWC(d *model.DWCSlot) {
+	d.DefaultHTML = landing.SanitizeFragment(d.DefaultHTML)
+	for i := range d.Variants {
+		d.Variants[i].HTML = landing.SanitizeFragment(d.Variants[i].HTML)
 	}
 }
 

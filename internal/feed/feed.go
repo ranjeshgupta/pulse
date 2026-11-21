@@ -75,10 +75,19 @@ type atom struct {
 var dateLayouts = []string{time.RFC1123Z, time.RFC1123, time.RFC3339, "Mon, 2 Jan 2006 15:04:05 -0700", "Mon, 2 Jan 2006 15:04:05 MST",
 	"2006-01-02T15:04:05Z07:00", "2006-01-02 15:04:05", "2006-01-02"}
 
+// zoneHours are the zone names feeds use that Go reads with a zero offset (unknown abbreviations).
+var zoneHours = map[string]int{"EST": -5, "EDT": -4, "CST": -6, "CDT": -5, "MST": -7, "MDT": -6, "PST": -8, "PDT": -7,
+	"GMT": 0, "UTC": 0, "Z": 0}
+
 func parseDate(s string) time.Time {
 	s = strings.TrimSpace(s)
 	for _, l := range dateLayouts {
 		if t, err := time.Parse(l, s); err == nil {
+			if name, off := t.Zone(); off == 0 {
+				if h, ok := zoneHours[name]; ok {
+					t = t.Add(-time.Duration(h) * time.Hour)
+				}
+			}
 			return t.UTC()
 		}
 	}
@@ -170,12 +179,17 @@ func Fetch(ctx context.Context, client *http.Client, url string) (Feed, error) {
 	return Parse(b)
 }
 
-// Since keeps the items published after t (newest first, at most MaxItems). Items without a date
-// count only when t is zero (the first run).
-func Since(f Feed, t time.Time) []Item {
+// Since keeps the items published after t and no later than until (newest first, at most
+// MaxItems); items dated later (scheduled posts) wait for a later run. Items without a date count
+// only when first is set (the campaign's first feed run).
+func Since(f Feed, t, until time.Time, first bool) []Item {
 	var out []Item
 	for _, it := range f.Items {
-		if (it.Published.IsZero() && t.IsZero()) || it.Published.After(t) {
+		if it.Published.IsZero() {
+			if first {
+				out = append(out, it)
+			}
+		} else if it.Published.After(t) && !it.Published.After(until) {
 			out = append(out, it)
 		}
 	}
@@ -186,7 +200,8 @@ func Since(f Feed, t time.Time) []Item {
 	return out
 }
 
-// Render makes the email's HTML list and the plain-text list of items.
+// Render makes the email's HTML list and the plain-text list of items. Feed text never becomes
+// template code: "{" is &#123; in the HTML, and "{{" is split by a zero-width space in the text.
 func Render(items []Item) (htmlOut, text string) {
 	var h, t strings.Builder
 	for _, it := range items {
@@ -196,24 +211,36 @@ func Render(items []Item) (htmlOut, text string) {
 		}
 		h.WriteString(`<div style="margin:0 0 18px">`)
 		if it.Image != "" && strings.HasPrefix(it.Image, "https://") {
-			fmt.Fprintf(&h, `<img src="%s" alt="" style="max-width:100%%;border-radius:6px;margin:0 0 6px">`, html.EscapeString(it.Image))
+			fmt.Fprintf(&h, `<img src="%s" alt="" style="max-width:100%%;border-radius:6px;margin:0 0 6px">`, esc(it.Image))
 		}
 		if link != "" {
-			fmt.Fprintf(&h, `<h3 style="margin:0 0 4px"><a href="%s">%s</a></h3>`, html.EscapeString(link), html.EscapeString(it.Title))
+			fmt.Fprintf(&h, `<h3 style="margin:0 0 4px"><a href="%s">%s</a></h3>`, esc(link), esc(it.Title))
 		} else {
-			fmt.Fprintf(&h, `<h3 style="margin:0 0 4px">%s</h3>`, html.EscapeString(it.Title))
+			fmt.Fprintf(&h, `<h3 style="margin:0 0 4px">%s</h3>`, esc(it.Title))
 		}
 		if it.Summary != "" {
-			fmt.Fprintf(&h, `<p style="margin:0">%s</p>`, html.EscapeString(it.Summary))
+			fmt.Fprintf(&h, `<p style="margin:0">%s</p>`, esc(it.Summary))
 		}
 		h.WriteString(`</div>`)
-		fmt.Fprintf(&t, "- %s", it.Title)
+		fmt.Fprintf(&t, "- %s", plainText(it.Title))
 		if link != "" {
-			fmt.Fprintf(&t, " %s", link)
+			fmt.Fprintf(&t, " %s", plainText(link))
 		}
 		t.WriteString("\n")
 	}
 	return h.String(), strings.TrimSpace(t.String())
+}
+
+// esc escapes feed text for HTML, braces too ({{block.feed}} goes into the template before it is
+// parsed).
+func esc(s string) string { return strings.ReplaceAll(html.EscapeString(s), "{", "&#123;") }
+
+// plainText breaks every "{{" in feed text for the plain-text part.
+func plainText(s string) string {
+	for strings.Contains(s, "{{") {
+		s = strings.ReplaceAll(s, "{{", "{\u200b{")
+	}
+	return s
 }
 
 // Newest is the latest publication time among items (zero without dates).

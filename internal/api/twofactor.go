@@ -571,6 +571,11 @@ func (s *Server) disableMyTwoFactor(w http.ResponseWriter, r *http.Request, p mo
 		s.fail(w, err)
 		return
 	}
+	// Sessions signed in with the old second step end (all but this one).
+	if err := s.revokeOtherSessions(r, u.TenantID, u.ID, true); err != nil {
+		s.fail(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -680,6 +685,11 @@ func (s *Server) resetTwoFactor(w http.ResponseWriter, r *http.Request, p model.
 		return
 	}
 	if err := ts.DeleteTwoFactor(r.Context(), p.TenantID, id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	// A reset usually means a lost phone (or a stolen one): every session of that person ends.
+	if err := s.revokeOtherSessions(r, p.TenantID, id, false); err != nil {
 		s.fail(w, err)
 		return
 	}

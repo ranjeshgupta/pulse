@@ -8,6 +8,10 @@ describe("csv", () => {
     for (const v of ["=SUM(A1)", "+cmd", "-x", "@me", "\tx", "\rx"]) expect(csvSafe(v)).toBe("'" + v);
     for (const v of ["-5", "+1.5", "-0.25", "plain", "", "a=b"]) expect(csvSafe(v)).toBe(v);
   });
+  it("sees formulas behind leading spaces and line breaks", () => {
+    for (const v of [" =1+1", "\n=cmd|' /C calc'!A0", "\r\n+SUM(A1)", "  @x", "\u00a0=1", " -5"]) expect(csvSafe(v)).toBe("'" + v);
+    for (const v of ["   ", " Pune", "\n\nnote"]) expect(csvSafe(v)).toBe(v);
+  });
   it("quotes cells with commas, quotes and line breaks", () => {
     expect(csvCell("a,b")).toBe('"a,b"');
     expect(csvCell('say "hi"')).toBe('"say ""hi"""');

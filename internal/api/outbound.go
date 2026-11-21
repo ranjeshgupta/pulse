@@ -46,6 +46,17 @@ func (s *Server) openWebhook(h *model.Webhook) {
 	}
 }
 
+// maskWebhook replaces the signing secret with its last four characters: lists and details never
+// carry the full secret, which is shown only in the answer that creates or rotates it.
+func maskWebhook(h *model.Webhook) {
+	h.HasSecret = h.Secret != "" || len(h.Sealed) > 0
+	if n := len(h.Secret); n > 4 {
+		h.Secret = "••••" + h.Secret[n-4:]
+	} else if h.Secret != "" {
+		h.Secret = "••••"
+	}
+}
+
 func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request, p model.Principal) {
 	hs, err := s.hooks().ListWebhooks(r.Context(), p.TenantID)
 	if err != nil {
@@ -54,6 +65,7 @@ func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request, p model.Pr
 	}
 	for i := range hs {
 		s.openWebhook(&hs[i])
+		maskWebhook(&hs[i])
 	}
 	if hs == nil {
 		hs = []model.Webhook{}
@@ -72,6 +84,7 @@ func (s *Server) getWebhook(w http.ResponseWriter, r *http.Request, p model.Prin
 		return
 	}
 	s.openWebhook(&h)
+	maskWebhook(&h)
 	ds, err := s.hooks().WebhookDeliveries(r.Context(), p.TenantID, id, 100)
 	if err != nil {
 		s.fail(w, err)
@@ -127,19 +140,25 @@ func (s *Server) saveWebhook(w http.ResponseWriter, r *http.Request, p model.Pri
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	secret := ""
 	if req.RotateSecret {
 		if s.Box == nil {
 			writeErr(w, http.StatusServiceUnavailable, "webhooks need the server's secret key")
 			return
 		}
-		h.Sealed = s.Box.Seal([]byte(auth.NewToken("whsec_")))
+		secret = auth.NewToken("whsec_")
+		h.Sealed = s.Box.Seal([]byte(secret))
 	}
 	id, err := s.hooks().SaveWebhook(r.Context(), h)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id})
+	out := map[string]any{"id": id}
+	if secret != "" {
+		out["secret"] = secret // the only time the full secret is shown: copy it now
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request, p model.Principal) {

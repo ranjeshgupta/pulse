@@ -134,3 +134,11 @@ func contains(xs []string, x string) bool {
 	}
 	return false
 }
+
+func TestRFMClearedRemovesScores(t *testing.T) {
+	cur := map[string]any{"rfm_group": "Lost", "rfm_score": "111", "churn_risk": "lost", "email": "a@x.test"}
+	merged, changed := Merge(cur, &event.Event{Name: event.RFMChanged, Props: map[string]any{"cleared": true, "previous_group": "Lost"}})
+	if _, ok := merged["rfm_group"]; ok || merged["rfm_score"] != nil || merged["churn_risk"] != nil || merged["email"] != "a@x.test" || len(changed) != 3 {
+		t.Errorf("cleared: %v %v", merged, changed)
+	}
+}
