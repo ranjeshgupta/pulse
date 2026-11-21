@@ -151,6 +151,42 @@ func state(r Result) string { return r.Group + "|" + r.Score() + "|" + r.Churn }
 // Publisher sends rfm_changed events (to events.raw).
 type Publisher func(ctx context.Context, tenant int64, evs []event.Event) error
 
+// DefaultPerSec is how many rfm_changed events a pass sends a second at most (first passes over a
+// big workspace change every buyer, and must not crowd out live events).
+const DefaultPerSec = 500
+
+// Throttled sends through pub at most perSec events a second.
+func Throttled(pub Publisher, perSec int) Publisher {
+	if perSec <= 0 {
+		perSec = DefaultPerSec
+	}
+	return func(ctx context.Context, tenant int64, evs []event.Event) error {
+		for len(evs) > 0 {
+			n := min(len(evs), perSec)
+			start := time.Now()
+			if err := pub(ctx, tenant, evs[:n]); err != nil {
+				return err
+			}
+			evs = evs[n:]
+			wait := time.Duration(float64(n)/float64(perSec)*float64(time.Second)) - time.Since(start)
+			if wait > 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(wait):
+				}
+			}
+		}
+		return nil
+	}
+}
+
+// Due reports whether a workspace's daily pass runs in this UTC hour: each workspace has its
+// hour (id % 24), so passes spread over the day. Intervals under a day run every time.
+func Due(tenant int64, now time.Time, interval time.Duration) bool {
+	return interval < 24*time.Hour || int64(now.UTC().Hour()) == tenant%24
+}
+
 // Refresh scores one workspace's buyers and records rfm_changed for those whose group, score or
 // churn risk changed since the last pass (kept in Redis). It returns the buyers scored and changed.
 func Refresh(ctx context.Context, src Source, rdb redis.Cmdable, pub Publisher, tenant int64, evName, amountProp string, now time.Time) (int, int, error) {

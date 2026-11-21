@@ -99,6 +99,9 @@ func (s *Server) saveBlock(w http.ResponseWriter, r *http.Request, tenant int64)
 	case !personalize.BlockKeyRe.MatchString(b.Key):
 		writeErr(w, http.StatusBadRequest, "key: lower-case letters, digits and _ (used as {{block.key}})")
 		return
+	case b.Key == "feed" || b.Key == "recommendations":
+		writeErr(w, http.StatusBadRequest, "key: {{block."+b.Key+"}} is filled by Pulse (RSS feed or recommended products); pick another")
+		return
 	case b.Name == "" || len(b.Name) > 120:
 		writeErr(w, http.StatusBadRequest, "name: 1 to 120 characters")
 		return

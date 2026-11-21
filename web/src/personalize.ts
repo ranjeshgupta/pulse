@@ -8,7 +8,7 @@
 // keeps working and is filled too.
 import type { AttributeDef, EventSchema } from "./api";
 
-export type VarGroup = "contact" | "event" | "campaign" | "links";
+export type VarGroup = "contact" | "event" | "campaign" | "links" | "reco";
 export type VarItem = { var: string; label: string; group: VarGroup; hint?: string };
 
 export type PipeArg = "none" | "optional" | "required";
@@ -42,6 +42,27 @@ export const LINK_VARS: VarItem[] = [
   { var: "links.unsubscribe", label: "Unsubscribe link", group: "links", hint: "email" },
   { var: "links.preferences", label: "Preference center link", group: "links", hint: "email" },
 ];
+
+/** Recommended products (internal/catalog): reco.1.name … reco.12.name, reco.last_viewed.*, reco.count. */
+export const RECO_FIELDS = ["name", "url", "image", "price", "sale_price", "currency", "category", "code"];
+export const RECO_VARS: VarItem[] = [
+  { var: "reco.1.name", label: "1st recommended product: name", group: "reco" },
+  { var: "reco.1.url", label: "1st recommended product: link", group: "reco" },
+  { var: "reco.1.image", label: "1st recommended product: image", group: "reco" },
+  { var: "reco.1.price", label: "1st recommended product: price", group: "reco" },
+  { var: "reco.2.name", label: "2nd recommended product: name", group: "reco" },
+  { var: "reco.last_viewed.name", label: "Last product they viewed (not bought): name", group: "reco" },
+  { var: "reco.last_viewed.url", label: "Last product they viewed: link", group: "reco" },
+  { var: "reco.count", label: "How many products were found", group: "reco" },
+];
+
+/** recoProblem checks a reco.* variable as the server does. */
+export function recoProblem(v: string): string | null {
+  const segs = v.split(".").slice(1);
+  if (segs.length === 1 && segs[0] === "count") return null;
+  if (segs.length === 2 && (segs[0] === "last_viewed" || /^([1-9]|1[0-2])$/.test(segs[0])) && RECO_FIELDS.includes(segs[1])) return null;
+  return `reco is reco.1.name … reco.12.name (${RECO_FIELDS.join(", ")}), reco.last_viewed.name or reco.count.`;
+}
 
 /** Contact fields every workspace has, before its own fields. */
 export const CONTACT_BUILTINS: VarItem[] = [
@@ -106,7 +127,7 @@ export function buildTag(v: string, pipes: TagPipe[] = []): string {
 /** Ref is one standard-variable tag found in a field. */
 export type Ref = { var: string; pipes: TagPipe[]; start: number; end: number; text: string; error?: string };
 
-const NS = /^(contact|event|campaign|links)\./;
+const NS = /^(contact|event|campaign|links|reco)\./;
 const SEG = /^[A-Za-z0-9_]+(\[\])?$/;
 
 /** isStandard: the action text (between the braces) uses the standard syntax. */
@@ -145,6 +166,7 @@ export function parseAction(action: string): { var: string; pipes: TagPipe[]; er
   if (!segs.length || segs.some((s) => !SEG.test(s))) return { var: v, pipes, error: `“${v}” isn't a variable name (letters, digits and _ after the dot).` };
   if (segs.filter((s) => s.endsWith("[]")).length > 1) return { var: v, pipes, error: "A path goes through one list ([]) at most." };
   if (ns === "campaign" && !CAMPAIGN_VARS.some((c) => c.var === v)) return { var: v, pipes, error: `campaign has ${CAMPAIGN_VARS.map((c) => c.var.slice(9)).join(", ")}.` };
+  if (ns === "reco" && recoProblem(v)) return { var: v, pipes, error: recoProblem(v)! };
   if (ns === "links" && !LINK_VARS.some((c) => c.var === v)) return { var: v, pipes, error: `links has ${LINK_VARS.map((c) => c.var.slice(6)).join(", ")}.` };
   for (const raw of parts.slice(1)) {
     const p = raw.trim();
@@ -230,7 +252,15 @@ export function lintAll(fields: (string | undefined)[], known: Parameters<typeof
 
 // ---------- sample values for the live preview ----------
 
-export type Sample = { contact: Record<string, unknown>; event?: Record<string, unknown> | null; campaign?: Record<string, unknown>; links?: Record<string, string> };
+export type Sample = { contact: Record<string, unknown>; event?: Record<string, unknown> | null; campaign?: Record<string, unknown>; links?: Record<string, string>; reco?: Record<string, unknown> };
+
+/** SAMPLE_RECO: products for the live preview (a real send picks the contact's own). */
+export const SAMPLE_RECO: Record<string, unknown> = {
+  count: 2,
+  1: { name: "Linen kurta", url: "https://shop.example.com/p/linen-kurta", image: "", price: 1299, currency: "INR", category: "Kurtas", code: "KUR-01" },
+  2: { name: "Cotton dupatta", url: "https://shop.example.com/p/dupatta", image: "", price: 499, currency: "INR", category: "Dupattas", code: "DUP-07" },
+  last_viewed: { name: "Silk saree", url: "https://shop.example.com/p/silk-saree", image: "", price: 5999, currency: "INR", category: "Sarees", code: "SAR-11" },
+};
 
 export const SAMPLE_CONTACT: Record<string, unknown> = {
   first_name: "Asha", last_name: "Rao", name: "Asha Rao", email: "asha@example.com", city: "Pune", phone: "+919800000001", phone_country: "IN", external_id: "sample",
@@ -307,6 +337,7 @@ export function valueOf(v: string, sample: Sample): unknown {
   if (ns === "event") return sample.event ? lookup(sample.event, path) : undefined;
   if (ns === "campaign") return sample.campaign?.[path];
   if (ns === "links") return sample.links?.[path];
+  if (ns === "reco") return lookup(sample.reco ?? SAMPLE_RECO, path);
   return undefined;
 }
 
@@ -324,7 +355,7 @@ export function fillSample(src = "", sample: Sample = { contact: SAMPLE_CONTACT 
       return show(p.pipes.reduce<unknown>((v, pipe) => applyPipe(v, pipe), valueOf(p.var, sample)));
     }
     const block = /^block\.(\w+)$/.exec(inner.trim());
-    if (block) return `[block: ${block[1]}]`;
+    if (block) return block[1] === "recommendations" ? "[recommended products]" : block[1] === "feed" ? "[new items from the RSS feed]" : `[block: ${block[1]}]`;
     const attr = /^\.Attrs\.(\w+)$/.exec(inner.trim());
     if (attr) return show(sample.contact[attr[1]]) || `[${attr[1]}]`;
     if (inner.trim() === ".Contact.Email") return show(sample.contact.email);

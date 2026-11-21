@@ -41,6 +41,7 @@ import { ImportPage } from "./pages/Imports";
 import { DataPrivacy } from "./pages/DataSettings";
 import { IdentitySettings } from "./pages/IdentitySettings";
 import { ContentBlocks } from "./pages/ContentBlocks";
+import { ProductCatalog } from "./pages/ProductCatalog";
 import { CampaignCalendar } from "./pages/CampaignCalendar";
 import { AutomationSettingsPage } from "./pages/AutomationSettings";
 import { WebPushSettingsPage } from "./pages/WebPush";
@@ -110,6 +111,7 @@ const router = createBrowserRouter([
       { path: "on-site/in-app/:id", element: <InAppEdit /> },
       { path: "templates", element: <TemplateList /> },
       { path: "templates/blocks", element: <ContentBlocks /> },
+      { path: "catalog", element: <ProductCatalog /> },
       { path: "templates/:id", element: <Keyed><TemplateEdit /></Keyed> },
       { path: "landing-pages", element: <LandingPageList /> },
       { path: "landing-pages/:id", element: <LandingPageEdit /> },

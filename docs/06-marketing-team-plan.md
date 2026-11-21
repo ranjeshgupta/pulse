@@ -788,6 +788,16 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   `last_seen`); `GET /v1/revenue/customer-value`, `POST …/refresh` (once per 5 minutes); Contacts `value:` / `churn:`
   filters; `pages/CustomerValue.tsx`, `customerValue.ts`. Tests `rfm`, `customerValue.test.ts`, e2e `TestCustomerValue`;
   checked in a headless browser.
+- **13 Catalog and recommendations**: pg 039 `products`; `internal/catalog` (validation, product codes of an event,
+  per-contact recent list in Redis written by the profile role when an event is first counted, daily lists in Redis
+  `reco:{tenant}`, `Pick` / `Recommend`, `Render`, `Vars`); `ch.RecoLists`; the daily pass (with RFM) saves the lists;
+  personalize namespace `reco` (server and web), dispatcher `withReco` (only for templates that use it; per-code
+  catalog cache); block keys `feed` and `recommendations` reserved; `/v1/products` (list, upsert, delete,
+  refresh-lists) and `/v1/contacts/{id}/recommendations`; `pages/ProductCatalog.tsx`, `catalogCsv.ts`, picker entries.
+  Tests `catalog`, `catalogCsv.test.ts`, e2e `TestProductRecommendations`; checked in a headless browser.
+- **Daily pass load**: the first RFM pass in the e2e stack sent 780k `rfm_changed` events in 2.4 minutes and starved
+  the live pipeline. Passes now run per workspace at its own UTC hour (id % 24, once per `PULSE_RFM_INTERVAL`) and send
+  at most `PULSE_RFM_EVENTS_PER_SEC` (500) events a second; Score now runs in the background.
 
 ### O5 as built
 

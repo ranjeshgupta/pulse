@@ -460,6 +460,21 @@ type Broadcast struct {
 	Tags     []string  `json:"tags"`
 }
 
+// Product is one item of a workspace's catalog (package catalog).
+type Product struct {
+	Code      string         `json:"code"`
+	Name      string         `json:"name"`
+	URL       string         `json:"url,omitempty"`
+	ImageURL  string         `json:"image_url,omitempty"`
+	Price     *float64       `json:"price,omitempty"`
+	SalePrice *float64       `json:"sale_price,omitempty"`
+	Currency  string         `json:"currency,omitempty"`
+	Category  string         `json:"category,omitempty"`
+	InStock   bool           `json:"in_stock"`
+	Attrs     map[string]any `json:"attrs,omitempty"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
 // ArchiveEntry is one send in a workspace's public campaign archive.
 type ArchiveEntry struct {
 	RunID       int64     `json:"run_id"`

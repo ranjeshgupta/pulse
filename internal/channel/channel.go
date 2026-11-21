@@ -282,6 +282,8 @@ type Vars struct {
 	// Blocks are the workspace's content blocks ({{block.key}}): HTML for email bodies, Text for
 	// subjects and every other channel's fields.
 	Blocks map[string]Block
+	// Reco is the reco.* namespace (products recommended for the contact).
+	Reco map[string]any
 }
 
 // Block is a reusable content block's two forms.
@@ -358,7 +360,7 @@ func RenderWith(t model.Template, contact model.Contact, v Vars) (Rendered, erro
 	if camp.Template == "" {
 		camp.Template = t.Name
 	}
-	r := personalize.New(personalize.Vars{Contact: contact, Event: v.Event, Campaign: camp, Links: links})
+	r := personalize.New(personalize.Vars{Contact: contact, Event: v.Event, Campaign: camp, Links: links, Reco: v.Reco})
 	var firstErr error
 	text := func(field, s string) string {
 		if s == "" || firstErr != nil {

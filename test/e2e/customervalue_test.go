@@ -36,9 +36,7 @@ func TestCustomerValue(t *testing.T) {
 	waitFor(t, 30*time.Second, func() bool {
 		return len(asList(jsonCall(t, c, "GET", "/v1/contacts?q="+url.QueryEscape("is:identified"), nil, 200)["contacts"])) == 13
 	})
-	if got := jsonCall(t, c, "POST", "/v1/revenue/customer-value/refresh", nil, 200); got["buyers"] != float64(13) || got["changed"] != float64(13) {
-		t.Fatalf("refresh: %v", got)
-	}
+	jsonCall(t, c, "POST", "/v1/revenue/customer-value/refresh", nil, 202)
 	jsonCall(t, c, "POST", "/v1/revenue/customer-value/refresh", nil, 429)
 	attrs := func(ext string) map[string]any {
 		ct, _ := jsonCall(t, c, "GET", "/v1/contacts/"+ext, nil, -1)["contact"].(map[string]any)

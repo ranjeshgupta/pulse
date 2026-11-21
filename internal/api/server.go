@@ -233,6 +233,7 @@ func (s *Server) Handler() http.Handler {
 	s.assetRoutes(mux)
 	s.landingRoutes(mux)
 	s.archiveRoutes(mux)
+	s.productRoutes(mux)
 	s.insightRoutes(mux)
 	s.integrationRoutes(mux)
 	s.contactDataRoutes(mux)

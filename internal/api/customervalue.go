@@ -34,8 +34,8 @@ var groupNotes = map[string]string{
 	rfm.Lost:          "The longest gone. Leave them or try one last win-back.",
 }
 
-// refreshCustomerValue scores the workspace's buyers now (at most every 5 minutes), as the daily
-// pass would: {"buyers": n, "changed": m}.
+// refreshCustomerValue starts scoring the workspace's buyers now (at most every 5 minutes), as the
+// daily pass would; it answers 202 at once and groups update as the changes are processed.
 func (s *Server) refreshCustomerValue(w http.ResponseWriter, r *http.Request, tenant int64) {
 	src, ok := s.Analytics.(rfm.Source)
 	if !ok || s.RDB == nil || s.Pub == nil {
@@ -54,12 +54,19 @@ func (s *Server) refreshCustomerValue(w http.ResponseWriter, r *http.Request, te
 		writeErr(w, http.StatusTooManyRequests, "customer value was scored in the last 5 minutes; try again later")
 		return
 	}
-	n, changed, err := rfm.Refresh(r.Context(), src, s.RDB, s.publishEvents, tenant, rs.Event, rs.AmountProp, s.now())
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"buyers": n, "changed": changed})
+	// In the background: a big workspace's first pass changes every buyer, and its events go out
+	// at a steady rate (rfm.Throttled) so they never crowd out live ones.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+		defer cancel()
+		n, changed, err := rfm.Refresh(ctx, src, s.RDB, rfm.Throttled(s.publishEvents, rfm.DefaultPerSec), tenant, rs.Event, rs.AmountProp, s.now())
+		if err != nil {
+			s.Log.Error("customer value", "tenant", tenant, "err", err)
+			return
+		}
+		s.Log.Info("customer value scored", "tenant", tenant, "buyers", n, "changed", changed)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{"started": true})
 }
 
 func (s *Server) customerValue(w http.ResponseWriter, r *http.Request, tenant int64) {

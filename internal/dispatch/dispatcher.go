@@ -112,16 +112,19 @@ type Dispatcher struct {
 	pub      kafka.Publisher
 	now      func() time.Time
 
-	mu         sync.Mutex
-	templates  map[[2]int64]cached[model.Template]
-	senders    map[string]cached[providers.Provider] // web push
-	vias       map[string]cached[sendVia]            // default providers with their limits
-	rules      map[int64]cached[delivery.Rules]
-	files      map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
-	autoCache  sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
-	blockCache sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
-	feedCache  sync.Map                        // "broadcast:run" -> cached[channel.Block] (blocks.go)
-	fileBytes  int
+	mu           sync.Mutex
+	templates    map[[2]int64]cached[model.Template]
+	senders      map[string]cached[providers.Provider] // web push
+	vias         map[string]cached[sendVia]            // default providers with their limits
+	rules        map[int64]cached[delivery.Rules]
+	files        map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
+	autoCache    sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
+	blockCache   sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
+	recoNeeds    sync.Map                        // "template:updated" -> int (reco.go)
+	buyEvents    sync.Map                        // tenant -> cached[string]
+	productCache sync.Map                        // "tenant:code" -> cached[*model.Product]
+	feedCache    sync.Map                        // "broadcast:run" -> cached[channel.Block] (blocks.go)
+	fileBytes    int
 }
 
 type attachment struct {
@@ -320,6 +323,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	}
 	v := vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs})
 	v.Blocks = d.messageBlocks(ctx, m)
+	d.withReco(ctx, t, c, &v)
 	rendered, err := channel.RenderWith(t, c, v)
 	if err != nil {
 		return d.finish(ctx, sentKey, m, c, "failed", err.Error())

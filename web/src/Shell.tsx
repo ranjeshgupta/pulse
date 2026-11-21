@@ -83,6 +83,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/landing-pages", label: "Landing pages", icon: I.page, need: ["content", "view"] },
       { to: "/forms", label: "Forms", icon: I.form, need: ["content", "view"] },
       { to: "/assets", label: "Assets", icon: I.file, need: ["content", "view"] },
+      { to: "/catalog", label: "Product catalog", icon: I.box, need: ["content", "view"] },
     ],
   },
   {

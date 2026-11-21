@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type AttributeDef, type ContentBlock, type EventSchema } from "./api";
-import { buildTag, CAMPAIGN_VARS, contactVars, eventVars, insertAt, lint, LINK_VARS, PIPES, type Problem, type TagPipe, type VarItem } from "./personalize";
+import { buildTag, CAMPAIGN_VARS, contactVars, eventVars, insertAt, lint, LINK_VARS, PIPES, RECO_VARS, type Problem, type TagPipe, type VarItem } from "./personalize";
 import "./personalize.css";
 
 /** What the fields being edited can use: the trigger event (journeys) and the channel (links are email-only). */
@@ -25,11 +25,12 @@ export function useVariables(scope: PersonalizeScope = usePersonalizeScope()) {
     // In-app campaigns are filled per app user, outside any journey: contact fields only.
     const inapp = scope.channel === "inapp";
     return { contact, event: inapp ? null : event, schema, schemas: schemas.data?.schemas ?? [], campaign: inapp ? [] : CAMPAIGN_VARS, links,
+      reco: inapp ? [] : RECO_VARS,
       channel: scope.channel, eventName: scope.event, contactOnly: inapp };
   }, [attrs.data, schemas.data, scope.event, scope.channel]);
 }
 
-const GROUP_NAMES = { contact: "Contact", event: "Trigger event", campaign: "Campaign", links: "Links" } as const;
+const GROUP_NAMES = { contact: "Contact", event: "Trigger event", campaign: "Campaign", links: "Links", reco: "Recommended products" } as const;
 const FORMATS: { label: string; pipe?: TagPipe }[] = [
   { label: "As it is" },
   { label: "Title Case", pipe: { name: "title" } },
@@ -68,7 +69,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [open]);
   const groups = ([
-    ["contact", vars.contact], ["event", vars.event ?? []], ["campaign", vars.campaign], ["links", vars.links],
+    ["contact", vars.contact], ["event", vars.event ?? []], ["campaign", vars.campaign], ["links", vars.links], ["reco", vars.reco],
   ] as [keyof typeof GROUP_NAMES, VarItem[]][]).filter(([g, items]) => g === "contact" || g === "event" ? !vars.contactOnly || g === "contact" : items.length > 0);
   const match = (v: VarItem) => !q || (v.var + " " + v.label).toLowerCase().includes(q.toLowerCase());
   const tag = (v: VarItem) => buildTag(v.var, [...(def ? [{ name: "default", arg: def }] : []), ...(FORMATS[fmt].pipe ? [FORMATS[fmt].pipe!] : [])]);
@@ -98,6 +99,17 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
                     ))}
                   </div>
                 )}
+                {!vars.contactOnly && (!q || "recommended products recommendations".includes(q.toLowerCase())) && (
+                  <div className="vp-group" role="group" aria-labelledby={`${id}-reco-block`}>
+                    <div className="vp-group-name" id={`${id}-reco-block`}>Filled by Pulse</div>
+                    <button type="button" className="vp-item" onClick={() => done("{{block.recommendations}}")}>
+                      <span>🛍️ Recommended products (cards)</span><code>block.recommendations</code>
+                    </button>
+                    <button type="button" className="vp-item" onClick={() => done("{{block.feed}}")}>
+                      <span>📰 New items from the campaign's RSS feed</span><code>block.feed</code>
+                    </button>
+                  </div>
+                )}
                 {groups.map(([g, items]) => (
                   <div key={g} className="vp-group" role="group" aria-labelledby={`${id}-${g}`}>
                     <div className="vp-group-name" id={`${id}-${g}`}>{GROUP_NAMES[g]}</div>
@@ -113,7 +125,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
               </div>
               <div className="vp-custom">
                 <input className="input" placeholder="or type one: event.items.0.price" value={custom} onChange={(e) => setCustom(e.target.value.trim())} aria-label="Variable name" />
-                <button type="button" className="btn sm" disabled={!/^(contact|event|campaign|links)\.[A-Za-z0-9_.[\]]+$/.test(custom)} onClick={() => setPick({ var: custom, label: custom, group: custom.split(".")[0] as VarItem["group"] })}>Use</button>
+                <button type="button" className="btn sm" disabled={!/^(contact|event|campaign|links|reco)\.[A-Za-z0-9_.[\]]+$/.test(custom)} onClick={() => setPick({ var: custom, label: custom, group: custom.split(".")[0] as VarItem["group"] })}>Use</button>
               </div>
             </>
           ) : (

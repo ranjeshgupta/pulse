@@ -1,0 +1,8 @@
+.catalog-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.catalog-bar .input { max-width: 360px; }
+.catalog-thumb { width: 48px; }
+.catalog-thumb img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; display: block; }
+.catalog-drop { display: flex; gap: 12px; align-items: center; padding: 18px; border: 2px dashed var(--border, #d6d9e0); border-radius: 10px; margin-bottom: 12px; }
+.catalog-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 10px 0; }
+.catalog-card { display: flex; flex-direction: column; gap: 4px; }
+.catalog-card img, .catalog-noimg { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface-2, #eef0f5); display: grid; place-items: center; font-size: 28px; }

@@ -37,10 +37,26 @@ const (
 	// NSBlock is a reusable content block ({{block.footer}}): the renderer puts the block's
 	// content in before anything else is filled (ExpandBlocks); one it doesn't know is empty.
 	NSBlock = "block"
+	// NSReco is the products recommended for the contact at send time (package catalog):
+	// {{reco.1.name}}, reco.1.url, image, price, sale_price, currency, category, code; reco.count;
+	// reco.last_viewed.name … (what they last looked at without buying).
+	NSReco = "reco"
 )
 
 // blockRe finds {{block.key}} (spaces allowed inside the braces).
 var blockRe = regexp.MustCompile(`\{\{\s*block\.([a-z0-9_]{1,64})\s*\}\}`)
+
+// RecoKeys are the fields of a recommended product; maxReco is how many a message can show.
+var RecoKeys = []string{"name", "url", "image", "price", "sale_price", "currency", "category", "code"}
+
+const maxReco = 12
+
+var recoIndexRe = regexp.MustCompile(`^([1-9]|1[0-2])$`)
+
+// UsesReco reports whether a template field asks for recommendations.
+func UsesReco(src string) bool {
+	return strings.Contains(src, "reco.") || strings.Contains(src, "block.recommendations")
+}
 
 // BlockKeyRe is a content block's key.
 var BlockKeyRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
@@ -146,7 +162,7 @@ const maxPathSegments = 6
 // IsStandard reports whether an action's text (between the braces, trimmed) uses the standard
 // syntax: it starts with contact., event., campaign. or links.
 func IsStandard(action string) bool {
-	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage, NSBlock} {
+	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage, NSBlock, NSReco} {
 		if strings.HasPrefix(action, ns+".") {
 			return true
 		}
@@ -387,6 +403,10 @@ func checkVar(v string) error {
 	case NSMessage:
 		if !contains(MessageKeys, segs[0]) {
 			return fmt.Errorf("message has %s", strings.Join(MessageKeys, ", "))
+		}
+	case NSReco:
+		if !(segs[0] == "count" && len(segs) == 1) && !(len(segs) == 2 && (segs[0] == "last_viewed" || recoIndexRe.MatchString(segs[0])) && contains(RecoKeys, segs[1])) {
+			return fmt.Errorf("reco is reco.1.name … reco.%d.name (%s), reco.last_viewed.name or reco.count", maxReco, strings.Join(RecoKeys, ", "))
 		}
 	case NSBlock:
 		if len(segs) != 1 || !BlockKeyRe.MatchString(path) {

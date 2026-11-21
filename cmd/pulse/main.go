@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"pulse/internal/besttime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,7 @@ import (
 	"pulse/internal/automation"
 	"pulse/internal/bounces"
 	"pulse/internal/broadcast"
+	"pulse/internal/catalog"
 	"pulse/internal/channel"
 	"pulse/internal/chsink"
 	"pulse/internal/config"
@@ -607,7 +609,9 @@ func runBestTimes(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 	}
 }
 
-// runRFM scores every workspace's buyers (package rfm) once a day, a few minutes after start.
+// runRFM scores each workspace's buyers (package rfm) and works out its recommendation lists
+// (package catalog) once every PULSE_RFM_INTERVAL, at the workspace's own UTC hour (id % 24) so
+// passes spread over the day; rfm_changed events go out at PULSE_RFM_EVENTS_PER_SEC at most.
 func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 	prod, err := d.producer()
 	if err != nil {
@@ -631,26 +635,48 @@ func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 		return prod.Publish(ctx, recs...)
 	}
 	rdb := d.redis()
-	wait := 2 * time.Minute
+	slow := rfm.Throttled(pub, d.cfg.RFMEventsPerSec)
+	tick := time.NewTicker(10 * time.Minute)
+	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-tick.C:
 		}
-		wait = d.cfg.RFMInterval
 		ids, err := pgs.TenantIDs(ctx)
 		if err != nil {
 			d.log.Error("customer value: list workspaces", "err", err)
 			continue
 		}
 		for _, id := range ids {
+			if ctx.Err() != nil {
+				return
+			}
+			if !rfm.Due(id, time.Now(), d.cfg.RFMInterval) {
+				continue
+			}
+			// Once per interval (the marker outlives the hour, so a 10-minute tick doesn't repeat it).
+			mark := "rfmdone:" + strconv.FormatInt(id, 10)
+			if ok, err := rdb.SetNX(ctx, mark, 1, max(d.cfg.RFMInterval-15*time.Minute, 5*time.Minute)).Result(); err != nil || !ok {
+				continue
+			}
 			rs, err := pgs.RevenueSettings(ctx, id)
 			if err != nil || rs.Event == "" {
 				continue
 			}
-			n, changed, err := rfm.Refresh(ctx, chs, rdb, pub, id, rs.Event, rs.AmountProp, time.Now())
+			if l, err := chs.RecoLists(ctx, id, rs.Event, time.Now()); err != nil {
+				if ctx.Err() == nil {
+					d.log.Error("recommendation lists", "tenant", id, "err", err)
+				}
+			} else if len(l.Popular)+len(l.Trending) > 0 {
+				if err := catalog.SaveLists(ctx, rdb, id, l); err != nil {
+					d.log.Error("recommendation lists", "tenant", id, "err", err)
+				}
+			}
+			n, changed, err := rfm.Refresh(ctx, chs, rdb, slow, id, rs.Event, rs.AmountProp, time.Now())
 			if err != nil && ctx.Err() == nil {
+				rdb.Del(ctx, mark) // try again next tick
 				d.log.Error("customer value", "tenant", id, "err", err)
 			} else if n > 0 {
 				d.log.Info("customer value scored", "tenant", id, "buyers", n, "changed", changed)

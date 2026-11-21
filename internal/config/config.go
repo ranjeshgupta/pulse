@@ -50,6 +50,8 @@ type Config struct {
 	MaintenanceInterval time.Duration
 	// RFMInterval is how often buyers' customer value is scored (package rfm).
 	RFMInterval time.Duration
+	// RFMEventsPerSec caps the rfm_changed events a pass sends a second.
+	RFMEventsPerSec int
 	// AudienceReconcile is how often each audience sync re-checks its whole segment (ad audiences).
 	AudienceReconcile time.Duration
 }
@@ -84,6 +86,7 @@ func Load() (Config, error) {
 		PagesURL:             env("PULSE_PAGES_URL", ""),
 		MaintenanceInterval:  r.duration("PULSE_MAINTENANCE_INTERVAL", time.Hour),
 		RFMInterval:          r.duration("PULSE_RFM_INTERVAL", 24*time.Hour),
+		RFMEventsPerSec:      r.integer("PULSE_RFM_EVENTS_PER_SEC", 500),
 		AudienceReconcile:    r.duration("PULSE_AUDIENCE_RECONCILE_INTERVAL", 24*time.Hour),
 	}
 	for _, ch := range RateChannels {

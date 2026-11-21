@@ -496,7 +496,21 @@ R, F, M 1-5, a group from the R×F grid and a churn risk from their own average 
 recorded: the last state per contact is a Redis hash `rfm:{tenant}`, and a changed buyer gets an `rfm_changed` event
 on `events.raw` (published before the state is stored, so a failed publish is retried next pass). The profile role
 folds it into the event-only attributes `rfm_group`, `rfm_score` and `churn_risk`; it does not count as activity
-(`last_seen`). The report reads the same aggregate joined to those attributes.
+(`last_seen`). The report reads the same aggregate joined to those attributes. Each workspace's pass runs at its own UTC
+hour (id % 24) once per interval (Redis marker `rfmdone:{tenant}`), and `rfm_changed` goes out at most
+`PULSE_RFM_EVENTS_PER_SEC` (500) a second, so a first pass over millions of buyers can't crowd out live events.
+
+## Product catalog and recommendations (O6)
+
+Products live in Postgres (`products`, key tenant + code). The profile role, when it first counts an event (the
+exactly-once step), pushes the event's product codes (`product_code`, `items[].product_code`) with its name onto the
+contact's Redis list `recent:{tenant}:{contact}` (30 entries, 120 days). The daily pass computes, in ClickHouse,
+popular (buyers, 30 days), trending (viewers, 7 days) and bought-together (per product, the 10 products most often
+bought by the same people in 90 days, from baskets of 2-50 codes) and stores them in one Redis hash `reco:{tenant}`.
+At send time the dispatcher checks once per template version whether it uses `reco.*` or `{{block.recommendations}}`;
+only then it reads the contact's recent list and the lists it needs (`HMGET`), looks the candidates up in the catalog
+through a per-code cache, and picks: bought together with their recent purchases and views, then their views, then
+trending and popular; in stock, never one they just bought. Picks fill `reco.N.*` and the rendered card grid.
 
 ## RSS-to-email (O6)
 

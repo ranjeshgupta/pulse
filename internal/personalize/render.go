@@ -38,6 +38,8 @@ type Vars struct {
 	Links    map[string]string // unsubscribe, preferences
 	// Message is the message.* namespace (gateway request templates): see MessageKeys.
 	Message map[string]any
+	// Reco is the reco.* namespace: products recommended for the contact (package catalog).
+	Reco map[string]any
 }
 
 // Renderer fills templates for one message and remembers which variables had no value (and no
@@ -304,6 +306,9 @@ func (r *Renderer) Value(name string) any {
 		return r.vars.Links[path]
 	case NSMessage:
 		v, _ := Lookup(r.vars.Message, path)
+		return v
+	case NSReco:
+		v, _ := Lookup(r.vars.Reco, path)
 		return v
 	case NSBlock:
 		return "" // a block the workspace doesn't have (known ones were expanded before rendering)

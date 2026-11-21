@@ -87,3 +87,22 @@ func TestRefreshRecordsChangesOnly(t *testing.T) {
 		t.Errorf("move: %d %+v", ch, got)
 	}
 }
+
+func TestThrottleAndDue(t *testing.T) {
+	var batches []int
+	pub := Throttled(func(_ context.Context, _ int64, evs []event.Event) error {
+		batches = append(batches, len(evs))
+		return nil
+	}, 1000)
+	start := time.Now()
+	if err := pub(context.Background(), 1, make([]event.Event, 2500)); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); len(batches) != 3 || batches[2] != 500 || took < 2*time.Second {
+		t.Errorf("batches %v in %v", batches, took)
+	}
+	at := time.Date(2026, 11, 21, 5, 0, 0, 0, time.UTC)
+	if !Due(29, at, 24*time.Hour) || Due(30, at, 24*time.Hour) || !Due(30, at, time.Hour) {
+		t.Error("Due")
+	}
+}

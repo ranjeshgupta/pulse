@@ -24,11 +24,11 @@ export function CustomerValue() {
   });
   const qc = useQueryClient();
   const score = useMutation({
-    mutationFn: () => api.post<{ buyers: number; changed: number }>("/v1/revenue/customer-value/refresh", {}),
-    onSuccess: (r) => {
-      toast({ text: r.buyers ? `Scored ${r.buyers.toLocaleString("en-IN")} buyers; ${r.changed.toLocaleString("en-IN")} changed group or risk` : "No buyers to score yet" });
-      // Group changes reach the contacts through the event pipeline in a few seconds.
-      window.setTimeout(() => qc.invalidateQueries({ queryKey: ["customer-value"] }), 4000);
+    mutationFn: () => api.post<{ started: boolean }>("/v1/revenue/customer-value/refresh", {}),
+    onSuccess: () => {
+      toast({ text: "Scoring started: groups update here as buyers are scored" });
+      // Changes reach the contacts through the event pipeline, at a steady rate for big workspaces.
+      for (const ms of [4000, 15000, 60000]) window.setTimeout(() => qc.invalidateQueries({ queryKey: ["customer-value"] }), ms);
     },
   });
   const d = q.data;

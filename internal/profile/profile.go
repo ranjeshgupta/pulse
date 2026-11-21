@@ -20,6 +20,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"pulse/internal/attr"
+	"pulse/internal/catalog"
 	"pulse/internal/channel"
 	"pulse/internal/consent"
 	"pulse/internal/event"
@@ -889,6 +890,9 @@ func (s *Service) HandleBatch(ctx context.Context, recs []*kgo.Record) error {
 	for i, e := range evs {
 		if claims[i].Val() {
 			segment.QueueIncr(ctx, pipe, e.TenantID, e.ContactID, e.Name, e.Ts)
+			if !event.PlatformOnly(e.Name) {
+				catalog.QueueRecent(ctx, pipe, e.TenantID, e.ContactID, e.Name, catalog.Codes(e.Props))
+			}
 			won = append(won, countedKey(e))
 		}
 	}
