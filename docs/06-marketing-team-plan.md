@@ -628,6 +628,110 @@ Asked for on 2026-11-14, after M7 and its docs pass; each part is described wher
 
 Architecture notes: [After M7](02-architecture.md#after-m7-overview-summary-two-step-sign-in-provider-per-send).
 
+## Batch O (planned, asked for on 2026-11-21)
+
+What the request asked for, what Pulse already does (checked against the code at 852fe16), and what is left to build.
+
+### Already there (verify and document, don't rebuild)
+
+- Every email carries a signed message reference (`X-Pulse-Ref`, the Message-ID's local part and the sending
+  service's own metadata field), so bounces, complaints and delivery reports map to the exact message, its campaign
+  (one-time run or journey step) and template (`internal/tracking/ref.go`). This is Listmonk's `X-Listmonk-Campaign`
+  idea, signed and shorter.
+- WhatsApp → SMS and RCS → SMS fallback run on a refused send *and* on a later "undeliverable" delivery report, once
+  per message (`internal/dispatch/dispatcher.go`, `internal/providers/gateway_custom.go`).
+- Meta WhatsApp sends the message id as `biz_opaque_callback_data`; Twilio gets a status callback per message.
+- The custom gateway already has a login request, a "sent when" rule, a message-id path and a delivery-report webhook
+  mapping — the gap is that the form is hard to follow and there is no polling.
+- Duplicates (by email or phone) with a manual merge; frequency caps, quiet hours, saved test contacts, goals.
+
+### O1 Identity keys and automatic merge (migration pg 029)
+
+- When `external_id` is an email address (or an E.164 phone) and the contact has no email (phone), it is copied
+  there too; later changes to `email` don't touch the id.
+- Settings → Contacts → **Identity**: the admin picks which fields identify a person — external id, email, phone and
+  any unique custom field (user name, customer number…) — and orders them (default: external id → email → phone).
+- An incoming event or import is matched by those keys in that order; the first match wins. If its keys point at two
+  different contacts, they are merged into the higher-priority match (the Duplicates merge: winner's values win, history,
+  tags, points, static segments move, `contact_merged` events). Per key: **Merge automatically** or **Only list under
+  Duplicates** (default automatic, as asked; shared family emails/phones are the risk, so the key's setting says so).
+- Lookups go through a key → contact table (`contact_keys`, unique per workspace, key and normalised value: lower-case
+  email, E.164 phone), so 100M contacts need no JSON expression indexes. Adding a key backfills it in batches with a
+  progress line; existing collisions show under Duplicates instead of merging in bulk.
+- Duplicates gets the chosen keys as tabs.
+
+### O2 Custom gateway in four plain steps
+
+The custom gateway form becomes a wizard, each step with a **Try it** button that shows the real request and answer:
+
+1. **Sign in (optional)** — paste or fill the login request; Pulse finds the token in the answer (suggests the
+   JSON field that looks like a token), asks where to put it on sends (`Authorization: Bearer`, another header, a
+   query parameter or a body field) and how long it lasts (or "until a send is refused with 401").
+2. **Send** — paste the curl / Postman example; variables picked from a list (`{{to}}`, `{{text}}`, `{{ref}}`…).
+3. **Was it accepted?** — "accepted when status is 2xx [and field = value]", "failed when …", where the provider's
+   message id is; shown against the Try-it answer.
+4. **Delivery reports** — either **They call us** (webhook URL to copy, sample payload pasted, its status values
+   mapped to Delivered / Failed (fallback runs) / Bounced / Read / Pending, suggestions filled from common words) or
+   **We ask them** (a status-fetch request run every N minutes for messages still pending, up to 72 h, by provider id
+   or by our `{{ref}}`).
+- `{{ref}}` (our signed reference) can go into any field the provider echoes back (client reference, custom data,
+  tags), so reports map to the exact campaign and template even without the provider's id. Built-in adapters pass it
+  wherever the provider allows (MSG91, Gupshup, RBM; Meta and Twilio already do).
+- Email: also a `Feedback-ID` header (`campaign:template:workspace:pulse`) so Gmail Postmaster Tools shows spam rates
+  per campaign; SES / SendGrid / Mailgun / Postmark metadata already carry the reference.
+
+### O3 App content slots (DWC for apps)
+
+- Web's dynamic content slots get a **Website / App** switch. An app slot is a named place in the app
+  (`home_banner`, `offers_card`…) with default content and segment- or rule-targeted variants (same builder as web),
+  content as rich text/HTML or a structured card (title, body, image, button, deep link, custom key-values for apps
+  that draw it themselves).
+- SDKs: `Pulse.content("home_banner")` returns the chosen variant (cached, refreshed on segment change); Flutter
+  `PulseSlot(id:)` widget, Android `PulseSlotView`, iOS `PulseSlotView`. Impressions and taps are tracked like web slots
+  and count in reports.
+
+### O4 Template report
+
+A **Report** tab on every message template: sent, delivered, failed, bounced (hard / soft), spam complaints, opened,
+clicked, unsubscribed, (and read / replies for WhatsApp, RCS); a chart by day or by hour over a chosen period, a
+day-of-week × hour heatmap of opens/clicks, split by campaign and by provider, top failure reasons, top links. Every
+number opens those contacts (the M7 rule).
+
+### O5 Campaign reports in depth (Mautic + Listmonk)
+
+- **Over time:** entered, left, finished, goal reached per day/hour; for automation campaigns the trigger segment's
+  joined / left per day.
+- **Per step:** reached, done, waiting, errors; decisions and conditions with **Yes / No** counts and their own over-time
+  chart; message steps with the channel, template and provider and their sent / delivered / failed / bounced / spam /
+  opened / clicked / fallback counts. Steps listed in campaign order with the canvas showing the same numbers.
+- **Messages tab:** one row per message the campaign sends (email, SMS, WhatsApp, RCS, push…), like Mautic's campaign
+  email stats and Listmonk's campaign analytics (views, clicks, bounces, links by day).
+- One-time campaigns: the same over-time and delivery breakdown per run. All numbers clickable.
+
+### O6 Features other tools' users love (gap list, in build order)
+
+| # | Feature | Seen in | Why it matters |
+|---|---------|---------|----------------|
+| 1 | Double opt-in for forms, lists and topics, with confirmation page | Listmonk, Mautic | deliverability, consent proof |
+| 2 | Sending speed per campaign and provider (messages per second/minute) | Listmonk, WebEngage | provider limits, warm-up |
+| 3 | Control groups: workspace-wide and per-campaign holdout with uplift in reports | WebEngage, MoEngage, CleverTap | proves campaigns work |
+| 4 | Best time to send per contact (from their open/click hours) | WebEngage, MoEngage, Braze | more opens, no setup |
+| 5 | Sender domain check: SPF, DKIM, DMARC, BIMI and the Gmail/Yahoo bulk-sender rules | Mailchimp, Brevo | deliverability |
+| 6 | Spam score and inbox preview before sending (SpamAssassin rules) | Mailchimp, Litmus | fewer spam-folder sends |
+| 7 | Reusable content blocks (header, footer, offer) used across templates | Braze, Mautic | one edit, every template |
+| 8 | Approval before going live (maker / checker roles) | WebEngage, MoEngage | enterprise control |
+| 9 | Marketing calendar of scheduled and recurring campaigns | WebEngage, HubSpot | planning, clashes |
+| 10 | Personal data export and erase per contact, consent history (DPDP Act / GDPR) | all | legal |
+| 11 | Public campaign archive and RSS-to-email | Listmonk, Mailchimp | newsletters |
+| 12 | RFM segments (champions, at risk, lost…) and churn risk | WebEngage, CleverTap | ready-made audiences |
+| 13 | Product catalog and recommendations in messages | WebEngage, Braze | e-commerce |
+| 14 | Surveys and NPS on site and in app | WebEngage, Hotjar | feedback into segments |
+| 15 | Path analysis (what people do before/after an event) and app uninstall tracking | CleverTap, WebEngage | insight |
+| 16 | Templates in several languages, chosen by the contact's language | Braze, WebEngage | multi-language India |
+| 17 | AI help: subject lines, copy, translation, segment from a sentence | Braze, MoEngage | speed |
+
+Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then the docs pass for batch O.
+
 ## Docs: final pass done
 
 The documentation for M4–M7 (deferred from M4 on, by the owner's decision of 2026-11-11) was updated in one
