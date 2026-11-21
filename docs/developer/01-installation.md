@@ -482,6 +482,10 @@ After it, an SSO identity provider whose ID tokens leave out `email_verified` re
 sign-in until an admin ticks **Identity provider verifies email addresses** in the workspace's
 single sign-on settings (only if the provider really does verify them).
 
+Migration `043_publish_window` gives every segment `published` (true) and a publish window starting
+at its creation time, so existing segments stay live and nothing changes until someone unpublishes
+one or sets an end.
+
 ### Dead-letter topics and replaying them
 
 A provider outage doesn't need you: `dispatch` retries a message that failed temporarily (network

@@ -73,7 +73,7 @@ The campaign we build:
 
 With **Start** selected, the inspector asks what starts the campaign for a contact:
 
-<img src="img/06-trigger.png" alt="The Start settings: do something (an event), Event name newsletter_signup, Entering again never enters again, Goal, Schedule" width="300" align="right">
+<img src="img/06-trigger.png" alt="The Start settings: do something (an event), Event name newsletter_signup, Entering again never enters again, Goal, Publish window" width="300" align="right">
 
 1. **Start this campaign for a contact when they**: **do something (an event)** is already chosen.
    The line under it says *This makes it a Triggered campaign.*
@@ -257,11 +257,11 @@ More ways to edit:
 - **Palette** (left): click a step to add it after the selected step (it says where: *Click adds it:
   between Start and Send email (step 1)*), or drag it onto the canvas and connect it yourself.
 
-## 10. Schedule
+## 10. Publish window
 
-Click **Start** and scroll to **Schedule**:
+Click **Start** and scroll to **Publish window**:
 
-<img src="img/06-schedule.png" alt="Schedule: Contacts can enter from (required), Ends (optional)" width="340">
+<img src="img/06-schedule.png" alt="Publish window: Contacts can enter from (required), Ends (optional)" width="340">
 
 - **Contacts can enter from (required)**: when the campaign starts taking contacts. It is filled in
   with now.
@@ -271,17 +271,27 @@ Click **Start** and scroll to **Schedule**:
 Times are in your browser's time zone. The line at the top of the Start settings says what you
 chose, e.g. *From 12 Nov 2026, 12:34 pm, runs until you stop it*.
 
-## 11. Save and go live
+Once it's live, the status says where it is in its window: **Scheduled** before the start (nobody
+has entered yet), **Live** inside it, and **Ended** after the end (nobody new enters; the note on the
+campaign says how many people are still finishing its steps). Unlike the steps, the dates can still
+change while it's live: change them under **Publish window** and click **Save dates**. Move the end
+later, or **Clear** it, to let people in again.
+
+## 11. Save and publish
 
 1. Click **Save draft**. The campaign gets its own address and a **Draft** status.
-2. Click **Save and go live**. (It is greyed out while **Before it can go live** lists anything.)
+2. Click **Save and publish**. (It is greyed out while **Before it can go live** lists anything.)
 
-   ![The campaign header: Draft status, Duplicate, Save draft and the Save and go live button highlighted](img/06-go-live.png)
+   ![The campaign header: Draft status, Duplicate, Save draft and the Save and publish button highlighted](img/06-go-live.png)
 
-Pulse says *Campaign is live. People who match start it right away.* The status turns **Live**. While
-a campaign is live its steps are locked:
+Pulse says *Published. People who match start it right away.* The status turns **Live**. While
+a campaign is live its steps are locked (its dates aren't):
 
-![Live status, Duplicate, the Pause to edit button, and the note "This campaign is live, so its steps are locked"](img/06-live.png)
+![Live status, Duplicate, the Unpublish button, and the note "This campaign is live, so its steps are locked"](img/06-live.png)
+
+An automation campaign can only go live while the segment that starts it is live (tutorial 3,
+section 11): an unpublished segment, or one whose window has ended, takes nobody in, so Pulse says so
+and stops.
 
 ### When someone else must approve it
 
@@ -389,19 +399,25 @@ order:
 Click a row to see that step in the **Over time** chart. These are counts: Pulse doesn't keep who took
 **Yes** or **No**, so there is no list of people behind them.
 
-## 14. Pause it
+## 14. Unpublish it
 
-1. Click **Pause to edit** (top right).
+1. Click **Unpublish** (top right).
 
-   ![The live campaign with the Pause to edit button highlighted](img/06-pause.png)
+   ![The live campaign with the Unpublish button highlighted](img/06-pause.png)
 
-2. Pulse says *Campaign paused*; the status turns **Paused** and the steps unlock: change what you
-   need, then **Save and go live** again.
+2. Nobody new enters from now on. Pulse asks what happens to the people in it now:
 
-While a campaign is paused, nobody new starts it, and contacts already inside wait where they are. A
-wait or decision that comes due while it is paused moves on when the campaign goes live again.
+   <img src="img/06-unpublish.png" alt="Unpublish Welcome series? Let them finish, or Hold them where they are" width="460">
 
-Leave this one paused.
+   - **Let them finish**: they go on through the remaining steps and messages. The campaign stays
+     live with its publish window ended now (status **Ended**); its steps stay locked. Set a later end
+     date, or clear it, and **Save dates** to let people in again.
+   - **Hold them where they are**: nothing more is sent. The status turns **Paused** and the steps
+     unlock: change what you need, then **Save and publish** again. A wait or decision that comes due
+     while it is paused moves on when the campaign is published again.
+3. Choose **Hold them where they are** and click **Unpublish**.
+
+Leave this one unpublished (paused).
 
 ## 15. Delete or archive a campaign
 
@@ -417,7 +433,7 @@ of its row:
 
 ![The Campaigns page, Triggered tab: the status list, Archive on the paused Welcome series and Delete on the draft Win back (draft) highlighted; the live Cart rescue has no button](img/06-archive.png)
 
-Pause a live campaign before archiving it. Deleting needs **Triggered & automation campaigns: Edit**;
+Unpublish a live campaign (holding the people in it) before archiving it. Deleting needs **Triggered & automation campaigns: Edit**;
 archiving and restoring need **Triggered & automation campaigns: Publish**, like going live. Through
 the API: `DELETE /v1/journeys/{id}`, `POST /v1/journeys/{id}/archive` and
 `POST /v1/journeys/{id}/unarchive`.
@@ -550,7 +566,7 @@ consent or CRM data); the chooser greys them out with *Needs edit access to cont
   condition and a follow-up, with every path closed
 - A test contact who went through it, the email in your test inbox, and numbers that open the people
   behind them
-- The campaign paused, ready to edit
+- The campaign unpublished (paused), ready to edit
 
 **Next:** [Tutorial 7](07-one-time-campaigns.md), One-time campaigns: send one message to a whole
 segment, once or on a repeat, with an A/B test.

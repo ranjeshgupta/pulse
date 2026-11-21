@@ -41,7 +41,7 @@ campaign is one message (with an optional A/B test, [tutorial 7](07-one-time-cam
 | **Name** | Opens the campaign. Its tags are under the name; click one to show only campaigns with that tag |
 | **Type** | **One-time**, **Triggered** or **Automation**. Point at it to read what the type means |
 | **Channels** | The channels it sends on (every send step of a journey; a one-time campaign's channel) |
-| **Status** | One word: **Draft**, **Scheduled**, **Sending**, **Live**, **Paused**, **Finished**, **Cancelled** or **Archived** (more below) |
+| **Status** | One word: **Draft**, **Scheduled**, **Sending**, **Live**, **Ended**, **Paused**, **Finished**, **Cancelled** or **Archived** (more below) |
 | **When it sends** | A one-time campaign's repeat and next send (*Once, next 16 Nov, 3:30 pm*); what starts a triggered campaign (*When someone does cart_abandoned*) or an automation (*When someone joins the segment*) |
 | **Audience now** | How many people are in the campaign's segment right now. Triggered campaigns show a dash: they have no fixed audience, people start when they do the trigger |
 | **In progress** | Triggered and automation campaigns: people still going through the steps |
@@ -59,19 +59,21 @@ access is missing.
 | Status | Means |
 |---|---|
 | **Draft** | Saved, never sent or started |
-| **Scheduled** | A one-time campaign waiting for its next send |
+| **Scheduled** | A one-time campaign waiting for its next send, or a published triggered or automation campaign whose publish window hasn't started |
 | **Sending** | A one-time campaign going out right now |
 | **A/B test: waiting for winner** | A one-time A/B test went to the test group; the rest wait for the winner ([tutorial 7](07-one-time-campaigns.md#7-pick-the-winner)) |
 | **Finished** | A one-time campaign that has sent everything |
 | **Cancelled** | A one-time campaign you stopped |
 | **Live** | A triggered or automation campaign that is taking people in |
-| **Paused** | A triggered or automation campaign stopped for editing; nobody new starts |
+| **Ended** | A triggered or automation campaign whose publish window is over (or that was unpublished with **Let them finish**): nobody new enters, people inside finish its steps |
+| **Paused** | A triggered or automation campaign unpublished with **Hold them where they are**: nobody new starts, people inside wait, its steps can change |
 | **Archived** | A triggered or automation campaign put away; hidden unless you filter by **Archived** |
 
 A live campaign can show **Not running: needs a fix** under **Live**. Its saved steps no longer pass
 Pulse's checks (for example a step that sets **stage** directly, which Pulse now only changes
 through its own steps), so nobody moves through it. Hover over the words for the reason; the
-campaign's page shows it in red. Choose **Pause to edit**, change that step, and go live again.
+campaign's page shows it in red. Choose **Unpublish**, hold the people in it, change that step, and
+publish it again.
 
 ### Tabs, search and filters
 
@@ -369,3 +371,4 @@ or use a frequency cap ([tutorial 4](04-channels.md#4-set-delivery-rules)).
 | **Next** stays greyed out | The red text next to it says what's missing |
 | **Save and ask for approval** instead of **Send now** | Your role can't publish one-time campaigns (section 10) |
 | **Send now** opens **Ask for approval** | The workspace has **Four-eyes launches** on (section 10) |
+| A segment is greyed out in **Send to members of**, or **Send now** says *the segment … is unpublished* | The segment is unpublished, or its publish window has ended: new sends can't use it. Publish it, or move its end later ([tutorial 3](03-segments.md#11-publish-unpublish-and-the-publish-window)) |

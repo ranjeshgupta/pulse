@@ -225,6 +225,12 @@ Click **Schedule** (top right).
 the campaign.*, *Choose who receives it.*, *Choose a template for each variant.*…). **Save draft**
 keeps it without scheduling.
 
+Every segment it uses must be live when it sends (tutorial 3, section 11). Unpublished segments, and
+segments whose publish window has ended, are greyed out in the segment lists; a segment already chosen
+that has since been unpublished is marked *(unpublished)*, and **Schedule** then says *the segment …
+is unpublished; publish it first*. A segment whose window starts later is fine as long as it starts
+before the first send.
+
 Pulse confirms *Scheduled. First send …*. As the send time has passed, it goes out within seconds. The
 status moves on by itself:
 
@@ -342,6 +348,11 @@ audience. Messages already sent stay sent.
 
 To change a scheduled campaign (another template, a later time), cancel it, make the change, and
 schedule it again.
+
+**Cancel** is a one-time campaign's unpublish: it stops future sends and keeps the campaign, with your
+changes, to schedule again. A repeating campaign's **Ends** date is its publish window's end. (Triggered
+and automation campaigns have **Unpublish**, tutorial 6.) If a segment it sends to is unpublished
+while it is scheduled, it keeps sending to the contacts that segment had when it was unpublished.
 
 ## 10. A newsletter from your blog: the archive and RSS-to-email
 

@@ -5,12 +5,14 @@
 // date ranges, shows the static segment "Pune store opening guests" that tutorial 2's
 // import created (run 02 first), checks that membership follows a tag change in real time, and
 // shows Settings → Scoring (adding one rule, wishlist_added +5, kept on later runs) and Stages.
+// Last, "Monsoon sale shoppers" (replaced on each run) gets a publish window and is unpublished.
 import { api, clearHighlights, go, highlight, session, settle, shot, until } from "../lib.mjs";
 
 const AREA = "tutorials";
 const DYNAMIC = "Pune shoppers to thank";
 const GUESTS = "Pune store opening guests";
 const DAILY = "Gold skillet buyers, morning send";
+const SEASONAL = "Monsoon sale shoppers";
 
 export default async function (browser) {
   const { context, page } = await session(browser);
@@ -22,6 +24,7 @@ export default async function (browser) {
   await realTime(context);
   await scoringAndStages(page);
   await reachAndCopy(context, page);
+  await publishing(context, page);
   await context.close();
 }
 
@@ -41,6 +44,41 @@ async function reachAndCopy(context, page) {
   await shot(page, AREA, "03-copy-group", { clip: top(330) });
   await clearHighlights(page);
   await page.setViewportSize({ width: 1440, height: 900 });
+}
+
+/** Section 11: a publish window, Unpublish with its prompt, and the Unpublished badge in the list. */
+async function publishing(context, page) {
+  for (const s of (await api(context, "GET", "/v1/segments")).segments) {
+    if (s.name === SEASONAL) await api(context, "DELETE", `/v1/segments/${s.id}`);
+  }
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  const end = new Date(start.getTime() + 21 * 24 * 3600_000);
+  const { id } = await api(context, "POST", "/v1/segments", {
+    name: SEASONAL, rule: { attr: "city", op: "eq", value: "Mumbai" }, start_at: start.toISOString(), end_at: end.toISOString(),
+  });
+  await until(async () => (await api(context, "GET", `/v1/segments/${id}`)).status === "ready", { what: "the seasonal segment to fill" });
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await go(page, `/segments/${id}`);
+  const win = page.locator("fieldset.seg-refresh", { has: page.locator("legend", { hasText: "Publish window" }) });
+  await win.scrollIntoViewIfNeeded();
+  await settle(page, { quiet: 600 });
+  await shot(page, AREA, "03-publish-window", { clip: win, pad: 8 });
+
+  await page.getByRole("button", { name: "Unpublish" }).click();
+  const ask = page.getByRole("alertdialog");
+  await ask.waitFor();
+  await settle(page, { quiet: 400 });
+  await shot(page, AREA, "03-unpublish", { clip: ask, pad: 8 });
+  await ask.getByRole("button", { name: "Unpublish", exact: true }).click();
+  await until(async () => (await api(context, "GET", `/v1/segments/${id}`)).state === "unpublished", { what: "the segment to unpublish" });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await go(page, "/segments");
+  await page.getByLabel("Find a segment").fill("Monsoon");
+  await page.locator("tbody tr", { hasText: SEASONAL }).waitFor();
+  await settle(page, { quiet: 600 });
+  await shot(page, AREA, "03-unpublished-list", { clip: page.locator(".panel", { has: page.locator("table") }), pad: 8 });
 }
 
 const top = (height) => ({ x: 232, y: 0, width: 1440 - 232, height });

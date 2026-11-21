@@ -2,8 +2,8 @@
 
 In about 30 minutes you will build a dynamic segment with the rule builder, work with a static
 segment, see membership change in real time, and set up scoring and stages. Then you will use list
-and choice fields, phone country, date ranges and an Exclude group, and make a segment that changes
-only once a day.
+and choice fields, phone country, date ranges and an Exclude group, make a segment that changes
+only once a day, and give a segment a publish window and unpublish it.
 
 **You need:** tutorial 2 done (it imported the static segment **Pune store opening guests**), and
 access to edit segments (the **Admin** or **Editor** role).
@@ -369,6 +369,48 @@ Campaigns use the same counts, step by step (tutorial 14).
 
 ![A segment's page with Duplicate, and Copy and Paste on the group header](img/03-copy-group.png)
 
+## 11. Publish, unpublish and the publish window
+
+Like website content (tutorial 8), every segment is **published** or **unpublished**, and has a
+**publish window**: a start (required) and an end (optional). A segment is live while it is
+published and inside its window. A new segment is published, live from the moment you create it,
+with no end.
+
+Outside its window, or while unpublished, a segment is **frozen**:
+
+- Pulse stops updating who's in it. Its contacts stay exactly as they were, even if they no longer
+  match (or new people now would).
+- New campaigns can't send to it: it is greyed out in every segment picker, and scheduling a
+  one-time campaign to it, or putting live a campaign that starts when people join it, says why
+  and stops.
+- Campaigns, website messages and segments that already use it keep running, with the contacts it
+  has now. A static segment that is offered on the preference center isn't shown there.
+- Publishing it again (or moving the end later) brings it up to date: Pulse rebuilds it from
+  everything recorded, so it catches up on what happened meanwhile.
+
+Set a window for a seasonal segment, e.g. **Monsoon sale shoppers**:
+
+1. Open the segment. Under **Refresh**, in **Publish window**, set **Live from** (when Pulse starts
+   filling it) and, optionally, **Ends**. The line under the fields says what you chose.
+
+   ![Publish window: Live from 22 Nov, Ends 13 Dec, and what that means now](img/03-publish-window.png)
+2. Click **Save segment**. A window that starts later leaves the segment empty (its state says
+   **Starts …**) until then; Pulse fills it at the start, from everything recorded so far.
+
+To stop using a segment without deleting it, click **Unpublish** (top right). Pulse asks first, and
+lists what uses the segment now: live and paused campaigns, scheduled one-time campaigns, published
+website and in-app messages, and segments built on it.
+
+<img src="img/03-unpublish.png" alt="Unpublish this segment? Pulse stops updating who's in it; its contacts stay as they are now, and new campaigns can't send to it" width="460">
+
+Click **Unpublish**. The list then shows the segment as **Unpublished** (or **Ended**, or **Starts …**)
+instead of Live; hover the badge for what it means:
+
+![The segment list: Monsoon sale shoppers, Unpublished](img/03-unpublished-list.png)
+
+**Publish** (where **Unpublish** was) puts it back. A static segment has the same buttons, and its
+**Publish window** has its own **Save dates** button.
+
 ## What you have now
 
 - A dynamic segment, **Pune shoppers to thank**, built with a nested group and a behaviour filter
@@ -376,6 +418,7 @@ Campaigns use the same counts, step by step (tutorial 14).
 - A scoring rule, and an idea of how points move contacts through stages
 - A daily segment, **Gold skillet buyers, morning send**, with list and choice fields, phone country
   and an Exclude group
+- A seasonal segment, **Monsoon sale shoppers**, with a publish window, unpublished
 
 **More:** [tutorial 12](12-events-and-properties.md) describes events and their properties, for
 typed property filters.

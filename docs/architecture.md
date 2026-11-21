@@ -540,6 +540,11 @@ flowchart TB
 - **Sweeps.** Rules that depend on today (event windows, relative dates) decay without new events,
   so they are re-run every `PULSE_SWEEP_INTERVAL` (5 minutes, per-workspace override).
 - **Daily segments** leave the streaming index and are rebuilt once a day at a chosen time.
+- **Unpublished segments** (or outside their publish window, `start_at`..`end_at`) are frozen: they
+  leave the streaming index like a static list (segments that read them see their bits), and no
+  backfill, sweep or daily refresh claims them. Merged-away and bounce-excluded contacts still leave
+  them. Publishing again, or a later start, marks a dynamic one `new`, so it's rebuilt from history
+  once it's live. The API refuses new sends to a segment that isn't live.
 - **Dependent segments** ("in segment X") are re-evaluated from `segment.membership` in
   dependency order; cycles are refused on save.
 - **Ranges beyond the counters.** Counters keep 365 days; a rule reaching further back is
