@@ -144,9 +144,11 @@ func (s *Server) refreshRecoLists(w http.ResponseWriter, r *http.Request, tenant
 		s.fail(w, err)
 		return
 	}
-	if err := catalog.SaveLists(r.Context(), s.RDB, tenant, l); err != nil {
-		s.fail(w, err)
-		return
+	if len(l.Popular)+len(l.Trending) > 0 { // nothing found: keep the lists there are, as the daily pass does
+		if err := catalog.SaveLists(r.Context(), s.RDB, tenant, l); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"popular": len(l.Popular), "trending": len(l.Trending), "bought_together": len(l.Also)})
 }

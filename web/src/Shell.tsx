@@ -84,6 +84,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/forms", label: "Forms", icon: I.form, need: ["content", "view"] },
       { to: "/assets", label: "Assets", icon: I.file, need: ["content", "view"] },
       { to: "/catalog", label: "Product catalog", icon: I.box, need: ["content", "view"] },
+      { to: "/surveys", label: "Surveys", icon: I.star, need: ["content", "view"] },
     ],
   },
   {
@@ -95,6 +96,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { to: "/analytics/live", label: "Live events", icon: I.live, need: ["contacts", "view"] },
       { to: "/reports", label: "Reports", icon: I.chart, need: ["reports", "view"] },
       { to: "/funnels", label: "Funnels", icon: I.steps, need: ["reports", "view"] },
+      { to: "/paths", label: "Paths", icon: I.trend, need: ["reports", "view"] },
       { to: "/cohorts", label: "Cohorts", icon: I.grid, need: ["reports", "view"] },
       { to: "/revenue", label: "Revenue", icon: I.coin, need: ["reports", "view"] },
       { to: "/customer-value", label: "Customer value", icon: I.users, need: ["reports", "view"] },

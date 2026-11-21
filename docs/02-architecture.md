@@ -512,6 +512,28 @@ only then it reads the contact's recent list and the lists it needs (`HMGET`), l
 through a per-code cache, and picks: bought together with their recent purchases and views, then their views, then
 trending and popular; in stock, never one they just bought. Picks fill `reco.N.*` and the rendered card grid.
 
+## Surveys and NPS (O6)
+
+Surveys and answers live in Postgres (`surveys`, `survey_responses`). `{{survey.ID}}` in a template makes the
+dispatcher put the contact's own link in the message: `/s/{id}/{token}`, where the token is the message's sealed
+tracking token (made for any channel when the template has a survey link), so an answer is tied to the contact, the
+message and its campaign without the page trusting anything it can't verify. The page is served on the pages origin
+under a nonce CSP. A GET only renders (`?score=N` pre-selects the NPS answer an email's 0-10 row linked to); the POST
+validates against the survey and stores the answer (a contact's answer to the same message is updated, not added), then
+records `survey_answered` on the contact (platform-only: `POST /v1/events` refuses it). The public link
+`/s/{id}/p/{key}` takes anonymous answers, compared in constant time against the survey's random key. The report folds
+the period's answers (up to 20,000) into the NPS, its weekly trend and per-question summaries.
+
+## Path analysis and uninstall tracking (O6)
+
+`POST /v1/analytics/paths` runs one ClickHouse query: per contact who did the anchor event in the period, their event
+names in time order (at most 400; Pulse's own events — message outcomes, journey bookkeeping, tags, merges — and the
+user's exclusions removed; consecutive repeats collapsed), cut at the first anchor and the next N names (or, for "before",
+at the last anchor and the N before it); identical paths are counted and the 500 most common returned, with an exact
+count of the anchor's people. The API folds them into per-step links for the flow chart. Uninstalls are detected where
+they surface: a push provider that reports a device token as unregistered returns `ErrUnreachable`, the dispatcher
+deletes the token and, for android / ios tokens, records `app_uninstalled` on the contact.
+
 ## RSS-to-email (O6)
 
 A campaign with `feed_url` (email, not A/B) reads the feed (`internal/feed`, RSS 2.0 or Atom, through `safehttp`, 2 MB

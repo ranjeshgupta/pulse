@@ -41,6 +41,8 @@ const (
 	// {{reco.1.name}}, reco.1.url, image, price, sale_price, currency, category, code; reco.count;
 	// reco.last_viewed.name … (what they last looked at without buying).
 	NSReco = "reco"
+	// NSSurvey is a survey's link for the message's contact: {{survey.12}} (package survey).
+	NSSurvey = "survey"
 )
 
 // blockRe finds {{block.key}} (spaces allowed inside the braces).
@@ -50,6 +52,21 @@ var blockRe = regexp.MustCompile(`\{\{\s*block\.([a-z0-9_]{1,64})\s*\}\}`)
 var RecoKeys = []string{"name", "url", "image", "price", "sale_price", "currency", "category", "code"}
 
 const maxReco = 12
+
+var surveyIDRe = regexp.MustCompile(`^[1-9][0-9]{0,17}$`)
+
+// SurveyIDs lists the surveys a template field links to ({{survey.ID}}).
+func SurveyIDs(src string) []string {
+	var out []string
+	for _, m := range surveyRefRe.FindAllStringSubmatch(src, -1) {
+		if !contains(out, m[1]) {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+var surveyRefRe = regexp.MustCompile(`survey\.([1-9][0-9]{0,17})`)
 
 var recoIndexRe = regexp.MustCompile(`^([1-9]|1[0-2])$`)
 
@@ -162,7 +179,7 @@ const maxPathSegments = 6
 // IsStandard reports whether an action's text (between the braces, trimmed) uses the standard
 // syntax: it starts with contact., event., campaign. or links.
 func IsStandard(action string) bool {
-	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage, NSBlock, NSReco} {
+	for _, ns := range []string{NSContact, NSEvent, NSCampaign, NSLinks, NSMessage, NSBlock, NSReco, NSSurvey} {
 		if strings.HasPrefix(action, ns+".") {
 			return true
 		}
@@ -403,6 +420,10 @@ func checkVar(v string) error {
 	case NSMessage:
 		if !contains(MessageKeys, segs[0]) {
 			return fmt.Errorf("message has %s", strings.Join(MessageKeys, ", "))
+		}
+	case NSSurvey:
+		if len(segs) != 1 || !surveyIDRe.MatchString(path) {
+			return fmt.Errorf("a survey link is {{survey.ID}}, the survey's number")
 		}
 	case NSReco:
 		if !(segs[0] == "count" && len(segs) == 1) && !(len(segs) == 2 && (segs[0] == "last_viewed" || recoIndexRe.MatchString(segs[0])) && contains(RecoKeys, segs[1])) {

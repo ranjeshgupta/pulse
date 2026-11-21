@@ -80,6 +80,14 @@ const (
 	// changes (package rfm; props group, previous_group, score, r, f, m, churn_risk, orders,
 	// revenue, days_since_last). It sets rfm_group, rfm_score and churn_risk.
 	RFMChanged = "rfm_changed"
+
+	// SurveyAnswered is recorded when a contact answers a survey (package survey; props
+	// survey_id, survey, nps, nps_group, q_<question id> per answer, and the message's ids).
+	SurveyAnswered = "survey_answered"
+
+	// AppUninstalled is recorded when the push service rejects an app's device token as no longer
+	// registered (props platform, detected_by: push, message_id): the app was removed from it.
+	AppUninstalled = "app_uninstalled"
 )
 
 // ServerOnly reports whether an event may only come from a server (API key) or the platform,
@@ -89,7 +97,7 @@ func ServerOnly(name string) bool {
 	case TagAdded, TagRemoved, PointsChanged, ListJoined, ListLeft, ContactMerged, ContactMergedInto,
 		MergeRequested, StageChanged, CompanyLinked, CompanyUnlinked, CompanyUpdated, AssetDownloaded, JourneySplit, OwnerChanged,
 		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered,
-		OptinRequested, OptinConfirmed, RFMChanged:
+		OptinRequested, OptinConfirmed, RFMChanged, SurveyAnswered, AppUninstalled:
 		return true
 	}
 	return false
@@ -118,7 +126,7 @@ func PlatformOnly(name string) bool {
 	switch name {
 	case ContactMerged, ContactMergedInto, MergeRequested, CompanyLinked, CompanyUnlinked, CompanyUpdated, JourneySplit, OwnerChanged,
 		JourneyChange, JourneyJumpLimit, DWCRequested, EmailReplied, RCSReplied, AMPFormSubmitted, AMPPollAnswered,
-		OptinRequested, OptinConfirmed, RFMChanged:
+		OptinRequested, OptinConfirmed, RFMChanged, SurveyAnswered, AppUninstalled:
 		return true
 	}
 	return false

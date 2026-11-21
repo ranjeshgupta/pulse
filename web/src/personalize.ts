@@ -8,7 +8,7 @@
 // keeps working and is filled too.
 import type { AttributeDef, EventSchema } from "./api";
 
-export type VarGroup = "contact" | "event" | "campaign" | "links" | "reco";
+export type VarGroup = "contact" | "event" | "campaign" | "links" | "reco" | "survey";
 export type VarItem = { var: string; label: string; group: VarGroup; hint?: string };
 
 export type PipeArg = "none" | "optional" | "required";
@@ -127,7 +127,7 @@ export function buildTag(v: string, pipes: TagPipe[] = []): string {
 /** Ref is one standard-variable tag found in a field. */
 export type Ref = { var: string; pipes: TagPipe[]; start: number; end: number; text: string; error?: string };
 
-const NS = /^(contact|event|campaign|links|reco)\./;
+const NS = /^(contact|event|campaign|links|reco|survey)\./;
 const SEG = /^[A-Za-z0-9_]+(\[\])?$/;
 
 /** isStandard: the action text (between the braces) uses the standard syntax. */
@@ -166,6 +166,7 @@ export function parseAction(action: string): { var: string; pipes: TagPipe[]; er
   if (!segs.length || segs.some((s) => !SEG.test(s))) return { var: v, pipes, error: `“${v}” isn't a variable name (letters, digits and _ after the dot).` };
   if (segs.filter((s) => s.endsWith("[]")).length > 1) return { var: v, pipes, error: "A path goes through one list ([]) at most." };
   if (ns === "campaign" && !CAMPAIGN_VARS.some((c) => c.var === v)) return { var: v, pipes, error: `campaign has ${CAMPAIGN_VARS.map((c) => c.var.slice(9)).join(", ")}.` };
+  if (ns === "survey" && !/^survey\.[1-9]\d{0,17}$/.test(v)) return { var: v, pipes, error: "A survey link is {{survey.ID}}, the survey's number." };
   if (ns === "reco" && recoProblem(v)) return { var: v, pipes, error: recoProblem(v)! };
   if (ns === "links" && !LINK_VARS.some((c) => c.var === v)) return { var: v, pipes, error: `links has ${LINK_VARS.map((c) => c.var.slice(6)).join(", ")}.` };
   for (const raw of parts.slice(1)) {
@@ -338,6 +339,7 @@ export function valueOf(v: string, sample: Sample): unknown {
   if (ns === "campaign") return sample.campaign?.[path];
   if (ns === "links") return sample.links?.[path];
   if (ns === "reco") return lookup(sample.reco ?? SAMPLE_RECO, path);
+  if (ns === "survey") return `https://pages.example.com/s/${path}/sample`;
   return undefined;
 }
 

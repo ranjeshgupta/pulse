@@ -1,0 +1,24 @@
+.survey-form { border: 0; padding: 0; margin: 0; }
+.survey-q { padding: 12px; margin-bottom: 10px; display: grid; gap: 8px; }
+.survey-q-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.survey-q-actions { margin-left: auto; display: flex; gap: 4px; }
+.survey-links { margin-top: 18px; }
+.survey-nps { display: grid; grid-template-columns: auto 1fr; gap: 18px 28px; align-items: center; }
+.survey-score { display: grid; place-items: center; width: 110px; height: 110px; border-radius: 50%; border: 6px solid currentColor; }
+.survey-score strong { font-size: 34px; line-height: 1; }
+.survey-score span { font-size: 12px; }
+.survey-score.ok { color: var(--ok, #1d9a6c); } .survey-score.warn { color: #c58a00; } .survey-score.bad { color: var(--danger, #d64545); }
+.survey-split { display: flex; gap: 28px; flex-wrap: wrap; }
+.survey-split div { display: grid; } .survey-split strong { font-size: 22px; } .survey-split span { font-size: 13px; color: var(--ink-3, #5b6070); }
+.survey-dist { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(11, 1fr); gap: 6px; height: 120px; align-items: end; }
+.survey-bar { display: grid; grid-template-rows: 1fr auto; height: 100%; text-align: center; }
+.survey-bar span { align-self: end; border-radius: 4px 4px 0 0; min-height: 2px; }
+.survey-bar .pro { background: #1d9a6c; } .survey-bar .pas { background: #c9ccd4; } .survey-bar .det { background: #d64545; }
+.survey-comments { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.survey-comments li { border-bottom: 1px solid var(--line, #e6e8ee); padding-bottom: 8px; }
+.survey-comments p { margin: 0 0 2px; }
+.survey-counts { display: grid; gap: 6px; }
+.survey-counts div { display: grid; grid-template-columns: minmax(80px, 200px) 1fr 40px; gap: 10px; align-items: center; font-size: 14px; }
+.survey-count-bar { height: 10px; background: var(--surface-2, #eef0f5); border-radius: 5px; overflow: hidden; }
+.survey-count-bar span { display: block; height: 100%; background: var(--cobalt, #3a5ccc); }
+@media (max-width: 560px) { .survey-nps { grid-template-columns: 1fr; } }

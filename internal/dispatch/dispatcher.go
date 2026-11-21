@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -112,19 +113,20 @@ type Dispatcher struct {
 	pub      kafka.Publisher
 	now      func() time.Time
 
-	mu           sync.Mutex
-	templates    map[[2]int64]cached[model.Template]
-	senders      map[string]cached[providers.Provider] // web push
-	vias         map[string]cached[sendVia]            // default providers with their limits
-	rules        map[int64]cached[delivery.Rules]
-	files        map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
-	autoCache    sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
-	blockCache   sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
-	recoNeeds    sync.Map                        // "template:updated" -> int (reco.go)
-	buyEvents    sync.Map                        // tenant -> cached[string]
-	productCache sync.Map                        // "tenant:code" -> cached[*model.Product]
-	feedCache    sync.Map                        // "broadcast:run" -> cached[channel.Block] (blocks.go)
-	fileBytes    int
+	mu            sync.Mutex
+	templates     map[[2]int64]cached[model.Template]
+	senders       map[string]cached[providers.Provider] // web push
+	vias          map[string]cached[sendVia]            // default providers with their limits
+	rules         map[int64]cached[delivery.Rules]
+	files         map[[2]int64]cached[attachment] // attachment bytes; assets never change their file
+	autoCache     sync.Map                        // tenant -> cached[automation.Settings] (automation.go)
+	blockCache    sync.Map                        // tenant -> cached[map[string]channel.Block] (blocks.go)
+	recoNeeds     sync.Map                        // "template:updated" -> int (reco.go)
+	buyEvents     sync.Map                        // tenant -> cached[string]
+	productCache  sync.Map                        // "tenant:code" -> cached[*model.Product]
+	productCached atomic.Int64                    // entries in productCache (bounded, reco.go)
+	feedCache     sync.Map                        // "broadcast:run" -> cached[channel.Block] (blocks.go)
+	fileBytes     int
 }
 
 type attachment struct {
@@ -219,6 +221,10 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	} else if err != nil {
 		return fmt.Errorf("load template %d: %w", m.TemplateID, err)
 	}
+	// Multi-language templates: the contact's language, else the default (every language's
+	// fields count for what the message needs: recommendations, survey links).
+	tAll := t
+	t, _ = channel.ForLocale(t, channel.ContactLocale(c))
 	// Consent first: an opted-out contact gets nothing on this channel, and no fallback either
 	// (the SMS fallback is a separate message and checks SMS consent itself).
 	if why := consent.SuppressReason(c.Attrs, m.Channel, m.Topic, d.emailBySegment(ctx, m.TenantID)); why != "" {
@@ -323,7 +329,8 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 	}
 	v := vars(m, channel.Links{Unsubscribe: unsub, Preferences: prefs})
 	v.Blocks = d.messageBlocks(ctx, m)
-	d.withReco(ctx, t, c, &v)
+	d.withReco(ctx, tAll, c, &v)
+	d.withSurveys(tAll, m, c, token, &v)
 	rendered, err := channel.RenderWith(t, c, v)
 	if err != nil {
 		return d.finish(ctx, sentKey, m, c, "failed", err.Error())
@@ -452,7 +459,7 @@ func (d *Dispatcher) send(ctx context.Context, m model.Message, tries int) error
 			lastErr = err
 			if m.Channel == channel.Push {
 				_ = d.store.DeleteDevice(ctx, m.TenantID, tg.to) // dead token
-				d.pushGone(ctx, c)
+				d.pushGone(ctx, m, c, tg.platform)
 			}
 		case errors.Is(err, providers.ErrPermanent):
 			lastErr = err
@@ -1249,7 +1256,16 @@ func OpenSecrets(box *auth.Box, sealed []byte) (map[string]string, error) {
 }
 
 // pushGone clears the contact's push reachability bit when its last device is gone.
-func (d *Dispatcher) pushGone(ctx context.Context, c model.Contact) {
+func (d *Dispatcher) pushGone(ctx context.Context, m model.Message, c model.Contact, platform string) {
+	if platform == "android" || platform == "ios" {
+		// Uninstall tracking (O6): the push service rejected the app's token, so the app is gone
+		// from that device. Web push tokens die when a browser unsubscribes, which isn't an uninstall.
+		ev := event.Event{ID: "uninst:" + m.ID + ":" + platform, TenantID: m.TenantID, ExternalID: c.ExternalID, Name: event.AppUninstalled, Ts: d.now(),
+			Props: map[string]any{"platform": platform, "detected_by": "push", "message_id": m.ID}}
+		if rec, err := kafka.JSON(event.TopicRaw, ev.RawKey(), ev); err == nil {
+			_ = d.pub.Publish(ctx, rec) // best effort: the token is gone either way
+		}
+	}
 	hd, ok := d.store.(interface {
 		HasDevices(ctx context.Context, tenant int64, contact uint32) (bool, error)
 	})

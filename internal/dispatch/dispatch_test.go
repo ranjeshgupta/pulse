@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -300,8 +301,9 @@ func TestPushDropsDeadTokens(t *testing.T) {
 	if err := f.d.Handle(context.Background(), msgRecord(model.Message{ID: "p", TenantID: 1, ContactID: 1, Channel: channel.Push, TemplateID: 4})); err != nil {
 		t.Fatal(err)
 	}
-	if evs, _ := f.pub.take(); len(evs) != 1 || evs[0] != "push_sent" {
-		t.Errorf("events = %v (one live device is enough)", evs)
+	// One live device is enough to send; the dead app token means the app was uninstalled there.
+	if evs, _ := f.pub.take(); len(evs) != 2 || !slices.Contains(evs, "push_sent") || !slices.Contains(evs, "app_uninstalled") {
+		t.Errorf("events = %v", evs)
 	}
 	if len(f.st.deleted) != 1 || f.st.deleted[0] != "dead-0000" {
 		t.Errorf("deleted tokens = %v", f.st.deleted)

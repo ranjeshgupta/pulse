@@ -15,6 +15,7 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,11 @@ const PushTrackKey = "pulse_track"
 
 // PushURL is where a push notification's service worker or app SDK reports a click or dismissal:
 // POST {PushURL}?a=clicked or ?a=dismissed.
+// SurveyURL is a survey's page for the message's contact.
+func (c *Codec) SurveyURL(survey int64, token string) string {
+	return c.base + "/s/" + strconv.FormatInt(survey, 10) + "/" + token
+}
+
 func (c *Codec) PushURL(token string) string { return c.base + "/t/p/" + token }
 
 func (c *Codec) OpenURL(token string) string { return c.base + "/t/o/" + token + ".gif" }

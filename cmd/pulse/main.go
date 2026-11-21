@@ -674,7 +674,13 @@ func runRFM(ctx context.Context, pgs *pg.Store, chs *ch.Store, d *deps) {
 					d.log.Error("recommendation lists", "tenant", id, "err", err)
 				}
 			}
+			runKey := "rfmrun:" + strconv.FormatInt(id, 10) // a Score now run in progress
+			if ok, err := rdb.SetNX(ctx, runKey, 1, 6*time.Hour).Result(); err != nil || !ok {
+				rdb.Del(ctx, mark)
+				continue
+			}
 			n, changed, err := rfm.Refresh(ctx, chs, rdb, slow, id, rs.Event, rs.AmountProp, time.Now())
+			rdb.Del(ctx, runKey)
 			if err != nil && ctx.Err() == nil {
 				rdb.Del(ctx, mark) // try again next tick
 				d.log.Error("customer value", "tenant", id, "err", err)

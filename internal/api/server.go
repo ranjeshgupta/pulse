@@ -234,6 +234,7 @@ func (s *Server) Handler() http.Handler {
 	s.landingRoutes(mux)
 	s.archiveRoutes(mux)
 	s.productRoutes(mux)
+	s.surveyRoutes(mux)
 	s.insightRoutes(mux)
 	s.integrationRoutes(mux)
 	s.contactDataRoutes(mux)
@@ -268,7 +269,7 @@ func (s *Server) publicBase() string {
 
 // publicPagePath reports whether a path is workspace-authored public content.
 func publicPagePath(p string) bool {
-	return strings.HasPrefix(p, "/p/") || strings.HasPrefix(p, "/a/") || strings.HasPrefix(p, "/f/")
+	return strings.HasPrefix(p, "/p/") || strings.HasPrefix(p, "/a/") || strings.HasPrefix(p, "/f/") || strings.HasPrefix(p, "/s/")
 }
 
 // splitPages keeps public pages and the app apart when PagesURL is set: on the pages host only

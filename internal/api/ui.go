@@ -183,6 +183,8 @@ type templateReq struct {
 	// Hidden: written inside a one-time campaign, kept out of template lists (omitted on update:
 	// unchanged; false makes it a reusable template).
 	Hidden *bool `json:"hidden"`
+	// Translations: the template in other languages (each locale once).
+	Translations []model.Translation `json:"translations"`
 }
 
 func (req templateReq) template(tenant int64) model.Template {
@@ -191,7 +193,7 @@ func (req templateReq) template(tenant int64) model.Template {
 	}
 	return model.Template{TenantID: tenant, Name: req.Name, Channel: req.Channel, Subject: req.Subject,
 		HTML: req.HTML, Content: req.Content, Builder: req.Builder, Transactional: req.Transactional, MissingValues: req.MissingValues,
-		Hidden: req.Hidden != nil && *req.Hidden}
+		Hidden: req.Hidden != nil && *req.Hidden, Translations: req.Translations}
 }
 
 func (s *Server) validTemplate(w http.ResponseWriter, r *http.Request, t model.Template) bool {

@@ -13,6 +13,7 @@ import { FunnelEdit, FunnelList } from "./pages/Funnels";
 import { CohortEdit, CohortList } from "./pages/Cohorts";
 import { Revenue } from "./pages/Revenue";
 import { CustomerValue } from "./pages/CustomerValue";
+import { PathAnalysis } from "./pages/PathAnalysis";
 import { UsersDashboard } from "./pages/UsersDashboard";
 import { CampaignsDashboard } from "./pages/CampaignsDashboard";
 import { ProductsDashboard } from "./pages/ProductsDashboard";
@@ -42,6 +43,7 @@ import { DataPrivacy } from "./pages/DataSettings";
 import { IdentitySettings } from "./pages/IdentitySettings";
 import { ContentBlocks } from "./pages/ContentBlocks";
 import { ProductCatalog } from "./pages/ProductCatalog";
+import { SurveyEdit, SurveyList } from "./pages/Surveys";
 import { CampaignCalendar } from "./pages/CampaignCalendar";
 import { AutomationSettingsPage } from "./pages/AutomationSettings";
 import { WebPushSettingsPage } from "./pages/WebPush";
@@ -112,6 +114,8 @@ const router = createBrowserRouter([
       { path: "templates", element: <TemplateList /> },
       { path: "templates/blocks", element: <ContentBlocks /> },
       { path: "catalog", element: <ProductCatalog /> },
+      { path: "surveys", element: <SurveyList /> },
+      { path: "surveys/:id", element: <Keyed><SurveyEdit /></Keyed> },
       { path: "templates/:id", element: <Keyed><TemplateEdit /></Keyed> },
       { path: "landing-pages", element: <LandingPageList /> },
       { path: "landing-pages/:id", element: <LandingPageEdit /> },
@@ -126,6 +130,7 @@ const router = createBrowserRouter([
       { path: "cohorts/:id", element: <CohortEdit /> },
       { path: "revenue", element: <Revenue /> },
       { path: "customer-value", element: <CustomerValue /> },
+      { path: "paths", element: <PathAnalysis /> },
       { path: "analytics/users", element: <UsersDashboard /> },
       { path: "analytics/campaigns", element: <CampaignsDashboard /> },
       { path: "analytics/products", element: <ProductsDashboard /> },

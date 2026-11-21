@@ -193,8 +193,12 @@ func Validate(t model.Template) error {
 		return errors.New(`missing_values must be "empty" or "skip"`)
 	}
 	// Every field must parse, so authors find mistakes on save rather than at send time.
-	_, err = Render(t, model.Contact{Attrs: map[string]any{}})
-	return err
+	base := t
+	base.Translations = nil
+	if _, err = Render(base, model.Contact{Attrs: map[string]any{}}); err != nil {
+		return err
+	}
+	return ValidateTranslations(t)
 }
 
 // AMPError lists what's wrong with a template's AMP part, with line numbers.
@@ -284,6 +288,8 @@ type Vars struct {
 	Blocks map[string]Block
 	// Reco is the reco.* namespace (products recommended for the contact).
 	Reco map[string]any
+	// Surveys are the survey.* links (survey id → this contact's page).
+	Surveys map[string]string
 }
 
 // Block is a reusable content block's two forms.
@@ -360,7 +366,7 @@ func RenderWith(t model.Template, contact model.Contact, v Vars) (Rendered, erro
 	if camp.Template == "" {
 		camp.Template = t.Name
 	}
-	r := personalize.New(personalize.Vars{Contact: contact, Event: v.Event, Campaign: camp, Links: links, Reco: v.Reco})
+	r := personalize.New(personalize.Vars{Contact: contact, Event: v.Event, Campaign: camp, Links: links, Reco: v.Reco, Surveys: v.Surveys})
 	var firstErr error
 	text := func(field, s string) string {
 		if s == "" || firstErr != nil {

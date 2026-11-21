@@ -56,9 +56,19 @@ func (s *Server) refreshCustomerValue(w http.ResponseWriter, r *http.Request, te
 	}
 	// In the background: a big workspace's first pass changes every buyer, and its events go out
 	// at a steady rate (rfm.Throttled) so they never crowd out live ones.
+	// One run per workspace at a time, however long it takes (the 5-minute key only spaces starts).
+	runKey := "rfmrun:" + strconv.FormatInt(tenant, 10)
+	if ok, err := s.RDB.SetNX(r.Context(), runKey, 1, 6*time.Hour).Result(); err != nil {
+		s.fail(w, err)
+		return
+	} else if !ok {
+		writeErr(w, http.StatusConflict, "customer value is being scored right now; it updates as it goes")
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 		defer cancel()
+		defer s.RDB.Del(context.Background(), runKey)
 		n, changed, err := rfm.Refresh(ctx, src, s.RDB, rfm.Throttled(s.publishEvents, rfm.DefaultPerSec), tenant, rs.Event, rs.AmountProp, s.now())
 		if err != nil {
 			s.Log.Error("customer value", "tenant", tenant, "err", err)

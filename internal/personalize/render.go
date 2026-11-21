@@ -40,6 +40,8 @@ type Vars struct {
 	Message map[string]any
 	// Reco is the reco.* namespace: products recommended for the contact (package catalog).
 	Reco map[string]any
+	// Surveys are the survey.* links by survey id.
+	Surveys map[string]string
 }
 
 // Renderer fills templates for one message and remembers which variables had no value (and no
@@ -310,6 +312,11 @@ func (r *Renderer) Value(name string) any {
 	case NSReco:
 		v, _ := Lookup(r.vars.Reco, path)
 		return v
+	case NSSurvey:
+		if u := r.vars.Surveys[path]; u != "" {
+			return htmltemplate.URL(u)
+		}
+		return nil
 	case NSBlock:
 		return "" // a block the workspace doesn't have (known ones were expanded before rendering)
 	}

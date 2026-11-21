@@ -20,7 +20,7 @@ var areaByPrefix = map[string]string{
 	"journeys": auth.AreaJourneys, "journey-steps": auth.AreaJourneys,
 	"broadcasts": auth.AreaBroadcasts,
 	"templates":  auth.AreaContent, "focus-items": auth.AreaContent, "dwc": auth.AreaContent, "forms": auth.AreaContent, "inapp": auth.AreaContent,
-	"assets": auth.AreaContent, "landing-pages": auth.AreaContent, "test-contacts": auth.AreaContent, "content-blocks": auth.AreaContent, "products": auth.AreaContent,
+	"assets": auth.AreaContent, "landing-pages": auth.AreaContent, "test-contacts": auth.AreaContent, "content-blocks": auth.AreaContent, "products": auth.AreaContent, "surveys": auth.AreaContent,
 	"stats": auth.AreaReports, "funnels": auth.AreaReports, "cohorts": auth.AreaReports, "reports": auth.AreaReports,
 	"revenue": auth.AreaReports, "analytics": auth.AreaReports, // M4 dashboards
 	"live":     auth.AreaContacts, // the live event feed shows people's events
@@ -58,7 +58,7 @@ var special = map[string]need{
 	"POST /v1/funnels/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/cohorts/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/revenue/customer-value/refresh":         {auth.AreaReports, auth.View},
-	"POST /v1/products/refresh-lists":                 {auth.AreaContent, auth.View},
+	"POST /v1/analytics/paths":                        {auth.AreaReports, auth.View},
 	"POST /v1/reports/run":                            {auth.AreaReports, auth.View},
 	"POST /v1/revenue/report":                         {auth.AreaReports, auth.View},
 	"PUT /v1/revenue/settings":                        {auth.AreaSettings, auth.Edit}, // a workspace setting

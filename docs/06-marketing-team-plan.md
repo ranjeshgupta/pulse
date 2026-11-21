@@ -795,6 +795,20 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
   catalog cache); block keys `feed` and `recommendations` reserved; `/v1/products` (list, upsert, delete,
   refresh-lists) and `/v1/contacts/{id}/recommendations`; `pages/ProductCatalog.tsx`, `catalogCsv.ts`, picker entries.
   Tests `catalog`, `catalogCsv.test.ts`, e2e `TestProductRecommendations`; checked in a headless browser.
+- **14 Surveys and NPS**: pg 040 `surveys`, `survey_responses` (one per contact and message; public answers have no
+  contact); `internal/survey` (validation, answers, NPS groups and score); `internal/api/surveys.go` (CRUD, report,
+  hosted page `/s/{id}/{token}` and `/s/{id}/p/{key}` on the pages origin: GET shows, `?score=` pre-selects, POST
+  records; nonce CSP, no referrer, rate limit); personalize `survey` namespace and dispatcher `withSurveys` (a sealed
+  tracking token per message on every channel); `survey_answered` is platform-only; `pages/Surveys.tsx`, `surveys.ts`,
+  picker entries. Tests `survey`, `surveys.test.ts`, e2e `TestSurveys`.
+- **15 Paths and uninstalls**: `ch.Paths` (per person: events in time order without Pulse's own and the excluded
+  ones, repeats collapsed, cut at the first anchor — or the last, backwards — and N steps on; top 500 paths) and the
+  exact anchor count; `POST /v1/analytics/paths`, `pathLinks`; `pages/PathAnalysis.tsx` with `paths.ts` (flow layout);
+  dispatcher `pushGone` records `app_uninstalled` for dead android / ios tokens. Tests `TestPathLinks`, `paths.test.ts`,
+  `TestPushDropsDeadTokens`, e2e `TestPathsAndUninstalls`.
+- **Security review fixes (items 12-13)**: Score now holds a per-workspace run lock (`rfmrun:{tenant}`) for the whole
+  background pass, which the daily pass respects; the dispatcher's per-code catalog cache is bounded (200k entries);
+  updating recommendation lists needs content edit and never replaces lists with empty ones.
 - **Daily pass load**: the first RFM pass in the e2e stack sent 780k `rfm_changed` events in 2.4 minutes and starved
   the live pipeline. Passes now run per workspace at its own UTC hour (id % 24, once per `PULSE_RFM_INTERVAL`) and send
   at most `PULSE_RFM_EVENTS_PER_SEC` (500) events a second; Score now runs in the background.

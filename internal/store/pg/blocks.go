@@ -59,7 +59,7 @@ func (s *Store) DeleteBlock(ctx context.Context, tenant, id int64) error {
 // TemplatesUsingBlock lists the templates whose content names {{block.key}}.
 func (s *Store) TemplatesUsingBlock(ctx context.Context, tenant int64, key string) ([]model.Template, error) {
 	rows, err := s.db.Query(ctx, `SELECT id, name, channel FROM templates WHERE tenant_id = $1
-		AND (html ~ $2 OR subject ~ $2 OR content::text ~ $2) ORDER BY name LIMIT 200`, tenant, `\{\{\s*block\.`+key+`\s*\}\}`)
+		AND (html ~ $2 OR subject ~ $2 OR content::text ~ $2 OR translations::text ~ $2) ORDER BY name LIMIT 200`, tenant, `\{\{\s*block\.`+key+`\s*\}\}`)
 	if err != nil {
 		return nil, err
 	}

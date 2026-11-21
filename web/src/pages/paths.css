@@ -1,0 +1,15 @@
+.paths-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+.paths-controls .field { min-width: 160px; }
+.paths-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.paths-chips .badge { cursor: pointer; border: 0; }
+.paths-flow { margin-top: 14px; }
+.paths-flow.stale { opacity: .6; }
+.paths-svg { width: 100%; height: auto; overflow: visible; }
+.paths-band { fill: none; stroke: var(--cobalt, #3a5ccc); stroke-opacity: .28; transition: stroke-opacity .15s; }
+.paths-band:hover { stroke-opacity: .55; }
+.paths-band.stop { stroke: #8a8f99; stroke-opacity: .18; }
+.paths-band.dim { stroke-opacity: .08; }
+.paths-node { fill: var(--cobalt, #3a5ccc); }
+.paths-node.stop { fill: #8a8f99; }
+.paths-label { font-size: 13px; fill: var(--ink, #1d2029); paint-order: stroke; stroke: var(--surface, #fff); stroke-width: 3px; }
+.paths-steps { font-size: 13px; }

@@ -122,8 +122,20 @@ type Template struct {
 	MissingValues string `json:"missing_values,omitempty"`
 	// Hidden: written inside a one-time campaign and not offered in template lists and pickers
 	// (saving it as a reusable template clears it).
-	Hidden    bool      `json:"hidden,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Hidden bool `json:"hidden,omitempty"`
+	// Translations are the template in other languages (O6): a contact whose locale matches one
+	// (exactly, or by language: hi-IN takes hi) gets it; everyone else the default.
+	Translations []Translation `json:"translations,omitempty"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+}
+
+// Translation is a template's text in one locale; empty fields keep the default's. Content holds
+// only the content fields it changes (text, title, body…).
+type Translation struct {
+	Locale  string          `json:"locale"` // e.g. hi, hi-IN, ta
+	Subject string          `json:"subject,omitempty"`
+	HTML    string          `json:"html,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
 }
 
 type Journey struct {
@@ -458,6 +470,41 @@ type Broadcast struct {
 	// Deadline: don't send after a time of day or after hours late (see Deadline).
 	Deadline *Deadline `json:"deadline,omitempty"`
 	Tags     []string  `json:"tags"`
+}
+
+// Survey is a set of questions answered on a hosted page (package survey).
+type Survey struct {
+	ID        int64            `json:"id"`
+	TenantID  int64            `json:"-"`
+	Name      string           `json:"name"`
+	Status    string           `json:"status"` // draft | live | closed
+	Questions []SurveyQuestion `json:"questions"`
+	Intro     string           `json:"intro,omitempty"`
+	ThankYou  string           `json:"thank_you,omitempty"`
+	// PublicKey makes a link anyone can answer without being a contact (/s/{id}/p/{key}).
+	PublicKey string    `json:"public_key,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SurveyResponse is one answer to a survey (ExternalID "" for a public one).
+type SurveyResponse struct {
+	SurveyID   int64          `json:"survey_id"`
+	TenantID   int64          `json:"-"`
+	ExternalID string         `json:"external_id,omitempty"`
+	MessageID  string         `json:"message_id,omitempty"`
+	Answers    map[string]any `json:"answers"`
+	NPS        *int           `json:"nps,omitempty"`
+	At         time.Time      `json:"at"`
+}
+
+// SurveyQuestion is one question: nps (0-10), rating (1-5), choice (Options) or text.
+type SurveyQuestion struct {
+	ID       string   `json:"id"`
+	Type     string   `json:"type"`
+	Text     string   `json:"text"`
+	Options  []string `json:"options,omitempty"`
+	Required bool     `json:"required,omitempty"`
 }
 
 // Product is one item of a workspace's catalog (package catalog).

@@ -428,12 +428,24 @@ func (s *Store) MarkSegmentReady(ctx context.Context, id int64) error {
 
 // ---- templates ----
 
-const templateCols = `id, tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, hidden, updated_at`
+const templateCols = `id, tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, hidden, updated_at, translations`
 
 func scanTemplate(row pgx.Row) (model.Template, error) {
 	var t model.Template
-	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Channel, &t.Subject, &t.HTML, &t.Content, &t.Builder, &t.Transactional, &t.MissingValues, &t.Hidden, &t.UpdatedAt)
+	var trs []byte
+	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Channel, &t.Subject, &t.HTML, &t.Content, &t.Builder, &t.Transactional, &t.MissingValues, &t.Hidden, &t.UpdatedAt, &trs)
+	if err == nil && len(trs) > 2 {
+		err = json.Unmarshal(trs, &t.Translations)
+	}
 	return t, notFound(err)
+}
+
+func translationsJSON(trs []model.Translation) []byte {
+	if len(trs) == 0 {
+		return []byte("[]")
+	}
+	b, _ := json.Marshal(trs)
+	return b
 }
 
 // missingPolicy stores a template's missing-value policy ("empty" when unset).
@@ -461,16 +473,16 @@ func nullJSON(b []byte) any {
 func (s *Store) CreateTemplate(ctx context.Context, t model.Template) (int64, error) {
 	var id int64
 	err := s.db.QueryRow(ctx,
-		`INSERT INTO templates (tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, hidden) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-		t.TenantID, t.Name, t.Channel, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues), t.Hidden).Scan(&id)
+		`INSERT INTO templates (tenant_id, name, channel, subject, html, content, builder, transactional, missing_values, hidden, translations) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+		t.TenantID, t.Name, t.Channel, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues), t.Hidden, translationsJSON(t.Translations)).Scan(&id)
 	return id, err
 }
 
 func (s *Store) UpdateTemplate(ctx context.Context, t model.Template) error {
 	tag, err := s.db.Exec(ctx, `
-		UPDATE templates SET name = $3, subject = $4, html = $5, content = $6, builder = $7, transactional = $8, missing_values = $9, hidden = $10, updated_at = now()
+		UPDATE templates SET name = $3, subject = $4, html = $5, content = $6, builder = $7, transactional = $8, missing_values = $9, hidden = $10, translations = $11, updated_at = now()
 		WHERE tenant_id = $1 AND id = $2`,
-		t.TenantID, t.ID, t.Name, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues), t.Hidden)
+		t.TenantID, t.ID, t.Name, t.Subject, t.HTML, orEmptyJSON(t.Content), nullJSON(t.Builder), t.Transactional, missingPolicy(t.MissingValues), t.Hidden, translationsJSON(t.Translations))
 	if err == nil && tag.RowsAffected() == 0 {
 		err = ErrNotFound
 	}
@@ -485,7 +497,8 @@ func (s *Store) Template(ctx context.Context, tenant, id int64) (model.Template,
 // builder state is left out of lists, and so are templates written inside one-time campaigns.
 func (s *Store) ListTemplates(ctx context.Context, tenant int64, ch string) ([]model.Template, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, tenant_id, name, channel, subject, '', content, NULL::jsonb, transactional, missing_values, hidden, updated_at FROM templates
+		SELECT id, tenant_id, name, channel, subject, '', content, NULL::jsonb, transactional, missing_values, hidden, updated_at,
+			(SELECT coalesce(jsonb_agg(jsonb_build_object('locale', x->'locale')), '[]') FROM jsonb_array_elements(translations) x) FROM templates
 		WHERE tenant_id = $1 AND ($2 = '' OR channel = $2) AND NOT hidden ORDER BY updated_at DESC`, tenant, ch)
 	if err != nil {
 		return nil, err

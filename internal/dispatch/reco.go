@@ -24,6 +24,9 @@ type CatalogStore interface {
 	RevenueSettings(ctx context.Context, tenant int64) (analytics.RevenueSettings, error)
 }
 
+// maxProductCache bounds the per-code catalog cache (entries across workspaces).
+const maxProductCache = 200_000
+
 // RecoBlock is the block key of the recommended products.
 const RecoBlock = "recommendations"
 
@@ -87,6 +90,11 @@ func (d *Dispatcher) products(ctx context.Context, cs CatalogStore, tenant int64
 		return nil, err
 	}
 	exp := d.now().Add(cacheTTL)
+	// Codes come from events anyone may send, so the cache is bounded: past the limit it starts over.
+	if d.productCached.Add(int64(len(miss))) > maxProductCache {
+		d.productCache.Range(func(k, _ any) bool { d.productCache.Delete(k); return true })
+		d.productCached.Store(int64(len(miss)))
+	}
 	for _, c := range miss {
 		var p *model.Product
 		if f, ok := found[c]; ok {

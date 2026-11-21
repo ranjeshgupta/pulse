@@ -57,6 +57,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
   const [fmt, setFmt] = useState(0);
   const [custom, setCustom] = useState("");
   const vars = useVariables();
+  const surveys = useQuery({ queryKey: ["surveys"], queryFn: () => api.get<{ surveys: { id: number; name: string; status: string }[] }>("/v1/surveys"), staleTime: 60_000, retry: false, enabled: open && !vars.contactOnly });
   const blocks = useQuery({ queryKey: ["content-blocks"], queryFn: () => api.get<{ blocks: ContentBlock[] }>("/v1/content-blocks"), staleTime: 60_000, retry: false, enabled: open && !vars.contactOnly });
   const box = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -110,6 +111,16 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
                     </button>
                   </div>
                 )}
+                {(surveys.data?.surveys ?? []).filter((x) => x.status !== "closed" && (!q || x.name.toLowerCase().includes(q.toLowerCase()))).length > 0 && (
+                  <div className="vp-group" role="group" aria-labelledby={`${id}-surveys`}>
+                    <div className="vp-group-name" id={`${id}-surveys`}>Survey links (one per contact)</div>
+                    {(surveys.data?.surveys ?? []).filter((x) => x.status !== "closed" && (!q || x.name.toLowerCase().includes(q.toLowerCase()))).map((x) => (
+                      <button type="button" key={x.id} className="vp-item" onClick={() => done(`{{survey.${x.id}}}`)}>
+                        <span>📋 {x.name}</span><code>survey.{x.id}</code>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {groups.map(([g, items]) => (
                   <div key={g} className="vp-group" role="group" aria-labelledby={`${id}-${g}`}>
                     <div className="vp-group-name" id={`${id}-${g}`}>{GROUP_NAMES[g]}</div>
@@ -125,7 +136,7 @@ export function VarPicker({ onInsert, label = "Insert a variable", copyOnly }: {
               </div>
               <div className="vp-custom">
                 <input className="input" placeholder="or type one: event.items.0.price" value={custom} onChange={(e) => setCustom(e.target.value.trim())} aria-label="Variable name" />
-                <button type="button" className="btn sm" disabled={!/^(contact|event|campaign|links|reco)\.[A-Za-z0-9_.[\]]+$/.test(custom)} onClick={() => setPick({ var: custom, label: custom, group: custom.split(".")[0] as VarItem["group"] })}>Use</button>
+                <button type="button" className="btn sm" disabled={!/^(contact|event|campaign|links|reco|survey)\.[A-Za-z0-9_.[\]]+$/.test(custom)} onClick={() => setPick({ var: custom, label: custom, group: custom.split(".")[0] as VarItem["group"] })}>Use</button>
               </div>
             </>
           ) : (
