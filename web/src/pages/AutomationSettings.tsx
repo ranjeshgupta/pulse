@@ -206,6 +206,12 @@ export function AutomationSettingsPage() {
           </Row>
         </Panel>
 
+        <Panel title="Approvals">
+          <Row label="Four-eyes launches" def="Off" help={<>When on, nobody launches a one-time or triggered / automation campaign alone: they ask for approval, and someone else who may publish approves it (it launches exactly as it was asked). Without it, people whose role can't publish ask, and those who can launch directly. API keys aren't affected.</>}>
+            <label className="check"><input type="checkbox" checked={!!cur.approvals?.four_eyes} onChange={(e) => set((s) => ({ ...s, approvals: { four_eyes: e.target.checked } }))} />Every launch needs a second person</label>
+          </Row>
+        </Panel>
+
         <Panel title="Default limits of new providers" note="A provider added from now on starts with these when it doesn't bring its own and its kind has no preset (Gmail's daily quota, for one). Existing providers keep theirs; change them on Channels.">
           {server.limit_channels.map((ch) => (
             <LimitsRow key={ch} channel={ch as Channel} value={cur.default_limits?.[ch] ?? {}}

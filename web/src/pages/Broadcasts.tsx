@@ -1,4 +1,6 @@
 import { CampaignTimeline } from "./CampaignTimeline";
+import { ApprovalBar, AskApprovalModal } from "../ApprovalBar";
+import { needsApproval } from "../approvals";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -18,6 +20,7 @@ import { ContactCount } from "../ContactCount";
 import { describeWindow, nowISO, ScheduleFields, scheduleProblem } from "../schedule";
 import { ErrorNote, Field, LiveNumber, PageHead, Status, timeAgo, useToast } from "../ui";
 import { ask, askDelete, useEditGuard } from "../guard";
+import { useCan } from "../auth";
 import { ProviderPick } from "../ProviderPick";
 import { TopicPick } from "../TopicPick";
 
@@ -140,10 +143,22 @@ export function BroadcastEdit() {
       return isNew ? api.post<{ id: number }>("/v1/broadcasts", body) : api.put<{ id: number }>(`/v1/broadcasts/${id}`, body);
     },
   });
+  const canPublish = useCan("broadcasts", "publish");
+  const [asking, setAsking] = useState<{ id: number; reason?: string } | null>(null);
+  const askApproval = useMutation({
+    mutationFn: () => save.mutateAsync(),
+    onSuccess: (r) => { guard.saved(); qc.invalidateQueries({ queryKey: ["broadcasts"] }); setAsking({ id: r.id }); if (isNew) nav(`/broadcasts/${r.id}`, { replace: true }); },
+  });
   const schedule = useMutation({
     mutationFn: async () => {
       const r = await save.mutateAsync();
-      return { id: r.id, res: await api.post<{ next_run_at: string }>(`/v1/broadcasts/${r.id}/schedule`) };
+      guard.saved();
+      try {
+        return { id: r.id, res: await api.post<{ next_run_at: string }>(`/v1/broadcasts/${r.id}/schedule`) };
+      } catch (e) {
+        if (needsApproval(e)) setAsking({ id: r.id, reason: "This workspace needs a second person to approve every launch. Ask for it, and it launches when they approve." });
+        throw e;
+      }
     },
     onSuccess: ({ id: bid, res }) => {
       qc.invalidateQueries({ queryKey: ["broadcasts"] });
@@ -220,18 +235,22 @@ export function BroadcastEdit() {
           }).then((ok) => ok && cancel.mutate())}>Cancel campaign</button> : (
             <>
               <button className="btn" disabled={saveDraft.isPending} onClick={() => saveDraft.mutate()}>{saveDraft.isPending ? "Saving…" : "Save draft"}</button>
-              <button className="btn primary" disabled={!!fullProblem || schedule.isPending} title={fullProblem ?? undefined}
+              {!canPublish ? (
+                <button className="btn primary" disabled={!!fullProblem || askApproval.isPending} title={fullProblem ?? "Your role can't launch campaigns: someone who can approves it"} onClick={() => askApproval.mutate()}>Save and ask for approval</button>
+              ) : <button className="btn primary" disabled={!!fullProblem || schedule.isPending} title={fullProblem ?? undefined}
                 onClick={() => void (status === "completed" || status === "cancelled"
                   ? ask(status === "completed"
                     ? { title: "Send this campaign again?", body: "It already went out. Everyone in its audience then gets it again at the time set below.", confirmText: "Schedule again" }
                     : { title: "Schedule this cancelled campaign again?", confirmText: "Schedule again" })
                   : Promise.resolve(true)).then((ok) => ok && schedule.mutate())}>
-                {status === "completed" ? "Send again" : "Schedule"}</button>
+                {status === "completed" ? "Send again" : "Schedule"}</button>}
             </>
           )}
         </>}
       />
-      <div style={{ whiteSpace: "pre-line" }}><ErrorNote error={save.error ?? schedule.error ?? cancel.error ?? remove.error} /></div>
+      <div style={{ whiteSpace: "pre-line" }}><ErrorNote error={save.error ?? (needsApproval(schedule.error) ? null : schedule.error) ?? cancel.error ?? remove.error} /></div>
+      {!isNew && id && <ApprovalBar kind="broadcast" id={Number(id)} onLaunched={() => setB(null)} />}
+      {asking && <AskApprovalModal kind="broadcast" id={asking.id} reason={asking.reason} onClose={() => setAsking(null)} />}
       {live && !testing && <div className="alert info">This campaign is scheduled{saved?.next_run_at ? `; next send ${fmt(saved.next_run_at)}` : ""}. Cancel it to make changes.</div>}
       {testing && <div className="alert info">The A/B test has gone out and is waiting for its winner. You can't edit the campaign now, only cancel it.</div>}
       <fieldset disabled={live} style={{ border: 0, padding: 0, margin: 0 }}>

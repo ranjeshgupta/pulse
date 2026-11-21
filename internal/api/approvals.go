@@ -12,7 +12,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"pulse/internal/journey"
+	"pulse/internal/personalize"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -68,9 +72,11 @@ func (s *Server) fourEyes(w http.ResponseWriter, r *http.Request, p model.Princi
 	return true
 }
 
-// campaignVersion hashes a campaign's definition (not its status), and returns its name.
+// campaignVersion hashes what a campaign sends: its definition (not its status), every template
+// it names (main, fallback, A/B variants, journey steps) and the content blocks those use. A change
+// to any of them after the request means it has to be asked for again. It also returns the name.
 func (s *Server) campaignVersion(ctx context.Context, tenant int64, kind string, id int64) (string, string, error) {
-	var v any
+	var def any
 	var name string
 	switch kind {
 	case "broadcast":
@@ -80,7 +86,7 @@ func (s *Server) campaignVersion(ctx context.Context, tenant int64, kind string,
 		}
 		b.Status, b.NextRunAt, b.Tags = "", nil, nil
 		b.UpdatedAt = b.StartAt // timestamps that saving alone changes aren't the definition
-		v, name = b, b.Name
+		def, name = b, b.Name
 	case "journey":
 		us, ok := s.Store.(UIStore)
 		if !ok {
@@ -90,11 +96,67 @@ func (s *Server) campaignVersion(ctx context.Context, tenant int64, kind string,
 		if err != nil {
 			return "", "", err
 		}
-		v, name = []any{j.Name, j.Graph, j.StartAt, j.EndAt}, j.Name
+		def, name = []any{j.Name, j.Graph, j.StartAt, j.EndAt}, j.Name
 	}
-	b, _ := json.Marshal(v)
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:12]), name, nil
+	raw, _ := json.Marshal(def)
+	h := sha256.New()
+	h.Write(raw)
+	// The content it sends.
+	var doc any
+	_ = json.Unmarshal(raw, &doc)
+	ids := map[int64]bool{}
+	templateIDs(doc, ids)
+	sorted := make([]int64, 0, len(ids))
+	for tid := range ids {
+		sorted = append(sorted, tid)
+	}
+	slices.Sort(sorted)
+	var used []string
+	for _, tid := range sorted {
+		t, err := s.uiStore().Template(ctx, tenant, tid)
+		if err != nil {
+			fmt.Fprintf(h, "|t%d:missing", tid)
+			continue
+		}
+		fmt.Fprintf(h, "|t%d:%s\x00%s\x00%s\x00%v", tid, t.Subject, t.HTML, t.Content, t.Transactional)
+		used = append(used, personalize.BlockKeys(t.Subject+t.HTML+string(t.Content))...)
+	}
+	if len(used) > 0 {
+		blocks := s.renderBlocks(ctx, tenant)
+		slices.Sort(used)
+		for _, k := range slices.Compact(used) {
+			fmt.Fprintf(h, "|b%s:%s\x00%s", k, blocks[k].HTML, blocks[k].Text)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:12]), name, nil
+}
+
+// templateIDs collects every number under a key ending in "template_id" in a decoded JSON value.
+func templateIDs(v any, out map[int64]bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if strings.HasSuffix(k, "template_id") {
+				if n, ok := e.(float64); ok && n > 0 {
+					out[int64(n)] = true
+				}
+				continue
+			}
+			templateIDs(e, out)
+		}
+	case []any:
+		for _, e := range x {
+			templateIDs(e, out)
+		}
+	case string:
+		// a journey graph is stored as JSON text inside the definition
+		if strings.HasPrefix(strings.TrimSpace(x), "{") && strings.Contains(x, "template_id") {
+			var inner any
+			if json.Unmarshal([]byte(x), &inner) == nil {
+				templateIDs(inner, out)
+			}
+		}
+	}
 }
 
 func (s *Server) requestApproval(w http.ResponseWriter, r *http.Request, p model.Principal) {
@@ -248,12 +310,43 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request, p model.
 			s.fail(w, derr)
 			return
 		}
-		// Launch as asked; the launch writes the answer.
+		// Launch as asked, then make sure nothing changed in between (a save racing the approval):
+		// if it did, the launch is undone.
+		var out map[string]any
 		if a.Kind == "broadcast" {
-			s.launchBroadcast(w, r, p.TenantID, a.CampaignID)
+			var code int
+			var lerr error
+			if out, code, lerr = s.scheduleBroadcastNow(r.Context(), p.TenantID, a.CampaignID); lerr != nil {
+				_, _ = as.DecideApproval(r.Context(), p.TenantID, id, "withdrawn", p.UserID, p.Actor, "launching failed: "+lerr.Error())
+				if code == 0 {
+					s.fail(w, lerr)
+				} else {
+					writeErr(w, code, lerr.Error())
+				}
+				return
+			}
 		} else {
-			s.setJourneyStatus(w, r, p, a.CampaignID, "active")
+			if g, gerr := s.journeyGraph(r.Context(), p.TenantID, a.CampaignID); gerr == nil && !deletePermOK(w, p, g) {
+				return
+			}
+			if lerr := s.Store.SetJourneyStatus(r.Context(), p.TenantID, a.CampaignID, "active"); lerr != nil {
+				s.fail(w, lerr)
+				return
+			}
+			s.journeysChanged(r.Context())
+			out = map[string]any{"id": a.CampaignID, "status": "active"}
 		}
+		if after, _, _ := s.campaignVersion(r.Context(), p.TenantID, a.Kind, a.CampaignID); after != a.Version {
+			if a.Kind == "broadcast" {
+				_ = s.bcStore().SetBroadcastSchedule(r.Context(), p.TenantID, a.CampaignID, "draft", nil)
+			} else {
+				_ = s.Store.SetJourneyStatus(r.Context(), p.TenantID, a.CampaignID, "paused")
+				s.journeysChanged(r.Context())
+			}
+			writeErr(w, http.StatusConflict, "the campaign changed while it was being approved, so it wasn't launched: ask for approval again")
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	default:
 		writeErr(w, http.StatusNotFound, "unknown action")
@@ -264,4 +357,17 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request, p model.
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": map[string]string{"withdraw": "withdrawn", "reject": "rejected"}[action]})
+}
+
+// journeyGraph loads a journey's graph.
+func (s *Server) journeyGraph(ctx context.Context, tenant, id int64) (journey.Graph, error) {
+	us, ok := s.Store.(UIStore)
+	if !ok {
+		return journey.Graph{}, errors.New("journeys aren't available")
+	}
+	j, err := us.GetJourney(ctx, tenant, id)
+	if err != nil {
+		return journey.Graph{}, err
+	}
+	return journey.ParseGraph(j.Graph)
 }

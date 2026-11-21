@@ -5,6 +5,8 @@ import {
   api, CHANNEL_NAMES, CHANNELS, type Broadcast, type CampaignCategory, type CampaignRow, type Channel, type Journey, type Repeat, type Segment, type Template,
 } from "../api";
 import { useCan } from "../auth";
+import { AskApprovalModal, PendingApprovals } from "../ApprovalBar";
+import { needsApproval } from "../approvals";
 import { CAMPAIGN_GOALS, CATEGORIES, describeDeadline, newCampaignHref, speedProblem, speedWords, stepProblem, WIZARD_STEPS, type WizardState, type WizardStep } from "../campaigns";
 import { ContactCount } from "../ContactCount";
 import { outcomeFilters } from "../contactLinks";
@@ -95,6 +97,7 @@ export function CampaignHub() {
         actions={canCreate && <button className="btn primary" onClick={() => setChoosing(true)}>New campaign</button>}
       />
       {choosing && <NewCampaignModal canOneTime={canBroadcast} canJourney={canJourney} onClose={() => setChoosing(false)} />}
+      <PendingApprovals />
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === ""} onClick={() => set("tab", "")}>All{total !== undefined ? ` (${total})` : ""}</button>
         {CATEGORIES.map((c) => (
@@ -351,11 +354,23 @@ export function OneTimeWizard() {
     mutationFn: save,
     onSuccess: (bid) => { guard.saved(); qc.invalidateQueries({ queryKey: ["campaigns"] }); qc.invalidateQueries({ queryKey: ["broadcasts"] }); toast({ text: "Saved as draft" }); if (!editing) nav(`/campaigns/one-time/${bid}`, { replace: true }); },
   });
+  const canPublishBc = useCan("broadcasts", "publish");
+  const [asking, setAsking] = useState<{ id: number; reason?: string } | null>(null);
+  const askApproval = useMutation({
+    mutationFn: () => save(),
+    onSuccess: (bid) => { guard.saved(); qc.invalidateQueries({ queryKey: ["campaigns"] }); setAsking({ id: bid }); },
+  });
   const launch = useMutation({
     mutationFn: async () => {
       const bid = await save();
-      const r = await api.post<{ next_run_at: string }>(`/v1/broadcasts/${bid}/schedule`);
-      return { bid, next: r.next_run_at };
+      guard.saved();
+      try {
+        const r = await api.post<{ next_run_at: string }>(`/v1/broadcasts/${bid}/schedule`);
+        return { bid, next: r.next_run_at };
+      } catch (e) {
+        if (needsApproval(e)) setAsking({ id: bid, reason: "This workspace needs a second person to approve every launch. Ask for it, and it goes out when they approve." });
+        throw e;
+      }
     },
     onSuccess: ({ bid, next }) => {
       qc.invalidateQueries({ queryKey: ["campaigns"] });
@@ -406,7 +421,8 @@ export function OneTimeWizard() {
           {!live && <button className="btn" disabled={busy || !s.name.trim() || s.include.length === 0} title={!s.name.trim() || s.include.length === 0 ? "Name it and choose an audience first" : undefined} onClick={() => draft.mutate()}>{draft.isPending ? "Saving…" : "Save draft"}</button>}
         </>}
       />
-      <ErrorNote error={draft.error ?? launch.error ?? test.error ?? existing.error} />
+      <ErrorNote error={draft.error ?? (needsApproval(launch.error) ? null : launch.error) ?? test.error ?? existing.error} />
+      {asking && <AskApprovalModal kind="broadcast" id={asking.id} reason={asking.reason} onClose={() => { setAsking(null); nav(`/broadcasts/${asking.id}`); }} />}
       {live && <div className="alert info">This campaign is scheduled or sending. <Link to={`/broadcasts/${id}`}>Open it</Link> to follow it or cancel it before changing anything.</div>}
       <ol className="wizard-steps" aria-label="Steps">
         {WIZARD_STEPS.map((w, i) => (
@@ -523,8 +539,9 @@ export function OneTimeWizard() {
         <span className="xs" style={{ color: "var(--danger)" }}>{step !== "review" ? problem : ""}</span>
         {step !== "review" ? (
           <button type="button" className="btn primary" disabled={!!problem} onClick={() => go(WIZARD_STEPS[idx + 1].key)}>Next: {WIZARD_STEPS[idx + 1].label}</button>
-        ) : !live && (
-          <button type="button" className="btn primary" disabled={!!allProblem || busy} title={allProblem ?? undefined} onClick={() => launch.mutate()}>{launch.isPending ? "Scheduling…" : sendsNow ? "Send now" : "Schedule"}</button>
+        ) : !live && (canPublishBc
+            ? <button type="button" className="btn primary" disabled={!!allProblem || busy} title={allProblem ?? undefined} onClick={() => launch.mutate()}>{launch.isPending ? "Scheduling…" : sendsNow ? "Send now" : "Schedule"}</button>
+            : <button type="button" className="btn primary" disabled={!!allProblem || busy || askApproval.isPending} title={allProblem ?? "Your role can't launch campaigns: someone who can approves it"} onClick={() => askApproval.mutate()}>Save and ask for approval</button>
         )}
       </div>
       {testing && <TestSendModal template={testing} event={scopeEvent} onClose={() => setTesting(null)} />}

@@ -33,6 +33,11 @@ func TestApprovals(t *testing.T) {
 	jsonCall(t, c, "PUT", fmt.Sprintf("/v1/broadcasts/%v", bc), b, 200)
 	call(t, "POST", fmt.Sprintf("/v1/approvals/%d/approve", req), key, nil, 409)
 
+	// Changing the message's template after asking blocks it too.
+	req = idOf(jsonCall(t, c, "POST", "/v1/approvals", map[string]any{"kind": "broadcast", "campaign_id": bc}, 200)["id"])
+	jsonCall(t, c, "PUT", fmt.Sprint("/v1/templates/", tpl), map[string]any{"name": "ap", "channel": "sms", "content": map[string]any{"text": "Hi, changed"}}, 200)
+	call(t, "POST", fmt.Sprintf("/v1/approvals/%d/approve", req), key, nil, 409)
+
 	req = idOf(jsonCall(t, c, "POST", "/v1/approvals", map[string]any{"kind": "broadcast", "campaign_id": bc}, 200)["id"])
 	if r := call(t, "POST", fmt.Sprintf("/v1/approvals/%d/approve", req), key, nil, 200); r["status"] != "scheduled" {
 		t.Errorf("approve: %v", r)

@@ -742,6 +742,8 @@ export interface AutomationSettings {
   unsubscribe?: UnsubscribeSettings;
   /** The keys that identify a person, in priority order (Settings → Identity). */
   identity?: { keys: IdentityKey[] };
+  /** four_eyes: every campaign launch needs someone else's approval. */
+  approvals?: { four_eyes: boolean };
 }
 export type IdentityMode = "merge" | "suggest";
 /** An identity key: external_id, email, phone or a contact field. */

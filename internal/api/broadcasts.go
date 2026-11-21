@@ -340,30 +340,42 @@ func (s *Server) scheduleBroadcast(w http.ResponseWriter, r *http.Request, p mod
 
 // launchBroadcast schedules a broadcast (its own Schedule button, or an approval).
 func (s *Server) launchBroadcast(w http.ResponseWriter, r *http.Request, tenant, id int64) bool {
-	b, err := s.bcStore().GetBroadcast(r.Context(), tenant, id)
+	out, code, err := s.scheduleBroadcastNow(r.Context(), tenant, id)
 	if err != nil {
-		s.fail(w, err)
+		if code == 0 {
+			s.fail(w, err)
+		} else {
+			writeErr(w, code, err.Error())
+		}
 		return false
+	}
+	writeJSON(w, http.StatusOK, out)
+	return true
+}
+
+// scheduleBroadcastNow schedules a broadcast; code is the HTTP status of a refusal (0: a server error).
+func (s *Server) scheduleBroadcastNow(ctx context.Context, tenant, id int64) (map[string]any, int, error) {
+	b, err := s.bcStore().GetBroadcast(ctx, tenant, id)
+	if err != nil {
+		if errors.Is(err, pg.ErrNotFound) {
+			return nil, http.StatusNotFound, errors.New("not found")
+		}
+		return nil, 0, err
 	}
 	if b.Status == "testing" || b.Status == "running" {
-		writeErr(w, http.StatusConflict, "this broadcast is already sending")
-		return false
+		return nil, http.StatusConflict, errors.New("this broadcast is already sending")
 	}
-	if err := s.validBroadcast(r.Context(), b); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return false
+	if err := s.validBroadcast(ctx, b); err != nil {
+		return nil, http.StatusBadRequest, err
 	}
 	first, ok := broadcast.FirstRun(b, s.now())
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "the schedule has already ended; move the end later or remove it")
-		return false
+		return nil, http.StatusBadRequest, errors.New("the schedule has already ended; move the end later or remove it")
 	}
-	if err := s.bcStore().SetBroadcastSchedule(r.Context(), tenant, id, "scheduled", &first); err != nil {
-		s.fail(w, err)
-		return false
+	if err := s.bcStore().SetBroadcastSchedule(ctx, tenant, id, "scheduled", &first); err != nil {
+		return nil, 0, err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "scheduled", "next_run_at": first})
-	return true
+	return map[string]any{"id": id, "status": "scheduled", "next_run_at": first}, 0, nil
 }
 
 func (s *Server) cancelBroadcast(w http.ResponseWriter, r *http.Request, tenant int64) {

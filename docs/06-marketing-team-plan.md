@@ -765,6 +765,11 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - **7 Content blocks**: pg 036 `content_blocks`, `personalize.NSBlock` / `ExpandBlocks`, `channel.Vars.Blocks` (sends,
   previews), `/v1/content-blocks` (+ usage), dispatcher cache, `pages/ContentBlocks.tsx`, variable picker group.
   e2e `TestContentBlocks`, `TestSpamAndDomainChecks`.
+- **8 Approvals**: pg 037 `approval_requests`, `automation.Approvals.FourEyes`, `internal/api/approvals.go` (request, list,
+  latest, approve / reject / withdraw; `campaignVersion` hashes the definition, its templates and their blocks;
+  approve re-checks after launching and undoes it on a change), `scheduleBroadcastNow`; `ApprovalBar.tsx` (banner,
+  ask dialog, pending list), `approvals.ts`; launch buttons on the wizard, campaign settings and journey pages;
+  e2e `TestApprovals`, checked in a headless browser.
 
 ### O5 as built
 

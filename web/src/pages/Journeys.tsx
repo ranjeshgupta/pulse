@@ -1,4 +1,6 @@
 import { CampaignTimeline, DecisionTable } from "./CampaignTimeline";
+import { ApprovalBar, AskApprovalModal } from "../ApprovalBar";
+import { needsApproval } from "../approvals";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Background, Controls, MarkerType, MiniMap, Panel, ReactFlow, ReactFlowProvider, useReactFlow,
@@ -264,8 +266,17 @@ function JourneyEditor() {
       if (isNew) nav(`/journeys/${r.id}`, { replace: true });
     },
   });
+  const canPublishJ = useCan("journeys", "publish");
+  const [asking, setAsking] = useState<string | null>(null); // the reason shown, or "" for the plain ask
   const setStatus = useMutation({
-    mutationFn: (action: "activate" | "pause" | "unarchive") => api.post(`/v1/journeys/${id}/${action}`),
+    mutationFn: async (action: "activate" | "pause" | "unarchive") => {
+      try {
+        return await api.post(`/v1/journeys/${id}/${action}`);
+      } catch (e) {
+        if (needsApproval(e)) setAsking("This workspace needs a second person to approve every launch. Ask for it, and it goes live when they approve.");
+        throw e;
+      }
+    },
     onSuccess: (_, action) => {
       qc.invalidateQueries({ queryKey: ["journey", id] });
       qc.invalidateQueries({ queryKey: ["journeys"] });
@@ -299,11 +310,15 @@ function JourneyEditor() {
           {!isNew && <DuplicateButton path={`/v1/journeys/${id}/duplicate`} open={(nid) => `/journeys/${nid}`} invalidate={["journeys", "campaigns"]} />}
           {!locked && <button className="btn" disabled={save.isPending} onClick={() => save.mutate()}>Save draft</button>}
           {archived && <button className="btn" disabled={setStatus.isPending} onClick={() => setStatus.mutate("unarchive")}>Restore</button>}
-          {!isNew && status !== "active" && !archived && <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and go live</button>}
+          {!isNew && status !== "active" && !archived && (canPublishJ
+            ? <button className="btn primary" disabled={allIssues.length > 0 || setStatus.isPending} onClick={async () => { await save.mutateAsync(); setStatus.mutate("activate"); }}>Save and go live</button>
+            : <button className="btn primary" disabled={allIssues.length > 0 || save.isPending} title="Your role can't launch campaigns: someone who can approves it" onClick={async () => { await save.mutateAsync(); setAsking(""); }}>Save and ask for approval</button>)}
           {status === "active" && <button className="btn" onClick={() => setStatus.mutate("pause")}>Pause to edit</button>}
         </>}
       />
-      <ErrorNote error={save.error ?? setStatus.error ?? existing.error} />
+      <ErrorNote error={save.error ?? (needsApproval(setStatus.error) ? null : setStatus.error) ?? existing.error} />
+      {!isNew && id && <ApprovalBar kind="journey" id={Number(id)} />}
+      {asking !== null && id && <AskApprovalModal kind="journey" id={Number(id)} reason={asking || undefined} onClose={() => setAsking(null)} />}
       {!isNew && <JourneyTags id={id!} tags={existing.data?.tags ?? []} />}
       {archived && <div className="alert info">This campaign is archived: it's hidden from Campaigns (choose the Archived status to see it) and can't go live. Its history and reports are kept. Restore it to use it again.</div>}
       {existing.data?.problem && <div className="alert error" role="alert"><strong>This campaign isn't running:</strong> {existing.data.problem}. Nobody moves through it until it's fixed: choose Pause to edit, change that step, then go live again.</div>}
