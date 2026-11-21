@@ -221,7 +221,7 @@ func TestProtectAndFill(t *testing.T) {
 func TestPreviewIsScriptFree(t *testing.T) {
 	out, _ := fullDoc().Build()
 	pv := PreviewHTML(out + `<a href="javascript:x">j</a>`)
-	for _, bad := range []string{"<script", "visibility:hidden", "<amp-img", "javascript:", "{{message}}", "action-xhr"} {
+	for _, bad := range []string{"<script", "visibility:hidden", "<amp-img", "javascript:", "{{message}}", "action-xhr", "onsubmit"} {
 		if strings.Contains(pv, bad) {
 			t.Errorf("preview contains %s", bad)
 		}

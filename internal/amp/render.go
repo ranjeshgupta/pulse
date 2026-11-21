@@ -46,7 +46,8 @@ func Fill(doc string, url func(kind, block string) string) string {
 
 // PreviewHTML turns an AMP document into plain HTML that looks roughly like it in an email client
 // that shows AMP, for a script-free preview in the app: images become <img>, carousels scroll
-// sideways, accordion sections become <details>, forms can't be sent, and the boilerplate that
+// sideways, accordion sections become <details>, form fields are disabled (the app's sandboxed
+// frame stops forms being sent), and the boilerplate that
 // hides the page until the AMP runtime loads is dropped.
 func PreviewHTML(doc string) string {
 	z := xhtml.NewTokenizer(strings.NewReader(doc))
@@ -156,7 +157,9 @@ func previewTag(t xhtml.Token, a map[string]string, inAccordion bool, pendingSum
 	case "amp-list":
 		return `<div class="note" style="color:#5b6474;font-size:14px">(This list loads live in the email.)`, "</div>"
 	case "form":
-		return keep("form", ` onsubmit="return false"`, "class", "id"), "</form>"
+		// No onsubmit handler: the app shows this in a sandbox="" frame, which already blocks sending
+		// forms, and an inline handler there only logs "Blocked script execution".
+		return keep("form", "", "class", "id"), "</form>"
 	case "button":
 		return keep("button", ` type="button"`, "class", "style"), "</button>"
 	case "a":
