@@ -1,6 +1,6 @@
 package analytics
 
-// Custom reports (a small Mautic-style report builder): a data source, a metric, an optional group
+// Custom reports (a small report builder): a data source, a metric, an optional group
 // and filters, compiled to one bounded, parameterized query. At most MaxGroups groups come back,
 // date ranges are a year at most, and grouping by day covers at most MaxGroups days.
 

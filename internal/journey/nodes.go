@@ -1,7 +1,7 @@
 package journey
 
-// The steps that map Mautic's campaign decisions, actions and conditions onto Pulse. Each is
-// validated here; graph.go keeps the original steps.
+// The builder's extra decisions, actions and conditions (forms, assets, pages, points, stages,
+// owners, Do Not Contact...). Each is validated here; graph.go keeps the original steps.
 
 import (
 	"encoding/json"

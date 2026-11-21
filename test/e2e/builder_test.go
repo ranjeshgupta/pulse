@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// TestJourneyBuilderSteps runs the Mautic-style steps end to end: a decision (submits a form ->
+// TestJourneyBuilderSteps runs the builder's extra steps end to end: a decision (submits a form ->
 // Yes), a condition (contact stage), Do Not Contact, owner, an email to a user that arrives in
 // Mailpit, a marketing message that falls back to its second channel, and change campaigns into a
 // journey that shows a focus item to that one contact (via the decide API) and loops with a jump

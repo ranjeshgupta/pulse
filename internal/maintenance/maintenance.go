@@ -1,5 +1,5 @@
 // Package maintenance deletes data past each workspace's retention settings (Settings →
-// Automation & limits, package automation), like Mautic's mautic:maintenance:cleanup.
+// Automation & limits, package automation): a scheduled cleanup pass.
 //
 // Each workspace is cleaned once a day, in its own hour (automation.RetentionDue spreads them over
 // the day), and the run is claimed in Postgres (retention_runs) so several workers never repeat it.

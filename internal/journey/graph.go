@@ -41,7 +41,7 @@ const (
 	NodeWaitUntil    = "wait_until"     // a date/time, or the next time of day in the contact's zone
 	NodeWaitForEvent = "wait_for_event" // until the contact does an event (yes) or the timeout passes (no)
 	// NodeMessageDecision waits for an earlier send step's message to be opened, clicked, delivered
-	// or read (yes) or the timeout to pass (no): Mautic's "opens email" / WebEngage's "message read".
+	// or read (yes) or the timeout to pass (no): the "opens email" / "message read" decisions.
 	NodeMessageDecision = "message_decision"
 	NodeCheck           = "check"         // any segment rule, evaluated for this contact right now
 	NodeSplit           = "split"         // A/B/n split by weight, stable per enrollment
@@ -151,7 +151,7 @@ type Node struct {
 	URL        string          `json:"url,omitempty"`         // webhook; message_decision (clicked: link contains); on_page, if_visited (contains)
 	Body       string          `json:"body,omitempty"`        // webhook: JSON template; empty sends the contact
 
-	// Steps added with the Mautic-style builder (see nodes.go for what each one takes).
+	// Steps added with the batch 7b journey builder (see nodes.go for what each one takes).
 	FormID           int64            `json:"form_id,omitempty"`           // on_form, if_form_field (0 = any form)
 	AssetID          int64            `json:"asset_id,omitempty"`          // on_asset (0 = any asset)
 	PageID           int64            `json:"page_id,omitempty"`           // on_page: a landing page

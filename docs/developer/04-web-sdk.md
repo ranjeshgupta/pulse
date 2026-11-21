@@ -242,7 +242,7 @@ put in an `<iframe>` on any site, or a server-side post ([API guide](03-api.md#f
 
 ## Content slots
 
-A content slot is an element whose HTML Pulse fills per visitor (Mautic's Dynamic Web Content).
+A content slot is an element whose HTML Pulse fills per visitor (dynamic web content).
 
 ```html
 <div data-pulse-slot="home-hero">

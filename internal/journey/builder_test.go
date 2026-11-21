@@ -217,8 +217,8 @@ func TestJumpsMayLoopButOtherCyclesMayNot(t *testing.T) {
 }
 
 func TestDecisionsNeedTheirSendAbove(t *testing.T) {
-	// The watched email is on another branch, not above the decision: Mautic's rule that "opens
-	// email" follows a send email action.
+	// The watched email is on another branch, not above the decision: an "opens email"
+	// decision must follow a send email step on its own path.
 	_, err := ParseGraph([]byte(`{"trigger":{"type":"event","event":"signup"},"entry":"c","nodes":{
 		"c":{"type":"if_before","until":"2030-01-01T00:00:00Z","yes":"mail","no":"d"},
 		"mail":{"type":"send_email","template_id":1,"next":"x"},

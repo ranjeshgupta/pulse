@@ -1,5 +1,5 @@
 // The journey builder's step chooser: every step it offers, by category (Action, Decision,
-// Condition, Wait, Split), with Mautic's and WebEngage's names and one-line meanings. Several
+// Condition, Wait, Split), with plain names and one-line meanings. Several
 // items store the same step type with a different preset (e.g. "Opens email" and "Clicks email"
 // are message decisions). disabled() explains why an item can't go at an insertion point.
 import type { JourneyGraph, JourneyNode } from "./api";

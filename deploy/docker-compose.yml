@@ -1,6 +1,6 @@
 name: pulse
 
-# Host ports are offset so this stack can run next to the Mautic and Listmonk stacks.
+# Host ports are offset so this stack can run next to other local stacks on their default ports.
 services:
   kafka:
     image: apache/kafka:4.1.0

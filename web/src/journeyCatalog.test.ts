@@ -22,7 +22,7 @@ const afterSms: InsertAt = { source: "sms1", handle: "next" };
 const afterWait: InsertAt = { source: "wait1", handle: "next" };
 
 describe("journey step catalog", () => {
-  it("offers every Mautic and WebEngage decision", () => {
+  it("offers every decision step", () => {
     expect(labels("decision")).toEqual([
       "Opens email", "Clicks email", "Replies to email", "Downloads asset", "Submits form", "Visits a page",
       "Device visit", "Requests dynamic content", "Message outcome", "Does an event",

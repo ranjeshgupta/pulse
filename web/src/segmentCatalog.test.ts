@@ -61,8 +61,8 @@ suite("filter catalog", () => {
     expect(pushRecent(["1", "2", "3", "4", "5", "6"], "7")).toHaveLength(MAX_RECENT);
   });
 
-  it("maps every Mautic filter to a picker entry", () => {
-    const mautic = [
+  it("offers a picker entry for every contact, behaviour and consent filter", () => {
+    const expected = [
       "field:address1", "field:attribution", "field:attribution_date", "field:email_bounced", "field:sms_bounced", "journey_entered",
       "field:city", "field:country", "field:date_added", "field:date_identified", "field:last_seen", "field:device_brand", "field:device_model",
       "field:device_os", "field:device_type", "field:email", "field:email_domain", "field:first_name", "field:last_name", "field:phone",
@@ -73,7 +73,7 @@ suite("filter catalog", () => {
       "email_read_any", "email_read_times", "email_sent_any", "page_url", "landing_page", "page_any", "page_times", "page_referrer",
       "page_source", "page_source_id", "page_title", "email_sent_specific",
     ];
-    for (const id of mautic) expect(byId[id], id).toBeDefined();
+    for (const id of expected) expect(byId[id], id).toBeDefined();
     // Every entry inserts a rule the backend accepts once its blanks are filled (or says what's missing).
     for (const it of items) expect(() => toRule(it.make()), it.id).not.toThrow();
   });

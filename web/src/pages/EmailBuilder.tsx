@@ -1,4 +1,4 @@
-// GrapesJS drag-and-drop email builder (the engine Mautic uses), with the newsletter preset.
+// GrapesJS drag-and-drop email builder, with the newsletter preset.
 // Loaded lazily: it is the heaviest part of the app.
 import grapesjs, { type Editor } from "grapesjs";
 import "grapesjs/dist/css/grapes.min.css";

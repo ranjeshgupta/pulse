@@ -1,5 +1,5 @@
-// The segment builder's filter catalog: every filter the "Add filter" picker offers, grouped like
-// Mautic's and WebEngage's (Contact, Company, Location, Device, Consent & deliverability, Behaviour,
+// The segment builder's filter catalog: every filter the "Add filter" picker offers, grouped
+// (Contact, Company, Location, Device, Consent & deliverability, Behaviour,
 // Points & stage, Segments & tags), with search, recently used filters and the workspace's own
 // attributes listed with their type.
 import {

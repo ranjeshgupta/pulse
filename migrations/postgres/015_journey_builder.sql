@@ -1,4 +1,4 @@
--- Batch 7b, the Mautic-style journey builder.
+-- Batch 7b, the journey builder's extra decisions, actions and conditions.
 -- jumps counts an enrollment's jump steps (capped at 25); step keys carry it so a step repeated
 -- after a jump runs again. form is the form submission that started or resumed the enrollment
 -- (props of form_submitted), read by "form field value" conditions.

@@ -7,7 +7,7 @@ in-app inbox, plus pop-ups and personalised content on your website. Many worksp
 installation.
 
 It is one Go binary with the React web app built in, on Kafka, ClickHouse, Postgres and Redis. It
-covers what Mautic and WebEngage do, at Listmonk-like speed: an event moves a contact into a segment
+covers the full marketing automation and customer engagement feature set at bulk-mailer speed: an event moves a contact into a segment
 and starts a campaign within seconds, not on a 15-minute cron, and it is built for 10 to 100 million
 contacts.
 
@@ -32,7 +32,7 @@ contacts.
   joins a segment) campaigns, in one Campaigns list with tags and filters.
 - A visual builder for triggered and automation campaigns: waits, conditions, decisions on opens,
   clicks and replies, A/B splits with automatic winners, goals, webhooks, field and tag updates,
-  CRM pushes, and every Mautic campaign step.
+  CRM pushes, and steps for forms, assets, pages, points, stages and owners.
 - Personalisation from contact fields and the event that started the campaign
   (`{{event.product_name}}`), with defaults and formats; the channel chosen by condition (Indian
   numbers by SMS, others by WhatsApp); consent, frequency caps and quiet hours on every send.
@@ -116,8 +116,8 @@ For production (separate roles, scaling, backups, TLS) see
   [architecture and extending](docs/developer/07-architecture-and-extending.md),
   [contributing and testing](docs/developer/08-contributing-and-testing.md).
 - **Design notes**: [architecture](docs/02-architecture.md),
-  [load tests](docs/03-load-test.md), [feature check against Mautic and WebEngage](docs/05-feature-parity.md),
-  [how Mautic and Listmonk work](docs/01-review.md), and the plans the features were built from
+  [load tests](docs/03-load-test.md), [feature checklist](docs/05-feature-parity.md),
+  [design review](docs/01-review.md), and the plans the features were built from
   ([web app and channels](docs/04-phase2-plan.md), [marketing team requirements](docs/06-marketing-team-plan.md)).
 
 ## How it works

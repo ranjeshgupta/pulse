@@ -2,7 +2,7 @@
 //
 // Streaming: every enriched event re-evaluates only the segments that reference its event name or
 // a changed attribute (all of the tenant's segments for a brand-new contact), for that one contact.
-// Cost per event is independent of how many contacts exist, unlike Mautic's full rebuild.
+// Cost per event is independent of how many contacts exist, unlike a scheduled full rebuild.
 //
 // Batch: new segments are backfilled from ClickHouse, and segments with event windows are swept on
 // an interval so "in the last N days" membership decays. Both diff against the stored bitmap and

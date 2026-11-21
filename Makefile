@@ -49,10 +49,11 @@ docs-shots: $(if $(wildcard .cache/docs-shots/sessions/$(DOCS_WORKSPACE)-*.json)
 		-e PULSE_DOCS_PASSWORD=$(DOCS_PASSWORD) -e SHOT=$(SHOT) \
 		mcr.microsoft.com/playwright:v$(PLAYWRIGHT_VERSION)-jammy sh run.sh
 
-# make docs-check: every link, image and heading anchor in the tutorials and developer docs resolves,
+# make docs-check: every link, image and heading anchor in the README, the top-level docs, the tutorials
+# and the developer docs resolves,
 # and no screenshot is left unreferenced. Uses the host's Node.
 docs-check:
-	node docs/screenshots/checklinks.mjs . docs/tutorials docs/developer
+	node docs/screenshots/checklinks.mjs . . docs docs/tutorials docs/developer
 
 .PHONY: tidy build test vet it e2e load seed docs-seed docs-shots docs-check up down logs ps
 
