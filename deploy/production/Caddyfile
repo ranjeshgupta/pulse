@@ -1,0 +1,23 @@
+# Public entry for Pulse behind Cloudflare (SSL mode Full (strict)).
+# certs/origin.pem and certs/origin.key are a Cloudflare Origin Certificate covering both names.
+{
+	admin off
+	auto_https disable_redirects
+}
+
+{$APP_DOMAIN}, {$PAGES_DOMAIN} {
+	tls /certs/origin.pem /certs/origin.key
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:7070 {
+		header_up X-Forwarded-Proto https
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Plain http (Cloudflare normally upgrades first): send everyone to https.
+http:// {
+	redir https://{host}{uri} permanent
+}

@@ -159,7 +159,7 @@ func (d *deps) sendRates() map[string]float64 {
 
 func (d *deps) redis() *redis.Client {
 	if d.rdb == nil {
-		d.rdb = redis.NewClient(&redis.Options{Addr: d.cfg.RedisAddr})
+		d.rdb = redis.NewClient(&redis.Options{Addr: d.cfg.RedisAddr, Password: d.cfg.RedisPassword})
 	}
 	return d.rdb
 }

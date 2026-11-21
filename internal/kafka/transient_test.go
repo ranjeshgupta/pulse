@@ -23,6 +23,7 @@ func TestTransient(t *testing.T) {
 		want bool
 	}{
 		"redis loading":      {errors.New("LOADING Redis is loading the dataset in memory"), true},
+		"redis full":         {errors.New("OOM command not allowed when used memory > 'maxmemory'."), true},
 		"refused":            {fmt.Errorf("dial: %w", syscall.ECONNREFUSED), true},
 		"net timeout":        {&net.OpError{Op: "read", Err: errors.New("i/o timeout")}, true},
 		"deadline":           {context.DeadlineExceeded, true},

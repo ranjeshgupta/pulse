@@ -291,7 +291,9 @@ func Transient(err error) bool {
 		return strings.HasPrefix(code, "08") || strings.HasPrefix(code, "53") || strings.HasPrefix(code, "57P0")
 	}
 	msg := err.Error()
-	for _, s := range []string{"LOADING ", "TRYAGAIN", "CLUSTERDOWN", "MASTERDOWN", "READONLY You can't write against a read only replica",
+	// OOM: Redis is at its memory limit; the pipeline waits (and the operator is alerted by the
+	// logs) rather than dropping events.
+	for _, s := range []string{"LOADING ", "TRYAGAIN", "OOM command not allowed", "CLUSTERDOWN", "MASTERDOWN", "READONLY You can't write against a read only replica",
 		"connection refused", "connection reset", "broken pipe", "i/o timeout", "no such host", "server closed the connection",
 		"failed to connect", "conn closed"} {
 		if strings.Contains(msg, s) {

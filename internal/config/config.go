@@ -13,13 +13,15 @@ import (
 )
 
 type Config struct {
-	HTTPAddr      string
-	PGDSN         string
-	CHAddr        string
-	CHDB          string
-	CHUser        string
-	CHPassword    string
-	RedisAddr     string
+	HTTPAddr   string
+	PGDSN      string
+	CHAddr     string
+	CHDB       string
+	CHUser     string
+	CHPassword string
+	RedisAddr  string
+	// RedisPassword authenticates to Redis (requirepass); empty for none.
+	RedisPassword string
 	KafkaBrokers  []string
 	Partitions    int32
 	SMTPAddr      string
@@ -84,6 +86,7 @@ func Load() (Config, error) {
 		CHUser:               env("PULSE_CH_USER", "pulse"),
 		CHPassword:           env("PULSE_CH_PASSWORD", "pulse"),
 		RedisAddr:            env("PULSE_REDIS_ADDR", "localhost:16379"),
+		RedisPassword:        env("PULSE_REDIS_PASSWORD", ""),
 		KafkaBrokers:         strings.Split(env("PULSE_KAFKA_BROKERS", "localhost:19092"), ","),
 		Partitions:           int32(r.integer("PULSE_KAFKA_PARTITIONS", 12)),
 		SMTPAddr:             env("PULSE_SMTP_ADDR", "localhost:11025"),

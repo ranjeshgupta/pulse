@@ -120,7 +120,9 @@ cd web && npm install && npm run dev     # web app with hot reload on :5173 (Nod
 ```
 
 The local stack uses development passwords and keys from `deploy/docker-compose.yml` and binds its
-ports to `127.0.0.1`; don't expose it to a network. For production (separate roles, secrets, scaling, backups, TLS) see
+ports to `127.0.0.1`; don't expose it to a network. To run Pulse on a server, use the production kit in
+[deploy/production](deploy/production/README.md) (one Ubuntu server behind Cloudflare: generated
+secrets, TLS, firewall, backups). For separate roles, scaling and other setups see
 [Installation](docs/developer/01-installation.md).
 
 ## Documentation

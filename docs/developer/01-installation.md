@@ -182,7 +182,7 @@ and `internal/config/config.go`. For production, set at least:
 | `PULSE_SECRET_KEY` | 64 hex characters (`openssl rand -hex 32`). Encrypts stored credentials (SSO client secrets, provider and integration credentials, email webhook signing keys, cached provider tokens, bounce mailbox passwords), SSO state, tracking links, message references, AMP post-back links and download links. Without it SSO and stored provider credentials don't work, and emails go out without open and click tracking. **Keep it in a secret store and back it up**: if it's lost, everything encrypted with it has to be entered again. Don't reuse the dev key from `deploy/docker-compose.yml` |
 | `PULSE_PUBLIC_URL` | The `https://` address people use, e.g. `https://pulse.example.com`. Used for SSO redirects, tracking, unsubscribe and webhook links. With `https` the session cookie is `__Host-pulse_session` (`Secure`, valid for this host only) and every answer carries `Strict-Transport-Security`, so serve the whole host over https |
 | `PULSE_PAGES_URL` | A **separate origin** for landing pages (`/p/`), asset downloads (`/a/`) and hosted forms (`/f/`), ideally on its own registrable domain, e.g. `https://acme-pages.example` next to `https://pulse.example.com`. Content your users write then never shares an origin or cookies with the app. Without it, `api` logs a warning at start. See [Two origins](#two-origins-public_url-and-pages_url) |
-| `PULSE_PG_DSN`, `PULSE_CH_*`, `PULSE_REDIS_ADDR`, `PULSE_KAFKA_BROKERS` | Where the data services are. Use `sslmode=require` (or `verify-full`) in the Postgres DSN when it crosses a network |
+| `PULSE_PG_DSN`, `PULSE_CH_*`, `PULSE_REDIS_ADDR`, `PULSE_REDIS_PASSWORD`, `PULSE_KAFKA_BROKERS` | Where the data services are. Use `sslmode=require` (or `verify-full`) in the Postgres DSN when it crosses a network |
 | `PULSE_SMTP_ADDR`, `PULSE_SMTP_FROM` | The SMTP relay for workspaces without an email provider of their own, and its default sender (whose domain may also send AMP emails that post back) |
 | `PULSE_ALLOW_SIGNUP` | Off (`false`) by default, so strangers can't create workspaces; create them with `PULSE_ADMIN_TOKEN` instead (below). Turn it on only behind a CAPTCHA (for example at your reverse proxy) or on a private network. When on, `PULSE_SIGNUP_RATE` (default 5) caps sign-ups per client IP a minute |
 | `PULSE_ADMIN_TOKEN` | A long random value (`openssl rand -hex 32`) for `POST /v1/tenants`; leave it unset to turn that route off |
@@ -216,10 +216,16 @@ returns `{"status":"ok"}`. Logs are JSON lines on stdout.
 **Never run `deploy/docker-compose.yml` on a server.** It is for local development only: it uses
 published default passwords, a public secret key and admin token, allows public sign-up, and turns on
 settings that let Pulse call private addresses. Its ports are bound to `127.0.0.1`, so they aren't
-reachable from other machines, but that is no reason to run it anywhere else. A production compose file will be added
-under `deploy/` later. Until then, write your own (e.g. `/srv/pulse/compose.yml`, outside the
-repository), using the dev file only as a reference for the service definitions, with these
-changes:
+reachable from other machines, but that is no reason to run it anywhere else.
+
+**Use [`deploy/production/`](../../deploy/production/README.md) instead.** It is a ready production
+kit for one Ubuntu server behind Cloudflare: a compose file with generated secrets and memory limits,
+Caddy with a Cloudflare Origin Certificate, a firewall that admits web traffic from Cloudflare only,
+nightly backups, an update script and a script that creates the first workspace. Its README walks
+through the server, DNS, TLS and WAF setup.
+
+To write your own compose file instead (e.g. `/srv/pulse/compose.yml`, outside the repository), use
+the dev file only as a reference for the service definitions, with these changes:
 
 1. **Remove** the `mailpit` and `keycloak` services, and `mailpit` from Pulse's `depends_on`.
 2. **Remove the `ports:`** of `kafka`, `clickhouse`, `postgres` and `redis`: Pulse reaches them on
