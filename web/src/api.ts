@@ -413,6 +413,8 @@ export interface Broadcast {
   id: number; name: string; channel: Channel; template_id: number; fallback_template_id?: number; provider_id?: number; segment_id: number;
   /** The subscription topic: its unsubscribers are skipped, and its unsubscribe link leaves the topic only. */
   topic?: string;
+  /** At most this many messages an hour (0: as fast as possible). */
+  send_per_hour?: number;
   start_at: string; end_at?: string | null; repeat: Repeat; next_run_at?: string | null;
   /** testing: an A/B test is waiting for its winner. */
   status: "draft" | "scheduled" | "running" | "testing" | "completed" | "cancelled"; updated_at?: string;

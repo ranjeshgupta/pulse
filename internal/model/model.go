@@ -197,6 +197,8 @@ type Message struct {
 	// (their timezone or geo_timezone attribute, else LocalZone: the zone the broadcast was set in).
 	LocalAt   string `json:"local_at,omitempty"`
 	LocalZone string `json:"local_zone,omitempty"`
+	// NotBefore holds the message until then (a campaign's sending speed spreads its sends).
+	NotBefore *time.Time `json:"not_before,omitempty"`
 	// Personalisation context: Event holds the properties of the event that started the journey
 	// (personal properties removed, at most 16 KB) for {{event.x}}; Campaign is the journey's or
 	// broadcast's name and Step the journey step, for {{campaign.name}} and {{campaign.step}}.
@@ -411,12 +413,15 @@ type Broadcast struct {
 	// ProviderID: the channel's provider to send through; 0 is the channel's default.
 	ProviderID int64 `json:"provider_id,omitempty"`
 	// Topic: the subscription topic (its unsubscribers are skipped); "" for none.
-	Topic     string     `json:"topic,omitempty"`
-	SegmentID int64      `json:"segment_id"`
-	StartAt   time.Time  `json:"start_at"`
-	EndAt     *time.Time `json:"end_at,omitempty"`
-	Repeat    string     `json:"repeat"` // none | daily | weekly | monthly
-	NextRunAt *time.Time `json:"next_run_at,omitempty"`
+	Topic string `json:"topic,omitempty"`
+	// SendPerHour paces a run (O6, sending speed): at most this many messages an hour, spread
+	// evenly from the run's start (0: as fast as the channel and provider allow).
+	SendPerHour int        `json:"send_per_hour,omitempty"`
+	SegmentID   int64      `json:"segment_id"`
+	StartAt     time.Time  `json:"start_at"`
+	EndAt       *time.Time `json:"end_at,omitempty"`
+	Repeat      string     `json:"repeat"` // none | daily | weekly | monthly
+	NextRunAt   *time.Time `json:"next_run_at,omitempty"`
 	// draft | scheduled | running | testing (an A/B test waits for its winner) | completed | cancelled
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`

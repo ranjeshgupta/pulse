@@ -124,6 +124,25 @@ export interface WizardState {
   /** content: a template written here, or a reusable one chosen. */
   templateMode: "write" | "pick"; pickedTemplate?: number;
   start_at: string; end_at?: string | null; repeat: string; local_time?: boolean; deadline?: Deadline | null;
+  /** Sending speed: at most this many messages an hour (0 / undefined: as fast as possible). */
+  send_per_hour?: number;
+}
+
+/** speedWords says what a sending speed means for an audience: "Everyone has it within about 3 h". */
+export function speedWords(perHour: number | undefined, audience?: number): string {
+  if (!perHour) return "As fast as the channel and provider allow";
+  const rate = `${perHour.toLocaleString("en-IN")} an hour`;
+  if (!audience) return rate;
+  const hours = audience / perHour;
+  const span = hours < 1 ? `${Math.max(1, Math.round(hours * 60))} min` : hours < 48 ? `${Math.round(hours * 10) / 10} h` : `${Math.round(hours / 24 * 10) / 10} days`;
+  return `${rate}: everyone has it within about ${span}`;
+}
+
+/** speedProblem says why a sending speed can't be used, or null. */
+export function speedProblem(perHour: number | undefined): string | null {
+  if (!perHour) return null;
+  if (!Number.isInteger(perHour) || perHour < 60 || perHour > 10_000_000) return "Sending speed: 60 to 10,000,000 messages an hour.";
+  return null;
 }
 
 /** stepProblem says what blocks leaving a step, or null. */
@@ -141,7 +160,7 @@ export function stepProblem(s: WizardState, step: WizardStep, content: { subject
       return null;
     case "schedule":
       if (!s.start_at) return "Choose when to send.";
-      return deadlineProblem(s.deadline);
+      return deadlineProblem(s.deadline) ?? speedProblem(s.send_per_hour);
     default:
       return null;
   }

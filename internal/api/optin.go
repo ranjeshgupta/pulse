@@ -22,7 +22,9 @@ import (
 const optinLinkTTL = 7 * 24 * time.Hour
 
 func (s *Server) optinRoutes(mux *http.ServeMux) {
+	// GET only shows the question: mail scanners open links, and must not confirm for anyone.
 	mux.HandleFunc("GET /f/confirm/{token}", s.confirmOptin)
+	mux.HandleFunc("POST /f/confirm/{token}", s.confirmOptin)
 }
 
 // optinURL is a submitter's confirmation link ("" when links can't be signed).
@@ -39,14 +41,20 @@ var optinPage = template.Must(template.New("o").Parse(`<!doctype html><html lang
 <style>*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#f4f6f8;color:#152238;margin:0;display:grid;place-items:center;min-height:100vh}
 main{background:#fff;border:1px solid #dce1e8;border-radius:10px;padding:32px;max-width:480px;width:100%;margin:16px;text-align:center}
 h1{font-size:22px;margin:8px 0}p{color:#5b6474;margin:0}.big{font-size:42px}</style></head>
-<body><main><div class="big" aria-hidden="true">{{.Icon}}</div><h1>{{.Title}}</h1><p>{{.Text}}</p></main></body></html>`))
+<body><main><div class="big" aria-hidden="true">{{.Icon}}</div><h1>{{.Title}}</h1><p>{{.Text}}</p>
+{{if .Ask}}<form method="post"><button style="font:inherit;font-weight:600;margin-top:18px;padding:12px 22px;border-radius:8px;border:0;background:#2747d6;color:#fff;cursor:pointer;width:100%">Yes, confirm my subscription</button></form>{{end}}
+</main></body></html>`))
 
 func renderOptin(w http.ResponseWriter, code int, icon, title, text string) {
+	renderOptinPage(w, code, map[string]any{"Icon": icon, "Title": title, "Text": text})
+}
+
+func renderOptinPage(w http.ResponseWriter, code int, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer") // the link is a secret
 	w.WriteHeader(code)
-	_ = optinPage.Execute(w, map[string]string{"Icon": icon, "Title": title, "Text": text})
+	_ = optinPage.Execute(w, data)
 }
 
 func (s *Server) confirmOptin(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +80,11 @@ func (s *Server) confirmOptin(w http.ResponseWriter, r *http.Request) {
 	f, err := fs.GetForm(r.Context(), tok.TenantID, tok.FormID)
 	if err != nil {
 		renderOptin(w, http.StatusNotFound, "🔗", "This link doesn't work any more", "The form it came from was removed.")
+		return
+	}
+	if r.Method != http.MethodPost {
+		renderOptinPage(w, http.StatusOK, map[string]any{"Icon": "✉️", "Title": "Confirm your subscription",
+			"Text": "One click and you're in: " + tok.Email + ".", "Ask": true})
 		return
 	}
 	// The same link always records the same event ids: clicking twice changes nothing.

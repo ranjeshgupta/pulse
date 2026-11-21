@@ -67,3 +67,14 @@ describe("wizard checks", () => {
     expect(stepProblem(base, "schedule", {})).toBeNull();
   });
 });
+
+import { speedProblem, speedWords } from "./campaigns";
+describe("sending speed", () => {
+  it("explains and checks a speed", () => {
+    expect(speedWords(undefined)).toMatch(/As fast/);
+    expect(speedWords(10000, 25000)).toBe("10,000 an hour: everyone has it within about 2.5 h");
+    expect(speedWords(60, 30)).toMatch(/30 min/);
+    expect(speedProblem(10)).toMatch(/60 to/);
+    expect(speedProblem(500)).toBeNull();
+  });
+});

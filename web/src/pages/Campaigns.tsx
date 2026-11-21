@@ -5,7 +5,7 @@ import {
   api, CHANNEL_NAMES, CHANNELS, type Broadcast, type CampaignCategory, type CampaignRow, type Channel, type Journey, type Repeat, type Segment, type Template,
 } from "../api";
 import { useCan } from "../auth";
-import { CAMPAIGN_GOALS, CATEGORIES, describeDeadline, newCampaignHref, stepProblem, WIZARD_STEPS, type WizardState, type WizardStep } from "../campaigns";
+import { CAMPAIGN_GOALS, CATEGORIES, describeDeadline, newCampaignHref, speedProblem, speedWords, stepProblem, WIZARD_STEPS, type WizardState, type WizardStep } from "../campaigns";
 import { ContactCount } from "../ContactCount";
 import { outcomeFilters } from "../contactLinks";
 import { listActions, type ListAction } from "../journeyGraph";
@@ -286,7 +286,7 @@ export function OneTimeWizard() {
     const b = existing.data?.broadcast;
     if (!b) return;
     setS({ name: b.name, channel: b.channel, include: [b.segment_id, ...(b.include_segment_ids ?? [])].filter(Boolean), exclude: b.exclude_segment_ids ?? [],
-      templateMode: "write", start_at: b.start_at, end_at: b.end_at, repeat: b.repeat, local_time: b.local_time, deadline: b.deadline ?? null });
+      templateMode: "write", start_at: b.start_at, end_at: b.end_at, repeat: b.repeat, local_time: b.local_time, deadline: b.deadline ?? null, send_per_hour: b.send_per_hour || undefined });
     setTags(b.tags ?? []);
     setFallback(b.fallback_template_id ?? 0);
     setProvider(b.provider_id ?? 0);
@@ -336,7 +336,7 @@ export function OneTimeWizard() {
     const body = {
       name: st.name.trim(), channel: st.channel, template_id: tid, segment_id: st.include[0], include_segment_ids: st.include.slice(1),
       exclude_segment_ids: st.exclude, start_at: st.start_at, end_at: st.end_at ?? null, repeat: st.repeat as Repeat,
-      local_time: !!st.local_time, timezone: st.local_time ? browserZone() : "", deadline: st.deadline ?? null, tags,
+      local_time: !!st.local_time, timezone: st.local_time ? browserZone() : "", deadline: st.deadline ?? null, tags, send_per_hour: st.send_per_hour || 0,
       fallback_template_id: fallback || 0, provider_id: provider || 0, topic, conversion_days: 3,
     };
     if (bcId) {
@@ -479,6 +479,22 @@ export function OneTimeWizard() {
               <label className="check"><input type="checkbox" checked={!!s.local_time} onChange={(e) => set({ local_time: e.target.checked })} />Send at {localClock(s.start_at)} in each contact's own time zone</label>
             )}
             <DeadlineFields value={s.deadline} onChange={(deadline) => set({ deadline })} localTime={!!s.local_time} zone={browserZone()} />
+            <div className="field" style={{ marginTop: 12 }}>
+              <span>Sending speed</span>
+              <div className="seg-toggle sm" role="radiogroup" aria-label="Sending speed" style={{ width: "fit-content" }}>
+                <button type="button" role="radio" aria-checked={!s.send_per_hour} aria-pressed={!s.send_per_hour} onClick={() => set({ send_per_hour: undefined })}>As fast as possible</button>
+                <button type="button" role="radio" aria-checked={!!s.send_per_hour} aria-pressed={!!s.send_per_hour} onClick={() => set({ send_per_hour: s.send_per_hour || 10000 })}>Spread it out</button>
+              </div>
+              {!!s.send_per_hour && (
+                <div className="row" style={{ alignItems: "center", marginTop: 8 }}>
+                  <input className="input" type="number" min={60} step={100} style={{ maxWidth: 160 }} aria-label="Messages an hour" value={s.send_per_hour}
+                    onChange={(e) => set({ send_per_hour: Math.trunc(Number(e.target.value)) || 60 })} />
+                  <span className="small">messages an hour</span>
+                </div>
+              )}
+              <small>{s.send_per_hour ? "Spreading a big send protects your website from a rush of visitors, warms up a new sending domain, and stays under provider limits." : "Provider limits (Channels → Limits) still apply."}</small>
+              {speedProblem(s.send_per_hour) && <div className="alert error" style={{ marginTop: 6 }}>{speedProblem(s.send_per_hour)}</div>}
+            </div>
           </div>
         )}
         {step === "review" && (
@@ -490,6 +506,7 @@ export function OneTimeWizard() {
               <dt>Content</dt><dd>{s.templateMode === "pick" ? `Template "${reusableTemplates.find((x) => x.id === s.pickedTemplate)?.name}"` : s.channel === "email" ? `Email "${t.subject}"` : "Written here"}{reusable && s.templateMode === "write" ? ", also saved as a reusable template" : ""}</dd>
               <dt>When</dt><dd>{sendsNow ? "Right away" : s.local_time ? `${fmt(s.start_at)} in each contact's time zone` : REPEAT_LABEL[s.repeat] + ", " + (describeWindow(s.start_at, s.end_at) || fmt(s.start_at))}</dd>
               <dt>Deadline</dt><dd>{describeDeadline(s.deadline, !!s.local_time)}</dd>
+              <dt>Speed</dt><dd>{speedWords(s.send_per_hour)}</dd>
             </dl>
             <aside className="wizard-aside"><h3 className="small">Exact audience now</h3><AudienceEstimate include={s.include} exclude={s.exclude} channel={s.channel} /></aside>
           </div>

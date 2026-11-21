@@ -749,7 +749,10 @@ Order: O1 → O2 → O3 → O4 → O5 → O6 (1–10 first, 11–17 after), then
 - **1 Double opt-in**: `FormSettings.double_optin`, `confirm_template_id`, `confirmed_message`, `confirmed_redirect`;
   `forms.NeedsConfirming` / `ConfirmEvents`; `tracking.OptinToken` (sealed); `internal/api/optin.go`
   (`GET /f/confirm/{token}`); the journeys role sends the confirmation (`Engine.sendOptin`); events `optin_requested`,
-  `optin_confirmed` (server- and platform-only); form editor section with "Create the standard one"; e2e `TestDoubleOptIn`.
+  `optin_confirmed` (server- and platform-only); form editor section with "Create the standard one"; e2e `TestDoubleOptIn`. After the
+  security review: the link only asks (GET), the button confirms (POST), and double opt-in forms need a required email.
+- **2 Sending speed**: `Broadcast.SendPerHour` (pg 033), `broadcast.PacedAt` / `ValidateSpeed`, `Message.NotBefore` held by
+  the dispatcher (kind `speed`, no deferred event); the wizard's Schedule step and review; e2e `TestSendingSpeed`.
 
 ### O5 as built
 

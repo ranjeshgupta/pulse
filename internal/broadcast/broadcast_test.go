@@ -335,3 +335,20 @@ func TestRunStampsDeadline(t *testing.T) {
 		t.Fatalf("local-time message %+v", m)
 	}
 }
+
+func TestPacedAt(t *testing.T) {
+	start := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	b := model.Broadcast{SendPerHour: 3600}
+	if PacedAt(b, start, 0) != nil {
+		t.Error("the first message waits")
+	}
+	if at := PacedAt(b, start, 1800); at == nil || !at.Equal(start.Add(30*time.Minute)) {
+		t.Errorf("1800th at 3600/h = %v, want 10:30", at)
+	}
+	if PacedAt(model.Broadcast{}, start, 5) != nil {
+		t.Error("unpaced campaigns don't wait")
+	}
+	if ValidateSpeed(model.Broadcast{SendPerHour: 10}) == nil || ValidateSpeed(model.Broadcast{SendPerHour: 500}) != nil {
+		t.Error("speed limits")
+	}
+}

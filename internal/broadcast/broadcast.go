@@ -168,10 +168,11 @@ func (r *Runner) run(ctx context.Context, b model.Broadcast) error {
 	if localAt != "" && b.Deadline != nil {
 		deadline, deadlineLocal = nil, b.Deadline.LocalClock(localAt)
 	}
-	for _, contact := range members {
+	for i, contact := range members {
 		m := r.message(b, runKey, contact, b.TemplateID, "")
 		m.LocalAt, m.LocalZone = localAt, b.Timezone
 		m.Deadline, m.DeadlineLocal = deadline, deadlineLocal
+		m.NotBefore = PacedAt(b, at, i)
 		if b.AB != nil {
 			bk := Bucket(b.ID, runKey, contact)
 			if bk >= b.AB.TestPercent*100 {
@@ -495,4 +496,27 @@ func ReachSnapshot(rdb redis.Cmdable, now func() time.Time) func(ctx context.Con
 		}
 		return json.Marshal(AudienceSnapshot{Counts: counts, Channel: b.Channel, Ready: ready, At: now().UTC()})
 	}
+}
+
+// PacedAt is when the i-th message of a paced run may go (nil: not paced, or right away).
+func PacedAt(b model.Broadcast, start time.Time, i int) *time.Time {
+	if b.SendPerHour <= 0 || i == 0 {
+		return nil
+	}
+	t := start.Add(time.Duration(float64(i) / float64(b.SendPerHour) * float64(time.Hour)))
+	return &t
+}
+
+// Sending speed limits (messages an hour).
+const (
+	MinSendPerHour = 60
+	MaxSendPerHour = 10_000_000
+)
+
+// ValidateSpeed checks a sending speed.
+func ValidateSpeed(b model.Broadcast) error {
+	if b.SendPerHour != 0 && (b.SendPerHour < MinSendPerHour || b.SendPerHour > MaxSendPerHour) {
+		return fmt.Errorf("sending speed: %d to %d messages an hour, or 0 for as fast as possible", MinSendPerHour, MaxSendPerHour)
+	}
+	return nil
 }

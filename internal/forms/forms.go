@@ -147,6 +147,9 @@ func Validate(f model.Form, listOK func(int64) bool) error {
 			errs = append(errs, fmt.Errorf("unknown channel %q", ch))
 		}
 	}
+	if st.DoubleOptIn && !hasRequiredEmail(f.Fields) {
+		errs = append(errs, errors.New("double opt-in needs a required email field: the confirmation goes there"))
+	}
 	if st.DoubleOptIn && st.ConfirmTemplateID <= 0 {
 		errs = append(errs, errors.New("double opt-in needs the confirmation email (an email template with {{event.confirm_url}})"))
 	}
@@ -413,7 +416,9 @@ func Events(f model.Form, sub Submission, externalID, anonymousID string, meta m
 			"form_id": f.ID, "form_name": f.Name, "template_id": f.Settings.ConfirmTemplateID, "email": sub.Email, "confirm_url": confirmURL}})
 		return append(evs, event.Event{ID: id, ExternalID: externalID, Name: Submitted, Props: props})
 	}
-	evs = append(evs, joinEvents(f, sub.Consent, externalID, id)...)
+	if !f.Settings.DoubleOptIn {
+		evs = append(evs, joinEvents(f, sub.Consent, externalID, id)...)
+	} // double opt-in without an address to confirm: nothing is joined or opted in
 	return append(evs, event.Event{ID: id, ExternalID: externalID, Name: Submitted, Props: props})
 }
 
@@ -451,4 +456,13 @@ func joinEvents(f model.Form, consented bool, externalID, id string) []event.Eve
 		evs = append(evs, event.Event{ID: id + ":t", ExternalID: externalID, Name: event.TagAdded, Props: map[string]any{"tags": tags, "source": "form"}})
 	}
 	return evs
+}
+
+func hasRequiredEmail(fs []model.FormField) bool {
+	for _, f := range fs {
+		if f.Key == "email" && f.Required && f.Type == "email" {
+			return true
+		}
+	}
+	return false
 }

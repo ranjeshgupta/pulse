@@ -32,6 +32,9 @@ func TestDoubleOptIn(t *testing.T) {
 			"settings": map[string]any{"list_ids": []any{list}, "tags": []any{"newsletter"}, "double_optin": true, "confirm_template_id": tid, "confirmed_message": "Welcome aboard"}}
 	}
 	jsonCall(t, c, "POST", "/v1/forms", form(noLink), 400) // the email must carry the link
+	phoneOnly := form(tpl)
+	phoneOnly["fields"] = []any{map[string]any{"key": "phone", "label": "Phone", "type": "tel", "required": true}}
+	jsonCall(t, c, "POST", "/v1/forms", phoneOnly, 400) // the confirmation needs an email field
 	id := idOf(jsonCall(t, c, "POST", "/v1/forms", form(tpl), 200)["id"])
 	key := jsonCall(t, c, "GET", fmt.Sprint("/v1/forms/", id), nil, 200)["form"].(map[string]any)["public_key"].(string)
 	if code, body := postForm(t, key, url.Values{"email": {email}}, 5*time.Second); code >= 400 {
@@ -68,7 +71,7 @@ func TestDoubleOptIn(t *testing.T) {
 		t.Fatal("joined the list before confirming")
 	}
 	get := func(u string) (int, string) {
-		resp, err := http.Get(u)
+		resp, err := http.Post(u, "application/x-www-form-urlencoded", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,6 +81,14 @@ func TestDoubleOptIn(t *testing.T) {
 	}
 	// Links point at the public address; tests reach the server at apiURL.
 	path := link[strings.Index(link, "/f/confirm/"):]
+	// Opening the link (or a mail scanner opening it) only asks.
+	if resp, err := http.Get(apiURL + path); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("open link: %v %v", resp, err)
+	}
+	time.Sleep(2 * time.Second)
+	if slices.Contains(segmentsOf(t, c, ext), list) {
+		t.Fatal("opening the link confirmed without the button")
+	}
 	if code, body := get(apiURL + path); code != 200 || !strings.Contains(body, "Welcome aboard") {
 		t.Fatalf("confirm: %d %s", code, body)
 	}
