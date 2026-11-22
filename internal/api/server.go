@@ -98,7 +98,9 @@ type Deps struct {
 	AdminToken  string          // platform operator token for POST /v1/tenants
 	PublicURL   string          // e.g. https://app.example.com, used for SSO redirects and Secure cookies
 	AllowSignup bool
-	Log         *slog.Logger
+	// SharedLogins: emails of logins several people share (a public demo); see sharedLogin.
+	SharedLogins []string
+	Log          *slog.Logger
 	// AllowPrivateSSO lets SSO discovery and token calls reach private addresses (internal IdPs).
 	AllowPrivateSSO bool
 	// AllowPrivateWebhooks lets outbound calls to workspace-entered URLs (webhooks, providers, the

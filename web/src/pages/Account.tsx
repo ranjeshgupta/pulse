@@ -17,7 +17,7 @@ export function Account() {
   const guard = useEditGuard();
   return (
     <div className="page">
-      <PageHead title="Your account" intro={<>Your details and how you sign in. Jump to <a href="#password">password</a>, <a href="#sessions">where you're signed in</a> or <a href="#two-step">two-step sign-in</a>.</>} />
+      <PageHead title="Your account" intro={me?.shared_login ? "Your details. This is a shared login, so how it signs in is fixed." : <>Your details and how you sign in. Jump to <a href="#password">password</a>, <a href="#sessions">where you're signed in</a> or <a href="#two-step">two-step sign-in</a>.</>} />
       <section className="panel">
         <div className="panel-head"><h3>You</h3></div>
         <div className="panel-body">
@@ -29,9 +29,22 @@ export function Account() {
           </dl>
         </div>
       </section>
-      <PasswordPanel guard={guard} />
-      <SessionsPanel guard={guard} />
-      <TwoFactorPanel />
+      {me?.shared_login ? (
+        <section className="panel section" id="password">
+          <div className="panel-head"><h3>Shared login</h3></div>
+          <div className="panel-body">
+            <p className="hint" style={{ margin: 0 }}>
+              Several people sign in with this login, so its password, two-step sign-in and "sign out everywhere" can't be changed here. Everything else in the workspace works as usual.
+            </p>
+          </div>
+        </section>
+      ) : (
+        <>
+          <PasswordPanel guard={guard} />
+          <SessionsPanel guard={guard} />
+          <TwoFactorPanel />
+        </>
+      )}
     </div>
   );
 }

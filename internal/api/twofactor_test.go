@@ -565,3 +565,47 @@ func TestTwoFactorPendingCookieIsOneTime(t *testing.T) {
 		t.Errorf("code cookie after a reset: %d", w.Code)
 	}
 }
+
+// A shared login (PULSE_SHARED_LOGINS, e.g. a public demo) signs in without a second step even
+// when the workspace requires one, and whoever is signed in can't change its password, set up or
+// turn off two-step sign-in, or sign everyone else out.
+func TestSharedLoginsCantChangeHowTheySignIn(t *testing.T) {
+	e := newTFEnv(t)
+	if w := e.req("PUT", "/v1/settings/two-factor", `{"mode":"everyone"}`, e.admin); w.Code != 200 {
+		t.Fatalf("policy: %d %s", w.Code, w.Body)
+	}
+	e.s.SharedLogins = []string{"e@acme.io"} // as config.Load gives them: trimmed, lowercased
+
+	w, pending := e.login("e@acme.io", "editor password")
+	if pending != nil || !hasSession(w) {
+		t.Fatalf("a shared login must get a session straight away: %d %s", w.Code, w.Body)
+	}
+	shared := sessionFrom(t, w)
+
+	for _, c := range []struct{ path, body string }{
+		{"/v1/account/password", `{"current_password":"editor password","new_password":"mine now, all mine"}`},
+		{"/v1/account/two-factor/setup", `{"password":"editor password"}`},
+		{"/v1/account/two-factor/enable", `{"code":"123456"}`},
+		{"/v1/account/two-factor/disable", `{"password":"editor password"}`},
+		{"/v1/account/two-factor/recovery-codes", `{"password":"editor password"}`},
+		{"/v1/account/sessions/revoke", ``},
+	} {
+		if w := e.req("POST", c.path, c.body, shared); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "shared login") {
+			t.Errorf("%s: want 403 for a shared login, got %d %s", c.path, w.Code, w.Body)
+		}
+	}
+	if w, _ := e.login("e@acme.io", "editor password"); !hasSession(w) {
+		t.Error("the shared password must still work")
+	}
+	if w := e.req("GET", "/v1/auth/me", "", shared); !strings.Contains(w.Body.String(), `"shared_login":true`) {
+		t.Errorf("me should say shared_login: %s", w.Body)
+	}
+
+	// Everyone else is unaffected: the admin still gets the policy's second step and can change things.
+	if w := e.req("GET", "/v1/auth/me", "", e.admin); strings.Contains(w.Body.String(), "shared_login") {
+		t.Errorf("admin isn't a shared login: %s", w.Body)
+	}
+	if w := e.req("POST", "/v1/account/two-factor/setup", `{"password":"long enough pw"}`, e.admin); w.Code == http.StatusForbidden {
+		t.Errorf("admin setup refused: %s", w.Body)
+	}
+}

@@ -134,6 +134,8 @@ services:
       PULSE_SECRET_KEY: ${PULSE_SECRET_KEY:?run gen-secrets.sh first}
       PULSE_ADMIN_TOKEN: ${PULSE_ADMIN_TOKEN:?run gen-secrets.sh first}
       PULSE_ALLOW_SIGNUP: "false"
+      # Logins several people share, such as a public demo: their password and two-step sign-in are fixed.
+      PULSE_SHARED_LOGINS: ${PULSE_SHARED_LOGINS:-}
       # Behind Cloudflare: the client IP comes from CF-Connecting-IP. Safe only because the firewall
       # lets nothing but Cloudflare reach the server (firewall.sh).
       PULSE_TRUST_PROXY: "true"

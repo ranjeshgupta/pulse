@@ -81,3 +81,14 @@ func TestLoadRejectsPartitionsOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestSharedLoginsAreTrimmedAndLowercased(t *testing.T) {
+	t.Setenv("PULSE_SHARED_LOGINS", " Demo@Example.com, ,second@example.com ")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(c.SharedLogins, "|"); got != "demo@example.com|second@example.com" {
+		t.Errorf("SharedLogins = %q", got)
+	}
+}

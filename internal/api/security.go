@@ -175,6 +175,9 @@ const passwordChangesPerHour = 10
 // changePassword sets a new password after checking the current one, and signs the user out of
 // every other session.
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if s.refuseShared(w, p) {
+		return
+	}
 	var req struct {
 		Current string `json:"current_password"`
 		New     string `json:"new_password"`
@@ -226,6 +229,9 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p model.
 
 // revokeSessions is "sign out everywhere": every session of the user ends, this one too.
 func (s *Server) revokeSessions(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if s.refuseShared(w, p) { // it would sign out everyone else using the login
+		return
+	}
 	if p.UserID == 0 {
 		writeErr(w, http.StatusBadRequest, "API keys have no sessions")
 		return
@@ -275,4 +281,28 @@ func (s *Server) ssoLinkUser(r *http.Request, tenant int64, email, subject strin
 		return model.User{}, errSSOLink // linked to another identity already
 	}
 	return u, err
+}
+
+// sharedLoginMsg is the refusal for a shared login's sign-in settings.
+const sharedLoginMsg = "this is a shared login (such as a public demo): its password and two-step sign-in can't be changed"
+
+// sharedLogin reports whether email is one of the server's shared logins (PULSE_SHARED_LOGINS).
+// Several people sign in with it, so none of them may change how it signs in.
+func (s *Server) sharedLogin(email string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	for _, e := range s.SharedLogins {
+		if e == email {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseShared answers 403 and reports true when p is a person signed in with a shared login.
+func (s *Server) refuseShared(w http.ResponseWriter, p model.Principal) bool {
+	if p.UserID > 0 && s.sharedLogin(p.Actor) {
+		writeErr(w, http.StatusForbidden, sharedLoginMsg)
+		return true
+	}
+	return false
 }

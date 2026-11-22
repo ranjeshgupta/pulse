@@ -37,6 +37,11 @@ type Config struct {
 	// AllowSignup lets anyone create a workspace with POST /v1/auth/signup (PULSE_ALLOW_SIGNUP,
 	// off by default: the operator creates workspaces with the admin token).
 	AllowSignup bool
+	// SharedLogins are sign-in emails several people share, such as a public demo login
+	// (PULSE_SHARED_LOGINS, comma-separated, in every workspace). Their password, two-step sign-in
+	// and "sign out everywhere" can't be changed by whoever is signed in, so one visitor can't lock
+	// the others out; an admin can still remove or recreate the user.
+	SharedLogins []string
 	// SignupRate caps signups per client IP per minute when signup is on; all signups together
 	// are capped at ten times that.
 	SignupRate int
@@ -98,6 +103,7 @@ func Load() (Config, error) {
 		PublicURL:            env("PULSE_PUBLIC_URL", "http://localhost:7080"),
 		SecretKey:            env("PULSE_SECRET_KEY", ""),
 		AllowSignup:          r.boolean("PULSE_ALLOW_SIGNUP", false),
+		SharedLogins:         emails(os.Getenv("PULSE_SHARED_LOGINS")),
 		SignupRate:           r.integer("PULSE_SIGNUP_RATE", 5),
 		AllowPrivateWebhooks: r.boolean("PULSE_ALLOW_PRIVATE_WEBHOOKS", false),
 		AllowPrivateSSO:      r.boolean("PULSE_ALLOW_PRIVATE_SSO", false),
@@ -239,4 +245,15 @@ func (r *reader) boolean(k string, def bool) bool {
 	}
 	r.fail(k, v, "must be true or false")
 	return def
+}
+
+// emails splits a comma-separated list of addresses, trimmed and lowercased.
+func emails(v string) []string {
+	var out []string
+	for _, e := range strings.Split(v, ",") {
+		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }

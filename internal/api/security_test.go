@@ -769,3 +769,37 @@ func TestSSOLinksPasswordAccountsOnlyWhenSignedIn(t *testing.T) {
 		t.Errorf("own account: %+v %v", u, err)
 	}
 }
+
+// Your own password and "sign out everywhere" are yours whatever your role: an editor or viewer
+// must not need settings access to change their own password. A shared login (a public demo) can
+// do neither, so one visitor can't lock the others out.
+func TestEveryRoleManagesTheirOwnPasswordAndSessions(t *testing.T) {
+	for _, role := range []string{auth.RoleEditor, auth.RoleViewer} {
+		s, mem, _ := newServer()
+		redisServer(t, s)
+		s.Store = sessionMem{mem}
+		s.SharedLogins = []string{"demo@acme.io"}
+		h := s.Handler()
+		browser(t, h, "POST", "/v1/auth/signup", `{"workspace":"Acme","email":"a@acme.io","password":"long enough pw"}`, nil, false)
+		for i, email := range []string{"p@acme.io", "demo@acme.io"} {
+			hash, _ := auth.HashPassword("their own password")
+			mem.users = append(mem.users, model.User{ID: int64(300 + i), TenantID: mem.users[0].TenantID, Email: email, Role: role, PasswordHash: hash})
+		}
+		login := func(email, pw string) *http.Cookie {
+			return sessionFrom(t, browser(t, h, "POST", "/v1/auth/login", `{"workspace":"acme","email":"`+email+`","password":"`+pw+`"}`, nil, false))
+		}
+		person := login("p@acme.io", "their own password")
+		if w := browser(t, h, "POST", "/v1/account/password", `{"current_password":"their own password","new_password":"a brand new password"}`, person, true); w.Code != 200 {
+			t.Fatalf("%s changing own password: %d %s", role, w.Code, w.Body)
+		}
+		if w := browser(t, h, "POST", "/v1/account/sessions/revoke", "", login("p@acme.io", "a brand new password"), true); w.Code != 204 {
+			t.Fatalf("%s signing out everywhere: %d %s", role, w.Code, w.Body)
+		}
+		demo := login("demo@acme.io", "their own password")
+		for _, path := range []string{"/v1/account/password", "/v1/account/sessions/revoke"} {
+			if w := browser(t, h, "POST", path, `{"current_password":"their own password","new_password":"mine now, all mine"}`, demo, true); w.Code != 403 || !strings.Contains(w.Body.String(), "shared login") {
+				t.Errorf("%s shared login %s: want 403, got %d %s", role, path, w.Code, w.Body)
+			}
+		}
+	}
+}

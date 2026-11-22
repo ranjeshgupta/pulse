@@ -88,7 +88,8 @@ export type Area = "contacts" | "segments" | "journeys" | "broadcasts" | "conten
 export type Level = "none" | "view" | "edit" | "publish";
 export const LEVELS: Level[] = ["none", "view", "edit", "publish"];
 export type Perms = Partial<Record<Area, Level>>;
-export interface Me { workspace: Workspace; role: RoleKey; user?: User; permissions: Perms }
+/** shared_login: a login several people share (a public demo); its password and two-step sign-in are fixed. */
+export interface Me { workspace: Workspace; role: RoleKey; user?: User; permissions: Perms; shared_login?: boolean }
 /** can reports whether perms reach level in area (levels include the ones below them). */
 export function can(perms: Perms | undefined, area: Area, level: Exclude<Level, "none">): boolean {
   return LEVELS.indexOf(perms?.[area] ?? "none") >= LEVELS.indexOf(level);

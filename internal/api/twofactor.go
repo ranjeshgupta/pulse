@@ -94,6 +94,11 @@ func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, model
 	if !ok {
 		return "", model.TwoFactor{}, nil
 	}
+	// A shared login has no second step: no one person holds its authenticator, and a code set up
+	// by one visitor (or a workspace rule enrolling everyone) would lock all the others out.
+	if s.sharedLogin(u.Email) {
+		return "", model.TwoFactor{}, nil
+	}
 	tf, err := ts.TwoFactor(ctx, u.TenantID, u.ID)
 	if err != nil && !errors.Is(err, pg.ErrNotFound) {
 		return "", tf, err
@@ -480,6 +485,9 @@ func (s *Server) getMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.
 }
 
 func (s *Server) setupMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if s.refuseShared(w, p) {
+		return
+	}
 	u, ok := s.person(w, r, p)
 	if !ok {
 		return
@@ -507,6 +515,9 @@ func (s *Server) setupMyTwoFactor(w http.ResponseWriter, r *http.Request, p mode
 // only exist through setupMyTwoFactor with proof (the store refuses one without replace), so
 // confirming it replaces the old phone's secret.
 func (s *Server) enableMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if s.refuseShared(w, p) {
+		return
+	}
 	u, ok := s.person(w, r, p)
 	if !ok {
 		return
@@ -553,6 +564,9 @@ func (s *Server) reconfirm(w http.ResponseWriter, r *http.Request, u model.User)
 }
 
 func (s *Server) disableMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if s.refuseShared(w, p) {
+		return
+	}
 	u, ok := s.person(w, r, p)
 	if !ok {
 		return
@@ -583,6 +597,9 @@ func (s *Server) disableMyTwoFactor(w http.ResponseWriter, r *http.Request, p mo
 }
 
 func (s *Server) newRecoveryCodes(w http.ResponseWriter, r *http.Request, p model.Principal) {
+	if s.refuseShared(w, p) {
+		return
+	}
 	u, ok := s.person(w, r, p)
 	if !ok || !s.reconfirm(w, r, u) {
 		return

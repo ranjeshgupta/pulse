@@ -315,7 +315,7 @@ func runAPI(ctx context.Context, d *deps) error {
 	}
 	server := api.New(api.Deps{
 		Store: pgs, Members: segment.Membership{RDB: d.redis()}, Analytics: chs, Pub: prod, RDB: d.redis(), Box: box,
-		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, Log: d.log, SendRates: dispatch.EffectiveRates(d.sendRates()),
+		AdminToken: d.cfg.AdminToken, PublicURL: d.cfg.PublicURL, AllowSignup: d.cfg.AllowSignup, SharedLogins: d.cfg.SharedLogins, Log: d.log, SendRates: dispatch.EffectiveRates(d.sendRates()),
 		Geo: geo, PagesURL: d.cfg.PagesURL, AllowPrivateSSO: d.cfg.AllowPrivateSSO, TrustProxy: d.cfg.TrustProxy, AllowPrivateWebhooks: d.cfg.AllowPrivateWebhooks,
 		TrustCloudflare: d.cfg.TrustCloudflare, SignupRate: d.cfg.SignupRate,
 		CHLimits: ch.Limits{MaxExecutionTime: d.cfg.CHQueryTimeout, MaxMemory: int64(d.cfg.CHQueryMaxMemory)},

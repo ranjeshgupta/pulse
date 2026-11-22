@@ -42,6 +42,9 @@ var special = map[string]need{
 	// Two-step sign-in: everyone signed in manages their own (twofactor.go). The policy is read
 	// with settings view (the "settings" prefix); changing it needs full admin, checked by its
 	// wrapper, and resetting a teammate's setup settings edit.
+	// Your own password and sessions (security.go): everyone signed in, like two-step sign-in.
+	"POST /v1/account/password":                       {"", auth.None},
+	"POST /v1/account/sessions/revoke":                {"", auth.None},
 	"GET /v1/account/two-factor":                      {"", auth.None},
 	"POST /v1/account/two-factor/setup":               {"", auth.None},
 	"POST /v1/account/two-factor/enable":              {"", auth.None},

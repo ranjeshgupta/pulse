@@ -143,7 +143,8 @@ stored encrypted with `PULSE_SECRET_KEY`; recovery codes only as hashes. Without
 sign-in can't be set up or required, and people who have it can't sign in (`503`).
 
 People manage their own under `/v1/account/two-factor` (the session's user; the API key gets
-`400`). Starting a new secret while it's on, turning it off and new recovery codes need
+`400`; a shared login from `PULSE_SHARED_LOGINS`, such as a public demo, gets `403` and never
+has a second step). Starting a new secret while it's on, turning it off and new recovery codes need
 `{"code": "…"}` (an app or recovery code) or `{"password": "…"}`. Bodies sent to `/v1/account/*`
 and `/v1/auth/*` are never written to the audit log, nor are those of the settings that carry
 credentials (providers, integrations, SSO, webhooks, web push, identity verification, bounce
@@ -1831,8 +1832,8 @@ the path, a signature, or nothing).
 | `POST` | `/v1/account/two-factor/enable` | Confirm the new secret with `{"code"}`; returns `recovery_codes` once | signed in |
 | `POST` | `/v1/account/two-factor/disable` | Turn it off (`{"code"}` or `{"password"}`); 204; 403 when the workspace requires it | signed in |
 | `POST` | `/v1/account/two-factor/recovery-codes` | Replace your recovery codes (`{"code"}` or `{"password"}`) | signed in |
-| `POST` | `/v1/account/password` | Change your password (`current_password`, `new_password`); your other sessions end. 403 wrong password, 429 after 10 tries an hour | signed in (session) |
-| `POST` | `/v1/account/sessions/revoke` | Sign out everywhere: every session of yours ends, this one too; 204 | signed in (session) |
+| `POST` | `/v1/account/password` | Change your password (`current_password`, `new_password`); your other sessions end. 403 wrong password or a shared login (`PULSE_SHARED_LOGINS`), 429 after 10 tries an hour | signed in (session) |
+| `POST` | `/v1/account/sessions/revoke` | Sign out everywhere: every session of yours ends, this one too; 204. 403 for a shared login | signed in (session) |
 
 ### Team, roles and workspace settings
 

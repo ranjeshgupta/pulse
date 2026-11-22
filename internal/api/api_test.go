@@ -83,13 +83,14 @@ func (m *memStore) User(_ context.Context, tenant, id int64) (model.User, error)
 }
 
 func (m *memStore) CreateSession(_ context.Context, hash string, userID, tenantID int64, _ time.Time) error {
-	role := "admin"
+	role, email := "admin", ""
 	for _, u := range m.users {
 		if u.ID == userID {
-			role = u.Role
+			role, email = u.Role, u.Email
 		}
 	}
-	m.sessions[hash] = model.Principal{TenantID: tenantID, UserID: userID, Role: role}
+	// Actor is the user's email, as the Postgres store's SessionPrincipal gives it.
+	m.sessions[hash] = model.Principal{TenantID: tenantID, UserID: userID, Role: role, Actor: email}
 	return nil
 }
 
