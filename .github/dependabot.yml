@@ -1,5 +1,6 @@
 # Version updates, grouped into one pull request per ecosystem a month so they stay reviewable.
-# Security updates (Dependabot alerts) are separate and arrive as soon as an advisory is published.
+# Major versions of libraries are skipped (they need code changes, done deliberately); GitHub
+# Actions majors still come, since they rarely break. Security updates (Dependabot alerts) are separate and arrive as soon as an advisory is published.
 version: 2
 updates:
   - package-ecosystem: gomod
@@ -7,16 +8,19 @@ updates:
     schedule: { interval: monthly }
     groups:
       go: { patterns: ["*"] }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: monthly }
     groups:
       web: { patterns: ["*"], update-types: [minor, patch] }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: gradle
     directory: /sdks/android
     schedule: { interval: monthly }
     groups:
       android: { patterns: ["*"] }
+    ignore: [{ dependency-name: "*", update-types: ["version-update:semver-major"] }]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
