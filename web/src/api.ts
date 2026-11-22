@@ -523,6 +523,8 @@ export interface CampaignsDashboard {
 export interface ProductRow {
   code: string; category?: string; views: number; viewers: number; carts: number; carters: number; purchases: number; buyers: number;
   revenue: number; abandoned: number;
+  /** Totals only: people who bought a product with no add-to-cart event in the range. */
+  bought_no_cart?: number;
 }
 export interface ProductsDashboard {
   from: string; to: string; currency: string; computed_at: string;

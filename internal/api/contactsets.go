@@ -366,6 +366,9 @@ func parseSpecial(sp *viewSpecial, key, val string, lk viewLookup) (string, erro
 				return "", err
 			}
 			sp.Product = val
+			if val == anyProduct {
+				return "Any product", nil
+			}
 			return "Product " + val, nil
 		}
 		if err := once(sp.Category != ""); err != nil {
@@ -798,7 +801,11 @@ func (sp *viewSpecial) chConds(tenant int64) (string, []any) {
 	eventSub := func(name string) string {
 		q := "(SELECT contact_id FROM events WHERE tenant_id = ? AND name = ?"
 		args = append(args, t, name)
-		if sp.Product != "" {
+		switch sp.Product {
+		case "":
+		case anyProduct: // events naming some product, as the Products dashboard's totals count
+			q += " AND product_code != ''"
+		default:
 			q += " AND product_code = ?"
 			args = append(args, sp.Product)
 		}
@@ -1393,3 +1400,6 @@ func (s *Server) viewErr(w http.ResponseWriter, err error) {
 		s.fail(w, err)
 	}
 }
+
+// anyProduct is product:* in a contact list's filters: events that name any product.
+const anyProduct = "*"

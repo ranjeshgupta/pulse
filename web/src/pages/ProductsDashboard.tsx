@@ -15,11 +15,16 @@ import { ErrorNote, Field, PageHead, useToast } from "../ui";
 import { compact, labelIndexes, longDay, niceMax, rangeDays, retryUnlessLimited, shortDay, ticks, updatedAt } from "../usersDash";
 import "./dashboards.css";
 import { ContactCount } from "../ContactCount";
-import { productFilters } from "../contactLinks";
+import { productFilters, type ContactFilter } from "../contactLinks";
 
 /** pf: the contacts behind a products number (M7), with the page's events and period. */
 const pf = (d: ProductsAnswer, what: "viewed" | "carted" | "bought" | "abandoned", item: { code?: string; category?: string }) =>
   productFilters(what, d.events, item, d.from.slice(0, 10), d.to.slice(0, 10));
+/** People who bought a product with no add-to-cart event in the range (the note under the totals). */
+const noCartFilters = (d: ProductsAnswer): ContactFilter[] => {
+  const [bought, ...rest] = pf(d, "bought", {});
+  return [bought, ["no_event", d.events.cart], ...rest];
+};
 
 export function ProductsDashboard() {
   const [range, setRange] = useState<Range>(() => defaultRange(30));
@@ -117,20 +122,28 @@ function Report({ d }: { d: ProductsAnswer }) {
   return (
     <>
       <div className="figures dash-figures">
-        <div><strong>{count(t.views)}</strong><span>product views</span></div>
-        <div><strong><ContactCount value={t.viewers} filters={pf(d, "viewed", {})} /></strong><span>viewers</span></div>
-        <div title={`${count(t.carts)} add-to-cart events`}><strong><ContactCount value={t.carters} filters={pf(d, "carted", {})} /></strong><span>added to cart</span></div>
-        <div><strong><ContactCount value={t.buyers} filters={pf(d, "bought", {})} /></strong><span>buyers</span></div>
-        <div><strong>{count(t.purchases)}</strong><span>purchases</span></div>
-        <div><strong>{money(t.revenue, cur)}</strong><span>revenue</span></div>
-        <div title="Added a product to their cart but didn't buy it in the range"><strong><ContactCount value={t.abandoned} filters={pf(d, "abandoned", {})} /></strong><span>abandoned carts</span></div>
-        <div title="Buyers ÷ viewers"><strong>{conv === null ? "–" : pct(conv)}</strong><span>view → buy</span></div>
+        <div title="Product view events"><strong>{count(t.views)}</strong><span>product views</span></div>
+        <div title="People who viewed a product, each counted once"><strong><ContactCount value={t.viewers} filters={pf(d, "viewed", {})} /></strong><span>people viewing</span></div>
+        <div title={`People who added a product to their cart, each counted once (${count(t.carts)} add-to-cart events)`}><strong><ContactCount value={t.carters} filters={pf(d, "carted", {})} /></strong><span>people adding to cart</span></div>
+        <div title="People who bought a product, each counted once"><strong><ContactCount value={t.buyers} filters={pf(d, "bought", {})} /></strong><span>people buying</span></div>
+        <div title="Purchase events naming a product: one person can place several orders"><strong>{count(t.purchases)}</strong><span>orders</span></div>
+        <div title="From those orders"><strong>{money(t.revenue, cur)}</strong><span>revenue</span></div>
+        <div title="People who added a product to their cart but didn't buy one in the range"><strong><ContactCount value={t.abandoned} filters={pf(d, "abandoned", {})} /></strong><span>abandoned carts</span></div>
+        <div title="People buying ÷ people viewing"><strong>{conv === null ? "–" : pct(conv)}</strong><span>view → buy</span></div>
       </div>
+      {(t.bought_no_cart ?? 0) > 0 && (
+        <p className="xs muted dash-note">
+          <ContactCount value={t.bought_no_cart ?? 0} filters={noCartFilters(d)} /> {t.bought_no_cart === 1 ? "person" : "people"} bought without
+          an add-to-cart event in these dates: a buy-now button, an order sent from your server or app, or a cart added earlier. That's
+          why people buying can be more than people adding to cart.
+        </p>
+      )}
       <p className="xs faint dash-period">
         {longDay(d.from)} to {longDay(d.to)} (UTC days) · Updated {updatedAt(d.computed_at)}
       </p>
       <p className="xs muted dash-note">
-        Views from <code>{ev.view}</code>, carts from <code>{ev.cart}</code>, purchases from <code>{ev.purchase}</code> with the amount in{" "}
+        Only events naming a product count here; orders without a <code>product_code</code> are on the Revenue dashboard. Views from{" "}
+        <code>{ev.view}</code>, carts from <code>{ev.cart}</code>, orders from <code>{ev.purchase}</code> with the amount in{" "}
         <code>{ev.amount}</code>{cur ? `, in ${cur}` : ""} (the revenue settings). Products come from the events' <code>product_code</code> and{" "}
         <code>product_category</code> properties; people are counted once across products in the totals.
       </p>
@@ -212,7 +225,7 @@ function ProductsTable({ d }: { d: ProductsAnswer }) {
       <div className="panel-head dash-head">
         <div>
           <h3>Top products</h3>
-          <p className="xs muted" style={{ margin: "4px 0 0" }}>The top {count(d.report.products.length)} by revenue, then purchases. Click a column to sort.</p>
+          <p className="xs muted" style={{ margin: "4px 0 0" }}>The top {count(d.report.products.length)} by revenue, then orders. Click a column to sort.</p>
         </div>
         <button type="button" className="btn sm" onClick={exportCsv} disabled={rows.length === 0}>Export CSV</button>
       </div>
@@ -251,10 +264,10 @@ function ProductsTable({ d }: { d: ProductsAnswer }) {
                       <button
                         type="button" className="btn ghost sm" disabled={r.buyers === 0 || segment.isPending}
                         title={r.buyers === 0 ? "No one bought it in this period." : `Make a segment of people who bought ${r.code} in this period`}
-                        aria-label={`Create segment from buyers of ${r.code}`}
+                        aria-label={`Make a segment of people who bought ${r.code}`}
                         onClick={() => segment.mutate(r.code)}
                       >
-                        {segment.isPending && segment.variables === r.code ? "Creating…" : "Segment of buyers"}
+                        {segment.isPending && segment.variables === r.code ? "Creating…" : "Segment"}
                       </button>
                     </td>
                   )}
@@ -279,10 +292,10 @@ function CategoriesTable({ rows, currency, d }: { rows: ProductRow[]; currency: 
           <thead><tr>
             <th scope="col">Category</th>
             <th scope="col" className="num">Views</th>
-            <th scope="col" className="num">Viewers</th>
+            <th scope="col" className="num">People viewing</th>
             <th scope="col" className="num">Added to cart</th>
-            <th scope="col" className="num">Purchases</th>
-            <th scope="col" className="num">Buyers</th>
+            <th scope="col" className="num">Orders</th>
+            <th scope="col" className="num">People buying</th>
             <th scope="col" className="num">Revenue</th>
             <th scope="col" className="num">Abandoned</th>
             <th scope="col" className="num">Conversion</th>

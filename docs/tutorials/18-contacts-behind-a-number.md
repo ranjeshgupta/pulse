@@ -28,7 +28,7 @@ hovering shows **Show these contacts**. For example:
   each step sent.
 - **Overview**: the number of contacts.
 - **Users**, **Campaign performance** and **Products** dashboards: active, new and returning users,
-  each campaign's numbers, product viewers, buyers and people who abandoned their cart.
+  each campaign's numbers, and the people viewing, adding to cart, buying or abandoning a product.
 - **Companies**, **Stages**, **Events**, **Forms**, AMP poll answers, and the overlap of website
   messages.
 
@@ -75,7 +75,7 @@ Chips you may meet, depending on where you clicked:
 | **Unsubscribed from email**, **Unsubscribed from everything**, **Unsubscribed from the topic weekly_offers** | Opted out of the channel (or of everything), or left that topic |
 | **Reason: Hard bounce** (or another reason) | Why a message didn't arrive |
 | **Entered “Welcome series”**, **Now at “…”**, **Still in the journey**, **Finished the journey**, **Reached the goal** | Where they are in a triggered or automation campaign |
-| **Did product_viewed**, **Didn't do purchase**, **Product …**, **Category …** | What they did (and, for products, which one) |
+| **Did product_viewed**, **Didn't do purchase**, **Product …**, **Any product**, **Category …** | What they did (and, for products, which one; **Any product**: events naming any product) |
 | **Active**, **New (first active)**, **Returning**, **Active on Android**, **Came from newsletter** | When and where they were active |
 | **Answered the poll in “…”**, **Answer …** | Answers to a poll in an interactive (AMP) email |
 | A date range | The period the number covered (whole days, in UTC) |

@@ -229,6 +229,8 @@ func TestDeliveryTruthAndDashboards(t *testing.T) {
 		map[string]any{"external_id": ext("b"), "name": "add_to_cart", "props": map[string]any{"product_code": "SKU-" + run, "product_category": "books"}},
 		map[string]any{"external_id": ext("a"), "name": "add_to_cart", "props": map[string]any{"product_code": "SKU-" + run, "product_category": "books"}},
 		map[string]any{"external_id": ext("a"), "name": "purchase", "props": map[string]any{"product_code": "SKU-" + run, "product_category": "books", "amount": 499}},
+		// An order naming no product: the Revenue dashboard's, not the Products dashboard's.
+		map[string]any{"external_id": ext("a"), "name": "purchase", "props": map[string]any{"amount": 120}},
 	}}, 202)
 	var users map[string]any
 	waitFor(t, 75*time.Second, func() bool { // answers are cached for a minute
@@ -261,13 +263,21 @@ func TestDeliveryTruthAndDashboards(t *testing.T) {
 		num(p["revenue"]) != 499 || num(p["abandoned"]) != 1 {
 		t.Errorf("product: %v", p)
 	}
+	// The totals count only events naming a product, like the rows (this workspace has just these).
+	tot := prod["totals"].(map[string]any)
+	if num(tot["purchases"]) != 1 || num(tot["buyers"]) != 1 || num(tot["revenue"]) != 499 || num(tot["bought_no_cart"]) != 0 {
+		t.Errorf("totals: %v", tot)
+	}
+	if n := num(jsonCall(t, c, "GET", "/v1/contacts?q="+url.QueryEscape("event:purchase no_event:add_to_cart product:*"), nil, 200)["count"]); n != 0 {
+		t.Errorf("bought a product without a cart: %v people; want 0", n)
+	}
 
 	// The live feed: the newest events, filtered by name, then only what is new after the cursor.
 	var feed map[string]any
 	waitFor(t, 20*time.Second, func() bool {
 		feed = jsonCall(t, c, "GET", "/v1/live/events?name=purchase", nil, 200)
 		evs, _ := feed["events"].([]any)
-		return len(evs) == 1
+		return len(evs) == 2 // a's two orders: with a product and without
 	})
 	cur := feed["cursor"].(string)
 	if evs, _ := jsonCall(t, c, "GET", "/v1/live/events?cursor="+cur, nil, 200)["events"].([]any); len(evs) != 0 {

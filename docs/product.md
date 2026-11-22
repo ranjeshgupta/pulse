@@ -182,7 +182,7 @@ means what Pulse does **not** do today.
   variant, step and channel, charts over time, revenue of recipients and control-group uplift.
 - **Template reports** across every campaign that used a template, with the busiest hours.
 - **Dashboards** for users (daily, weekly and monthly actives, new vs returning), campaign
-  performance and products (views, carts, purchases, abandoned carts), and a live event feed.
+  performance and products (views, carts, orders, abandoned carts), and a live event feed.
 - **Funnels** with breakdowns, **cohorts and retention**, **revenue attribution** (first touch,
   last touch, linear, over messages and UTM campaigns), a **custom report builder** and **path
   analysis** (what people do before or after an event).

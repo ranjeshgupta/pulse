@@ -150,6 +150,10 @@ type ProductRow struct {
 	Buyers    uint64  `json:"buyers"`
 	Revenue   float64 `json:"revenue"`
 	Abandoned uint64  `json:"abandoned"` // added to cart, didn't buy it in the range
+	// BoughtNoCart (totals only): people who bought a product with no add-to-cart event in the
+	// range, from a buy-now button, an order sent by a server or app, or a cart added earlier. It's
+	// why people buying can outnumber people adding to cart.
+	BoughtNoCart uint64 `json:"bought_no_cart,omitempty"`
 }
 
 // ProductDay is one day of the Products dashboard.
@@ -170,14 +174,16 @@ type ProductsReport struct {
 }
 
 // Products builds the Products dashboard for [from, to): views, carts, purchases and revenue per
-// product (top 100 by revenue, then purchases), per category, per day, and abandoned carts.
+// product (top 100 by revenue, then purchases), per category, per day, and abandoned carts. Only
+// events naming a product (a product_code property) count, in the totals too, so they agree with
+// the product rows; orders without one show on the Revenue dashboard instead.
 func (s *Store) Products(ctx context.Context, tenant int64, from, to time.Time, pe ProductEvents) (ProductsReport, error) {
 	rep := ProductsReport{Products: []ProductRow{}, Categories: []ProductRow{}, Days: []ProductDay{}}
 	amount, aargs := segment.PropValueSQL(pe.AmountProp)
 	// One row per event id (the pipeline can deliver one twice before ClickHouse merges copies).
 	src := `SELECT id, any(name) AS n, any(contact_id) AS c, any(product_code) AS code, any(product_category) AS cat,
 		any(toFloat64OrZero(` + amount + `)) AS amt, any(ts) AS t FROM events
-		WHERE tenant_id = ? AND name IN (?, ?, ?) AND ts >= ? AND ts < ? GROUP BY id`
+		WHERE tenant_id = ? AND name IN (?, ?, ?) AND ts >= ? AND ts < ? AND product_code != '' GROUP BY id`
 	srcArgs := append(append([]any{}, aargs...), uint64(tenant), pe.View, pe.Cart, pe.Purchase, from, to)
 	cols := `countIf(n = ?), uniqExactIf(c, n = ?), countIf(n = ?), uniqExactIf(c, n = ?), countIf(n = ?), uniqExactIf(c, n = ?), sumIf(amt, n = ?)`
 	colArgs := []any{pe.View, pe.View, pe.Cart, pe.Cart, pe.Purchase, pe.Purchase, pe.Purchase}
@@ -212,6 +218,11 @@ func (s *Store) Products(ctx context.Context, tenant int64, from, to time.Time, 
 		return rep, err
 	}
 	rep.Totals.Abandoned = all[""]
+	if err := s.conn.QueryRow(ctx, `SELECT countIf(bought AND NOT carted) FROM (
+		SELECT c, max(n = ?) AS carted, max(n = ?) AS bought FROM (`+src+`) GROUP BY c)`,
+		append([]any{pe.Cart, pe.Purchase}, srcArgs...)...).Scan(&rep.Totals.BoughtNoCart); err != nil {
+		return rep, err
+	}
 	group := func(key, catExpr string, dst *[]ProductRow) error {
 		rows, err := s.conn.Query(ctx, "SELECT "+key+" AS k, "+catExpr+", "+cols+" FROM ("+src+") WHERE "+key+" != ''"+
 			" GROUP BY k ORDER BY 9 DESC, 7 DESC, k LIMIT 100", append(colArgs, srcArgs...)...)

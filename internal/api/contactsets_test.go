@@ -58,6 +58,7 @@ func TestParseSpecialFilters(t *testing.T) {
 		{q: `journey:Welcome journey_status:in_progress`, labels: []string{"Entered “Welcome”", "Still in the journey"}},
 		{q: `event:purchase product:SKU1 period:2026-10-01..2026-10-31`, labels: []string{"Did purchase", "Product SKU1", "Between 1 Oct and 31 Oct 2026"}},
 		{q: `event:add_to_cart no_event:purchase product:SKU1`, labels: []string{"Did add_to_cart", "Didn't do purchase", "Product SKU1"}},
+		{q: `event:purchase no_event:add_to_cart product:* period:2026-10-01..2026-10-31`, labels: []string{"Did purchase", "Didn't do add_to_cart", "Any product", "Between 1 Oct and 31 Oct 2026"}},
 		{q: `active:web utm:google period:2026-11-01`, labels: []string{"Active on the web", "Came from google", "On 1 Nov 2026"}},
 		{q: `amp_poll:12/p1 answer:Yes`, labels: []string{"Answered the poll in “Survey”", "Answer “Yes”"}},
 		{q: `outcome:failed reason:invalid_email period:2026-10-01..2026-10-30`, labels: []string{"Failed", "Reason: " + "Invalid email address"}},
@@ -90,8 +91,13 @@ func TestParseSpecialFilters(t *testing.T) {
 			t.Errorf("%q: a subquery without the tenant: %s", c.q, where)
 		}
 	}
+	// product:* (the Products dashboard's totals) means any product, not a product coded "*".
+	v, _ := parseContactView("event:purchase product:*", specialTestLookup(all))
+	if where, args := v.Special.chConds(1); !strings.Contains(where, "product_code != ''") || strings.Contains(where, "product_code = ?") || len(args) != 2 {
+		t.Errorf("product:*: %s %v", where, args)
+	}
 	// Defaults and combinations.
-	v, _ := parseContactView("campaign:broadcast/4", specialTestLookup(all))
+	v, _ = parseContactView("campaign:broadcast/4", specialTestLookup(all))
 	if v.Special.Outcome != "targeted" {
 		t.Errorf("a campaign alone lists its targeted contacts, got %q", v.Special.Outcome)
 	}

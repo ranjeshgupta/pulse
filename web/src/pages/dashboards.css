@@ -76,9 +76,13 @@
 .dash-share .num { text-align: right; }
 .dash-share .bar-fill { background: var(--cobalt); }
 
-.dash-products th { padding: 0; }
-.dash-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; padding: 10px 14px; font: inherit; font-weight: 560; color: var(--muted); background: none; border: 0; cursor: pointer; white-space: nowrap; }
+/* .table.… beats the global .table th/td rules, which load after this file. */
+.table.dash-products thead th { padding: 0; }
+.dash-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; padding: 10px; font: inherit; font-weight: 560; color: var(--muted); background: none; border: 0; cursor: pointer; white-space: nowrap; }
 .dash-products th.num .dash-sort { justify-content: flex-end; }
+/* Ten columns and a button: compact cells so the whole table fits its card on a laptop screen
+   (narrower screens scroll it sideways). */
+.table.dash-products td, .table.dash-products tbody th[scope="row"] { padding: 10px; }
 .dash-sort:hover { color: var(--text); }
 .dash-sort:focus-visible { outline: none; box-shadow: inset var(--focus); }
 th[aria-sort="ascending"] .dash-sort, th[aria-sort="descending"] .dash-sort { color: var(--text); }

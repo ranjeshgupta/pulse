@@ -39,12 +39,12 @@ export const COLUMNS: { key: SortKey; label: string; num: boolean; title?: strin
   { key: "code", label: "Product", num: false },
   { key: "category", label: "Category", num: false },
   { key: "views", label: "Views", num: true, title: "Views (people who viewed in brackets)" },
-  { key: "carters", label: "Add to cart", num: true, title: "People who added it to their cart" },
-  { key: "purchases", label: "Purchases", num: true },
-  { key: "buyers", label: "Buyers", num: true },
+  { key: "carters", label: "Added to cart", num: true, title: "People who added it to their cart" },
+  { key: "purchases", label: "Orders", num: true, title: "Purchase events naming it: one person can order it more than once" },
+  { key: "buyers", label: "People buying", num: true, title: "People who bought it, each counted once" },
   { key: "revenue", label: "Revenue", num: true },
-  { key: "abandoned", label: "Abandoned", num: true, title: "Added it to their cart but didn't buy it in the range" },
-  { key: "conversion", label: "Conversion", num: true, title: "Buyers ÷ viewers" },
+  { key: "abandoned", label: "Abandoned", num: true, title: "People who added it to their cart but didn't buy it in the range" },
+  { key: "conversion", label: "Conversion", num: true, title: "People buying ÷ people viewing" },
 ];
 
 /** defaultDir: numbers sort biggest first, text A–Z. */
@@ -82,7 +82,7 @@ export type Metric = "views" | "carts" | "purchases" | "revenue";
 export const METRICS: { key: Metric; label: string }[] = [
   { key: "views", label: "Views" },
   { key: "carts", label: "Add to cart" },
-  { key: "purchases", label: "Purchases" },
+  { key: "purchases", label: "Orders" },
   { key: "revenue", label: "Revenue" },
 ];
 

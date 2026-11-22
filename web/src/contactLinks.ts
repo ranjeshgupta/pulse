@@ -114,6 +114,8 @@ export function productFilters(what: "viewed" | "carted" | "bought" | "abandoned
   if (what === "abandoned") f.push(["no_event", events.purchase]);
   if (item.code) f.push(["product", item.code]);
   if (item.category) f.push(["category", item.category]);
+  // The dashboard counts only events naming a product, totals too: product:* keeps the list the same.
+  if (!item.code && !item.category) f.push(["product", "*"]);
   f.push(period(from, to));
   return f;
 }

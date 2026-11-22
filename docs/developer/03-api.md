@@ -626,7 +626,7 @@ that set, so the list and the number agree. The same filters work in `q`:
 | `via:<channel>` | Only messages on that channel (`email`, `sms`, `whatsapp`, `rcs`, `push`, `inbox`); needs `campaign:`, `template:`, `outcome:` or `reason:`. `outcome:hard_bounced via:sms` = everyone whose SMS hard-bounced, in any campaign |
 | `reason:<code>` | A failure or skip [reason code](06-webhooks-and-integrations.md#reason-codes); `outcome:` is then the raw kind (`failed`, `bounced`, `complained`, `suppressed`, `capped`), like the reports' reasons table |
 | `template:<id>` | Messages sent with that template, in any campaign (a template report's numbers). With `outcome:` (default `targeted`), `reason:`, `via:` and `period:` |
-| `event:<name>`, `no_event:<name>` | Did / didn't do the event (at most 5 event filters). `product:<code>` and `category:<name>` narrow them to one product or category |
+| `event:<name>`, `no_event:<name>` | Did / didn't do the event (at most 5 event filters). `product:<code>` and `category:<name>` narrow them to one product or category; `product:*` to events naming any product (the Products dashboard's totals) |
 | `active:<any, web, android, ios, other, new, returning>` | Active in the period (the Users dashboard's definition); `utm:<source>` (or `utm:none`) narrows by campaign source. Needs `period:` |
 | `amp_poll:<template id>/<block id>` | Answered the poll in an AMP email; `answer:<text>` for one answer |
 | `form:<id>` | Submitted the form |
@@ -1358,8 +1358,12 @@ curl -s "$PULSE/v1/analytics/campaigns?category=one_time&channel=email" -H "Auth
 #   "revenue":48200,"buyers":31}],"reasons":[…],"revenue_event":"purchase","currency":"INR",
 #   "window_days":7,"delivery_reports":{"email":true,"sms":true,…}}
 
-# Products: views, carts, buyers, revenue and abandoned carts per product and category
+# Products: views, carts, orders, people, revenue and abandoned carts per product and category
 curl -s "$PULSE/v1/analytics/products?view_event=product_viewed&cart_event=add_to_cart" -H "Authorization: Bearer $KEY"
+# {"from":"…","to":"…","events":{"view":"product_viewed","cart":"add_to_cart","purchase":"purchase","amount":"amount"},
+#  "currency":"INR","report":{"totals":{"code":"","views":500,"viewers":226,"carts":…,"carters":68,
+#   "purchases":46,"buyers":32,"revenue":151434,"abandoned":36,"bought_no_cart":3},
+#   "products":[{"code":"DEC-115",…}],"categories":[…],"days":[…]},"computed_at":"…"}
 ```
 
 `users` takes `platform` (`web`, `android`, `ios`, `other`) and `source` (a UTM source; empty for
@@ -1368,8 +1372,13 @@ other than identify, message outcomes or engagement, or bookkeeping. `campaigns`
 `category`, `channel`, `tag` and `q`, lists only the kinds of campaign the role may view, and credits
 revenue within 7 days of a recipient's first message; `delivery_reports` says per channel whether
 the default provider reports deliveries. `products` reads `product_code` and `product_category`
-from the view, cart and revenue events; abandoned means added to the cart and not bought in the
-range.
+from the view, cart and revenue events, and counts only events that name a product, totals too
+(orders without `product_code` are on the Revenue dashboard). `viewers`, `carters` and `buyers` are
+people, each counted once; `views`, `carts` and `purchases` are events, so `purchases` is the number
+of orders. `abandoned` means added to the cart and not bought in the range. `bought_no_cart` (totals
+only, left out when 0) is the people who bought a product with no add-to-cart event in the range: a
+buy-now button, an order sent from a server or app, or a cart added earlier. It's why `buyers` can
+be more than `carters`. The contact filter `product:*` gives the same people as the totals.
 
 The **live feed** shows the workspace's newest events as they are stored (contacts view, because
 it shows people's events):

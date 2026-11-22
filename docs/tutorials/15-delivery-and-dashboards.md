@@ -206,28 +206,45 @@ instead.
 The figures and the breakdown rows are links to the contacts. Deleted contacts are still counted in
 earlier days, so a list can be a little shorter than its number.
 
-## 8. Products: views, carts and purchases
+## 8. Products: views, carts and orders
 
 **Analytics → Products** shows which products people look at, add to their cart and buy, and who
 leaves them in the cart.
 
-![The Products dashboard: 703 product views, 247 viewers, 198 added to cart, 216 buyers, 374 purchases, revenue, 47 abandoned carts, 87% view to buy; By day; Top products and Categories](img/15-products.png)
+![The Products dashboard: 505 product views, 226 people viewing, 68 people adding to cart, 32 people buying, 46 orders, revenue, 36 abandoned carts, 14% view to buy; By day with Views, Add to cart, Orders and Revenue; Top products with Added to cart, Orders and People buying; Categories](img/15-products.png)
 
 1. Choose **Events in** (the period). Pulse reads `product_viewed` as a view and `add_to_cart` as a
    cart; if your site sends other names, change **Product view event** and **Add to cart event**
-   (press Enter to apply). Purchases are your revenue event (**Analytics → Revenue → Revenue
+   (press Enter to apply). Orders are your revenue event (**Analytics → Revenue → Revenue
    settings**, [tutorial 10](10-analytics.md#revenue-settings)). Products come from the events'
    `product_code` and `product_category` properties.
-2. The figures: **product views**, **viewers**, **added to cart**, **buyers**, **purchases**,
-   **revenue**, **abandoned carts** (added to the cart but didn't buy it in the range) and **view →
-   buy** (buyers ÷ viewers).
-3. **By day** charts **Views**, **Add to cart**, **Purchases** or **Revenue** per day.
-4. **Top products** lists the top products by revenue; click a column to sort, **Export CSV** to
-   download. **Segment of buyers** on a row makes a segment of the people who bought that product
-   in this period, ready for a cross-sell campaign.
+2. The figures: **product views**, **people viewing**, **people adding to cart**, **people
+   buying**, **orders**, **revenue**, **abandoned carts** (people who added a product to the cart
+   but didn't buy one in the range) and **view → buy** (people buying ÷ people viewing).
+3. **By day** charts **Views**, **Add to cart**, **Orders** or **Revenue** per day.
+4. **Top products** lists the top products by revenue, with **Views**, **Added to cart**,
+   **Orders**, **People buying**, **Revenue**, **Abandoned** and **Conversion**. Click a column to
+   sort, **Export CSV** to download. **Segment** on a row makes a segment of the people
+   who bought that product in this period, ready for a cross-sell campaign.
 5. **Categories** gives the same numbers per `product_category`.
 
-Viewers, carts, buyers and abandoned carts open their contacts, for the whole range or one product.
+**People or orders.** The "people" figures count each person once, however many times they did it.
+**Orders** counts every purchase event, so one person who buys three times is 1 person buying and
+3 orders. In the screenshot, 32 people placed 46 orders.
+
+**Only events that name a product count.** A view, cart or order without a `product_code` is left
+out, totals included, so the totals agree with the product rows. Orders without a `product_code`
+still show on the Revenue dashboard ([tutorial 10](10-analytics.md#6-revenue)).
+
+**Bought without an add-to-cart event.** People buying can be more than people adding to cart.
+Someone may use a buy-now button, the order may come from your server or app without a cart event,
+or they added to the cart before the dates you chose. When that happens, a note under the figures
+says how many: "N people bought without an add-to-cart event in these dates". Click the number to
+see them. The note is hidden when there are none, as in the screenshot.
+
+The people figures, carts, abandoned carts and the note open their contacts, for the whole range or
+one product. A list from the totals has the filter **Any product**, so it only has people whose
+events named a product, the same people the figure counts.
 
 ## 9. Live events: check your tracking
 

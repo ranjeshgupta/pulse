@@ -4,8 +4,8 @@ package e2e
 
 import (
 	"fmt"
-	"slices"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"

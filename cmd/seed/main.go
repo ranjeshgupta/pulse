@@ -287,7 +287,15 @@ func activity(s seeded) {
 	names := []string{"Asha", "Ravi", "Meera", "Arjun", "Kavya", "Rohan", "Isha", "Vikram", "Neha", "Kabir"}
 	surnames := []string{"Rao", "Iyer", "Mehta", "Nair", "Gupta", "Kulkarni", "Singh", "Das", "Joshi", "Reddy"}
 	companies := []string{"Northwind Traders", "Contoso Foods", "Fabrikam Interiors"}
-	categories := []string{"Kitchen", "Home decor", "Bedding", "Lighting"}
+	// The catalog the shop events name (the same codes as the Products tutorial and eventData).
+	shop := []struct {
+		code, name, category string
+		price                int
+	}{
+		{"KIT-101", "Cast iron skillet", "Kitchen", 1899}, {"KIT-204", "Chef's knife", "Kitchen", 2499},
+		{"DEC-310", "Brass table lamp", "Lighting", 3299}, {"DEC-115", "Jute rug", "Home decor", 4599},
+		{"BED-220", "Cotton bedsheet set", "Bedding", 1599}, {"BED-404", "Memory foam pillow", "Bedding", 1299},
+	}
 	now := time.Now()
 	var evs []map[string]any
 	flush := func() {
@@ -353,11 +361,23 @@ func activity(s seeded) {
 			webinar = append(webinar, ext)
 		}
 		add(map[string]any{"name": "points_changed", "props": map[string]any{"delta": rng.Intn(101), "reason": "seed"}})
+		// Shopping that hangs together, so the Products dashboard tells a sensible story: half the
+		// contacts put a product in their cart, and a purchase only ever follows that (0 to 2 orders;
+		// none is an abandoned cart). Both name the product.
 		if rng.Intn(2) == 0 {
-			add(map[string]any{"name": "add_to_cart", "props": map[string]any{"category": categories[rng.Intn(len(categories))]}})
-		}
-		for k := rng.Intn(3); k > 0; k-- {
-			add(map[string]any{"name": "purchase", "props": map[string]any{"amount": 199 + rng.Intn(3000), "category": categories[rng.Intn(len(categories))]}})
+			p := shop[rng.Intn(len(shop))]
+			item := func(extra map[string]any) map[string]any {
+				m := map[string]any{"product_code": p.code, "product_name": p.name, "product_category": p.category, "category": p.category, "price": p.price}
+				for k, v := range extra {
+					m[k] = v
+				}
+				return m
+			}
+			add(map[string]any{"name": "add_to_cart", "props": item(map[string]any{"quantity": 1})})
+			for k := rng.Intn(3); k > 0; k-- {
+				qty := 1 + rng.Intn(2)
+				add(map[string]any{"name": "purchase", "props": item(map[string]any{"amount": p.price * qty, "quantity": qty, "currency": "INR"})})
+			}
 		}
 		if len(evs) > 400 {
 			flush()

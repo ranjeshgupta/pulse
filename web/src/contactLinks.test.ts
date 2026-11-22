@@ -35,6 +35,9 @@ describe("contact list links", () => {
     expect(productFilters("abandoned", ev, { code: "SKU1" }, "2026-10-01", "2026-10-31"))
       .toEqual([["event", "add_to_cart"], ["no_event", "purchase"], ["product", "SKU1"], ["period", "2026-10-01..2026-10-31"]]);
     expect(productFilters("bought", ev, { category: "Shoes" }, "2026-10-01", "2026-10-01")).toEqual([["event", "purchase"], ["category", "Shoes"], ["period", "2026-10-01"]]);
+    // The totals count only events naming a product, so their lists do too.
+    expect(productFilters("bought", ev, {}, "2026-10-01", "2026-10-31")).toEqual([["event", "purchase"], ["product", "*"], ["period", "2026-10-01..2026-10-31"]]);
+    expect(contactsHref([["event", "purchase"], ["product", "*"]])).toBe(`/contacts?q=${encodeURIComponent("event:purchase product:*")}`);
     expect(activeFilters("any", "2026-11-06", "2026-11-12")).toEqual([["active", "any"], ["period", "2026-11-06..2026-11-12"]]);
     expect(activeFilters("any", "2026-11-12", "2026-11-12", "web", "")).toEqual([["active", "web"], ["utm", "none"], ["period", "2026-11-12"]]);
     expect(addDays("2026-11-12", -29)).toBe("2026-10-14");
