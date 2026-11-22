@@ -117,7 +117,7 @@ func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, model
 	// A shared login (a public demo) isn't enrolled by the policy: no one person would hold its
 	// authenticator, so whoever enrolled first would lock the others out. A setup that's already
 	// on (made before the login was listed) still applies above; an admin can reset it.
-	if pol.Requires(u.ID, u.Role) && u.PasswordHash != "" && !s.sharedLogin(ctx, u.TenantID, u.Email) {
+	if pol.Requires(u.ID, u.Role) && u.PasswordHash != "" && !sharedOK(s.sharedLogin(ctx, u.TenantID, u.Email)) {
 		return pendingSetup, tf, nil
 	}
 	return "", tf, nil
@@ -713,3 +713,7 @@ func (s *Server) resetTwoFactor(w http.ResponseWriter, r *http.Request, p model.
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// sharedOK is sharedLogin's answer for the sign-in check: on a lookup error the login counts as
+// not shared, so the workspace's two-step rule still applies (the stricter way to be wrong).
+func sharedOK(shared bool, err error) bool { return err == nil && shared }

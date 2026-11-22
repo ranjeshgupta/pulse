@@ -290,26 +290,36 @@ const sharedLoginMsg = "this is a shared login (such as a public demo): its pass
 // (PULSE_SHARED_LOGINS, "workspace-slug:email" pairs). Several people sign in with it, so none of
 // them may change how it signs in. Only that workspace's user matches, never the same email
 // elsewhere.
-func (s *Server) sharedLogin(ctx context.Context, tenant int64, email string) bool {
+// A lookup error comes back with false; callers that guard a change refuse on it (refuseShared),
+// and the sign-in check treats it as not shared, which keeps the stricter policy.
+func (s *Server) sharedLogin(ctx context.Context, tenant int64, email string) (bool, error) {
 	if len(s.SharedLogins) == 0 || tenant == 0 {
-		return false
+		return false, nil
 	}
 	t, err := s.Store.Tenant(ctx, tenant)
 	if err != nil {
-		return false
+		return false, err
 	}
 	want := strings.ToLower(t.Slug) + ":" + strings.ToLower(strings.TrimSpace(email))
 	for _, e := range s.SharedLogins {
 		if e == want {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // refuseShared answers 403 and reports true when p is a person signed in with a shared login.
 func (s *Server) refuseShared(w http.ResponseWriter, r *http.Request, p model.Principal) bool {
-	if p.UserID > 0 && s.sharedLogin(r.Context(), p.TenantID, p.Actor) {
+	if p.UserID == 0 {
+		return false
+	}
+	shared, err := s.sharedLogin(r.Context(), p.TenantID, p.Actor)
+	if err != nil { // fail closed: unsure whether it's shared, change nothing
+		s.fail(w, err)
+		return true
+	}
+	if shared {
 		writeErr(w, http.StatusForbidden, sharedLoginMsg)
 		return true
 	}
