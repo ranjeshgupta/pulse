@@ -54,7 +54,7 @@ jobs:
       - if: matrix.language == 'java-kotlin'
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "8.10.2"
+          gradle-version: "8.14.3"
 
       - uses: github/codeql-action/init@v3
         with:
