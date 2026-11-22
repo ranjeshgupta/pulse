@@ -778,7 +778,7 @@ func TestEveryRoleManagesTheirOwnPasswordAndSessions(t *testing.T) {
 		s, mem, _ := newServer()
 		redisServer(t, s)
 		s.Store = sessionMem{mem}
-		s.SharedLogins = []string{"demo@acme.io"}
+		s.SharedLogins = []string{"acme:demo@acme.io", "other-ws:p@acme.io"} // p is shared only in another workspace
 		h := s.Handler()
 		browser(t, h, "POST", "/v1/auth/signup", `{"workspace":"Acme","email":"a@acme.io","password":"long enough pw"}`, nil, false)
 		for i, email := range []string{"p@acme.io", "demo@acme.io"} {

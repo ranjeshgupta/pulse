@@ -83,12 +83,17 @@ func TestLoadRejectsPartitionsOverflow(t *testing.T) {
 }
 
 func TestSharedLoginsAreTrimmedAndLowercased(t *testing.T) {
-	t.Setenv("PULSE_SHARED_LOGINS", " Demo@Example.com, ,second@example.com ")
+	t.Setenv("PULSE_SHARED_LOGINS", " Pulse-Demo:Demo@Example.com, ,other : second@example.com ")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(c.SharedLogins, "|"); got != "demo@example.com|second@example.com" {
+	if got := strings.Join(c.SharedLogins, "|"); got != "pulse-demo:demo@example.com|other:second@example.com" {
 		t.Errorf("SharedLogins = %q", got)
+	}
+	// A bare email would match every workspace: refused at startup.
+	t.Setenv("PULSE_SHARED_LOGINS", "demo@example.com")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "PULSE_SHARED_LOGINS") {
+		t.Errorf("bare email: want an error naming the variable, got %v", err)
 	}
 }

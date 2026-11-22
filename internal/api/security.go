@@ -175,7 +175,7 @@ const passwordChangesPerHour = 10
 // changePassword sets a new password after checking the current one, and signs the user out of
 // every other session.
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if s.refuseShared(w, p) {
+	if s.refuseShared(w, r, p) {
 		return
 	}
 	var req struct {
@@ -229,7 +229,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, p model.
 
 // revokeSessions is "sign out everywhere": every session of the user ends, this one too.
 func (s *Server) revokeSessions(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if s.refuseShared(w, p) { // it would sign out everyone else using the login
+	if s.refuseShared(w, r, p) { // it would sign out everyone else using the login
 		return
 	}
 	if p.UserID == 0 {
@@ -286,12 +286,21 @@ func (s *Server) ssoLinkUser(r *http.Request, tenant int64, email, subject strin
 // sharedLoginMsg is the refusal for a shared login's sign-in settings.
 const sharedLoginMsg = "this is a shared login (such as a public demo): its password and two-step sign-in can't be changed"
 
-// sharedLogin reports whether email is one of the server's shared logins (PULSE_SHARED_LOGINS).
-// Several people sign in with it, so none of them may change how it signs in.
-func (s *Server) sharedLogin(email string) bool {
-	email = strings.ToLower(strings.TrimSpace(email))
+// sharedLogin reports whether email in the given workspace is one of the server's shared logins
+// (PULSE_SHARED_LOGINS, "workspace-slug:email" pairs). Several people sign in with it, so none of
+// them may change how it signs in. Only that workspace's user matches, never the same email
+// elsewhere.
+func (s *Server) sharedLogin(ctx context.Context, tenant int64, email string) bool {
+	if len(s.SharedLogins) == 0 || tenant == 0 {
+		return false
+	}
+	t, err := s.Store.Tenant(ctx, tenant)
+	if err != nil {
+		return false
+	}
+	want := strings.ToLower(t.Slug) + ":" + strings.ToLower(strings.TrimSpace(email))
 	for _, e := range s.SharedLogins {
-		if e == email {
+		if e == want {
 			return true
 		}
 	}
@@ -299,8 +308,8 @@ func (s *Server) sharedLogin(email string) bool {
 }
 
 // refuseShared answers 403 and reports true when p is a person signed in with a shared login.
-func (s *Server) refuseShared(w http.ResponseWriter, p model.Principal) bool {
-	if p.UserID > 0 && s.sharedLogin(p.Actor) {
+func (s *Server) refuseShared(w http.ResponseWriter, r *http.Request, p model.Principal) bool {
+	if p.UserID > 0 && s.sharedLogin(r.Context(), p.TenantID, p.Actor) {
 		writeErr(w, http.StatusForbidden, sharedLoginMsg)
 		return true
 	}

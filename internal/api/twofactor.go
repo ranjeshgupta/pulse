@@ -94,11 +94,6 @@ func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, model
 	if !ok {
 		return "", model.TwoFactor{}, nil
 	}
-	// A shared login has no second step: no one person holds its authenticator, and a code set up
-	// by one visitor (or a workspace rule enrolling everyone) would lock all the others out.
-	if s.sharedLogin(u.Email) {
-		return "", model.TwoFactor{}, nil
-	}
 	tf, err := ts.TwoFactor(ctx, u.TenantID, u.ID)
 	if err != nil && !errors.Is(err, pg.ErrNotFound) {
 		return "", tf, err
@@ -119,7 +114,10 @@ func (s *Server) twoFactorNext(ctx context.Context, u model.User) (string, model
 	// An account without a password signs in only through single sign-on, whose identity provider
 	// handles extra sign-in steps; Pulse can't enrol it (beginSetup refuses), so the policy's
 	// enrolment step doesn't apply to it.
-	if pol.Requires(u.ID, u.Role) && u.PasswordHash != "" {
+	// A shared login (a public demo) isn't enrolled by the policy: no one person would hold its
+	// authenticator, so whoever enrolled first would lock the others out. A setup that's already
+	// on (made before the login was listed) still applies above; an admin can reset it.
+	if pol.Requires(u.ID, u.Role) && u.PasswordHash != "" && !s.sharedLogin(ctx, u.TenantID, u.Email) {
 		return pendingSetup, tf, nil
 	}
 	return "", tf, nil
@@ -485,7 +483,7 @@ func (s *Server) getMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.
 }
 
 func (s *Server) setupMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if s.refuseShared(w, p) {
+	if s.refuseShared(w, r, p) {
 		return
 	}
 	u, ok := s.person(w, r, p)
@@ -515,7 +513,7 @@ func (s *Server) setupMyTwoFactor(w http.ResponseWriter, r *http.Request, p mode
 // only exist through setupMyTwoFactor with proof (the store refuses one without replace), so
 // confirming it replaces the old phone's secret.
 func (s *Server) enableMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if s.refuseShared(w, p) {
+	if s.refuseShared(w, r, p) {
 		return
 	}
 	u, ok := s.person(w, r, p)
@@ -564,7 +562,7 @@ func (s *Server) reconfirm(w http.ResponseWriter, r *http.Request, u model.User)
 }
 
 func (s *Server) disableMyTwoFactor(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if s.refuseShared(w, p) {
+	if s.refuseShared(w, r, p) {
 		return
 	}
 	u, ok := s.person(w, r, p)
@@ -597,7 +595,7 @@ func (s *Server) disableMyTwoFactor(w http.ResponseWriter, r *http.Request, p mo
 }
 
 func (s *Server) newRecoveryCodes(w http.ResponseWriter, r *http.Request, p model.Principal) {
-	if s.refuseShared(w, p) {
+	if s.refuseShared(w, r, p) {
 		return
 	}
 	u, ok := s.person(w, r, p)

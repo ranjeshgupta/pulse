@@ -232,7 +232,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p model.Principal) {
 			return
 		}
 		out["user"] = u
-		if s.sharedLogin(u.Email) {
+		if s.sharedLogin(r.Context(), p.TenantID, u.Email) {
 			out["shared_login"] = true
 		}
 	}

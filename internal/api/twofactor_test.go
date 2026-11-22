@@ -574,7 +574,7 @@ func TestSharedLoginsCantChangeHowTheySignIn(t *testing.T) {
 	if w := e.req("PUT", "/v1/settings/two-factor", `{"mode":"everyone"}`, e.admin); w.Code != 200 {
 		t.Fatalf("policy: %d %s", w.Code, w.Body)
 	}
-	e.s.SharedLogins = []string{"e@acme.io"} // as config.Load gives them: trimmed, lowercased
+	e.s.SharedLogins = []string{"acme:e@acme.io"} // as config.Load gives them: trimmed, lowercased
 
 	w, pending := e.login("e@acme.io", "editor password")
 	if pending != nil || !hasSession(w) {
@@ -607,5 +607,17 @@ func TestSharedLoginsCantChangeHowTheySignIn(t *testing.T) {
 	}
 	if w := e.req("POST", "/v1/account/two-factor/setup", `{"password":"long enough pw"}`, e.admin); w.Code == http.StatusForbidden {
 		t.Errorf("admin setup refused: %s", w.Body)
+	}
+
+	// The same email in another workspace's list doesn't count, and a setup that's already on is
+	// kept: listing a login only spares it the policy's enrolment, never a code it already needs.
+	e.s.SharedLogins = []string{"other-ws:e@acme.io"}
+	if _, pending := e.login("e@acme.io", "editor password"); pending == nil {
+		t.Error("listed for another workspace only: the policy's second step must still apply")
+	}
+	e.s.SharedLogins = []string{"acme:e@acme.io"}
+	e.st.tf[200] = &model.TwoFactor{Secret: []byte("sealed secret")}
+	if _, pending := e.login("e@acme.io", "editor password"); pending == nil {
+		t.Error("a shared login with two-step sign-in already on must still be asked for a code")
 	}
 }

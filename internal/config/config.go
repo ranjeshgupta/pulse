@@ -37,10 +37,10 @@ type Config struct {
 	// AllowSignup lets anyone create a workspace with POST /v1/auth/signup (PULSE_ALLOW_SIGNUP,
 	// off by default: the operator creates workspaces with the admin token).
 	AllowSignup bool
-	// SharedLogins are sign-in emails several people share, such as a public demo login
-	// (PULSE_SHARED_LOGINS, comma-separated, in every workspace). Their password, two-step sign-in
-	// and "sign out everywhere" can't be changed by whoever is signed in, so one visitor can't lock
-	// the others out; an admin can still remove or recreate the user.
+	// SharedLogins are logins several people share, such as a public demo (PULSE_SHARED_LOGINS,
+	// comma-separated "workspace-slug:email" pairs). Their password, two-step sign-in and "sign out
+	// everywhere" can't be changed by whoever is signed in, so one visitor can't lock the others
+	// out; an admin can still remove or recreate the user.
 	SharedLogins []string
 	// SignupRate caps signups per client IP per minute when signup is on; all signups together
 	// are capped at ten times that.
@@ -103,7 +103,7 @@ func Load() (Config, error) {
 		PublicURL:            env("PULSE_PUBLIC_URL", "http://localhost:7080"),
 		SecretKey:            env("PULSE_SECRET_KEY", ""),
 		AllowSignup:          r.boolean("PULSE_ALLOW_SIGNUP", false),
-		SharedLogins:         emails(os.Getenv("PULSE_SHARED_LOGINS")),
+		SharedLogins:         r.sharedLogins("PULSE_SHARED_LOGINS"),
 		SignupRate:           r.integer("PULSE_SIGNUP_RATE", 5),
 		AllowPrivateWebhooks: r.boolean("PULSE_ALLOW_PRIVATE_WEBHOOKS", false),
 		AllowPrivateSSO:      r.boolean("PULSE_ALLOW_PRIVATE_SSO", false),
@@ -247,13 +247,20 @@ func (r *reader) boolean(k string, def bool) bool {
 	return def
 }
 
-// emails splits a comma-separated list of addresses, trimmed and lowercased.
-func emails(v string) []string {
+// sharedLogins reads comma-separated "workspace-slug:email" pairs, trimmed and lowercased. A pair
+// without both parts is an error, so a bare email can't quietly apply to every workspace.
+func (r *reader) sharedLogins(k string) []string {
 	var out []string
-	for _, e := range strings.Split(v, ",") {
-		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
-			out = append(out, e)
+	for _, e := range strings.Split(os.Getenv(k), ",") {
+		if e = strings.ToLower(strings.TrimSpace(e)); e == "" {
+			continue
 		}
+		ws, email, ok := strings.Cut(e, ":")
+		if ws, email = strings.TrimSpace(ws), strings.TrimSpace(email); !ok || ws == "" || !strings.Contains(email, "@") {
+			r.fail(k, e, "must be workspace-slug:email pairs, e.g. pulse-demo:demo@example.com")
+			continue
+		}
+		out = append(out, ws+":"+email)
 	}
 	return out
 }
